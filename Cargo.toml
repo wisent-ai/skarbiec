@@ -1,0 +1,16 @@
+[package]
+name = "skarbiec"
+version = "0.1.0"
+edition = "2021"
+description = "Self-contained vault for sensitive values: at-rest encryption, multi-recipient sharing, scoped access grants, tamper-evident audit, and runtime injection. Cryptography delegated to gpg, openssl, and shasum; no hosted dependency."
+license = "MIT"
+repository = "https://github.com/wisent-ai/skarbiec"
+readme = "README.md"
+
+[[bin]]
+name = "skarbiec"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+serde_json = "1.0"

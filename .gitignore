@@ -1,0 +1,11 @@
+/target
+skarbiec.vault.json
+skarbiec.audit.jsonl
+*.vault.json
+*.audit.jsonl
+.vault-resolved/
+vault.enc.json
+*.local.json
+.env
+.env.*
+!.env.example
