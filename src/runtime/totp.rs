@@ -15,10 +15,17 @@ fn load() -> Result<Vault> {
 
 fn seed_of(row: &Value) -> Option<String> {
     let meta = row.get("metadata")?;
-    meta.get("totp_secret").or_else(|| meta.get("google_totp_secret")).and_then(Value::as_str).map(str::to_string)
+    meta.get("totp_secret")
+        .or_else(|| meta.get("google_totp_secret"))
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
-pub fn dispatch(command: &str, _flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    _flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "totp" => {
             let id = positionals.first().context("usage: totp <item-id>")?;
@@ -27,8 +34,14 @@ pub fn dispatch(command: &str, _flags: &HashMap<String, String>, positionals: &[
             match seed_of(&row) {
                 Some(seed) => {
                     let code = crypto::totp_code(&seed);
-                    let note = if code.is_none() { json!("install oath-toolkit (oathtool) to compute codes") } else { Value::Null };
-                    Ok(Some(json!({"item": id, "has_seed": true, "code": code, "note": note})))
+                    let note = if code.is_none() {
+                        json!("install oath-toolkit (oathtool) to compute codes")
+                    } else {
+                        Value::Null
+                    };
+                    Ok(Some(
+                        json!({"item": id, "has_seed": true, "code": code, "note": note}),
+                    ))
                 }
                 None => Ok(Some(json!({"item": id, "has_seed": false}))),
             }

@@ -18,12 +18,20 @@ fn load() -> Result<Vault> {
 fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> &'a mut serde_json::Map<String, Value> {
     let object = doc.as_object_mut().expect("vault doc is object");
     object.entry(key).or_insert_with(|| json!({}));
-    object.get_mut(key).and_then(Value::as_object_mut).expect("section is object")
+    object
+        .get_mut(key)
+        .and_then(Value::as_object_mut)
+        .expect("section is object")
 }
 
 // Minimum generated length the policy requires, if configured.
 pub fn min_generated_length(vault: &Vault) -> Option<usize> {
-    vault.doc().get("policy").and_then(|p| p.get("min_generated_length")).and_then(Value::as_u64).map(|n| n as usize)
+    vault
+        .doc()
+        .get("policy")
+        .and_then(|p| p.get("min_generated_length"))
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
 }
 
 /// Interpret a policy value string as bool / number / string (in that order).
@@ -37,7 +45,11 @@ fn coerce(raw: &str) -> Value {
     json!(raw)
 }
 
-pub fn dispatch(command: &str, _flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    _flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "policy-set" => {
             let mut args = positionals.iter();
@@ -51,16 +63,26 @@ pub fn dispatch(command: &str, _flags: &HashMap<String, String>, positionals: &[
         }
         "policy-get" => {
             let vault = load()?;
-            Ok(Some(vault.doc().get("policy").cloned().unwrap_or_else(|| json!({}))))
+            Ok(Some(
+                vault
+                    .doc()
+                    .get("policy")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
+            ))
         }
         // Check a candidate string against the configured minimum length. Used
         // by generation and by operators validating a value before storing it.
         "policy-check-length" => {
-            let candidate = positionals.first().context("usage: policy-check-length <candidate>")?;
+            let candidate = positionals
+                .first()
+                .context("usage: policy-check-length <candidate>")?;
             let vault = load()?;
             let length = candidate.chars().count();
             let verdict = match min_generated_length(&vault) {
-                Some(minimum) => json!({"required": minimum, "actual": length, "ok": length >= minimum}),
+                Some(minimum) => {
+                    json!({"required": minimum, "actual": length, "ok": length >= minimum})
+                }
                 None => json!({"required": Value::Null, "actual": length, "ok": true}),
             };
             Ok(Some(verdict))

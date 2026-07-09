@@ -84,7 +84,10 @@ fn configured_token() -> Option<String> {
 }
 
 fn configured_consumer() -> Option<String> {
-    std::env::var("SKARBIEC_MCP_CONSUMER").ok().map(|c| c.trim().to_string()).filter(|c| !c.is_empty())
+    std::env::var("SKARBIEC_MCP_CONSUMER")
+        .ok()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
 }
 
 // Required, absolute output dir; relative would let launch-cwd place files in the
@@ -101,12 +104,15 @@ fn configured_out_dir() -> Result<String> {
 }
 
 fn resolve_tool(args: &Value) -> Result<Value> {
-    let platform = args.get("platform").and_then(Value::as_str)
+    let platform = args
+        .get("platform")
+        .and_then(Value::as_str)
         .filter(|p| !p.is_empty())
         .context("skarbiec_resolve requires a non-empty 'platform'")?;
     // Mandatory server-side auth; refuse before opening the vault.
-    let consumer = configured_consumer()
-        .context("skarbiec_resolve is disabled: configure SKARBIEC_MCP_CONSUMER on the MCP server")?;
+    let consumer = configured_consumer().context(
+        "skarbiec_resolve is disabled: configure SKARBIEC_MCP_CONSUMER on the MCP server",
+    )?;
     let bearer = configured_token()
         .context("skarbiec_resolve is disabled: configure SKARBIEC_MCP_TOKEN or SKARBIEC_MCP_TOKEN_FILE on the MCP server")?;
     let out_dir = configured_out_dir()?;
@@ -116,7 +122,7 @@ fn resolve_tool(args: &Value) -> Result<Value> {
     flags.insert("token".to_string(), bearer);
     flags.insert("emit".to_string(), "true".to_string());
     flags.insert("out".to_string(), out_dir);
-    runtime::resolve::dispatch("resolve", &flags, &vec![platform.to_string()])?
+    runtime::resolve::dispatch("resolve", &flags, &[platform.to_string()])?
         .context("resolve produced no result")
 }
 
@@ -127,8 +133,10 @@ fn call_tool(name: &str, args: &Value) -> Result<Value> {
         "skarbiec_resolve" => Ok(text_result(&resolve_tool(args)?)),
         "skarbiec_audit" => {
             let empty: Vec<String> = Vec::new();
-            Ok(text_result(&runtime::audit::dispatch("audit", &HashMap::new(), &empty)?
-                .context("audit produced no result")?))
+            Ok(text_result(
+                &runtime::audit::dispatch("audit", &HashMap::new(), &empty)?
+                    .context("audit produced no result")?,
+            ))
         }
         other => anyhow::bail!("unknown tool: {other}"),
     }
@@ -159,22 +167,41 @@ fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
         None => return Ok(()),
     };
     match method {
-        "initialize" => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": {
+        "initialize" => send(
+            out,
+            &json!({"jsonrpc": "2.0", "id": id, "result": {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "skarbiec", "version": server_version()}}})),
+            "serverInfo": {"name": "skarbiec", "version": server_version()}}}),
+        ),
         "ping" => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": {}})),
-        "tools/list" => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": {"tools": tools()}})),
+        "tools/list" => send(
+            out,
+            &json!({"jsonrpc": "2.0", "id": id, "result": {"tools": tools()}}),
+        ),
         "tools/call" => {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
             let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+            let args = params
+                .get("arguments")
+                .cloned()
+                .unwrap_or_else(|| json!({}));
             match call_tool(name, &args) {
                 Ok(result) => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": result})),
-                Err(e) => send(out, &error_response(id, CODE_INTERNAL_ERROR, &e.to_string())),
+                Err(e) => send(
+                    out,
+                    &error_response(id, CODE_INTERNAL_ERROR, &e.to_string()),
+                ),
             }
         }
-        other => send(out, &error_response(id, CODE_METHOD_NOT_FOUND, &format!("method not found: {other}"))),
+        other => send(
+            out,
+            &error_response(
+                id,
+                CODE_METHOD_NOT_FOUND,
+                &format!("method not found: {other}"),
+            ),
+        ),
     }
 }
 
@@ -192,7 +219,10 @@ pub fn serve() -> Result<()> {
         }
         match serde_json::from_str::<Value>(trimmed) {
             Ok(request) => handle(&request, &mut stdout)?,
-            Err(_) => send(&mut stdout, &error_response(Value::Null, CODE_PARSE_ERROR, "parse error"))?,
+            Err(_) => send(
+                &mut stdout,
+                &error_response(Value::Null, CODE_PARSE_ERROR, "parse error"),
+            )?,
         }
     }
     Ok(())

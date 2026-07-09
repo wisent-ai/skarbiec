@@ -20,12 +20,16 @@ pub struct Vault {
 }
 
 fn obj_mut<'a>(v: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
-    v.get_mut(key).and_then(Value::as_object_mut).expect("vault section is an object")
+    v.get_mut(key)
+        .and_then(Value::as_object_mut)
+        .expect("vault section is an object")
 }
 
 fn now() -> String {
     // ISO-8601 via `date` — avoids a numeric time literal and needs no crate.
-    Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output()
+    Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
@@ -33,7 +37,12 @@ fn now() -> String {
 }
 
 impl Vault {
-    pub fn create(path: PathBuf, owner_uid: &str, owner_fpr: &str, recovery_fpr: &str) -> Result<Self> {
+    pub fn create(
+        path: PathBuf,
+        owner_uid: &str,
+        owner_fpr: &str,
+        recovery_fpr: &str,
+    ) -> Result<Self> {
         if path.exists() {
             bail!("vault already exists at {}", path.display());
         }
@@ -61,7 +70,11 @@ impl Vault {
 
     pub fn save(&self) -> Result<()> {
         fs::write(&self.path, serde_json::to_string_pretty(&self.doc)?)?;
-        Command::new("chmod").arg("600").arg(&self.path).status().ok();
+        Command::new("chmod")
+            .arg("600")
+            .arg(&self.path)
+            .status()
+            .ok();
         Ok(())
     }
 
@@ -81,16 +94,27 @@ impl Vault {
     }
 
     pub fn recovery_fpr(&self) -> &str {
-        self.doc.get("recovery").and_then(Value::as_str).unwrap_or("")
+        self.doc
+            .get("recovery")
+            .and_then(Value::as_str)
+            .unwrap_or("")
     }
 
     pub fn recipient_fpr(&self, uid: &str) -> Option<String> {
-        self.doc.get("recipients")?.get(uid)?.get("fingerprint")?.as_str().map(str::to_string)
+        self.doc
+            .get("recipients")?
+            .get(uid)?
+            .get("fingerprint")?
+            .as_str()
+            .map(str::to_string)
     }
 
     pub fn register_recipient(&mut self, uid: &str, fingerprint: &str, role: &str) -> Result<()> {
         let stamp = now();
-        obj_mut(&mut self.doc, "recipients").insert(uid.to_string(), json!({"fingerprint": fingerprint, "role": role, "added_at": stamp}));
+        obj_mut(&mut self.doc, "recipients").insert(
+            uid.to_string(),
+            json!({"fingerprint": fingerprint, "role": role, "added_at": stamp}),
+        );
         self.save()
     }
 
@@ -116,21 +140,41 @@ impl Vault {
     }
 
     pub fn item_recipient_uids(&self, id: &str) -> Vec<String> {
-        self.doc.get("items").and_then(|m| m.get(id)).and_then(|it| it.get("recipients")).and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        self.doc
+            .get("items")
+            .and_then(|m| m.get(id))
+            .and_then(|it| it.get("recipients"))
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     // Store (or replace) a secret. Encrypts to the given recipients; the prior
     // ciphertext is pushed onto the version history.
-    pub fn set_item(&mut self, id: &str, item_type: &str, secret: &Value, recipient_uids: &[String], tags: &[String]) -> Result<()> {
+    pub fn set_item(
+        &mut self,
+        id: &str,
+        item_type: &str,
+        secret: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+    ) -> Result<()> {
         let fprs = self.fprs_for(recipient_uids);
         let cipher = crypto::encrypt_to(&fprs, &serde_json::to_string(secret)?)?;
         let stamp = now();
         let items = obj_mut(&mut self.doc, "items");
         let history = match items.get(id) {
             Some(prev) => {
-                let mut h = prev.get("history").and_then(Value::as_array).cloned().unwrap_or_default();
+                let mut h = prev
+                    .get("history")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default();
                 if let (Some(at), Some(c)) = (prev.get("updated_at"), prev.get("current")) {
                     h.push(json!({"at": at, "cipher": c}));
                 }
@@ -138,57 +182,88 @@ impl Vault {
             }
             None => Vec::new(),
         };
-        let created = items.get(id).and_then(|p| p.get("created_at")).cloned().unwrap_or_else(|| json!(stamp));
-        items.insert(id.to_string(), json!({
-            "type": item_type,
-            "created_at": created,
-            "updated_at": stamp,
-            "recipients": recipient_uids,
-            "tags": tags,
-            "current": cipher,
-            "history": history,
-            "deleted": false,
-            "deleted_at": Value::Null,
-        }));
+        let created = items
+            .get(id)
+            .and_then(|p| p.get("created_at"))
+            .cloned()
+            .unwrap_or_else(|| json!(stamp));
+        items.insert(
+            id.to_string(),
+            json!({
+                "type": item_type,
+                "created_at": created,
+                "updated_at": stamp,
+                "recipients": recipient_uids,
+                "tags": tags,
+                "current": cipher,
+                "history": history,
+                "deleted": false,
+                "deleted_at": Value::Null,
+            }),
+        );
         self.save()
     }
 
     pub fn get_item(&self, id: &str) -> Result<Value> {
-        let item = self.doc.get("items").and_then(|m| m.get(id)).with_context(|| format!("no item: {id}"))?;
-        if item.get("deleted").and_then(Value::as_bool).unwrap_or(false) {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|m| m.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        if item
+            .get("deleted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             bail!("item is in trash: {id} (restore it first)");
         }
-        let cipher = item.get("current").and_then(Value::as_str).context("item has no ciphertext")?;
+        let cipher = item
+            .get("current")
+            .and_then(Value::as_str)
+            .context("item has no ciphertext")?;
         let plain = crypto::decrypt(cipher)?;
         serde_json::from_str(&plain).context("decrypted item is not JSON")
     }
 
     pub fn list(&self, include_deleted: bool) -> Vec<Value> {
-        self.doc.get("items").and_then(Value::as_object).map(|items| {
-            items.iter().filter_map(|(id, it)| {
-                let deleted = it.get("deleted").and_then(Value::as_bool).unwrap_or(false);
-                if deleted && !include_deleted {
-                    return None;
-                }
-                let history_len = it.get("history").and_then(Value::as_array).map(|h| h.len()).unwrap_or_default();
-                let versions = history_len + std::iter::once(()).count(); // history + the current version
-                Some(json!({
-                    "id": id,
-                    "type": it.get("type"),
-                    "tags": it.get("tags"),
-                    "updated_at": it.get("updated_at"),
-                    "deleted": deleted,
-                    "versions": versions,
-                }))
-            }).collect()
-        }).unwrap_or_default()
+        self.doc
+            .get("items")
+            .and_then(Value::as_object)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|(id, it)| {
+                        let deleted = it.get("deleted").and_then(Value::as_bool).unwrap_or(false);
+                        if deleted && !include_deleted {
+                            return None;
+                        }
+                        let history_len = it
+                            .get("history")
+                            .and_then(Value::as_array)
+                            .map(|h| h.len())
+                            .unwrap_or_default();
+                        let versions = history_len + std::iter::once(()).count(); // history + the current version
+                        Some(json!({
+                            "id": id,
+                            "type": it.get("type"),
+                            "tags": it.get("tags"),
+                            "updated_at": it.get("updated_at"),
+                            "deleted": deleted,
+                            "versions": versions,
+                        }))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     // Trash (soft delete): recoverable. Purge removes permanently.
     pub fn delete_item(&mut self, id: &str) -> Result<()> {
         let stamp = now();
         let items = obj_mut(&mut self.doc, "items");
-        let item = items.get_mut(id).with_context(|| format!("no item: {id}"))?;
+        let item = items
+            .get_mut(id)
+            .with_context(|| format!("no item: {id}"))?;
         let entry = item.as_object_mut().context("item is object")?;
         entry.insert("deleted".to_string(), Value::Bool(true));
         entry.insert("deleted_at".to_string(), json!(stamp));
@@ -197,7 +272,9 @@ impl Vault {
 
     pub fn restore_item(&mut self, id: &str) -> Result<()> {
         let items = obj_mut(&mut self.doc, "items");
-        let item = items.get_mut(id).with_context(|| format!("no item: {id}"))?;
+        let item = items
+            .get_mut(id)
+            .with_context(|| format!("no item: {id}"))?;
         let entry = item.as_object_mut().context("item is object")?;
         entry.insert("deleted".to_string(), Value::Bool(false));
         entry.insert("deleted_at".to_string(), Value::Null);
@@ -205,7 +282,9 @@ impl Vault {
     }
 
     pub fn purge_item(&mut self, id: &str) -> Result<()> {
-        obj_mut(&mut self.doc, "items").remove(id).with_context(|| format!("no item: {id}"))?;
+        obj_mut(&mut self.doc, "items")
+            .remove(id)
+            .with_context(|| format!("no item: {id}"))?;
         self.save()
     }
 
@@ -214,13 +293,26 @@ impl Vault {
     pub fn restore_version(&mut self, id: &str, at: &str) -> Result<()> {
         let stamp = now();
         let items = obj_mut(&mut self.doc, "items");
-        let item = items.get_mut(id).with_context(|| format!("no item: {id}"))?;
-        let history = item.get("history").and_then(Value::as_array).cloned().unwrap_or_default();
-        let chosen = history.iter().find(|e| e.get("at").and_then(Value::as_str) == Some(at))
+        let item = items
+            .get_mut(id)
+            .with_context(|| format!("no item: {id}"))?;
+        let history = item
+            .get("history")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let chosen = history
+            .iter()
+            .find(|e| e.get("at").and_then(Value::as_str) == Some(at))
             .with_context(|| format!("no version at {at} for {id}"))?
-            .get("cipher").cloned().context("history entry missing cipher")?;
+            .get("cipher")
+            .cloned()
+            .context("history entry missing cipher")?;
         let entry = item.as_object_mut().context("item is object")?;
-        if let (Some(cur_at), Some(cur)) = (entry.get("updated_at").cloned(), entry.get("current").cloned()) {
+        if let (Some(cur_at), Some(cur)) = (
+            entry.get("updated_at").cloned(),
+            entry.get("current").cloned(),
+        ) {
             let mut h = history;
             h.push(json!({"at": cur_at, "cipher": cur}));
             entry.insert("history".to_string(), Value::Array(h));

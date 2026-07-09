@@ -34,7 +34,9 @@ pub fn build_item(item_type: &str, fields: &[String]) -> Result<Value> {
     let mut map = Map::new();
     map.insert("type".to_string(), Value::String(item_type.to_string()));
     for field in fields {
-        let (key, value) = field.split_once('=').with_context(|| format!("field must be key=value: {field}"))?;
+        let (key, value) = field
+            .split_once('=')
+            .with_context(|| format!("field must be key=value: {field}"))?;
         map.insert(key.to_string(), Value::String(value.to_string()));
     }
     Ok(Value::Object(map))
@@ -45,14 +47,28 @@ pub fn build_item(item_type: &str, fields: &[String]) -> Result<Value> {
 fn charset(lower: bool, upper: bool, digits: bool, symbols: bool) -> String {
     let mut set = String::new();
     let any = lower || upper || digits || symbols;
-    if lower || !any { set.push_str(LOWER); }
-    if upper || !any { set.push_str(UPPER); }
-    if digits || !any { set.push_str(DIGITS); }
-    if symbols { set.push_str(SYMBOLS); }
+    if lower || !any {
+        set.push_str(LOWER);
+    }
+    if upper || !any {
+        set.push_str(UPPER);
+    }
+    if digits || !any {
+        set.push_str(DIGITS);
+    }
+    if symbols {
+        set.push_str(SYMBOLS);
+    }
     set
 }
 
-pub fn generate_password(length: usize, lower: bool, upper: bool, digits: bool, symbols: bool) -> Result<String> {
+pub fn generate_password(
+    length: usize,
+    lower: bool,
+    upper: bool,
+    digits: bool,
+    symbols: bool,
+) -> Result<String> {
     if length == usize::MIN {
         bail!("password length must be positive");
     }
@@ -61,8 +77,14 @@ pub fn generate_password(length: usize, lower: bool, upper: bool, digits: bool, 
         bail!("empty character set");
     }
     let mut buf: Vec<u8> = vec![Default::default(); length];
-    File::open("/dev/urandom").context("open /dev/urandom")?.read_exact(&mut buf).context("read entropy")?;
-    Ok(buf.iter().map(|byte| chars[(*byte as usize) % chars.len()]).collect())
+    File::open("/dev/urandom")
+        .context("open /dev/urandom")?
+        .read_exact(&mut buf)
+        .context("read entropy")?;
+    Ok(buf
+        .iter()
+        .map(|byte| chars[(*byte as usize) % chars.len()])
+        .collect())
 }
 
 // Words available for a passphrase: system dictionary if present, else built-in.
@@ -85,14 +107,29 @@ pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
         bail!("no words available for passphrase");
     }
     // `sort -R` shuffles using randomness; take the first `count` distinct words.
-    let mut child = Command::new("sort").arg("-R").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().context("spawn sort -R")?;
-    child.stdin.take().context("sort stdin")?.write_all(pool.join("\n").as_bytes())?;
+    let mut child = Command::new("sort")
+        .arg("-R")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("spawn sort -R")?;
+    child
+        .stdin
+        .take()
+        .context("sort stdin")?
+        .write_all(pool.join("\n").as_bytes())?;
     let out = child.wait_with_output()?;
     if !out.status.success() {
         bail!("sort -R failed");
     }
     let shuffled = String::from_utf8_lossy(&out.stdout);
-    let picked: Vec<&str> = shuffled.lines().map(str::trim).filter(|l| !l.is_empty()).take(count).collect();
+    let picked: Vec<&str> = shuffled
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take(count)
+        .collect();
     if picked.len() < count {
         bail!("word pool smaller than requested count");
     }

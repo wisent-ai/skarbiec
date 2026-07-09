@@ -57,8 +57,15 @@ fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<V
     if entry.get("hash").and_then(Value::as_str) != Some(hash.as_str()) {
         return Ok(None);
     }
-    let scopes = entry.get("scopes").and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+    let scopes = entry
+        .get("scopes")
+        .and_then(Value::as_array)
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     Ok(Some(scopes))
 }
@@ -72,36 +79,67 @@ pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) ->
     }
 }
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "token-mint" => {
-            let consumer = positionals.first().context("usage: token-mint <consumer> --scopes a,b")?;
+            let consumer = positionals
+                .first()
+                .context("usage: token-mint <consumer> --scopes a,b")?;
             let minted = crypto::random_token()?;
             let hash = crypto::sha256_hex(&minted)?;
-            let scopes: Vec<String> = flags.get("scopes").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default();
+            let scopes: Vec<String> = flags
+                .get("scopes")
+                .map(|s| s.split(',').map(str::to_string).collect())
+                .unwrap_or_default();
             let mut vault = load()?;
-            vault.doc_mut().get_mut("tokens").and_then(Value::as_object_mut).context("tokens section")?
+            vault
+                .doc_mut()
+                .get_mut("tokens")
+                .and_then(Value::as_object_mut)
+                .context("tokens section")?
                 .insert(consumer.clone(), json!({"hash": hash, "scopes": scopes}));
             vault.save()?;
-            crate::runtime::audit::append("token-mint", &json!({"consumer": consumer, "scopes": scopes}))?;
-            Ok(Some(json!({"ok": true, "consumer": consumer, "scopes": scopes, "token": minted})))
+            crate::runtime::audit::append(
+                "token-mint",
+                &json!({"consumer": consumer, "scopes": scopes}),
+            )?;
+            Ok(Some(
+                json!({"ok": true, "consumer": consumer, "scopes": scopes, "token": minted}),
+            ))
         }
         "token-revoke" => {
-            let consumer = positionals.first().context("usage: token-revoke <consumer>")?;
+            let consumer = positionals
+                .first()
+                .context("usage: token-revoke <consumer>")?;
             let mut vault = load()?;
-            vault.doc_mut().get_mut("tokens").and_then(Value::as_object_mut).context("tokens section")?.remove(consumer);
+            vault
+                .doc_mut()
+                .get_mut("tokens")
+                .and_then(Value::as_object_mut)
+                .context("tokens section")?
+                .remove(consumer);
             vault.save()?;
             crate::runtime::audit::append("token-revoke", &json!({"consumer": consumer}))?;
             Ok(Some(json!({"ok": true, "consumer": consumer})))
         }
         "token-verify" => {
             let mut args = positionals.iter();
-            let consumer = args.next().context("usage: token-verify <consumer> <item-id> --token T")?;
-            let id = args.next().context("usage: token-verify <consumer> <item-id> --token T")?;
+            let consumer = args
+                .next()
+                .context("usage: token-verify <consumer> <item-id> --token T")?;
+            let id = args
+                .next()
+                .context("usage: token-verify <consumer> <item-id> --token T")?;
             let presented = flags.get("token").context("--token required")?;
             let vault = load()?;
             let allowed = token_allows(&vault, consumer, presented, id)?;
-            Ok(Some(json!({"consumer": consumer, "item": id, "allowed": allowed})))
+            Ok(Some(
+                json!({"consumer": consumer, "item": id, "allowed": allowed}),
+            ))
         }
         "tokens" => {
             let vault = load()?;

@@ -22,11 +22,18 @@ fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
         .spawn()
         .with_context(|| format!("spawn {program}"))?;
     if let Some(text) = input {
-        child.stdin.take().context("child stdin unavailable")?.write_all(text.as_bytes())?;
+        child
+            .stdin
+            .take()
+            .context("child stdin unavailable")?
+            .write_all(text.as_bytes())?;
     }
     let out = child.wait_with_output()?;
     if !out.status.success() {
-        bail!("{program} failed: {}", String::from_utf8_lossy(&out.stderr).trim());
+        bail!(
+            "{program} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -54,21 +61,29 @@ fn run_opt(program: &str, args: &[&str], input: Option<&str>) -> Option<String> 
 
 /// High-entropy random token (hex). Used for consumer service tokens.
 pub fn random_token() -> Result<String> {
-    Ok(run("openssl", &["rand", "-hex", "32"], None)?.trim().to_string())
+    Ok(run("openssl", &["rand", "-hex", "32"], None)?
+        .trim()
+        .to_string())
 }
 
 /// Hex SHA-256 of the input. Used by the tamper-evident audit chain and the
 /// breach k-anonymity check.
 pub fn sha256_hex(input: &str) -> Result<String> {
     let out = run("shasum", &["-a", "256", "-"], Some(input))?;
-    out.split_whitespace().next().map(str::to_string).context("empty sha256 output")
+    out.split_whitespace()
+        .next()
+        .map(str::to_string)
+        .context("empty sha256 output")
 }
 
 /// SHA-1 (uppercase hex) — required only for the HaveIBeenPwned range API, which
 /// is defined over SHA-1 password hashes. Not used for any security decision.
 pub fn sha1_hex_upper(input: &str) -> Result<String> {
     let out = run("shasum", &["-a", "1", "-"], Some(input))?;
-    out.split_whitespace().next().map(|h| h.to_uppercase()).context("empty sha1 output")
+    out.split_whitespace()
+        .next()
+        .map(|h| h.to_uppercase())
+        .context("empty sha1 output")
 }
 
 /// Encrypt plaintext to every recipient's public key (armored). Any recipient
@@ -79,8 +94,12 @@ pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
         bail!("refusing to encrypt with no recipients");
     }
     let mut args: Vec<String> = vec![
-        "--batch".into(), "--yes".into(), "--armor".into(),
-        "--trust-model".into(), "always".into(), "--encrypt".into(),
+        "--batch".into(),
+        "--yes".into(),
+        "--armor".into(),
+        "--trust-model".into(),
+        "always".into(),
+        "--encrypt".into(),
     ];
     for recipient in recipients {
         args.push("--recipient".into());
@@ -102,7 +121,15 @@ pub fn decrypt(ciphertext: &str) -> Result<String> {
         Ok(phrase) if !phrase.is_empty() => decrypt_protected(ciphertext, &phrase),
         _ => run(
             "gpg",
-            &["--batch", "--yes", "--pinentry-mode", "loopback", "--passphrase", "", "--decrypt"],
+            &[
+                "--batch",
+                "--yes",
+                "--pinentry-mode",
+                "loopback",
+                "--passphrase",
+                "",
+                "--decrypt",
+            ],
             Some(ciphertext),
         ),
     }
@@ -120,8 +147,14 @@ fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
     let out = run(
         "gpg",
         &[
-            "--batch", "--yes", "--pinentry-mode", "loopback",
-            "--passphrase-fd", "0", "--decrypt", &file,
+            "--batch",
+            "--yes",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase-fd",
+            "0",
+            "--decrypt",
+            &file,
         ],
         Some(phrase),
     );
@@ -139,7 +172,22 @@ pub fn can_decrypt(ciphertext: &str) -> bool {
 
 /// Generate a new key pair for a user id, returning its fingerprint.
 pub fn generate_key(uid: &str) -> Result<String> {
-    run("gpg", &["--batch", "--pinentry-mode", "loopback", "--passphrase", "", "--quick-generate-key", uid, "default", "default", "never"], None)?;
+    run(
+        "gpg",
+        &[
+            "--batch",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+            "--quick-generate-key",
+            uid,
+            "default",
+            "default",
+            "never",
+        ],
+        None,
+    )?;
     fingerprint_for(uid)?.with_context(|| format!("key not found after generating for {uid}"))
 }
 
@@ -151,7 +199,10 @@ pub fn fingerprint_for(uid: &str) -> Result<Option<String>> {
     };
     for line in listing.lines() {
         if let Some(rest) = line.strip_prefix("fpr") {
-            if let Some(fpr) = rest.split(':').find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit())) {
+            if let Some(fpr) = rest
+                .split(':')
+                .find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit()))
+            {
                 return Ok(Some(fpr.to_string()));
             }
         }
@@ -174,5 +225,6 @@ pub fn export_public_key(fingerprint: &str) -> Result<String> {
 /// toolkit is installed. None means "install oath-toolkit to compute codes"; the
 /// seed itself is still stored and emitted for the consumer.
 pub fn totp_code(secret_base32: &str) -> Option<String> {
-    run_opt("oathtool", &["--totp", "--base32", secret_base32], None).map(|code| code.trim().to_string())
+    run_opt("oathtool", &["--totp", "--base32", secret_base32], None)
+        .map(|code| code.trim().to_string())
 }

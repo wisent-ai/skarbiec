@@ -3,8 +3,8 @@
 // (access, runtime, net) build on these.
 
 pub mod crypto;
-pub mod vault;
 pub mod items;
+pub mod vault;
 
 use std::path::PathBuf;
 

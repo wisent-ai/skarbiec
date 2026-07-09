@@ -38,7 +38,10 @@ fn write_response(stream: &mut TcpStream, status_line: &str, value: &Value) -> R
 
 fn login_mapping(row: &Value) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    for (field, name) in [("login_email", "ADMIN_EMAIL"), ("login_password", "ADMIN_PASSWORD")] {
+    for (field, name) in [
+        ("login_email", "ADMIN_EMAIL"),
+        ("login_password", "ADMIN_PASSWORD"),
+    ] {
         if let Some(value) = row.get(field).and_then(Value::as_str) {
             out.push((name.to_string(), value.to_string()));
         }
@@ -65,7 +68,10 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             headers.insert(k.trim().to_lowercase(), v.trim().to_string());
         }
     }
-    let body_len: usize = headers.get("content-length").and_then(|v| v.parse().ok()).unwrap_or_default();
+    let body_len: usize = headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or_default();
     let mut body_buf = vec![Default::default(); body_len];
     reader.read_exact(&mut body_buf)?;
     let body = String::from_utf8_lossy(&body_buf).into_owned();
@@ -76,7 +82,11 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     let missing_line = "HTTP/1.1 404 Not Found";
 
     if method == "GET" && path == "/health" {
-        return write_response(&mut stream, ok_line, &json!({"ok": true, "service": "skarbiec"}));
+        return write_response(
+            &mut stream,
+            ok_line,
+            &json!({"ok": true, "service": "skarbiec"}),
+        );
     }
     if method == "GET" && path == "/list" {
         let vault = load()?;
@@ -84,24 +94,45 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     }
     if method == "GET" && path == "/audit" {
         let vault = load()?;
-        return write_response(&mut stream, ok_line, &json!({"items": vault.list(false).len()}));
+        return write_response(
+            &mut stream,
+            ok_line,
+            &json!({"items": vault.list(false).len()}),
+        );
     }
     if method == "POST" && path == "/resolve" {
         let parsed: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
         let platform = parsed.get("platform").and_then(Value::as_str).unwrap_or("");
         if platform.is_empty() {
-            return write_response(&mut stream, bad_line, &json!({"error": "platform required"}));
+            return write_response(
+                &mut stream,
+                bad_line,
+                &json!({"error": "platform required"}),
+            );
         }
         let consumer = headers.get("x-consumer").cloned().unwrap_or_default();
-        let bearer = headers.get("authorization").map(|a| a.trim().trim_start_matches("Bearer ").to_string()).unwrap_or_default();
+        let bearer = headers
+            .get("authorization")
+            .map(|a| a.trim().trim_start_matches("Bearer ").to_string())
+            .unwrap_or_default();
         let vault = load()?;
-        let id = if vault.doc().get("items").and_then(Value::as_object).map(|m| m.contains_key(platform)).unwrap_or(false) {
+        let id = if vault
+            .doc()
+            .get("items")
+            .and_then(Value::as_object)
+            .map(|m| m.contains_key(platform))
+            .unwrap_or(false)
+        {
             platform.to_string()
         } else {
             format!("platform-admin-{platform}")
         };
         if consumer.is_empty() || !permitted(&vault, &consumer, &bearer, &id)? {
-            return write_response(&mut stream, denied_line, &json!({"error": "consumer not authorized for item"}));
+            return write_response(
+                &mut stream,
+                denied_line,
+                &json!({"error": "consumer not authorized for item"}),
+            );
         }
         let row = vault.get_item(&id)?;
         let mapping: HashMap<String, String> = login_mapping(&row).into_iter().collect();
@@ -111,12 +142,20 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     write_response(&mut stream, missing_line, &json!({"error": "not found"}))
 }
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, _positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    _positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "serve" => {
-            let port = flags.get("port").map(String::as_str).unwrap_or(DEFAULT_PORT);
+            let port = flags
+                .get("port")
+                .map(String::as_str)
+                .unwrap_or(DEFAULT_PORT);
             let address = format!("{LOOPBACK}:{port}");
-            let listener = TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
+            let listener =
+                TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
             crate::runtime::audit::append("serve", &json!({"address": address}))?;
             eprintln!("skarbiec API listening on http://{address} (loopback only)");
             for incoming in listener.incoming() {

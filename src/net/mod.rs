@@ -3,15 +3,19 @@
 // mobile apps, admin console) integrate against. Each submodule matches its own
 // commands and returns None otherwise; a real error propagates via `?`.
 
-pub mod sync;
 pub mod http;
 pub mod mcp;
+pub mod sync;
 
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     if let Some(v) = sync::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }

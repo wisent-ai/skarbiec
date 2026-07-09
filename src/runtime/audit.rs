@@ -21,7 +21,9 @@ fn audit_path() -> PathBuf {
 }
 
 fn now_iso() -> String {
-    Command::new("date").args(["-u", "+%Y-%m-%dT%H:%M:%SZ"]).output()
+    Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
         .ok()
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
@@ -53,7 +55,12 @@ fn digest_input(prev: &str, at: &str, op: &str, extra: &Value) -> String {
 /// the genesis line). Never records any stored value.
 pub fn append(op: &str, extra: &Value) -> Result<()> {
     let existing = lines()?;
-    let prev = existing.last().and_then(|e| e.get("hash")).and_then(Value::as_str).unwrap_or("").to_string();
+    let prev = existing
+        .last()
+        .and_then(|e| e.get("hash"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let at = now_iso();
     let hash = crypto::sha256_hex(&digest_input(&prev, &at, op, extra))?;
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
@@ -88,7 +95,11 @@ fn verify_chain() -> Result<Value> {
     }))
 }
 
-pub fn dispatch(command: &str, _flags: &HashMap<String, String>, _positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    _flags: &HashMap<String, String>,
+    _positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "audit" => Ok(Some(json!(lines()?))),
         "verify-chain" => Ok(Some(verify_chain()?)),

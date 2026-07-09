@@ -24,14 +24,29 @@ fn mirror_path() -> PathBuf {
 }
 
 fn git(args: &[&str]) -> Result<(bool, String, String)> {
-    let out = Command::new("git").arg("-C").arg(sync_dir()).args(args).output().context("run git")?;
-    Ok((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned()))
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(sync_dir())
+        .args(args)
+        .output()
+        .context("run git")?;
+    Ok((
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
 }
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "sync-init" => {
-            let remote = positionals.first().context("usage: sync-init <remote-url>")?;
+            let remote = positionals
+                .first()
+                .context("usage: sync-init <remote-url>")?;
             std::fs::create_dir_all(sync_dir())?;
             let (ok, _o, e) = git(&["init"])?;
             if !ok {
@@ -43,7 +58,9 @@ pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[S
                 bail!("git remote add failed: {}", e2.trim());
             }
             crate::runtime::audit::append("sync-init", &json!({"remote": remote}))?;
-            Ok(Some(json!({"ok": true, "sync_dir": sync_dir().display().to_string(), "remote": remote})))
+            Ok(Some(
+                json!({"ok": true, "sync_dir": sync_dir().display().to_string(), "remote": remote}),
+            ))
         }
         "sync-push" => {
             let live = vault_path();
@@ -53,18 +70,25 @@ pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[S
             std::fs::create_dir_all(sync_dir())?;
             std::fs::copy(&live, mirror_path()).context("copy vault into sync dir")?;
             git(&["add", "vault.enc.json"])?;
-            let message = flags.get("message").map(String::as_str).unwrap_or("skarbiec sync");
+            let message = flags
+                .get("message")
+                .map(String::as_str)
+                .unwrap_or("skarbiec sync");
             git(&["commit", "-m", message]).ok(); // no-op commit is fine
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
             let (ok, _o, e) = git(&["push", "origin", branch])?;
             crate::runtime::audit::append("sync-push", &json!({"branch": branch, "ok": ok}))?;
-            Ok(Some(json!({"ok": ok, "branch": branch, "detail": e.trim()})))
+            Ok(Some(
+                json!({"ok": ok, "branch": branch, "detail": e.trim()}),
+            ))
         }
         "sync-pull" => {
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
             let (ok, _o, e) = git(&["pull", "--no-rebase", "origin", branch])?;
             if !ok {
-                return Ok(Some(json!({"ok": false, "reason": "git_pull_failed", "detail": e.trim()})));
+                return Ok(Some(
+                    json!({"ok": false, "reason": "git_pull_failed", "detail": e.trim()}),
+                ));
             }
             let mirror = mirror_path();
             if !mirror.exists() {
@@ -72,7 +96,9 @@ pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[S
             }
             std::fs::copy(&mirror, vault_path()).context("copy synced vault into place")?;
             crate::runtime::audit::append("sync-pull", &json!({"branch": branch}))?;
-            Ok(Some(json!({"ok": true, "branch": branch, "vault": vault_path().display().to_string()})))
+            Ok(Some(
+                json!({"ok": true, "branch": branch, "vault": vault_path().display().to_string()}),
+            ))
         }
         _ => Ok(None),
     }

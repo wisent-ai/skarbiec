@@ -18,20 +18,37 @@ fn load() -> Result<Vault> {
 // names that width without a bare numeric literal.
 const PREFIX_WIDTH_SAMPLE: &str = "ABCDE";
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
         "breach-check" => {
-            let id = positionals.first().context("usage: breach-check <item-id> [--field login_password]")?;
-            let field = flags.get("field").map(String::as_str).unwrap_or("login_password");
+            let id = positionals
+                .first()
+                .context("usage: breach-check <item-id> [--field login_password]")?;
+            let field = flags
+                .get("field")
+                .map(String::as_str)
+                .unwrap_or("login_password");
             let vault = load()?;
             let row = vault.get_item(id)?;
-            let candidate = row.get(field).and_then(Value::as_str).with_context(|| format!("{id} has no field {field}"))?;
+            let candidate = row
+                .get(field)
+                .and_then(Value::as_str)
+                .with_context(|| format!("{id} has no field {field}"))?;
             let hash = crypto::sha1_hex_upper(candidate)?;
             let (prefix, suffix) = hash.split_at(PREFIX_WIDTH_SAMPLE.len());
             let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
-            let response = Command::new("curl").args(["-s", "--max-time", "10", &url]).output().context("curl range api")?;
+            let response = Command::new("curl")
+                .args(["-s", "--max-time", "10", &url])
+                .output()
+                .context("curl range api")?;
             if !response.status.success() {
-                return Ok(Some(json!({"item": id, "checked": false, "reason": "range_api_unreachable"})));
+                return Ok(Some(
+                    json!({"item": id, "checked": false, "reason": "range_api_unreachable"}),
+                ));
             }
             let body = String::from_utf8_lossy(&response.stdout);
             let seen = body.lines().find_map(|line| {
@@ -43,7 +60,9 @@ pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[S
                 }
             });
             crate::runtime::audit::append("breach-check", &json!({"item": id, "field": field}))?;
-            Ok(Some(json!({"item": id, "field": field, "checked": true, "pwned": seen.is_some(), "seen_count": seen})))
+            Ok(Some(
+                json!({"item": id, "field": field, "checked": true, "pwned": seen.is_some(), "seen_count": seen}),
+            ))
         }
         _ => Ok(None),
     }
