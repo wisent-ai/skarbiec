@@ -39,34 +39,33 @@ pub fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
+        "rotate-owner" => {
+            let [new_owner_uid] = positionals else {
+                anyhow::bail!("usage: rotate-owner <new-owner-uid>");
+            };
+            if !flags.is_empty() {
+                anyhow::bail!("usage: rotate-owner <new-owner-uid>");
+            }
+            let new_owner_fingerprint =
+                crypto::fingerprint_for_exact_uid(new_owner_uid)?;
+            let mut vault = Vault::open(vault_path())?;
+            let report =
+                vault.rotate_owner(new_owner_uid, &new_owner_fingerprint)?;
+            let metadata = json!({
+                "item_count": report.items,
+                "version_count": report.versions,
+                "old_owner_fingerprint": report.old_fingerprint,
+                "new_owner_fingerprint": report.new_fingerprint,
+            });
+            crate::runtime::audit::append("rotate-owner", &metadata)?;
+            Ok(Some(metadata))
+        }
         "add-user" => {
             let mut args = positionals.iter();
             let uid = args
                 .next()
                 .context("usage: add-user <uid> [--import <pubkey-file>] [--role r]")?;
             let role = flags.get("role").map(String::as_str).unwrap_or("member");
-            // `add-user` registers a recipient and stops there: it does NOT
-            // re-encrypt the items already in the vault. For a member that is
-            // correct — `share` grants per item on purpose. For an owner it is
-            // a trap, and it fired: an owner added this way holds a key that
-            // opens nothing, while the vault still answers every read from the
-            // previous owner's key. If that key then goes missing, every item
-            // is unreadable and the audit log shows only a successful
-            // `add-user`.
-            //
-            // `rotate-owner` is the operation that means what this looked like:
-            // it rewraps every current and historical ciphertext onto the new
-            // fingerprint and keeps the recovery recipient. Refuse here rather
-            // than half-do it.
-            if role == "owner" {
-                anyhow::bail!(
-                    "add-user cannot install an owner: it would register the key without \
-                     re-encrypting the {} item(s) already stored, leaving an owner that \
-                     cannot read them. Use `rotate-owner <uid>`, which rewraps every \
-                     version onto the new key and preserves the recovery recipient.",
-                    Vault::open(vault_path())?.list(true).len()
-                );
-            }
             let fpr = match flags.get("import") {
                 Some(file) => {
                     let armored =
@@ -86,25 +85,6 @@ pub fn dispatch(
             Ok(Some(
                 json!({"ok": true, "uid": uid, "fingerprint": fpr, "role": role}),
             ))
-        }
-        "rotate-owner" => {
-            let mut args = positionals.iter();
-            let uid = args.next().context("usage: rotate-owner <new-owner-uid>")?;
-            // Deliberately no key generation. `add-user` generating a key for
-            // an unknown uid is what turned one command into an outage: a key
-            // minted here would be a key no ciphertext was ever encrypted to.
-            // The new owner's key must already be in the keyring, imported or
-            // generated on purpose beforehand.
-            let fpr = crypto::fingerprint_for(uid)?.with_context(|| {
-                format!(
-                    "no key in the keyring for {uid}: import or generate it first \
-                     (add-user {uid} --import <pubkey-file>), then rotate"
-                )
-            })?;
-            let mut vault = Vault::open(vault_path())?;
-            let report = vault.rotate_owner(uid, &fpr)?;
-            crate::runtime::audit::append("rotate-owner", &report)?;
-            Ok(Some(report))
         }
         "share" => {
             let mut args = positionals.iter();

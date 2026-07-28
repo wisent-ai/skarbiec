@@ -1,8 +1,6 @@
-// Local HTTP API used by separate products. The listener is loopback-only.
-//
-// Direct item endpoints require an action-scoped grant. Acquisition endpoints
-// exchange a request-only bootstrap for an exact consumer/item/field bearer,
-// then atomically consume it on the first successful single-field read.
+// Loopback HTTP API for metadata, legacy resolve, and one-time field
+// acquisitions. A request-only bootstrap can issue but never directly read;
+// the field-bound bearer is atomically consumed on its first successful read.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -36,45 +34,24 @@ fn presented_identity(headers: &HashMap<String, String>) -> (String, String) {
     (consumer, bearer)
 }
 
-/// The item `/health` opens to prove the key material is still usable.
-///
-/// Deterministic (lowest id among live items) so repeated probes exercise the
-/// same ciphertext and a passing probe means the same thing every time. Only
-/// the id is returned; the caller decrypts and drops the value.
-fn canary_item_id(vault: &Vault) -> Option<String> {
-    let mut ids: Vec<String> = vault
-        .list(false)
-        .iter()
-        .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
-        .collect();
-    ids.sort();
-    ids.into_iter().next()
-}
-
-/// Operator-facing failure text, length-capped.
-///
-/// A gpg failure names key ids and recipient uids, which is exactly what an
-/// operator needs to see and is not secret material. The cap keeps a runaway
-/// message out of a JSON body; the full text stays in the process log.
-fn bounded_detail(detail: &str) -> String {
-    let limit: usize = "400".parse().unwrap_or_default();
-    detail.chars().take(limit).collect()
-}
-
-fn request_json(body: &str) -> Value {
-    serde_json::from_str(body).unwrap_or(Value::Null)
-}
-
-fn request_id(body: &Value) -> Option<&str> {
-    body.get("id")
+fn request_target(body: &str) -> Option<(String, String)> {
+    let parsed: Value = serde_json::from_str(body).ok()?;
+    let object = parsed.as_object()?;
+    if object.len() != [(), ()].len()
+        || !object.contains_key("id")
+        || !object.contains_key("field")
+    {
+        return None;
+    }
+    let id = parsed
+        .get("id")
         .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-}
-
-fn request_field(body: &Value) -> Option<&str> {
-    body.get("field")
+        .filter(|value| !value.is_empty())?;
+    let field = parsed
+        .get("field")
         .and_then(Value::as_str)
-        .filter(|field| !field.is_empty())
+        .filter(|value| !value.is_empty())?;
+    Some((id.to_string(), field.to_string()))
 }
 
 fn write_response(stream: &mut TcpStream, status_line: &str, value: &Value) -> Result<()> {
@@ -129,39 +106,8 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     let unauthorized_line = "HTTP/1.1 401 Unauthorized";
     let denied_line = "HTTP/1.1 403 Forbidden";
     let missing_line = "HTTP/1.1 404 Not Found";
-    let unavailable_line = "HTTP/1.1 503 Service Unavailable";
 
     if method == "GET" && path == "/health" {
-        // This probe used to answer `ok: true` without touching the vault. A
-        // broker holding 204 items it can no longer decrypt therefore reported
-        // itself healthy for hours while every consumer failed, and the outage
-        // was diagnosed from consumer-side symptoms instead of from here.
-        //
-        // Recipients are vault-wide, so one item settles it: if a single value
-        // opens, the key material is present for all of them. The plaintext is
-        // dropped immediately and never logged or returned.
-        let (ready, detail) = match load() {
-            Err(error) => (false, format!("vault is unreadable: {error}")),
-            Ok(vault) => match canary_item_id(&vault) {
-                None => (true, "vault holds no items to probe".to_string()),
-                Some(id) => match vault.get_item(&id) {
-                    Ok(_) => (true, String::new()),
-                    Err(error) => (false, format!("stored items cannot be decrypted: {error}")),
-                },
-            },
-        };
-        if !ready {
-            return write_response(
-                &mut stream,
-                unavailable_line,
-                &json!({
-                    "ok": false,
-                    "service": "skarbiec",
-                    "error_code": "infra_down",
-                    "detail": bounded_detail(&detail),
-                }),
-            );
-        }
         return write_response(
             &mut stream,
             ok_line,
@@ -181,8 +127,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         );
     }
     if method == "POST" && path == "/v1/acquisitions" {
-        let parsed = request_json(&body);
-        let (Some(item), Some(field)) = (request_id(&parsed), request_field(&parsed)) else {
+        let Some((item, field)) = request_target(&body) else {
             return write_response(
                 &mut stream,
                 bad_line,
@@ -193,7 +138,8 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let issued = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::issue(&consumer, &bootstrap, item, field).unwrap_or(None)
+            crate::access::acquisition::issue(&consumer, &bootstrap, &item, &field)
+                .unwrap_or(None)
         };
         let Some(issued) = issued else {
             return write_response(
@@ -224,8 +170,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         );
     }
     if method == "POST" && path == "/v1/acquisitions/read" {
-        let parsed = request_json(&body);
-        let (Some(item), Some(field)) = (request_id(&parsed), request_field(&parsed)) else {
+        let Some((item, field)) = request_target(&body) else {
             return write_response(
                 &mut stream,
                 bad_line,
@@ -236,8 +181,13 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let value = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::consume(&consumer, &acquisition_token, item, field)
-                .unwrap_or(None)
+            crate::access::acquisition::consume(
+                &consumer,
+                &acquisition_token,
+                &item,
+                &field,
+            )
+            .unwrap_or(None)
         };
         let Some(value) = value else {
             return write_response(
@@ -255,168 +205,6 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             ok_line,
             &json!({"consumer": consumer, "item": item, "field": field, "value": value}),
         );
-    }
-    if method == "POST" && path == "/v1/items/list" {
-        let (consumer, bearer) = presented_identity(&headers);
-        let vault = load()?;
-        if consumer.is_empty() || !tokens::token_valid(&vault, &consumer, &bearer)? {
-            return write_response(
-                &mut stream,
-                denied_line,
-                &json!({"error": "consumer grant required"}),
-            );
-        }
-        let visible: Vec<Value> = vault
-            .list(false)
-            .into_iter()
-            .filter(|item| {
-                item.get("id").and_then(Value::as_str).is_some_and(|id| {
-                    tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)
-                        .unwrap_or(false)
-                })
-            })
-            .collect();
-        return write_response(&mut stream, ok_line, &json!(visible));
-    }
-    if method == "POST" && path == "/v1/items/read" {
-        let parsed = request_json(&body);
-        let Some(id) = request_id(&parsed) else {
-            return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
-        };
-        let (consumer, bearer) = presented_identity(&headers);
-        let vault = load()?;
-        if consumer.is_empty()
-            || !tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)?
-        {
-            return write_response(
-                &mut stream,
-                denied_line,
-                &json!({"error": "consumer not authorized to read item"}),
-            );
-        }
-        let known = vault
-            .doc()
-            .get("items")
-            .and_then(Value::as_object)
-            .is_some_and(|items| items.contains_key(id));
-        if !known {
-            return write_response(
-                &mut stream,
-                missing_line,
-                &json!({"error": "item not found"}),
-            );
-        }
-        // `?` here returned no HTTP response at all: the error travelled to the
-        // accept loop, which logged it and dropped the connection, so a caller
-        // saw a transport failure rather than a status. An item that is stored
-        // but unopenable is an outage on our side, and it must say so — never
-        // 404, which is the answer reserved for "this was never here".
-        let value = match vault.get_item(id) {
-            Ok(value) => value,
-            Err(error) => {
-                let detail = error.to_string();
-                eprintln!("item decryption failed: {id}: {detail}");
-                crate::runtime::audit::append(
-                    "http-item-read-undecryptable",
-                    &json!({"item": id, "consumer": consumer}),
-                )?;
-                return write_response(
-                    &mut stream,
-                    unavailable_line,
-                    &json!({
-                        "error": "item is stored but could not be decrypted",
-                        "error_code": "infra_down",
-                        "detail": bounded_detail(&detail),
-                    }),
-                );
-            }
-        };
-        crate::runtime::audit::append(
-            "http-item-read",
-            &json!({"item": id, "consumer": consumer}),
-        )?;
-        return write_response(&mut stream, ok_line, &json!({"id": id, "value": value}));
-    }
-    if method == "PUT" && path == "/v1/items" {
-        let parsed = request_json(&body);
-        let Some(id) = request_id(&parsed) else {
-            return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
-        };
-        let Some(value) = parsed.get("value") else {
-            return write_response(&mut stream, bad_line, &json!({"error": "value required"}));
-        };
-        let (consumer, bearer) = presented_identity(&headers);
-        let mut vault = load()?;
-        if consumer.is_empty()
-            || !tokens::token_allows_action(&vault, &consumer, &bearer, "write", id)?
-        {
-            return write_response(
-                &mut stream,
-                denied_line,
-                &json!({"error": "consumer not authorized to write item"}),
-            );
-        }
-        let existing = vault.doc().get("items").and_then(|items| items.get(id));
-        let item_type = parsed
-            .get("type")
-            .and_then(Value::as_str)
-            .or_else(|| {
-                existing
-                    .and_then(|item| item.get("type"))
-                    .and_then(Value::as_str)
-            })
-            .unwrap_or("secret")
-            .to_string();
-        let recipients = vault.item_recipient_uids(id);
-        let tags: Vec<String> = existing
-            .and_then(|item| item.get("tags"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect();
-        vault.set_item(id, &item_type, value, &recipients, &tags)?;
-        crate::runtime::audit::append(
-            "http-item-write",
-            &json!({"item": id, "consumer": consumer}),
-        )?;
-        return write_response(&mut stream, ok_line, &json!({"ok": true, "id": id}));
-    }
-    if method == "DELETE" && path == "/v1/items" {
-        let parsed = request_json(&body);
-        let Some(id) = request_id(&parsed) else {
-            return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
-        };
-        let (consumer, bearer) = presented_identity(&headers);
-        let mut vault = load()?;
-        if consumer.is_empty()
-            || !tokens::token_allows_action(&vault, &consumer, &bearer, "delete", id)?
-        {
-            return write_response(
-                &mut stream,
-                denied_line,
-                &json!({"error": "consumer not authorized to delete item"}),
-            );
-        }
-        let known = vault
-            .doc()
-            .get("items")
-            .and_then(Value::as_object)
-            .is_some_and(|items| items.contains_key(id));
-        if !known {
-            return write_response(
-                &mut stream,
-                missing_line,
-                &json!({"error": "item not found"}),
-            );
-        }
-        vault.delete_item(id)?;
-        crate::runtime::audit::append(
-            "http-item-delete",
-            &json!({"item": id, "consumer": consumer}),
-        )?;
-        return write_response(&mut stream, ok_line, &json!({"ok": true, "id": id}));
     }
     if method == "POST" && path == "/resolve" {
         let parsed: Value = serde_json::from_str(&body).unwrap_or(Value::Null);

@@ -7,16 +7,89 @@
 // binary), never as literals in this source.
 
 use anyhow::{bail, Context, Result};
+use rand::RngCore;
 use serde_json::{json, Map, Value};
-use std::fs;
-use std::path::PathBuf;
+use std::collections::{HashMap, HashSet};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::process::Command;
+use zeroize::Zeroize;
 
 use crate::core::crypto;
+
+const APPLE_CHALLENGE_PREFIX: &str = "challenge:apple/";
+
+pub(crate) fn is_apple_challenge_resource(resource: &str) -> bool {
+    let Some(uuid) = resource.strip_prefix(APPLE_CHALLENGE_PREFIX) else {
+        return false;
+    };
+    uuid.len() == 36
+        && uuid.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte),
+        })
+}
+
+fn valid_apple_challenge_scalar(value: &Value) -> bool {
+    value.as_object().is_some_and(|fields| fields.len() == 2)
+        && value.get("type").and_then(Value::as_str) == Some("apple-challenge")
+        && value
+            .get("value")
+            .and_then(Value::as_str)
+            .is_some_and(|code| code.len() == 6 && code.bytes().all(|byte| byte.is_ascii_digit()))
+}
+
+fn zeroize_json_strings(value: &mut Value) {
+    match value {
+        Value::String(text) => text.zeroize(),
+        Value::Array(values) => values.iter_mut().for_each(zeroize_json_strings),
+        Value::Object(values) => values.values_mut().for_each(zeroize_json_strings),
+        _ => {}
+    }
+}
+
+fn lock_vault_parent(path: &Path) -> Result<File> {
+    let parent = path.parent().context("vault path has no parent")?;
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+        .open(parent)?;
+    if unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(std::io::Error::last_os_error()).context("lock vault parent");
+    }
+    Ok(directory)
+}
 
 pub struct Vault {
     pub path: PathBuf,
     doc: Value,
+    _lock: File,
+}
+
+pub struct OwnerRotationReport {
+    pub items: usize,
+    pub versions: usize,
+    pub old_fingerprint: String,
+    pub new_fingerprint: String,
+}
+
+fn push_unique_fingerprint(fingerprints: &mut Vec<String>, fingerprint: &str) {
+    if !fingerprints
+        .iter()
+        .any(|existing| existing.eq_ignore_ascii_case(fingerprint))
+    {
+        fingerprints.push(fingerprint.to_string());
+    }
+}
+
+fn rewrap_ciphertext(ciphertext: &str, fingerprints: &[String]) -> Result<String> {
+    let mut plaintext = crypto::decrypt(ciphertext)?;
+    let encrypted = crypto::encrypt_to(fingerprints, &plaintext);
+    plaintext.zeroize();
+    encrypted
 }
 
 fn obj_mut<'a>(v: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
@@ -43,6 +116,7 @@ impl Vault {
         owner_fpr: &str,
         recovery_fpr: &str,
     ) -> Result<Self> {
+        let lock = lock_vault_parent(&path)?;
         if path.exists() {
             bail!("vault already exists at {}", path.display());
         }
@@ -55,26 +129,66 @@ impl Vault {
             "tokens": {},
             "policy": {},
         });
-        let vault = Self { path, doc };
+        let vault = Self {
+            path,
+            doc,
+            _lock: lock,
+        };
         vault.save()?;
         Ok(vault)
     }
 
     pub fn open(path: PathBuf) -> Result<Self> {
-        if !path.exists() {
-            bail!("vault not initialized at {} (run: init)", path.display());
+        let lock = lock_vault_parent(&path)?;
+        let meta = fs::symlink_metadata(&path)
+            .with_context(|| format!("vault not initialized at {} (run: init)", path.display()))?;
+        if meta.file_type().is_symlink()
+            || !meta.is_file()
+            || meta.uid() != unsafe { libc::geteuid() }
+            || meta.permissions().mode() & 0o077 != 0
+        {
+            bail!("vault path must be an owner-only regular file");
         }
-        let doc = serde_json::from_str(&fs::read_to_string(&path)?).context("parse vault file")?;
-        Ok(Self { path, doc })
+        let mut file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&path)?;
+        let mut body = String::new();
+        file.read_to_string(&mut body)?;
+        let doc = serde_json::from_str(&body).context("parse vault file")?;
+        Ok(Self {
+            path,
+            doc,
+            _lock: lock,
+        })
     }
 
     pub fn save(&self) -> Result<()> {
-        fs::write(&self.path, serde_json::to_string_pretty(&self.doc)?)?;
-        Command::new("chmod")
-            .arg("600")
-            .arg(&self.path)
-            .status()
-            .ok();
+        let parent = self.path.parent().context("vault path has no parent")?;
+        let mut suffix = [0u8; 16];
+        rand::rngs::OsRng.fill_bytes(&mut suffix);
+        let temp = parent.join(format!(
+            ".skarbiec-vault-{}",
+            suffix
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        ));
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&temp)?;
+        file.write_all(serde_json::to_string_pretty(&self.doc)?.as_bytes())?;
+        file.sync_all()?;
+        fs::rename(&temp, &self.path)?;
+        fs::set_permissions(&self.path, fs::Permissions::from_mode(0o600))?;
+        OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
+            .open(parent)?
+            .sync_all()?;
         Ok(())
     }
 
@@ -139,123 +253,6 @@ impl Vault {
         fprs
     }
 
-    // Decrypt then re-encrypt one ciphertext onto a new recipient set. The
-    // plaintext lives only for this call.
-    fn rewrap(fprs: &[String], ciphertext: &str) -> Result<String> {
-        let plain = crypto::decrypt(ciphertext)?;
-        crypto::encrypt_to(fprs, &plain)
-    }
-
-    /// Install a new owner across the entire vault.
-    ///
-    /// Registering an owner is not the same as installing one: the stored
-    /// ciphertext stays encrypted to the previous owner's key, so a freshly
-    /// registered owner can open nothing while every read still succeeds for
-    /// whoever holds the old key. If that key then goes missing, the vault is
-    /// unreadable by everyone. This rotates for real — every current and
-    /// historical ciphertext is rewrapped onto the new recipient set, which
-    /// `fprs_for` derives from the updated owner plus the recovery key, so the
-    /// recovery recipient survives untouched.
-    ///
-    /// The previous owner is dropped from every item and keeps only its
-    /// registry entry, demoted: the fingerprint stays on record, the access
-    /// does not.
-    ///
-    /// Nothing reaches disk until every ciphertext has been rewrapped, so the
-    /// old key (or the recovery key) must be in the keyring first. A failure
-    /// part-way leaves the vault file exactly as it was rather than encrypted
-    /// to two owners at once.
-    pub fn rotate_owner(&mut self, new_owner_uid: &str, new_owner_fpr: &str) -> Result<Value> {
-        let previous = self.owner_uid().to_string();
-        if previous == new_owner_uid {
-            bail!("{new_owner_uid} is already the owner");
-        }
-        let stamp = now();
-        let recipients = obj_mut(&mut self.doc, "recipients");
-        recipients.insert(
-            new_owner_uid.to_string(),
-            json!({"fingerprint": new_owner_fpr, "role": "owner", "added_at": stamp}),
-        );
-        if let Some(entry) = recipients.get_mut(&previous).and_then(Value::as_object_mut) {
-            entry.insert("role".to_string(), json!("member"));
-            entry.insert("owner_until".to_string(), json!(stamp));
-        }
-        self.doc
-            .as_object_mut()
-            .context("vault document is not an object")?
-            .insert("owner".to_string(), json!(new_owner_uid));
-
-        // Deleted items still hold secrets and are still restorable, so they
-        // rotate too.
-        let ids: Vec<String> = self
-            .doc
-            .get("items")
-            .and_then(Value::as_object)
-            .map(|items| items.keys().cloned().collect())
-            .unwrap_or_default();
-        let mut versions = usize::default();
-        for id in &ids {
-            let uids: Vec<String> = self
-                .item_recipient_uids(id)
-                .into_iter()
-                .filter(|uid| uid != &previous)
-                .collect();
-            let fprs = self.fprs_for(&uids);
-            let item = self
-                .doc
-                .get("items")
-                .and_then(|items| items.get(id))
-                .with_context(|| format!("no item: {id}"))?;
-            let current = item
-                .get("current")
-                .and_then(Value::as_str)
-                .with_context(|| format!("item has no ciphertext: {id}"))?
-                .to_string();
-            let history: Vec<(Value, String)> = item
-                .get("history")
-                .and_then(Value::as_array)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(|entry| {
-                            let at = entry.get("at")?.clone();
-                            let cipher = entry.get("cipher")?.as_str()?.to_string();
-                            Some((at, cipher))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-
-            let rotated_current = Self::rewrap(&fprs, &current)
-                .with_context(|| format!("rewrap current ciphertext: {id}"))?;
-            let mut rotated_history = Vec::new();
-            for (at, cipher) in &history {
-                let rotated = Self::rewrap(&fprs, cipher)
-                    .with_context(|| format!("rewrap historical ciphertext: {id} at {at}"))?;
-                rotated_history.push(json!({"at": at, "cipher": rotated}));
-            }
-            versions = versions.saturating_add(rotated_history.len());
-
-            let entry = obj_mut(&mut self.doc, "items")
-                .get_mut(id)
-                .and_then(Value::as_object_mut)
-                .with_context(|| format!("no item: {id}"))?;
-            entry.insert("current".to_string(), json!(rotated_current));
-            entry.insert("history".to_string(), json!(rotated_history));
-            entry.insert("recipients".to_string(), json!(uids));
-        }
-        self.save()?;
-        Ok(json!({
-            "ok": true,
-            "owner": new_owner_uid,
-            "fingerprint": new_owner_fpr,
-            "previous_owner": previous,
-            "items": ids.len(),
-            "historical_versions": versions,
-            "recovery_preserved": !self.recovery_fpr().is_empty(),
-        }))
-    }
-
     pub fn item_recipient_uids(&self, id: &str) -> Vec<String> {
         self.doc
             .get("items")
@@ -271,9 +268,16 @@ impl Vault {
             .unwrap_or_default()
     }
 
+    pub fn contains_item(&self, id: &str) -> bool {
+        self.doc
+            .get("items")
+            .and_then(Value::as_object)
+            .is_some_and(|items| items.contains_key(id))
+    }
+
     // Store (or replace) a secret. Encrypts to the given recipients; the prior
     // ciphertext is pushed onto the version history.
-    pub fn set_item(
+    fn set_item_inner(
         &mut self,
         id: &str,
         item_type: &str,
@@ -282,7 +286,10 @@ impl Vault {
         tags: &[String],
     ) -> Result<()> {
         let fprs = self.fprs_for(recipient_uids);
-        let cipher = crypto::encrypt_to(&fprs, &serde_json::to_string(secret)?)?;
+        let mut plaintext = serde_json::to_string(secret)?;
+        let encrypted = crypto::encrypt_to(&fprs, &plaintext);
+        plaintext.zeroize();
+        let cipher = encrypted?;
         let stamp = now();
         let items = obj_mut(&mut self.doc, "items");
         let history = match items.get(id) {
@@ -321,7 +328,31 @@ impl Vault {
         self.save()
     }
 
-    pub fn get_item(&self, id: &str) -> Result<Value> {
+    pub fn set_item(
+        &mut self,
+        id: &str,
+        item_type: &str,
+        secret: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+    ) -> Result<()> {
+        if id.starts_with("challenge:apple/") {
+            bail!("Apple challenges may only be stored with apple-challenge-put over stdin");
+        }
+        self.set_item_inner(id, item_type, secret, recipient_uids, tags)
+    }
+
+    pub(crate) fn put_apple_challenge(&mut self, id: &str, secret: &Value) -> Result<()> {
+        if !is_apple_challenge_resource(id) || !valid_apple_challenge_scalar(secret) {
+            bail!("invalid dedicated Apple challenge scalar");
+        }
+        if self.contains_item(id) {
+            bail!("refusing to overwrite existing vault item: {id}");
+        }
+        self.set_item_inner(id, "apple-challenge", secret, &[], &[])
+    }
+
+    fn get_item_inner(&self, id: &str) -> Result<Value> {
         let item = self
             .doc
             .get("items")
@@ -338,8 +369,46 @@ impl Vault {
             .get("current")
             .and_then(Value::as_str)
             .context("item has no ciphertext")?;
-        let plain = crypto::decrypt(cipher)?;
-        serde_json::from_str(&plain).context("decrypted item is not JSON")
+        let mut plain = crypto::decrypt(cipher)?;
+        let parsed = serde_json::from_str(&plain).context("decrypted item is not JSON");
+        plain.zeroize();
+        parsed
+    }
+
+    pub fn get_item(&self, id: &str) -> Result<Value> {
+        if id.starts_with("challenge:apple/") {
+            bail!("Apple challenges may only be read through capability redemption");
+        }
+        self.get_item_inner(id)
+    }
+
+    pub(crate) fn take_apple_challenge(&mut self, id: &str) -> Result<Option<Value>> {
+        if !is_apple_challenge_resource(id) {
+            bail!("invalid Apple challenge resource");
+        }
+        if !self.contains_item(id) {
+            return Ok(None);
+        }
+        let mut value = self.get_item_inner(id)?;
+        if !valid_apple_challenge_scalar(&value) {
+            zeroize_json_strings(&mut value);
+            bail!("Apple challenge is not a dedicated six-digit scalar");
+        }
+        if let Err(error) = self.purge_item(id) {
+            zeroize_json_strings(&mut value);
+            return Err(error);
+        }
+        Ok(Some(value))
+    }
+
+    pub(crate) fn purge_apple_challenge(&mut self, id: &str) -> Result<()> {
+        if !is_apple_challenge_resource(id) {
+            bail!("invalid Apple challenge resource");
+        }
+        if self.contains_item(id) {
+            self.purge_item(id)?;
+        }
+        Ok(())
     }
 
     pub fn list(&self, include_deleted: bool) -> Vec<Value> {
@@ -372,6 +441,189 @@ impl Vault {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    /// Re-encrypt every current and historical item version to a replacement
+    /// automatic owner while retaining recovery and explicit shared recipients.
+    ///
+    /// All work is performed against a cloned document. The live document is
+    /// swapped only for the single atomic save and restored in memory if that
+    /// save fails, so a decrypt or encrypt failure cannot partially migrate the
+    /// vault.
+    pub fn rotate_owner(
+        &mut self,
+        new_owner_uid: &str,
+        new_owner_fingerprint: &str,
+    ) -> Result<OwnerRotationReport> {
+        let old_owner_uid = self.owner_uid().to_string();
+        if old_owner_uid.is_empty() {
+            bail!("vault owner metadata is empty");
+        }
+        if old_owner_uid == new_owner_uid {
+            bail!("new owner UID must differ from the current owner UID");
+        }
+        let old_owner_fingerprint = self
+            .recipient_fpr(&old_owner_uid)
+            .context("current owner has no recipient fingerprint")?;
+        if old_owner_fingerprint.is_empty()
+            || !old_owner_fingerprint
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            bail!("current owner fingerprint is invalid");
+        }
+        if old_owner_fingerprint.eq_ignore_ascii_case(new_owner_fingerprint) {
+            bail!("new owner fingerprint matches the current owner fingerprint");
+        }
+        if new_owner_fingerprint.is_empty()
+            || !new_owner_fingerprint
+                .chars()
+                .all(|character| character.is_ascii_hexdigit())
+        {
+            bail!("new owner fingerprint is invalid");
+        }
+        let recovery_fingerprint = self.recovery_fpr().to_string();
+        if recovery_fingerprint.trim().is_empty() {
+            bail!("vault recovery fingerprint is empty");
+        }
+        if recovery_fingerprint.eq_ignore_ascii_case(&old_owner_fingerprint) {
+            bail!("recovery fingerprint matches the current owner fingerprint");
+        }
+        if recovery_fingerprint.eq_ignore_ascii_case(new_owner_fingerprint) {
+            bail!("new owner fingerprint matches the recovery fingerprint");
+        }
+        if !crypto::public_key_exists(&old_owner_fingerprint)? {
+            bail!("current owner public key is missing");
+        }
+        if !crypto::public_key_exists(new_owner_fingerprint)? {
+            bail!("new owner public key is missing");
+        }
+        if !crypto::public_key_exists(&recovery_fingerprint)? {
+            bail!("recovery public key is missing");
+        }
+
+        let recipient_metadata = self
+            .doc
+            .get("recipients")
+            .and_then(Value::as_object)
+            .context("vault recipients metadata is not an object")?;
+        let mut recipient_fingerprints = HashMap::new();
+        for (uid, metadata) in recipient_metadata {
+            if let Some(fingerprint) = metadata.get("fingerprint").and_then(Value::as_str) {
+                if !fingerprint.is_empty() {
+                    recipient_fingerprints.insert(uid.clone(), fingerprint.to_string());
+                }
+            }
+        }
+
+        let mut staged = self.doc.clone();
+        let items = staged
+            .get_mut("items")
+            .and_then(Value::as_object_mut)
+            .context("vault items section is not an object")?;
+        let mut item_count = usize::default();
+        let mut version_count = usize::default();
+        let mut checked_shared_fingerprints = HashSet::new();
+        for (id, item) in items {
+            let entry = item
+                .as_object_mut()
+                .with_context(|| format!("vault item is not an object: {id}"))?;
+            let stored_recipient_uids = entry
+                .get("recipients")
+                .and_then(Value::as_array)
+                .with_context(|| format!("item recipients are not an array: {id}"))?
+                .clone();
+            let mut retained_recipient_uids = Vec::new();
+            let mut fingerprints = Vec::new();
+            for stored_uid in stored_recipient_uids {
+                let uid = stored_uid
+                    .as_str()
+                    .with_context(|| format!("item recipient UID is not a string: {id}"))?;
+                let fingerprint = recipient_fingerprints
+                    .get(uid)
+                    .with_context(|| format!("item references recipient without a key: {id}"))?;
+                let is_automatic_owner = uid == old_owner_uid
+                    || uid == new_owner_uid
+                    || fingerprint.eq_ignore_ascii_case(&old_owner_fingerprint)
+                    || fingerprint.eq_ignore_ascii_case(new_owner_fingerprint);
+                if !is_automatic_owner
+                    && checked_shared_fingerprints.insert(fingerprint.to_ascii_uppercase())
+                    && !crypto::public_key_exists(fingerprint)?
+                {
+                    bail!("item shared-recipient public key is missing: {id}");
+                }
+                if !is_automatic_owner {
+                    retained_recipient_uids.push(Value::String(uid.to_string()));
+                    push_unique_fingerprint(&mut fingerprints, fingerprint);
+                }
+            }
+            push_unique_fingerprint(&mut fingerprints, &recovery_fingerprint);
+            push_unique_fingerprint(&mut fingerprints, new_owner_fingerprint);
+
+            let current = entry
+                .get("current")
+                .and_then(Value::as_str)
+                .with_context(|| format!("item has no current ciphertext: {id}"))?;
+            let rewrapped_current = rewrap_ciphertext(current, &fingerprints)
+                .with_context(|| format!("rewrap current item version: {id}"))?;
+            entry.insert("current".to_string(), Value::String(rewrapped_current));
+            version_count =
+                version_count.saturating_add(std::iter::once(()).count());
+
+            let history = entry
+                .get_mut("history")
+                .and_then(Value::as_array_mut)
+                .with_context(|| format!("item history is not an array: {id}"))?;
+            for (index, historical) in history.iter_mut().enumerate() {
+                let historical_entry = historical.as_object_mut().with_context(|| {
+                    format!("item history entry is not an object: {id} version {index}")
+                })?;
+                let ciphertext = historical_entry
+                    .get("cipher")
+                    .and_then(Value::as_str)
+                    .with_context(|| {
+                        format!("item history entry has no ciphertext: {id} version {index}")
+                    })?;
+                let rewrapped = rewrap_ciphertext(ciphertext, &fingerprints).with_context(|| {
+                    format!("rewrap historical item version: {id} version {index}")
+                })?;
+                historical_entry.insert("cipher".to_string(), Value::String(rewrapped));
+                version_count =
+                    version_count.saturating_add(std::iter::once(()).count());
+            }
+            entry.insert(
+                "recipients".to_string(),
+                Value::Array(retained_recipient_uids),
+            );
+            item_count = item_count.saturating_add(std::iter::once(()).count());
+        }
+
+        let recipients = obj_mut(&mut staged, "recipients");
+        recipients.remove(&old_owner_uid);
+        recipients.insert(
+            new_owner_uid.to_string(),
+            json!({
+                "fingerprint": new_owner_fingerprint,
+                "role": "owner",
+                "added_at": now(),
+            }),
+        );
+        staged
+            .as_object_mut()
+            .context("vault document is not an object")?
+            .insert("owner".to_string(), json!(new_owner_uid));
+
+        let original = std::mem::replace(&mut self.doc, staged);
+        if let Err(error) = self.save() {
+            self.doc = original;
+            return Err(error);
+        }
+        Ok(OwnerRotationReport {
+            items: item_count,
+            versions: version_count,
+            old_fingerprint: old_owner_fingerprint,
+            new_fingerprint: new_owner_fingerprint.to_string(),
+        })
     }
 
     // Trash (soft delete): recoverable. Purge removes permanently.

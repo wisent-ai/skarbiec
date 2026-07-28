@@ -4,6 +4,7 @@
 
 pub mod audit;
 pub mod breach;
+pub mod mailbox;
 pub mod resolve;
 pub mod totp;
 
@@ -16,6 +17,9 @@ pub fn dispatch(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if let Some(v) = mailbox::dispatch(command, flags, positionals)? {
+        return Ok(Some(v));
+    }
     if let Some(v) = audit::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }

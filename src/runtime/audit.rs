@@ -8,6 +8,8 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -17,10 +19,7 @@ fn audit_path() -> PathBuf {
     if let Ok(p) = std::env::var("SKARBIEC_AUDIT_FILE") {
         return PathBuf::from(p);
     }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".stado/skarbiec.audit.jsonl")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("skarbiec.audit.jsonl")
 }
 
 fn now_iso() -> String {
@@ -57,6 +56,18 @@ fn digest_input(prev: &str, at: &str, op: &str, extra: &Value) -> String {
 /// Append one hash-chained entry. `prev` is the previous line's hash (empty for
 /// the genesis line). Never records any stored value.
 pub fn append(op: &str, extra: &Value) -> Result<()> {
+    let path = audit_path();
+    let lock_path = path.with_extension("jsonl.lock");
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .mode(0o600)
+        .open(&lock_path)
+        .with_context(|| format!("open audit lock {}", lock_path.display()))?;
+    if unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX) } != 0 {
+        return Err(std::io::Error::last_os_error()).context("lock audit journal");
+    }
     let existing = lines()?;
     let prev = existing
         .last()
@@ -67,7 +78,6 @@ pub fn append(op: &str, extra: &Value) -> Result<()> {
     let at = now_iso();
     let hash = crypto::sha256_hex(&digest_input(&prev, &at, op, extra))?;
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
-    let path = audit_path();
     let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
     writeln!(file, "{entry}")?;
     Command::new("chmod").arg("600").arg(&path).status().ok();

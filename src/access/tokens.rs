@@ -1,6 +1,6 @@
-// Long-lived consumer grants. Direct action scopes retain the existing item
-// behavior; acquisition scopes are exact item/field pairs and authorize only
-// issuance of a short-lived single-use bearer.
+// Long-lived consumer grants. Legacy direct item scopes remain intact;
+// acquisition scopes are exact item/field pairs and authorize only issuance of
+// a short-lived single-use bearer.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -47,6 +47,10 @@ fn glob_matches(pattern: &str, id: &str) -> bool {
     true
 }
 
+fn safe_legacy_atom(value: &str) -> bool {
+    !value.trim().is_empty() && value == value.trim() && value != "*"
+}
+
 fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<Vec<String>>> {
     let hash = crypto::sha256_hex(presented)?;
     let entry = match vault.doc().get("tokens").and_then(|t| t.get(consumer)) {
@@ -69,14 +73,6 @@ fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<V
     Ok(Some(scopes))
 }
 
-/// Authenticate a consumer grant without authorizing any particular item.
-pub fn token_valid(vault: &Vault, consumer: &str, presented: &str) -> Result<bool> {
-    Ok(scopes_for(vault, consumer, presented)?.is_some())
-}
-
-/// Check whether a bootstrap grant may request one exact field acquisition.
-/// Acquisition grants are stored separately from direct item scopes, never
-/// use glob matching, and therefore cannot authorize an item read.
 pub fn token_allows_acquisition(
     vault: &Vault,
     consumer: &str,
@@ -85,11 +81,7 @@ pub fn token_allows_acquisition(
     field: &str,
 ) -> Result<bool> {
     let hash = crypto::sha256_hex(presented)?;
-    let Some(entry) = vault
-        .doc()
-        .get("tokens")
-        .and_then(|tokens| tokens.get(consumer))
-    else {
+    let Some(entry) = vault.doc().get("tokens").and_then(|tokens| tokens.get(consumer)) else {
         return Ok(false);
     };
     if entry.get("hash").and_then(Value::as_str) != Some(hash.as_str()) {
@@ -135,33 +127,17 @@ fn acquisition_scopes(vault: &Vault, raw: Option<&String>) -> Result<Vec<Value>>
     }
     Ok(vec![json!({"item": item, "field": field})])
 }
-/// Check whether a consumer grant authorizes an action on one item.
-///
-/// Action-aware scopes use `read:<glob>`, `write:<glob>`, or `delete:<glob>`.
-/// Legacy bare globs remain read-only so existing resolver grants do not gain
-/// mutation rights when the HTTP item API is enabled.
-pub fn token_allows_action(
-    vault: &Vault,
-    consumer: &str,
-    presented: &str,
-    action: &str,
-    id: &str,
-) -> Result<bool> {
+
+/// Used by the runtime resolver: does this consumer + presented secret grant
+/// access to `id`?
+pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) -> Result<bool> {
+    if !safe_legacy_atom(consumer) || !safe_legacy_atom(presented) || !safe_legacy_atom(id) {
+        return Ok(false);
+    }
     match scopes_for(vault, consumer, presented)? {
-        Some(scopes) => Ok(scopes.iter().any(|scope| {
-            if let Some((scope_action, pattern)) = scope.split_once(':') {
-                scope_action == action && glob_matches(pattern, id)
-            } else {
-                action == "read" && glob_matches(scope, id)
-            }
-        })),
+        Some(scopes) => Ok(scopes.iter().any(|pattern| glob_matches(pattern, id))),
         None => Ok(false),
     }
-}
-
-/// Backward-compatible read authorization used by the runtime resolvers.
-pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) -> Result<bool> {
-    token_allows_action(vault, consumer, presented, "read", id)
 }
 
 pub fn dispatch(
@@ -171,21 +147,32 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "token-mint" => {
-            let consumer = positionals.first().context(
-                "usage: token-mint <consumer> [--scopes a,b | --acquisition-scopes item#field]",
-            )?;
+            let consumer = positionals
+                .first()
+                .filter(|value| safe_legacy_atom(value))
+                .context(
+                    "usage: token-mint <consumer> [--scopes a,b | --acquisition-scopes item#field]",
+                )?;
             let scopes: Vec<String> = flags
                 .get("scopes")
                 .map(|value| value.split(',').map(str::to_string).collect())
                 .unwrap_or_default();
-            if !scopes.is_empty() && flags.contains_key("acquisition-scopes") {
+            let acquisition_requested = flags.contains_key("acquisition-scopes");
+            if acquisition_requested && !scopes.is_empty() {
                 anyhow::bail!("direct scopes and acquisition scopes cannot share one grant");
             }
-            if flags.contains_key("acquisition-scopes") && !exact_component(consumer) {
+            if acquisition_requested && !exact_component(consumer) {
                 anyhow::bail!("acquisition consumer must be one exact name");
             }
+            if !acquisition_requested
+                && (scopes.is_empty()
+                    || scopes.iter().any(|scope| !safe_legacy_atom(scope)))
+            {
+                anyhow::bail!("legacy scopes must be nonblank and may not be broad '*'");
+            }
             let mut vault = load()?;
-            let acquisition_scopes = acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
+            let acquisition_scopes =
+                acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
             let minted = crypto::random_token()?;
             let hash = crypto::sha256_hex(&minted)?;
             vault

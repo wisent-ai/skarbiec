@@ -110,32 +110,15 @@ pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
 }
 
 /// Decrypt using whatever private key in the local keyring applies (gpg-agent).
-/// A protected vault can receive its unlock phrase through `SKARBIEC_UNLOCK`
-/// for a single invocation or an owner-only file named by
-/// `SKARBIEC_UNLOCK_FILE` for a persistent service. The phrase is handed to
-/// gpg over stdin, never argv. With neither source, an unprotected key decrypts
-/// normally while a protected key fails without opening an interactive prompt.
-fn unlock_phrase() -> Result<Option<String>> {
-    if let Ok(phrase) = std::env::var("SKARBIEC_UNLOCK") {
-        if !phrase.is_empty() {
-            return Ok(Some(phrase));
-        }
-    }
-    let Ok(path) = std::env::var("SKARBIEC_UNLOCK_FILE") else {
-        return Ok(None);
-    };
-    if path.trim().is_empty() {
-        return Ok(None);
-    }
-    let phrase = std::fs::read_to_string(&path)
-        .with_context(|| format!("read Skarbiec unlock file {path}"))?;
-    let phrase = phrase.trim_end().to_string();
-    Ok((!phrase.is_empty()).then_some(phrase))
-}
-
+/// When the vault key is protected, SKARBIEC_UNLOCK carries the unlock phrase
+/// for a single call; we hand it to gpg over stdin (never argv, never disk)
+/// while the armored ciphertext is staged to a temp file. Unset or empty
+/// SKARBIEC_UNLOCK supplies an empty passphrase, so an unprotected key
+/// decrypts exactly as before while a protected key fast-fails (rc 2) instead
+/// of hanging on a missing passphrase source.
 pub fn decrypt(ciphertext: &str) -> Result<String> {
-    match unlock_phrase()? {
-        Some(phrase) => decrypt_protected(ciphertext, &phrase),
+    match std::env::var("SKARBIEC_UNLOCK") {
+        Ok(phrase) if !phrase.is_empty() => decrypt_protected(ciphertext, &phrase),
         _ => run(
             "gpg",
             &[
@@ -225,6 +208,142 @@ pub fn fingerprint_for(uid: &str) -> Result<Option<String>> {
         }
     }
     Ok(None)
+}
+fn decode_gpg_colon_field(field: &str) -> Result<String> {
+    let radix = "16".parse::<u32>()?;
+    let mut bytes = field.as_bytes().iter().copied();
+    let mut decoded = Vec::with_capacity(field.len());
+    while let Some(byte) = bytes.next() {
+        if byte != b'\\' {
+            decoded.push(byte);
+            continue;
+        }
+        match bytes
+            .next()
+            .context("malformed escaped UID in gpg key listing")?
+        {
+            b'\\' => decoded.push(b'\\'),
+            b'n' => decoded.push(b'\n'),
+            b'r' => decoded.push(b'\r'),
+            b'x' => {
+                let high = bytes
+                    .next()
+                    .and_then(|value| char::from(value).to_digit(radix))
+                    .and_then(|value| u8::try_from(value).ok())
+                    .context("malformed hex escape in gpg UID")?;
+                let low = bytes
+                    .next()
+                    .and_then(|value| char::from(value).to_digit(radix))
+                    .and_then(|value| u8::try_from(value).ok())
+                    .context("malformed hex escape in gpg UID")?;
+                let radix = u8::try_from(radix)?;
+                decoded.push(high * radix + low);
+            }
+            _ => bail!("unsupported escape in gpg UID"),
+        }
+    }
+    String::from_utf8(decoded).context("gpg UID is not UTF-8")
+}
+
+/// Resolve one primary public-key fingerprint by an exact UID match.
+///
+/// `gpg --list-keys <query>` performs a substring search and the first
+/// fingerprint in its output is not a safe identity decision. Owner rotation
+/// instead scans the public keyring, associates each UID with its primary
+/// fingerprint, and refuses both absence and ambiguity.
+pub fn fingerprint_for_exact_uid(uid: &str) -> Result<String> {
+    if uid.trim().is_empty() || uid.chars().any(char::is_control) {
+        bail!("new owner UID must be non-empty and contain no control characters");
+    }
+    let listing = run(
+        "gpg",
+        &[
+            "--batch",
+            "--with-colons",
+            "--fingerprint",
+            "--list-keys",
+        ],
+        None,
+    )?;
+    let fingerprint_field = "9".parse::<usize>()?;
+    let mut primary_fingerprint: Option<String> = None;
+    let mut awaiting_primary_fingerprint = false;
+    let mut matches = Vec::new();
+    for line in listing.lines() {
+        let mut fields = line.split(':');
+        match fields.next().unwrap_or_default() {
+            "pub" => {
+                primary_fingerprint = None;
+                awaiting_primary_fingerprint = true;
+            }
+            "sub" => awaiting_primary_fingerprint = false,
+            "fpr" if awaiting_primary_fingerprint => {
+                let fingerprint = fields
+                    .nth(fingerprint_field.saturating_sub(std::iter::once(()).count()))
+                    .filter(|value| {
+                        !value.is_empty()
+                            && value.chars().all(|character| character.is_ascii_hexdigit())
+                    })
+                    .context("gpg public key has no valid primary fingerprint")?;
+                primary_fingerprint = Some(fingerprint.to_string());
+                awaiting_primary_fingerprint = false;
+            }
+            "uid" => {
+                let encoded = fields
+                    .nth(fingerprint_field.saturating_sub(std::iter::once(()).count()))
+                    .context("gpg UID record is malformed")?;
+                if decode_gpg_colon_field(encoded)? == uid {
+                    let fingerprint = primary_fingerprint
+                        .as_ref()
+                        .context("gpg UID has no primary public fingerprint")?;
+                    if !matches.iter().any(|matched| matched == fingerprint) {
+                        matches.push(fingerprint.clone());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    match matches.as_slice() {
+        [] => bail!("no public key has exact UID: {uid}"),
+        [fingerprint] => Ok(fingerprint.clone()),
+        _ => bail!("multiple public keys have exact UID: {uid}"),
+    }
+}
+
+/// Whether an exact primary public-key fingerprint is present locally.
+pub fn public_key_exists(fingerprint: &str) -> Result<bool> {
+    if fingerprint.is_empty()
+        || !fingerprint
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return Ok(false);
+    }
+    let Some(listing) = run_opt(
+        "gpg",
+        &[
+            "--batch",
+            "--with-colons",
+            "--fingerprint",
+            "--list-keys",
+            fingerprint,
+        ],
+        None,
+    ) else {
+        return Ok(false);
+    };
+    let fingerprint_field = "9".parse::<usize>()?;
+    for line in listing.lines().filter(|line| line.starts_with("fpr:")) {
+        let listed = line
+            .split(':')
+            .nth(fingerprint_field)
+            .unwrap_or_default();
+        if listed.eq_ignore_ascii_case(fingerprint) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Import an armored public (or private) key, returning nothing on success.

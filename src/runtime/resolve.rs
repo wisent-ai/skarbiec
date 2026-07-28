@@ -49,6 +49,11 @@ fn mapping_for(row: &Value) -> Vec<(String, String)> {
     if let Some(code_seed) = seed {
         out.push(("ADMIN_TOTP".to_string(), code_seed.to_string()));
     }
+    if row.get("type").and_then(Value::as_str) == Some("credential") {
+        if let Some(value) = row.get("value").and_then(Value::as_str) {
+            out.push(("ADMIN_CREDENTIAL".to_string(), value.to_string()));
+        }
+    }
     out
 }
 
