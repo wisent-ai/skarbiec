@@ -34,15 +34,29 @@ Three invariants keep values off surfaces that get logged or captured:
   themselves are never printed to stdout.
 - The append-only audit journal keeps operation names and non-sensitive
   identifiers only — never values.
-- `list`, the HTTP `list`, and the MCP `skarbiec_list` return metadata only.
+- `list`, HTTP list endpoints, and `skarbiec_list` return metadata only.
 
 ## Service-account grants
 
-A machine consumer never holds a recipient key. Instead it presents a grant
-minted by `token-mint`. Only a hash of the grant is retained on disk; the plain
-grant is shown once at mint time. `resolve` authorizes a consumer only when the
-presented grant's scope glob matches the requested item id. `token-verify`
-checks a grant without resolving.
+A machine consumer never holds a recipient key. Existing direct consumers
+present a grant minted by `token-mint --scopes`; generic HTTP scopes remain
+action-qualified as `read:<item-glob>`, `write:<item-glob>`, and
+`delete:<item-glob>`. A legacy bare glob authorizes reads only, so enabling
+mutation endpoints cannot silently upgrade an existing grant.
+
+Startup consumers instead use `token-mint --acquisition-scopes item#field`.
+That grammar accepts only an exact existing item and exact field, rejects
+wildcards/globs, and cannot be combined with direct scopes. The long-lived
+bootstrap can request but cannot read. Skarbiec issues an opaque short-TTL
+bearer bound to consumer, item, and field; the first successful read removes its
+stored hash atomically before returning only that field. Binding mismatch does
+not consume or broaden it. Replay and expiry return unauthorized.
+
+Acquisition state is a separate owner-only regular file, updated through a
+same-owner temporary file and atomic rename while an exclusive state lock is
+held. Values never enter that file or the audit journal. Issuance and consumption
+audit entries contain only consumer, item, field, expiry, and operation metadata.
+`token-verify` continues to check direct read access without resolving.
 
 ## The MCP boundary is tighter than the CLI
 
@@ -64,10 +78,25 @@ all.
 ## Recovery and rotation
 
 Every item carries a recovery recipient, so losing the daily identity never
-loses data. Master rotation re-encrypts to a fresh recipient group; a full re-key
-generates a new sealing and re-encrypts every item and its history. Time-delayed
+loses data. `rotate-owner <uid>` installs a new owner: it re-encrypts every
+item and its full version history onto the new recipient group, drops the
+previous owner from each item, and keeps the recovery recipient. Time-delayed
 emergency grants share the vault with a trusted user only after an
 operator-chosen moment.
+
+Registering a key is not rotating one. `add-user` only adds a recipient and
+deliberately leaves stored ciphertext alone, which is right for `share` but
+would hand out an ownership title over data the holder cannot read; it
+therefore refuses `--role owner` and names `rotate-owner` instead. Rotation
+requires the new key to already be in the keyring and every existing
+ciphertext to decrypt before anything is written, so a half-finished rotation
+cannot leave the vault readable by neither owner.
+
+Because the recovery recipient is the last line, its private half belongs
+off-machine — a vault whose recovery key sits in the same keyring as the owner
+key has one failure domain, not two. `recovery-status` lists the recovery
+fingerprint and the item count it covers; an untested recovery key is a
+hypothesis, so open one item with it on a schedule.
 
 ## Tamper evidence
 

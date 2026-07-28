@@ -17,7 +17,10 @@ fn audit_path() -> PathBuf {
     if let Ok(p) = std::env::var("SKARBIEC_AUDIT_FILE") {
         return PathBuf::from(p);
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("skarbiec.audit.jsonl")
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".stado/skarbiec.audit.jsonl")
 }
 
 fn now_iso() -> String {

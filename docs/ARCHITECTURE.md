@@ -14,8 +14,8 @@ hand-rolled here.
   keys of its recipients. The on-disk file is safe at rest.
 - Multi-recipient sharing. Register a user, share an item (re-encrypt to include
   them), revoke (re-encrypt to the remaining recipients).
-- Service-account access. Mint a scoped grant; only a hash of it is retained; a
-  consumer must present the grant and match a scope glob to resolve an item.
+- Service-account access. Mint a scoped grant; only a hash of it is retained.
+  Read, write, and delete actions are matched against independent item globs.
 - Recovery + emergency access. A recovery recipient is on every item, so losing
   the daily identity never loses data; time-delayed emergency grants share the
   vault with a trusted user after an operator-chosen moment.
@@ -53,18 +53,44 @@ local HTTP API below:
 
 ### Local HTTP API contract (what those clients call)
 
-Loopback only. Started with the serve command (bind port configurable via the
-port flag). Endpoints:
+Loopback only. Started with `skarbiec serve` (port configurable with `--port`).
+The stable generic item surface is:
 
-- health — liveness.
-- list — item metadata only, never values.
-- resolve — a JSON body naming a platform, plus an X-Consumer header and an
-  Authorization Bearer header. Returns the canonical login mapping only when the
-  consumer grant is authorized for that item.
-- audit — an audit summary.
+- `POST /v1/items/list` — metadata for items covered by a `read:` scope.
+- `POST /v1/items/read` with `{"id":"..."}` — one decrypted JSON item.
+- `PUT /v1/items` with `{"id":"...","type":"...","value":...}` — create a new
+  encrypted version while preserving existing recipients and tags.
+- `DELETE /v1/items` with `{"id":"..."}` — soft-delete an item.
 
-A client identifies as a consumer holding a scoped grant minted by token-mint;
-unauthorized requests are refused.
+Every generic endpoint requires `X-Consumer` and `Authorization: Bearer ...`.
+The grant must match the action-specific `read:`, `write:`, or `delete:` scope
+for the item. A legacy bare scope is read-only. Values occur only in authorized
+request/response bodies and are never included in audit records.
+
+The one-time field surface is separate:
+
+- `POST /v1/acquisitions` with `{"id":"...","field":"..."}` and a request-only
+  bootstrap bearer issues an opaque short-TTL bearer bound to that exact
+  consumer, item, and field.
+- `POST /v1/acquisitions/read` with the same body and the issued bearer returns
+  only that field, atomically removes the bearer hash, and returns unauthorized
+  on replay, expiry, or any binding mismatch.
+
+Bootstrap grants have no direct item scopes. Acquisition state contains only
+hashes, bindings, and expiry metadata and is persisted by owner-safe atomic
+rename under an exclusive lock.
+
+Compatibility endpoints remain available: metadata-only `GET /list`, `GET /audit`,
+and login-oriented `POST /resolve`.
+
+`GET /health` proves the key material is still usable rather than that the
+process is running. It opens the lowest-id live item and reports `503` with
+`error_code: infra_down` when the stored ciphertext cannot be decrypted,
+because a broker holding items it can no longer read is down however healthy
+its socket looks. The probe is deterministic, so repeated calls exercise the
+same ciphertext; the decrypted value is discarded and never returned or
+logged. Reads of an item that exists but will not decrypt answer `503` with
+the same code instead of dropping the connection.
 
 ## MCP server (agent surface)
 

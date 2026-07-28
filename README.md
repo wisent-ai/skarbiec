@@ -11,8 +11,9 @@ delegated to vetted local tools (`gpg`, `openssl`, `shasum`, and optional
   keys of its recipients. The on-disk file is safe at rest.
 - **Multi-recipient sharing.** Register a user, share an item (re-encrypt to
   include them), revoke (re-encrypt to the remaining recipients).
-- **Scoped service-account grants.** Mint a grant; only a hash of it is retained.
-  A consumer must present the grant and match a scope glob to resolve an item.
+- **Scoped service-account grants.** Existing read, write, and delete scopes are
+  checked independently. Request-only grants can instead issue a short-lived,
+  field-bound bearer that is atomically consumed by its first successful read.
 - **Recovery and emergency access.** A recovery recipient is on every item, so
   losing the daily identity never loses data; time-delayed emergency grants share
   the vault after an operator-chosen moment.
@@ -56,9 +57,8 @@ skarbiec list
 skarbiec get github
 ```
 
-The vault lives at `SKARBIEC_VAULT_FILE` (default `skarbiec.vault.json`): armored
-ciphertext, safe at rest. The bundled `.gitignore` keeps every vault, audit
-journal, and resolved env file out of version control.
+The vault lives at `SKARBIEC_VAULT_FILE` (default
+`~/.stado/skarbiec.vault.json`): armored ciphertext, safe at rest.
 
 ## Documentation
 

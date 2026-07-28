@@ -110,15 +110,32 @@ pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
 }
 
 /// Decrypt using whatever private key in the local keyring applies (gpg-agent).
-/// When the vault key is protected, SKARBIEC_UNLOCK carries the unlock phrase
-/// for a single call; we hand it to gpg over stdin (never argv, never disk)
-/// while the armored ciphertext is staged to a temp file. Unset or empty
-/// SKARBIEC_UNLOCK supplies an empty passphrase, so an unprotected key
-/// decrypts exactly as before while a protected key fast-fails (rc 2) instead
-/// of hanging on a missing passphrase source.
+/// A protected vault can receive its unlock phrase through `SKARBIEC_UNLOCK`
+/// for a single invocation or an owner-only file named by
+/// `SKARBIEC_UNLOCK_FILE` for a persistent service. The phrase is handed to
+/// gpg over stdin, never argv. With neither source, an unprotected key decrypts
+/// normally while a protected key fails without opening an interactive prompt.
+fn unlock_phrase() -> Result<Option<String>> {
+    if let Ok(phrase) = std::env::var("SKARBIEC_UNLOCK") {
+        if !phrase.is_empty() {
+            return Ok(Some(phrase));
+        }
+    }
+    let Ok(path) = std::env::var("SKARBIEC_UNLOCK_FILE") else {
+        return Ok(None);
+    };
+    if path.trim().is_empty() {
+        return Ok(None);
+    }
+    let phrase = std::fs::read_to_string(&path)
+        .with_context(|| format!("read Skarbiec unlock file {path}"))?;
+    let phrase = phrase.trim_end().to_string();
+    Ok((!phrase.is_empty()).then_some(phrase))
+}
+
 pub fn decrypt(ciphertext: &str) -> Result<String> {
-    match std::env::var("SKARBIEC_UNLOCK") {
-        Ok(phrase) if !phrase.is_empty() => decrypt_protected(ciphertext, &phrase),
+    match unlock_phrase()? {
+        Some(phrase) => decrypt_protected(ciphertext, &phrase),
         _ => run(
             "gpg",
             &[

@@ -1,8 +1,8 @@
 # CLI reference
 
 Every command prints a JSON result to stdout. The vault path comes from
-`SKARBIEC_VAULT_FILE` (default `skarbiec.vault.json`). Run `skarbiec help` for the
-raw command list.
+`SKARBIEC_VAULT_FILE` (default `~/.stado/skarbiec.vault.json`). Run
+`skarbiec help` for the raw command list.
 
 Flags are `--key value` or bare `--flag`; everything else is positional.
 
@@ -29,23 +29,36 @@ skarbiec restore-version github 2026-07-01T12:00:00Z
 
 | Command | What it does |
 | --- | --- |
-| `add-user <uid> [--import <pubkey-file>] [--role r]` | Register a recipient by uid; import their public key or generate one. |
+| `add-user <uid> [--import <pubkey-file>] [--role r]` | Register a recipient by uid; import their public key or generate one. Registering does **not** re-encrypt items already stored — use `share` to grant those. Refused for `--role owner`, which would leave an owner holding a key that opens nothing. |
 | `users` | List registered recipients. |
 | `export-key <uid>` | Print a recipient's armored public key (for sharing the vault). |
 | `share <item-id> <uid>` | Re-encrypt an item to also include that recipient. |
 | `revoke <item-id> <uid>` | Re-encrypt an item to the remaining recipients, dropping that uid. |
+| `rotate-owner <uid>` | Install a new owner: rewrap every current and historical ciphertext onto that uid's key, keep the recovery recipient, and report the item and version counts. This is the only correct way to change owner. |
 
 ## Service-account grants
 
 | Command | What it does |
 | --- | --- |
-| `token-mint <consumer> --scopes a,b` | Issue a scoped grant for a consumer. Only a hash is retained; the grant is shown once. |
-| `token-verify <consumer> <item-id> --token T` | Check whether a presented grant authorizes that consumer for that item. |
+| `token-mint <consumer> --scopes a,b` | Issue a direct scoped grant for a consumer. Scopes are `read:<glob>`, `write:<glob>`, or `delete:<glob>`; a legacy bare glob is read-only. Only a hash is retained; the grant is shown once. |
+| `token-mint <consumer> --acquisition-scopes item#field` | Issue a request-only bootstrap grant for one exact existing item field. Direct and acquisition scopes cannot be combined. Wildcards and globs are rejected. |
+| `token-verify <consumer> <item-id> --token T` | Check whether a presented direct grant authorizes read access to that item. |
 | `token-revoke <consumer>` | Drop a consumer's grant. |
-| `tokens` | List consumers and their scope globs (no grant values). |
+| `tokens` | List consumers and direct/acquisition scope metadata (no grant values). |
+| `acquisition-request <consumer> <item> <field> --token T` | Exchange an authorized bootstrap grant for an opaque short-TTL bearer bound to that consumer, item, and field. |
+| `acquisition-read <consumer> <item> <field> --token T` | Return only the bound field and atomically consume the acquisition bearer. Replay, expiry, or a binding mismatch is unauthorized. |
 
-A consumer resolves an item only by presenting a grant whose scope glob matches
-the item id.
+Bootstrap grants have an empty direct-scope list, so they cannot read or list an
+item. Each acquisition request and response names exactly one field. Issued
+bearer hashes live in an owner-only acquisition state file; a successful read
+removes the hash under an exclusive state lock before the value is returned.
+Failed binding checks do not broaden or consume the bearer; expired bearers are
+removed and rejected. `SKARBIEC_ACQUISITION_TTL_SECONDS` may set the nonsecret
+TTL from one through 300 seconds; the default is 30.
+
+The loopback item API retains existing action/item scope behavior. Acquisition
+clients use `POST /v1/acquisitions` followed immediately by
+`POST /v1/acquisitions/read`, with `X-Consumer` and the applicable bearer.
 
 ## Recovery and emergency access
 

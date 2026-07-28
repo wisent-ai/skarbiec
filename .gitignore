@@ -1,4 +1,8 @@
 /target
+
+# Swift build detritus from an empty scaffold: no sources, only .build.
+# The real app is in wisent-ai/skarbiec-desktop.
+/desktop/
 skarbiec.vault.json
 skarbiec.audit.jsonl
 *.vault.json

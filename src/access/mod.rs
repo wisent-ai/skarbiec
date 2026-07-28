@@ -3,6 +3,7 @@
 // submodule matches its own commands and returns None for anything else, so
 // this router simply forwards to them in turn; a real error propagates via `?`.
 
+pub mod acquisition;
 pub mod policy;
 pub mod recipients;
 pub mod recovery;
@@ -18,6 +19,9 @@ pub fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     if let Some(v) = recipients::dispatch(command, flags, positionals)? {
+        return Ok(Some(v));
+    }
+    if let Some(v) = acquisition::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
     if let Some(v) = tokens::dispatch(command, flags, positionals)? {

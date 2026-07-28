@@ -8,11 +8,14 @@ pub mod vault;
 
 use std::path::PathBuf;
 
-/// Location of the on-disk encrypted vault: SKARBIEC_VAULT_FILE override, else
-/// a repo-relative default. Shared by every layer so they open one store.
+/// Location of the encrypted vault. An explicit `SKARBIEC_VAULT_FILE` wins;
+/// otherwise use the user's Stado state directory, never the source tree.
 pub fn vault_path() -> PathBuf {
     if let Ok(p) = std::env::var("SKARBIEC_VAULT_FILE") {
         return PathBuf::from(p);
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("skarbiec.vault.json")
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".stado/skarbiec.vault.json")
 }

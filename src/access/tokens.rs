@@ -1,7 +1,6 @@
-// Consumer service tokens with scopes. Mint returns the token once; only its
-// SHA-256 hash is stored. Verify checks a presented token's hash and that the
-// requested item id matches one of the consumer's scope globs — so programmatic
-// access is authenticated and scoped, not a self-asserted name.
+// Long-lived consumer grants. Direct action scopes retain the existing item
+// behavior; acquisition scopes are exact item/field pairs and authorize only
+// issuance of a short-lived single-use bearer.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -70,13 +69,95 @@ fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<V
     Ok(Some(scopes))
 }
 
-/// Used by the runtime resolver: does this consumer + presented secret grant
-/// access to `id`?
-pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) -> Result<bool> {
+/// Authenticate a consumer grant without authorizing any particular item.
+pub fn token_valid(vault: &Vault, consumer: &str, presented: &str) -> Result<bool> {
+    Ok(scopes_for(vault, consumer, presented)?.is_some())
+}
+
+/// Check whether a bootstrap grant may request one exact field acquisition.
+/// Acquisition grants are stored separately from direct item scopes, never
+/// use glob matching, and therefore cannot authorize an item read.
+pub fn token_allows_acquisition(
+    vault: &Vault,
+    consumer: &str,
+    presented: &str,
+    item: &str,
+    field: &str,
+) -> Result<bool> {
+    let hash = crypto::sha256_hex(presented)?;
+    let Some(entry) = vault.doc().get("tokens").and_then(|tokens| tokens.get(consumer)) else {
+        return Ok(false);
+    };
+    if entry.get("hash").and_then(Value::as_str) != Some(hash.as_str()) {
+        return Ok(false);
+    }
+    Ok(entry
+        .get("acquisition_scopes")
+        .and_then(Value::as_array)
+        .is_some_and(|scopes| {
+            scopes.iter().any(|scope| {
+                scope.get("item").and_then(Value::as_str) == Some(item)
+                    && scope.get("field").and_then(Value::as_str) == Some(field)
+            })
+        }))
+}
+
+fn exact_component(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn acquisition_scopes(vault: &Vault, raw: Option<&String>) -> Result<Vec<Value>> {
+    let Some(encoded) = raw else {
+        return Ok(Vec::new());
+    };
+    if encoded.contains(',') {
+        anyhow::bail!("an acquisition bootstrap grant must name exactly one field");
+    }
+    let (item, field) = encoded
+        .split_once('#')
+        .context("acquisition scopes use one exact item#field entry")?;
+    if !exact_component(item) || !exact_component(field) {
+        anyhow::bail!("acquisition scopes prohibit wildcards, globs, and empty names");
+    }
+    let secret = vault.get_item(item)?;
+    if !secret
+        .as_object()
+        .is_some_and(|object| object.contains_key(field))
+    {
+        anyhow::bail!("acquisition scope names a missing item field");
+    }
+    Ok(vec![json!({"item": item, "field": field})])
+}
+/// Check whether a consumer grant authorizes an action on one item.
+///
+/// Action-aware scopes use `read:<glob>`, `write:<glob>`, or `delete:<glob>`.
+/// Legacy bare globs remain read-only so existing resolver grants do not gain
+/// mutation rights when the HTTP item API is enabled.
+pub fn token_allows_action(
+    vault: &Vault,
+    consumer: &str,
+    presented: &str,
+    action: &str,
+    id: &str,
+) -> Result<bool> {
     match scopes_for(vault, consumer, presented)? {
-        Some(scopes) => Ok(scopes.iter().any(|pattern| glob_matches(pattern, id))),
+        Some(scopes) => Ok(scopes.iter().any(|scope| {
+            if let Some((scope_action, pattern)) = scope.split_once(':') {
+                scope_action == action && glob_matches(pattern, id)
+            } else {
+                action == "read" && glob_matches(scope, id)
+            }
+        })),
         None => Ok(false),
     }
+}
+
+/// Backward-compatible read authorization used by the runtime resolvers.
+pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) -> Result<bool> {
+    token_allows_action(vault, consumer, presented, "read", id)
 }
 
 pub fn dispatch(
@@ -86,30 +167,53 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "token-mint" => {
-            let consumer = positionals
-                .first()
-                .context("usage: token-mint <consumer> --scopes a,b")?;
-            let minted = crypto::random_token()?;
-            let hash = crypto::sha256_hex(&minted)?;
+            let consumer = positionals.first().context(
+                "usage: token-mint <consumer> [--scopes a,b | --acquisition-scopes item#field]",
+            )?;
             let scopes: Vec<String> = flags
                 .get("scopes")
-                .map(|s| s.split(',').map(str::to_string).collect())
+                .map(|value| value.split(',').map(str::to_string).collect())
                 .unwrap_or_default();
+            if !scopes.is_empty() && flags.contains_key("acquisition-scopes") {
+                anyhow::bail!("direct scopes and acquisition scopes cannot share one grant");
+            }
+            if flags.contains_key("acquisition-scopes") && !exact_component(consumer) {
+                anyhow::bail!("acquisition consumer must be one exact name");
+            }
             let mut vault = load()?;
+            let acquisition_scopes =
+                acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
+            let minted = crypto::random_token()?;
+            let hash = crypto::sha256_hex(&minted)?;
             vault
                 .doc_mut()
                 .get_mut("tokens")
                 .and_then(Value::as_object_mut)
                 .context("tokens section")?
-                .insert(consumer.clone(), json!({"hash": hash, "scopes": scopes}));
+                .insert(
+                    consumer.clone(),
+                    json!({
+                        "hash": hash,
+                        "scopes": scopes,
+                        "acquisition_scopes": acquisition_scopes,
+                    }),
+                );
             vault.save()?;
             crate::runtime::audit::append(
                 "token-mint",
-                &json!({"consumer": consumer, "scopes": scopes}),
+                &json!({
+                    "consumer": consumer,
+                    "scopes": scopes,
+                    "acquisition_scopes": acquisition_scopes,
+                }),
             )?;
-            Ok(Some(
-                json!({"ok": true, "consumer": consumer, "scopes": scopes, "token": minted}),
-            ))
+            Ok(Some(json!({
+                "ok": true,
+                "consumer": consumer,
+                "scopes": scopes,
+                "acquisition_scopes": acquisition_scopes,
+                "token": minted,
+            })))
         }
         "token-revoke" => {
             let consumer = positionals
@@ -143,9 +247,23 @@ pub fn dispatch(
         }
         "tokens" => {
             let vault = load()?;
-            let listing: Vec<Value> = vault.doc().get("tokens").and_then(Value::as_object).map(|t| {
-                t.iter().map(|(consumer, entry)| json!({"consumer": consumer, "scopes": entry.get("scopes")})).collect()
-            }).unwrap_or_default();
+            let listing: Vec<Value> = vault
+                .doc()
+                .get("tokens")
+                .and_then(Value::as_object)
+                .map(|tokens| {
+                    tokens
+                        .iter()
+                        .map(|(consumer, entry)| {
+                            json!({
+                                "consumer": consumer,
+                                "scopes": entry.get("scopes"),
+                                "acquisition_scopes": entry.get("acquisition_scopes"),
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
             Ok(Some(json!(listing)))
         }
         _ => Ok(None),
