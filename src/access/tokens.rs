@@ -85,7 +85,11 @@ pub fn token_allows_acquisition(
     field: &str,
 ) -> Result<bool> {
     let hash = crypto::sha256_hex(presented)?;
-    let Some(entry) = vault.doc().get("tokens").and_then(|tokens| tokens.get(consumer)) else {
+    let Some(entry) = vault
+        .doc()
+        .get("tokens")
+        .and_then(|tokens| tokens.get(consumer))
+    else {
         return Ok(false);
     };
     if entry.get("hash").and_then(Value::as_str) != Some(hash.as_str()) {
@@ -181,8 +185,7 @@ pub fn dispatch(
                 anyhow::bail!("acquisition consumer must be one exact name");
             }
             let mut vault = load()?;
-            let acquisition_scopes =
-                acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
+            let acquisition_scopes = acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
             let minted = crypto::random_token()?;
             let hash = crypto::sha256_hex(&minted)?;
             vault

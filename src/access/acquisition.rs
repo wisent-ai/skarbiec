@@ -38,11 +38,17 @@ fn unsafe_mode_bits() -> Result<u32> {
 }
 
 fn effective_uid() -> Result<u32> {
-    let output = Command::new("id").arg("-u").output().context("read effective uid")?;
+    let output = Command::new("id")
+        .arg("-u")
+        .output()
+        .context("read effective uid")?;
     if !output.status.success() {
         bail!("could not determine effective uid");
     }
-    String::from_utf8(output.stdout)?.trim().parse().context("parse effective uid")
+    String::from_utf8(output.stdout)?
+        .trim()
+        .parse()
+        .context("parse effective uid")
 }
 
 fn state_path() -> PathBuf {
@@ -71,7 +77,7 @@ fn acquire_lock(path: &Path) -> Result<StateLock> {
     let lock = lock_path(path);
     let attempts: usize = "500".parse()?;
     let pause = Duration::from_millis("10".parse()?);
-    for _ in std::iter::repeat(()).take(attempts) {
+    for _ in std::iter::repeat_n((), attempts) {
         match DirBuilder::new().mode(private_dir_mode()?).create(&lock) {
             Ok(()) => return Ok(StateLock { path: lock }),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => thread::sleep(pause),
@@ -97,8 +103,8 @@ fn load_state(path: &Path) -> Result<Value> {
         return Ok(json!({"version": "v1", "tokens": {}}));
     }
     validate_owned_regular(path)?;
-    let state: Value = serde_json::from_str(&fs::read_to_string(path)?)
-        .context("parse acquisition state")?;
+    let state: Value =
+        serde_json::from_str(&fs::read_to_string(path)?).context("parse acquisition state")?;
     if state.get("version").and_then(Value::as_str) != Some("v1")
         || !state.get("tokens").is_some_and(Value::is_object)
     {
@@ -160,7 +166,9 @@ fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {
         bail!("item and field must be exact names without wildcards or separators");
     }
     let value = vault.get_item(item)?;
-    let object = value.as_object().context("acquisition item must be a JSON object")?;
+    let object = value
+        .as_object()
+        .context("acquisition item must be a JSON object")?;
     if !object.contains_key(field) {
         bail!("acquisition field does not exist on item");
     }
@@ -192,11 +200,7 @@ pub fn issue(
     item: &str,
     field: &str,
 ) -> Result<Option<IssuedAcquisition>> {
-    if !exact_name(consumer)
-        || !exact_name(item)
-        || !exact_name(field)
-        || bootstrap.is_empty()
-    {
+    if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || bootstrap.is_empty() {
         return Ok(None);
     }
     let vault = Vault::open(vault_path())?;
@@ -210,7 +214,9 @@ pub fn issue(
     let mut state = load_state(&path)?;
     let now = now_epoch()?;
     purge_expired(&mut state, now)?;
-    let expires_at = now.checked_add(ttl_seconds()?).context("acquisition expiry overflow")?;
+    let expires_at = now
+        .checked_add(ttl_seconds()?)
+        .context("acquisition expiry overflow")?;
     let token = crypto::random_token()?;
     let hash = crypto::sha256_hex(&token)?;
     let tokens = state
@@ -220,22 +226,20 @@ pub fn issue(
     if tokens.contains_key(&hash) {
         bail!("acquisition token collision");
     }
-    tokens.insert(hash, json!({
-        "consumer": consumer,
-        "item": item,
-        "field": field,
-        "expires_at": expires_at,
-    }));
+    tokens.insert(
+        hash,
+        json!({
+            "consumer": consumer,
+            "item": item,
+            "field": field,
+            "expires_at": expires_at,
+        }),
+    );
     save_state(&path, &state)?;
     Ok(Some(IssuedAcquisition { token, expires_at }))
 }
 
-pub fn consume(
-    consumer: &str,
-    presented: &str,
-    item: &str,
-    field: &str,
-) -> Result<Option<Value>> {
+pub fn consume(consumer: &str, presented: &str, item: &str, field: &str) -> Result<Option<Value>> {
     if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || presented.is_empty() {
         return Ok(None);
     }
@@ -322,15 +326,15 @@ pub fn dispatch(
             })))
         }
         "acquisition-read" => {
-            let consumer = positionals.first().context(
-                "usage: acquisition-read <consumer> <item> <field> --token ACQUISITION",
-            )?;
-            let item = positionals.get("1".parse::<usize>()?).context(
-                "usage: acquisition-read <consumer> <item> <field> --token ACQUISITION",
-            )?;
-            let field = positionals.get("2".parse::<usize>()?).context(
-                "usage: acquisition-read <consumer> <item> <field> --token ACQUISITION",
-            )?;
+            let consumer = positionals
+                .first()
+                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
+            let item = positionals
+                .get("1".parse::<usize>()?)
+                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
+            let field = positionals
+                .get("2".parse::<usize>()?)
+                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
             let presented = flags.get("token").context("--token required")?;
             let Some(value) = consume(consumer, presented, item, field)? else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
@@ -339,7 +343,9 @@ pub fn dispatch(
                 "acquisition-consumed",
                 &json!({"consumer": consumer, "item": item, "field": field}),
             )?;
-            Ok(Some(json!({"ok": true, "consumer": consumer, "item": item, "field": field, "value": value})))
+            Ok(Some(
+                json!({"ok": true, "consumer": consumer, "item": item, "field": field, "value": value}),
+            ))
         }
         _ => Ok(None),
     }

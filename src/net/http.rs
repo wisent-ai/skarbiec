@@ -146,10 +146,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
                 None => (true, "vault holds no items to probe".to_string()),
                 Some(id) => match vault.get_item(&id) {
                     Ok(_) => (true, String::new()),
-                    Err(error) => (
-                        false,
-                        format!("stored items cannot be decrypted: {error}"),
-                    ),
+                    Err(error) => (false, format!("stored items cannot be decrypted: {error}")),
                 },
             },
         };
@@ -196,8 +193,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let issued = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::issue(&consumer, &bootstrap, item, field)
-                .unwrap_or(None)
+            crate::access::acquisition::issue(&consumer, &bootstrap, item, field).unwrap_or(None)
         };
         let Some(issued) = issued else {
             return write_response(
@@ -240,13 +236,8 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let value = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::consume(
-                &consumer,
-                &acquisition_token,
-                item,
-                field,
-            )
-            .unwrap_or(None)
+            crate::access::acquisition::consume(&consumer, &acquisition_token, item, field)
+                .unwrap_or(None)
         };
         let Some(value) = value else {
             return write_response(
