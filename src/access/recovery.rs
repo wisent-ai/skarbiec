@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::Command;
 
-use crate::core::{vault::Vault, vault_path};
+use crate::core::{crypto, vault::Vault, vault_path};
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
@@ -54,10 +54,121 @@ pub fn dispatch(
                 .and_then(Value::as_object)
                 .map(|m| m.len())
                 .unwrap_or_default();
+            let fpr = vault.recovery_fpr().to_string();
+            // Reporting the fingerprint proved nothing about recoverability:
+            // this command answered identically whether the offline material
+            // was in a safe or had never existed. It now says which.
+            let held = !fpr.is_empty() && crypto::secret_key_present(&fpr);
             Ok(Some(json!({
-                "recovery_fpr": vault.recovery_fpr(),
-                "note": "recovery recipient is on every item; keep its offline material stored safely",
+                "recovery_fpr": fpr,
+                "secret_half_present_locally": held,
+                "note": if held {
+                    "recovery secret half is in THIS keyring, so it shares one failure domain with the owner key; offline material belongs off-machine"
+                } else {
+                    "recovery recipient is on every item; its offline material is the last way in — verify a drill can open one item"
+                },
                 "item_count": items,
+            })))
+        }
+        "key-doctor" => {
+            // The question every outage asks and nothing could answer: can any
+            // key on this machine still open the vault, and if not, exactly
+            // which file has to come back from backup. Reads the vault document
+            // and the keyring directly, never the HTTP API — the API is the
+            // first thing that stops working, and a diagnosis that needs the
+            // patient healthy is not a diagnosis.
+            let vault = load()?;
+            let owner = vault.owner_uid().to_string();
+            let recovery = vault.recovery_fpr().to_string();
+            let mut recipients = Vec::new();
+            let mut openers = Vec::new();
+            let registry = vault
+                .doc()
+                .get("recipients")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            for (uid, entry) in &registry {
+                let fpr = entry
+                    .get("fingerprint")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let held = !fpr.is_empty() && crypto::secret_key_present(fpr);
+                if held {
+                    openers.push(uid.clone());
+                }
+                let grips = crypto::keygrips_for(fpr);
+                recipients.push(json!({
+                    "uid": uid,
+                    "fingerprint": fpr,
+                    "role": entry.get("role").and_then(Value::as_str).unwrap_or_default(),
+                    "is_owner": uid == &owner,
+                    "secret_half_present": held,
+                    "keygrips": grips.clone(),
+                    // Named even when the secret half is present: this is the
+                    // path an operator has to back up, not only restore.
+                    "key_files": grips
+                        .iter()
+                        .map(|grip| json!(format!("private-keys-v1.d/{grip}.key")))
+                        .collect::<Vec<Value>>(),
+                }));
+            }
+            if !recovery.is_empty()
+                && !registry.values().any(|entry| {
+                    entry.get("fingerprint").and_then(Value::as_str) == Some(recovery.as_str())
+                })
+            {
+                let held = crypto::secret_key_present(&recovery);
+                if held {
+                    openers.push("recovery".to_string());
+                }
+                let grips = crypto::keygrips_for(&recovery);
+                recipients.push(json!({
+                    "uid": "recovery",
+                    "fingerprint": recovery,
+                    "role": "recovery",
+                    "is_owner": false,
+                    "secret_half_present": held,
+                    "keygrips": grips.clone(),
+                    "key_files": grips
+                        .iter()
+                        .map(|grip| json!(format!("private-keys-v1.d/{grip}.key")))
+                        .collect::<Vec<Value>>(),
+                }));
+            }
+            // The only proof that survives argument: open something. The lowest
+            // live id is deterministic, so repeated runs exercise one item, and
+            // the plaintext is dropped here.
+            let mut ids: Vec<String> = vault
+                .list(false)
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect();
+            ids.sort();
+            let canary = ids.first().cloned();
+            let opened = match &canary {
+                Some(id) => vault.get_item(id).map(|_| true).unwrap_or(false),
+                None => false,
+            };
+            let readable = if canary.is_none() {
+                "empty"
+            } else if opened {
+                "readable"
+            } else {
+                "unreadable"
+            };
+            Ok(Some(json!({
+                "vault": vault_path().display().to_string(),
+                "owner": owner,
+                "status": readable,
+                "canary_item": canary,
+                "keys_that_could_open_it": openers,
+                "recipients": recipients,
+                "remedy": if opened || canary.is_none() {
+                    Value::Null
+                } else {
+                    json!("no secret half on this machine opens the vault: restore one recipient's key_files into ~/.gnupg/, then rotate-owner onto a key you hold")
+                },
             })))
         }
         "emergency-grant" => {

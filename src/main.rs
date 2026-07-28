@@ -260,7 +260,7 @@ fn main() -> Result<()> {
         "import" => cmd_import(&positionals),
         "export" => cmd_export(&flags, &positionals),
         "help" => emit(
-            &json!({"commands": ["init","set","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp"]}),
+            &json!({"commands": ["init","set","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp"]}),
         ),
         "mcp" => net::mcp::serve(),
         other => {

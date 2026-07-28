@@ -64,7 +64,8 @@ clients use `POST /v1/acquisitions` followed immediately by
 
 | Command | What it does |
 | --- | --- |
-| `recovery-status` | Report which items carry the recovery recipient. |
+| `key-doctor` | Whether any key on this machine can still open the vault, and if not, the exact `private-keys-v1.d/<KEYGRIP>.key` files a restore has to produce. Reads the vault document and the keyring directly, never the HTTP API, so it answers while the service is down. Opens a deterministic canary item as proof and discards the plaintext. |
+| `recovery-status` | Report the recovery recipient, the item count it covers, and whether its secret half is on this machine — which it should not be, since offline material sharing a keyring with the owner key is one failure domain, not two. |
 | `emergency-grant <grantee> --activate-after <iso>` | Arrange a time-delayed share to a trusted user. |
 | `emergency-list` | List pending emergency grants. |
 | `emergency-cancel <grantee>` | Cancel a pending emergency grant before it activates. |
