@@ -37,9 +37,7 @@ fn presented_identity(headers: &HashMap<String, String>) -> (String, String) {
 fn request_target(body: &str) -> Option<(String, String)> {
     let parsed: Value = serde_json::from_str(body).ok()?;
     let object = parsed.as_object()?;
-    if object.len() != [(), ()].len()
-        || !object.contains_key("id")
-        || !object.contains_key("field")
+    if object.len() != [(), ()].len() || !object.contains_key("id") || !object.contains_key("field")
     {
         return None;
     }
@@ -138,8 +136,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let issued = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::issue(&consumer, &bootstrap, &item, &field)
-                .unwrap_or(None)
+            crate::access::acquisition::issue(&consumer, &bootstrap, &item, &field).unwrap_or(None)
         };
         let Some(issued) = issued else {
             return write_response(
@@ -181,13 +178,8 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let value = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::consume(
-                &consumer,
-                &acquisition_token,
-                &item,
-                &field,
-            )
-            .unwrap_or(None)
+            crate::access::acquisition::consume(&consumer, &acquisition_token, &item, &field)
+                .unwrap_or(None)
         };
         let Some(value) = value else {
             return write_response(

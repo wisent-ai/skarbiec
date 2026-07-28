@@ -62,6 +62,9 @@ pub fn append(op: &str, extra: &Value) -> Result<()> {
         .create(true)
         .read(true)
         .write(true)
+        // A zero-byte lock file: never truncated, so a concurrent holder's
+        // descriptor is unaffected. Stated rather than implied.
+        .truncate(false)
         .mode(0o600)
         .open(&lock_path)
         .with_context(|| format!("open audit lock {}", lock_path.display()))?;

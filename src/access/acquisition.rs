@@ -131,11 +131,7 @@ pub fn issue(
     item: &str,
     field: &str,
 ) -> Result<Option<IssuedAcquisition>> {
-    if !exact_name(consumer)
-        || !exact_name(item)
-        || !exact_name(field)
-        || bootstrap.is_empty()
-    {
+    if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || bootstrap.is_empty() {
         return Ok(None);
     }
     let vault = Vault::open(vault_path())?;
@@ -161,12 +157,7 @@ pub fn issue(
     Ok(Some(IssuedAcquisition { token, expires_at }))
 }
 
-pub fn consume(
-    consumer: &str,
-    presented: &str,
-    item: &str,
-    field: &str,
-) -> Result<Option<Value>> {
+pub fn consume(consumer: &str, presented: &str, item: &str, field: &str) -> Result<Option<Value>> {
     if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || presented.is_empty() {
         return Ok(None);
     }
@@ -248,15 +239,15 @@ pub fn dispatch(
             })))
         }
         "acquisition-read" => {
-            let consumer = positionals.first().context(
-                "usage: acquisition-read <consumer> <item> <field> --token ACQUISITION",
-            )?;
-            let item = positionals.get("1".parse::<usize>()?).context(
-                "usage: acquisition-read <consumer> <item> <field> --token ACQUISITION",
-            )?;
-            let field = positionals.get("2".parse::<usize>()?).context(
-                "usage: acquisition-read <consumer> <item> <field> --token ACQUISITION",
-            )?;
+            let consumer = positionals
+                .first()
+                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
+            let item = positionals
+                .get("1".parse::<usize>()?)
+                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
+            let field = positionals
+                .get("2".parse::<usize>()?)
+                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
             let presented = flags.get("token").context("--token required")?;
             let Some(value) = consume(consumer, presented, item, field)? else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
@@ -265,7 +256,9 @@ pub fn dispatch(
                 "acquisition-consumed",
                 &json!({"consumer": consumer, "item": item, "field": field}),
             )?;
-            Ok(Some(json!({"ok": true, "consumer": consumer, "item": item, "field": field, "value": value})))
+            Ok(Some(
+                json!({"ok": true, "consumer": consumer, "item": item, "field": field, "value": value}),
+            ))
         }
         _ => Ok(None),
     }

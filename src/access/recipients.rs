@@ -46,11 +46,9 @@ pub fn dispatch(
             if !flags.is_empty() {
                 anyhow::bail!("usage: rotate-owner <new-owner-uid>");
             }
-            let new_owner_fingerprint =
-                crypto::fingerprint_for_exact_uid(new_owner_uid)?;
+            let new_owner_fingerprint = crypto::fingerprint_for_exact_uid(new_owner_uid)?;
             let mut vault = Vault::open(vault_path())?;
-            let report =
-                vault.rotate_owner(new_owner_uid, &new_owner_fingerprint)?;
+            let report = vault.rotate_owner(new_owner_uid, &new_owner_fingerprint)?;
             let metadata = json!({
                 "item_count": report.items,
                 "version_count": report.versions,

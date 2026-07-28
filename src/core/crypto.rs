@@ -257,12 +257,7 @@ pub fn fingerprint_for_exact_uid(uid: &str) -> Result<String> {
     }
     let listing = run(
         "gpg",
-        &[
-            "--batch",
-            "--with-colons",
-            "--fingerprint",
-            "--list-keys",
-        ],
+        &["--batch", "--with-colons", "--fingerprint", "--list-keys"],
         None,
     )?;
     let fingerprint_field = "9".parse::<usize>()?;
@@ -335,10 +330,7 @@ pub fn public_key_exists(fingerprint: &str) -> Result<bool> {
     };
     let fingerprint_field = "9".parse::<usize>()?;
     for line in listing.lines().filter(|line| line.starts_with("fpr:")) {
-        let listed = line
-            .split(':')
-            .nth(fingerprint_field)
-            .unwrap_or_default();
+        let listed = line.split(':').nth(fingerprint_field).unwrap_or_default();
         if listed.eq_ignore_ascii_case(fingerprint) {
             return Ok(true);
         }

@@ -96,7 +96,10 @@ fn checked_executable(path: &Path, env_name: &str) -> Result<PathBuf> {
 }
 
 fn string_field<'a>(value: &'a Value, name: &str) -> Option<&'a str> {
-    value.get(name).and_then(Value::as_str).filter(|text| text.len() <= 512)
+    value
+        .get(name)
+        .and_then(Value::as_str)
+        .filter(|text| text.len() <= 512)
 }
 
 fn sanitized_weles_response(value: &Value) -> Result<Value> {
@@ -120,7 +123,8 @@ fn sanitized_weles_response(value: &Value) -> Result<Value> {
 }
 
 fn run_weles(request: &Value) -> Result<Value> {
-    let configured = std::env::var(ACQUIRE_COMMAND_ENV).context(format!("{ACQUIRE_COMMAND_ENV} is not set"))?;
+    let configured =
+        std::env::var(ACQUIRE_COMMAND_ENV).context(format!("{ACQUIRE_COMMAND_ENV} is not set"))?;
     let executable = checked_executable(Path::new(&configured), ACQUIRE_COMMAND_ENV)?;
     let return_executable = std::env::current_exe().context("resolve Skarbiec executable")?;
     let mut child = Command::new(executable)
@@ -135,22 +139,36 @@ fn run_weles(request: &Value) -> Result<Value> {
         .take()
         .context("open Weles bridge stdin")?
         .write_all(&serde_json::to_vec(request)?)?;
-    let output = child.wait_with_output().context("wait for Weles credential acquisition bridge")?;
+    let output = child
+        .wait_with_output()
+        .context("wait for Weles credential acquisition bridge")?;
     if !output.status.success() {
         bail!("Weles credential acquisition bridge failed");
     }
     if output.stdout.len() > MAX_RESPONSE_BYTES {
         bail!("Weles credential acquisition response exceeded size limit");
     }
-    let response: Value = serde_json::from_slice(&output.stdout).context("Weles response is not JSON")?;
+    let response: Value =
+        serde_json::from_slice(&output.stdout).context("Weles response is not JSON")?;
     sanitized_weles_response(&response)
 }
 
-fn update_request(vault_path: &Path, request_item: &str, request: &Value, status: &str, response: Option<&Value>) -> Result<()> {
+fn update_request(
+    vault_path: &Path,
+    request_item: &str,
+    request: &Value,
+    status: &str,
+    response: Option<&Value>,
+) -> Result<()> {
     let mut updated = request.clone();
-    let object = updated.as_object_mut().context("credential request is not an object")?;
+    let object = updated
+        .as_object_mut()
+        .context("credential request is not an object")?;
     object.insert("status".to_string(), Value::String(status.to_string()));
-    object.insert("updated_at".to_string(), Value::String(Utc::now().to_rfc3339()));
+    object.insert(
+        "updated_at".to_string(),
+        Value::String(Utc::now().to_rfc3339()),
+    );
     if let Some(response) = response {
         object.insert("weles".to_string(), response.clone());
     }
@@ -163,7 +181,11 @@ fn update_request(vault_path: &Path, request_item: &str, request: &Value, status
     )
 }
 
-fn cmd_request(vault_path: &Path, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+fn cmd_request(
+    vault_path: &Path,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     let credential_id = positionals
         .first()
         .map(String::as_str)
@@ -224,20 +246,37 @@ fn cmd_request(vault_path: &Path, flags: &HashMap<String, String>, positionals: 
         Ok(response) => response,
         Err(error) => {
             let failure = json!({"status": "failed"});
-            update_request(vault_path, &request_item, &request, "failed", Some(&failure))?;
+            update_request(
+                vault_path,
+                &request_item,
+                &request,
+                "failed",
+                Some(&failure),
+            )?;
             return Err(error);
         }
     };
-    let status = response.get("status").and_then(Value::as_str).unwrap_or("failed");
+    let status = response
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("failed");
     if status == "credential_returned" {
         let vault = Vault::open(vault_path.to_path_buf())?;
         if !live_item_exists(&vault, credential_id) {
             bail!("Weles reported credential_returned but the credential is absent");
         }
-        return Ok(json!({"ok": true, "status": "ready", "credential": credential_id, "request_id": request_id}));
+        return Ok(
+            json!({"ok": true, "status": "ready", "credential": credential_id, "request_id": request_id}),
+        );
     }
     if matches!(status, "acquisition_queued" | "followup_queued") {
-        update_request(vault_path, &request_item, &request, "pending", Some(&response))?;
+        update_request(
+            vault_path,
+            &request_item,
+            &request,
+            "pending",
+            Some(&response),
+        )?;
         return Ok(json!({
             "ok": true,
             "status": "pending",
@@ -246,7 +285,13 @@ fn cmd_request(vault_path: &Path, flags: &HashMap<String, String>, positionals: 
             "weles": response,
         }));
     }
-    update_request(vault_path, &request_item, &request, "failed", Some(&response))?;
+    update_request(
+        vault_path,
+        &request_item,
+        &request,
+        "failed",
+        Some(&response),
+    )?;
     bail!("Weles could not queue credential acquisition")
 }
 
@@ -270,11 +315,14 @@ fn read_secret_from_stdin() -> Result<Zeroizing<String>> {
     Ok(secret)
 }
 
-fn cmd_return(vault_path: &Path, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    let credential_id = positionals
-        .first()
-        .map(String::as_str)
-        .context("usage: credential-return <CREDENTIAL_ID> --request-id <id> --provider <provider>")?;
+fn cmd_return(
+    vault_path: &Path,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
+    let credential_id = positionals.first().map(String::as_str).context(
+        "usage: credential-return <CREDENTIAL_ID> --request-id <id> --provider <provider>",
+    )?;
     validate_credential_id(credential_id)?;
     let request_id = required_flag(flags, "request-id")?;
     validate_request_id(request_id)?;
@@ -289,7 +337,9 @@ fn cmd_return(vault_path: &Path, flags: &HashMap<String, String>, positionals: &
             && existing.get("provider").and_then(Value::as_str) == Some(provider)
             && existing.get("value").and_then(Value::as_str) == Some(secret.as_str())
         {
-            return Ok(json!({"ok": true, "status": "ready", "credential": credential_id, "request_id": request_id}));
+            return Ok(
+                json!({"ok": true, "status": "ready", "credential": credential_id, "request_id": request_id}),
+            );
         }
     }
     let request = vault.get_item(&request_item)?;
@@ -322,7 +372,9 @@ fn cmd_return(vault_path: &Path, flags: &HashMap<String, String>, positionals: &
         "credential-return",
         &json!({"request_id": request_id, "credential": credential_id, "provider": provider}),
     )?;
-    Ok(json!({"ok": true, "status": "ready", "credential": credential_id, "request_id": request_id}))
+    Ok(
+        json!({"ok": true, "status": "ready", "credential": credential_id, "request_id": request_id}),
+    )
 }
 
 pub fn dispatch(

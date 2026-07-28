@@ -67,7 +67,9 @@ fn expiry_epoch_seconds(value: &Value) -> Option<i64> {
             if let Ok(parsed) = chrono::DateTime::parse_from_rfc3339(text) {
                 return Some(parsed.timestamp());
             }
-            text.parse::<i64>().ok().map(|epoch| normalize_epoch(epoch as f64))
+            text.parse::<i64>()
+                .ok()
+                .map(|epoch| normalize_epoch(epoch as f64))
         }
         _ => None,
     }
@@ -259,7 +261,6 @@ struct RefreshGrant {
     expires_in: Option<u64>,
 }
 
-
 /// Patches the provider blob with the fresh grant, preserving every unrelated
 /// field; expiry is written in the blob's own field and units (claude
 /// `expiresAt` epoch-ms, kimi `expires_at` epoch-s, codex `last_refresh`
@@ -335,7 +336,6 @@ fn try_direct_refresh_at(
     None
 }
 
-
 /// Asks Weles to reauthenticate the provider, bounded by `wait`. Ok(Some(true))
 /// only when Weles confirms an out-of-band vault refresh; Ok(Some(false)) when
 /// it answers without a refresh claim; Ok(None) when the wait budget ran out
@@ -375,7 +375,10 @@ fn direct_reauth(
         "resource": resource,
         "requested_at": chrono::Utc::now().to_rfc3339(),
     });
-    let response = request.timeout(budget).send_json(body).map_err(http_failure)?;
+    let response = request
+        .timeout(budget)
+        .send_json(body)
+        .map_err(http_failure)?;
     let body: Value = response
         .into_json()
         .map_err(|_| "weles reauth response is not JSON".to_string())?;
@@ -413,11 +416,7 @@ fn runs_api_reauth(
     )
 }
 
-fn reauth_idempotency_key(
-    provider: &str,
-    resource: &str,
-    credential_expiry: i64,
-) -> String {
+fn reauth_idempotency_key(provider: &str, resource: &str, credential_expiry: i64) -> String {
     format!("skarbiec-reauth:{provider}:{resource}:expires:{credential_expiry}")
 }
 
@@ -481,7 +480,10 @@ fn runs_api_reauth_inner_with_idempotency(
     let created: Value = response
         .into_json()
         .map_err(|_| "weles reauth create response is not JSON".to_string())?;
-    let run = created.get("row").filter(|row| !row.is_null()).unwrap_or(&created);
+    let run = created
+        .get("row")
+        .filter(|row| !row.is_null())
+        .unwrap_or(&created);
     let run_id = run
         .get("id")
         .and_then(Value::as_str)
@@ -559,10 +561,7 @@ fn is_loopback_http_url(value: &str) -> bool {
             value == *origin
                 || value.strip_prefix(origin).is_some_and(|suffix| {
                     if let Some(port_and_path) = suffix.strip_prefix(':') {
-                        let port = port_and_path
-                            .split('/')
-                            .next()
-                            .unwrap_or(port_and_path);
+                        let port = port_and_path.split('/').next().unwrap_or(port_and_path);
                         !port.is_empty() && port.chars().all(|character| character.is_ascii_digit())
                     } else {
                         suffix.starts_with('/')
@@ -584,9 +583,7 @@ fn stado_vault_config() -> Result<Option<StadoVaultConfig>, String> {
             "SKARBIEC_VAULT_URI must use stado://entitlements-rotator/<key>".to_string()
         })?;
     if key.is_empty() || key.starts_with('/') {
-        return Err(
-            "SKARBIEC_VAULT_URI must use stado://entitlements-rotator/<key>".to_string(),
-        );
+        return Err("SKARBIEC_VAULT_URI must use stado://entitlements-rotator/<key>".to_string());
     }
     let base_url = env_non_empty(&["STADO_API_URL"])
         .ok_or_else(|| "STADO_API_URL is required for remote vault persistence".to_string())?;
@@ -663,7 +660,6 @@ pub(crate) fn push_vault_to_stado() -> Result<(), String> {
     Ok(())
 }
 
-
 /// Historical GCS transport fixture retained only so the pre-cutover embedded
 /// tests compile. Production code cannot reach this function.
 #[cfg(test)]
@@ -728,7 +724,10 @@ fn write_vault_atomic(path: &Path, body: &mut impl Read) -> Result<(), String> {
     rand::rngs::OsRng.fill_bytes(&mut suffix);
     let temp = parent.join(format!(
         ".skarbiec-vault-stado-{}",
-        suffix.iter().map(|b| format!("{b:02x}")).collect::<String>()
+        suffix
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
     ));
     let result = (|| -> Result<(), String> {
         let mut file = OpenOptions::new()
@@ -739,7 +738,8 @@ fn write_vault_atomic(path: &Path, body: &mut impl Read) -> Result<(), String> {
             .open(&temp)
             .map_err(|_| "vault temp file failed".to_string())?;
         std::io::copy(body, &mut file).map_err(|_| "vault download write failed".to_string())?;
-        file.sync_all().map_err(|_| "vault sync failed".to_string())?;
+        file.sync_all()
+            .map_err(|_| "vault sync failed".to_string())?;
         fs::rename(&temp, path).map_err(|_| "vault replace failed".to_string())?;
         fs::set_permissions(path, fs::Permissions::from_mode(0o600))
             .map_err(|_| "vault permissions failed".to_string())?;
@@ -855,7 +855,9 @@ mod tests {
             &json!({"accessToken": "redacted", "refreshToken": "redacted", "expiresAt": future})
                 .to_string()
         ));
-        assert!(!credential_expired(&json!({"expiry": future * 1_000}).to_string()));
+        assert!(!credential_expired(
+            &json!({"expiry": future * 1_000}).to_string()
+        ));
     }
 
     #[test]
@@ -890,7 +892,10 @@ mod tests {
             weles_provider_for_resource("provider:kimi:brama-sub-1"),
             Some("kimi")
         );
-        assert_eq!(weles_provider_for_resource("provider:openai:brama-sub-1"), None);
+        assert_eq!(
+            weles_provider_for_resource("provider:openai:brama-sub-1"),
+            None
+        );
         assert_eq!(weles_provider_for_resource("provider:claude-code"), None);
         assert_eq!(weles_provider_for_resource("provider:claude-code:"), None);
         assert_eq!(
@@ -995,12 +1000,14 @@ mod tests {
     fn spawn_runs_api_stub(post_body: &'static str, get_body: &'static str) -> String {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("stub server bind");
-        let address = format!("http://{}", listener.local_addr().expect("stub server address"));
+        let address = format!(
+            "http://{}",
+            listener.local_addr().expect("stub server address")
+        );
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { break };
-                let mut reader =
-                    BufReader::new(stream.try_clone().expect("stub stream clone"));
+                let mut reader = BufReader::new(stream.try_clone().expect("stub stream clone"));
                 let mut method = String::new();
                 let mut content_length = 0usize;
                 let mut line = String::new();
@@ -1014,11 +1021,7 @@ mod tests {
                         break;
                     }
                     if method.is_empty() {
-                        method = header
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("")
-                            .to_string();
+                        method = header.split_whitespace().next().unwrap_or("").to_string();
                     }
                     if let Some((name, value)) = header.split_once(':') {
                         if name.trim().eq_ignore_ascii_case("content-length") {
@@ -1030,7 +1033,11 @@ mod tests {
                     let mut body = vec![0u8; content_length];
                     let _ = reader.read_exact(&mut body);
                 }
-                let payload = if method == "POST" { post_body } else { get_body };
+                let payload = if method == "POST" {
+                    post_body
+                } else {
+                    get_body
+                };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     payload.len(),
@@ -1143,7 +1150,10 @@ mod tests {
         );
         assert_eq!(direct_refresh_token(&json!({"tokens": {}}), "codex"), None);
         assert_eq!(direct_refresh_token(&json!({}), "kimi"), None);
-        assert_eq!(direct_refresh_token(&json!({"refresh_token": ""}), "kimi"), None);
+        assert_eq!(
+            direct_refresh_token(&json!({"refresh_token": ""}), "kimi"),
+            None
+        );
     }
 
     #[test]
@@ -1175,9 +1185,13 @@ mod tests {
 
     #[test]
     fn patch_blob_claude_keeps_refresh_token_and_expiry_when_not_returned() {
-        let mut blob =
-            json!({"claudeAiOauth": {"accessToken": "old", "refreshToken": "keep-rt", "expiresAt": 1}});
-        assert!(patch_blob(&mut blob, "claude", &grant("new", None, None), 1_000));
+        let mut blob = json!({"claudeAiOauth": {"accessToken": "old", "refreshToken": "keep-rt", "expiresAt": 1}});
+        assert!(patch_blob(
+            &mut blob,
+            "claude",
+            &grant("new", None, None),
+            1_000
+        ));
         assert_eq!(blob["claudeAiOauth"]["refreshToken"], "keep-rt");
         assert_eq!(blob["claudeAiOauth"]["expiresAt"], json!(1));
     }
@@ -1202,7 +1216,10 @@ mod tests {
         let tokens = &blob["tokens"];
         assert_eq!(tokens["access_token"], "new-at");
         assert_eq!(tokens["refresh_token"], "new-rt");
-        assert_eq!(tokens["id_token"], "old-id", "id_token preserved when not rotated");
+        assert_eq!(
+            tokens["id_token"], "old-id",
+            "id_token preserved when not rotated"
+        );
         assert_eq!(tokens["account_id"], "acc-1");
         let stamp = blob["last_refresh"].as_str().expect("last_refresh string");
         assert_ne!(stamp, "2020-01-01T00:00:00+00:00");
@@ -1237,11 +1254,18 @@ mod tests {
             1_000
         ));
         assert_eq!(blob["access_token"], "new-at");
-        assert_eq!(blob["refresh_token"], "old-rt", "kimi refresh rotates only when returned");
+        assert_eq!(
+            blob["refresh_token"], "old-rt",
+            "kimi refresh rotates only when returned"
+        );
         assert_eq!(blob["expires_at"], json!(1_000 + 7_200));
         assert_eq!(blob["scope"], "s");
         assert_eq!(blob["token_type"], "bearer");
-        assert_eq!(blob["expires_in"], json!(3_600), "unrelated fields preserved");
+        assert_eq!(
+            blob["expires_in"],
+            json!(3_600),
+            "unrelated fields preserved"
+        );
     }
 
     #[test]
@@ -1294,7 +1318,10 @@ mod tests {
     fn spawn_oauth_stub(status: u16, body: &'static str) -> String {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("stub server bind");
-        let address = format!("http://{}", listener.local_addr().expect("stub server address"));
+        let address = format!(
+            "http://{}",
+            listener.local_addr().expect("stub server address")
+        );
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { break };
@@ -1436,7 +1463,10 @@ mod tests {
                 "never",
             ],
         );
-        let keys = gpg(&gnupg, &["--with-colons", "--list-keys", "reauth@test.local"]);
+        let keys = gpg(
+            &gnupg,
+            &["--with-colons", "--list-keys", "reauth@test.local"],
+        );
         let fpr = keys
             .lines()
             .find(|line| line.starts_with("fpr:"))
@@ -1523,7 +1553,10 @@ mod tests {
     ) {
         use std::io::{BufRead, BufReader, Write};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("stub server bind");
-        let address = format!("http://{}", listener.local_addr().expect("stub server address"));
+        let address = format!(
+            "http://{}",
+            listener.local_addr().expect("stub server address")
+        );
         let captured = std::sync::Arc::new(Mutex::new(Vec::new()));
         let recorded = std::sync::Arc::clone(&captured);
         std::thread::spawn(move || {
@@ -1603,7 +1636,10 @@ mod tests {
             "url-encoded object name: {}",
             captured[1].1
         );
-        assert_eq!(captured[1].2, b"{\"items\":{}}", "file bytes land in the body");
+        assert_eq!(
+            captured[1].2, b"{\"items\":{}}",
+            "file bytes land in the body"
+        );
     }
 
     #[test]

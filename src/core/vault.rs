@@ -567,8 +567,7 @@ impl Vault {
             let rewrapped_current = rewrap_ciphertext(current, &fingerprints)
                 .with_context(|| format!("rewrap current item version: {id}"))?;
             entry.insert("current".to_string(), Value::String(rewrapped_current));
-            version_count =
-                version_count.saturating_add(std::iter::once(()).count());
+            version_count = version_count.saturating_add(std::iter::once(()).count());
 
             let history = entry
                 .get_mut("history")
@@ -584,12 +583,12 @@ impl Vault {
                     .with_context(|| {
                         format!("item history entry has no ciphertext: {id} version {index}")
                     })?;
-                let rewrapped = rewrap_ciphertext(ciphertext, &fingerprints).with_context(|| {
-                    format!("rewrap historical item version: {id} version {index}")
-                })?;
+                let rewrapped =
+                    rewrap_ciphertext(ciphertext, &fingerprints).with_context(|| {
+                        format!("rewrap historical item version: {id} version {index}")
+                    })?;
                 historical_entry.insert("cipher".to_string(), Value::String(rewrapped));
-                version_count =
-                    version_count.saturating_add(std::iter::once(()).count());
+                version_count = version_count.saturating_add(std::iter::once(()).count());
             }
             entry.insert(
                 "recipients".to_string(),
