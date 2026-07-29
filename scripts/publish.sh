@@ -99,6 +99,11 @@ echo "manifest: $MANIFEST"
 if [ -n "$DRY" ]; then
   echo
   echo "dry run — nothing built, nothing published"
+  # The classification needs a built candidate to interrogate, so it cannot run
+  # here. Saying so beats letting --against look honoured when it was not.
+  if [ -n "$AGAINST" ]; then
+    echo "classification against $AGAINST needs a build; run without --dry-run"
+  fi
   exit
 fi
 
