@@ -90,6 +90,20 @@ fi
 stado storage put "$BINARY" skarbiec --if-absent
 stado storage put "$MANIFEST" SHA256SUMS --if-absent
 
+# Confirm through the channel, not from the fact that the uploads returned. The
+# listing is used rather than `stat` on purpose: `stat` skipped the object-path
+# mapping until recently and answered "absent" about objects it had just stored,
+# so a script that trusted it would report a healthy publish as a failed one.
+# Confirmation is a substring test on the listing rather than a regex, because a
+# version string contains dots and a regex would accept coordinates that only
+# resemble the one just published.
 echo
-echo "published $VERSION for $PLATFORM"
-echo "verify with: stado storage stat $BINARY"
+LISTING="$(stado storage objects releases skarbiec/)"
+case "$LISTING" in
+  *"$VERSION/$PLATFORM/skarbiec"*)
+    echo "published $VERSION for $PLATFORM, and the channel lists it" ;;
+  *)
+    echo "uploads returned but the channel does not list $VERSION/$PLATFORM"
+    exit ;;
+esac
+echo "install with: stado storage get $BINARY <destination>"

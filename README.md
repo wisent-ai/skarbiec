@@ -97,10 +97,16 @@ script runs the installed binary afterwards and prints what it reports for
 Runtime dependencies are invoked as subprocesses and must be on `PATH`: `gpg`,
 `openssl`, `shasum` (`oathtool` is optional, for one-time codes).
 
-Nothing has been published to the release channel yet, so this source install is
-the only one there is. `scripts/publish.sh` is the mechanism that changes that,
-and it is blocked on one thing: the publisher credential lives in the vault it
-would publish. The channel, the publish steps, and that loop are written down in
+`0.1.0` for `darwin-arm64` is published to the release channel, immutable and
+retrievable without credentials:
+
+```sh
+stado storage get stado://releases/skarbiec/0.1.0/darwin-arm64/skarbiec ./skarbiec
+```
+
+`scripts/publish.sh` publishes a version, and `skarbiec version` reports the exact
+coordinate a copy came from, so a build is never identified by guesswork. The
+channel, the publish steps, and what durability it still lacks are in
 [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quickstart

@@ -132,42 +132,57 @@ What the script guarantees, in order:
 A version is therefore one artifact, forever, and every installed copy can name
 its own origin.
 
-## The bootstrapping loop, stated plainly
+## The bootstrapping loop, and where it does not apply
 
-Publishing a release requires a create-only publisher credential. That credential
-lives in Skarbiec. So publishing Skarbiec requires Skarbiec.
+Publishing through the **remote** release route requires a create-only publisher
+bearer. That credential is the vault item `skarbiec-release-publisher`, so
+publishing Skarbiec that way requires Skarbiec.
 
-This is survivable but it has to be deliberate:
+That loop does not bind here, and it is worth being exact about why, because the
+earlier draft of this document was wrong: `storage put` only consults
+`RemoteObjectApi` when a remote origin is configured. Nothing configures one on
+this host — `release.api_url` is unset — so the write goes to the configured
+backend, which is the local store. No bearer is read, and the vault is never
+opened. Immutability is not lost in that fallback: create-only is enforced by
+`upload_file_if_absent`, so a version is still one artifact forever.
 
-- The publisher credential must be recoverable **without** the vault — its own
-  offline copy, held the way recovery material is supposed to be held and is
-  currently not.
-- The install route stays bearer-free, so a machine with no credentials at all
-  can still fetch a verified binary.
-- The first publish after a vault loss is therefore a manual, documented
-  ceremony, not an automated pipeline.
+So the first publish needed neither the cloud nor the credential, and it has
+happened. What the loop still governs:
 
-`scripts/publish.sh` performs that ceremony. It is a script and not a workflow
-precisely because the first publish cannot be automated: the credential it needs
-is in the vault it is publishing.
+- Publishing through a remote origin, once one is configured, needs the bearer
+  recoverable **without** the vault — its own offline copy, held the way recovery
+  material is supposed to be held and currently is not.
+- The install route stays bearer-free either way, so a machine with no credentials
+  at all can still fetch a verified binary.
+
+`scripts/publish.sh` performs the publish. It is a script rather than a workflow
+because CI has no store to write to and no bearer to write with; the operator's
+host has the store.
 
 ## What is missing, concretely
 
-- **A publish. Any publish.** The `skarbiec/` prefix is allocated and empty. No
-  version of this binary has ever reached the channel the fleet is supposed to
-  install from, which is why three impostors currently compete to be the
-  canonical build:
+The channel is no longer empty. `0.1.0` for `darwin-arm64` is published, listed,
+immutable, retrievable without a bearer, and reports its own coordinate when run.
+That settles which of the three candidates is canonical:
 
-  | Candidate | Why it is not canonical |
-  | --- | --- |
-  | `skarbiec-bin-latest` on `lbartoszcze/entitlements-rotator` | A **rolling** tag, so the coordinate is mutable and a version means nothing. Built from the vendored lineage that no longer exists, its asset is named `skarbiec-entitlements-router`, and its download count is zero — nothing ever consumed it. |
-  | `stado://releases/skarbiec/...` | Correct in every respect and **empty**. |
-  | `~/.stado/bin/skarbiec` | A hand build on one laptop, replaced twice in one afternoon by different actors during the July incident, identifiable only by asking it for its command list. |
+| Candidate | Standing |
+| --- | --- |
+| `stado://releases/skarbiec/0.1.0/darwin-arm64/` | **Canonical.** Immutable coordinate, checksum manifest beside it, bearer-free download, and the binary names this coordinate when asked. |
+| `skarbiec-bin-latest` on `lbartoszcze/entitlements-rotator` | Superseded. A **rolling** tag, so the coordinate is mutable and a version means nothing; built from the vendored lineage that no longer exists; asset named `skarbiec-entitlements-router`; download count zero. |
+| `~/.stado/bin/skarbiec` | Superseded. A hand build on one laptop, replaced twice in one afternoon by different actors during the July incident. It can now be checked against the channel instead of guessed at. |
 
-- **CI wiring.** `scripts/publish.sh` is the mechanism and it is exercised, but
-  nothing calls it on a push. A runner would need `stado` installed and holding
-  the `skarbiec-release-publisher` grant — which is the bootstrapping loop above,
-  not a missing script. Wire it once the grant has an offline copy.
+What is still missing:
+
+- **A published copy that is not on one machine.** The local store is the
+  operator's disk. The coordinate is right and the immutability is real, but the
+  durability is one laptop until the store is mirrored — `storage backup` and
+  `storage copy` exist for exactly that, and the backup backend is unset.
+- **A second platform.** Only `darwin-arm64` exists. `linux-amd64` needs a build
+  on that platform; the script takes the platform from configuration rather than
+  guessing, so it is one invocation there.
+- **CI wiring.** Nothing calls the publish on a push. A runner would need a store
+  it can write to, which today means the remote route and therefore the bearer
+  from the bootstrapping loop above.
 - `self_update` taking a product parameter instead of a hardcoded one. It builds
   `stado://releases/stado/...` today, so it cannot update this product at all.
 - Install verification in `stado doctor`, so a stale broker binary is a failed
