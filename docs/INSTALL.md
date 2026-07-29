@@ -132,6 +132,50 @@ What the script guarantees, in order:
 A version is therefore one artifact, forever, and every installed copy can name
 its own origin.
 
+## Versioning
+
+A version is not a label on a moving target. It is the middle segment of the
+coordinate, and it selects exactly one set of bytes for as long as the store
+exists.
+
+**Where the number comes from.** `Cargo.toml`, read by `scripts/publish.sh`. There
+is one place to change it and the binary's own `version` output cannot disagree
+with the coordinate it was published at, because both are derived from that read.
+
+**Nothing resolves "newest" for you.** Stado deliberately has no mutable channel
+pointer: `self_update` documents "no mutable channel pointer, bucket fallback, or
+provider credential path", and the `latest.json` machinery survives only under
+`#[cfg(test)]`. Production consumers configure an exact version and platform,
+validated as coordinates that are non-empty, free of surrounding whitespace, and
+restricted in charset. An install
+that discovers its own version cannot be reproduced, so it is not offered.
+
+**Ordering exists, but only for comparison.** `version_tuple` splits on `.` and
+`-`, parses numeric tokens as integers, and compares as a tuple, so a prefix sorts
+before its extension. That is used to answer "is the configured version newer than
+the installed one", never to pick a version on the operator's behalf.
+
+**A version cannot be reused.** Attempting to republish one fails:
+
+```
+Error: stado://releases/skarbiec/<version>/<platform>/skarbiec already exists;
+release objects are immutable
+```
+
+Changed code therefore requires a new version. This is not a convention that can
+be forgotten under pressure; it is the store refusing.
+
+**A version identifies code, not just bytes.** `skarbiec version` reports the
+source commit beside the coordinate, and publishing refuses a tree with
+uncommitted changes or a `HEAD` that is not an ancestor of `origin/main`. Without
+those two refusals a coordinate would be permanently bound to a working copy that
+stopped existing when the shell exited.
+
+One exception, stated rather than hidden: the first published version predates the
+commit stamp, so it reports `"commit": null`. It is reproducible only through the
+repository history around its publish time. Every version after it carries its
+revision.
+
 ## The bootstrapping loop, and where it does not apply
 
 Publishing through the **remote** release route requires a create-only publisher
