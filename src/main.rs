@@ -316,8 +316,12 @@ fn main() -> Result<()> {
         "generate" => cmd_generate(&flags),
         "import" => cmd_import(&positionals),
         "export" => cmd_export(&flags, &positionals),
+        // The advertised list is the contract: a command that is dispatchable but
+        // absent here is private, and no caller can be told to rely on it. The
+        // release classifier compares exactly this surface, so `version` had to
+        // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp"]}),
+            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         other => {

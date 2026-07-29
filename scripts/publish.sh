@@ -22,18 +22,34 @@
 #
 # Usage:
 #   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --dry-run
-#   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh
+#   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh [--against <published-version>]
+#
+# --against names the version already on the channel. Given one, this script asks
+# `stado release next` what the version in Cargo.toml should be, by comparing the
+# published build's command surface against the candidate's, and refuses to publish
+# under any other number. Without it the classification is skipped and said so out
+# loud, because a check that quietly does not run is worse than one that is absent.
 set -eu
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
 DRY=""
-for arg in "$@"; do
-  case "$arg" in
+AGAINST=""
+while [ -n "${1:-}" ]; do
+  case "$1" in
     --dry-run) DRY=yes ;;
-    *) echo "unknown argument: $arg"; exit ;;
+    --against)
+      shift
+      if [ -z "${1:-}" ]; then
+        echo "--against needs the version already published"
+        exit
+      fi
+      AGAINST="$1"
+      ;;
+    *) echo "unknown argument: $1"; exit ;;
   esac
+  shift
 done
 
 # Field-index parsing is avoided in favour of parameter expansion, so this
@@ -111,6 +127,34 @@ STAMPED="${STAMPED_TAIL%\"*}"
 if [ "$STAMPED" != "$COMMIT" ]; then
   echo "built binary reports commit '$STAMPED', expected '$COMMIT'"
   exit
+fi
+
+# The number itself is checked against the evidence. `stado release next` compares
+# the published build's advertised commands with this candidate's and derives the
+# only version this release may carry; publishing under any other is refused. The
+# predecessor comes off the channel, which is possible precisely because release
+# downloads need no credentials.
+if [ -n "$AGAINST" ]; then
+  PREVIOUS="$(mktemp)"
+  stado storage get "stado://releases/skarbiec/$AGAINST/$PLATFORM/skarbiec" "$PREVIOUS"
+  chmod +x "$PREVIOUS"
+  DECISION="$(stado release next --current "$AGAINST" --published "$PREVIOUS" \
+    --candidate ./skarbiec --json)"
+  rm -f "$PREVIOUS"
+  NEXT_LINE="$(printf '%s\n' "$DECISION" | awk '/"next"/{print; exit}')"
+  NEXT_TAIL="${NEXT_LINE#*: \"}"
+  EXPECTED="${NEXT_TAIL%\"*}"
+  CHANGE_LINE="$(printf '%s\n' "$DECISION" | awk '/"change"/{print; exit}')"
+  CHANGE_TAIL="${CHANGE_LINE#*: \"}"
+  echo "change:   ${CHANGE_TAIL%\"*} against $AGAINST"
+  if [ "$EXPECTED" != "$VERSION" ]; then
+    echo "refusing to publish: the surface change against $AGAINST requires $EXPECTED"
+    echo "Cargo.toml says $VERSION; change it, or declare the breakage with"
+    echo "  stado release next --current $AGAINST --published <published> --candidate ./skarbiec --breaking"
+    exit
+  fi
+else
+  echo "change:   not classified, no --against given"
 fi
 
 stado storage put "$BINARY" skarbiec --if-absent
