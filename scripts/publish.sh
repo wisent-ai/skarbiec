@@ -255,25 +255,23 @@ if [ -n "$AGAINST" ]; then
     false
   fi
 
-  # Forward: what the baseline claims was published must be downloadable. A
-  # baseline nobody can fetch measures nothing.
+  # The channel is read through `stado storage objects`, which answers both
+  # questions this block asks in one call: whether the marker's object is there,
+  # and which versions exist. The alternatives were measured, not assumed:
+  # `storage ls` reports "0 of 0 object(s)" for these six objects in both the URI
+  # and the bare-path spelling, so it is simply wrong for product objects; and
+  # `storage stat` is namespace-aware only when handed a full stado:// URI — given
+  # a bare path it answers about a different store and calls a present object
+  # absent, while printing that the store answered. Either mistake reads as
+  # absence, and absence is the answer that would let a check pass.
   CHANNEL="$(stado storage objects releases skarbiec/)"
-  case "$CHANNEL" in
-    *"$RECORDED_OBJECT"*) ;;
-    *)
-      echo "released-surface.json names $RECORDED_OBJECT, which the channel does"
-      echo "not list. Recover the baseline from a published artifact instead."
-      false ;;
-  esac
 
-  # And it must be the NEWEST published version, not merely a published one. If
-  # the baseline lags the channel, every later comparison is measured against a
-  # superseded artifact while still looking healthy. Versions are read by
-  # trimming the coordinate rather than by field index, so this carries no bare
-  # numeral a reader could mistake for policy.
-  # The `case` is kept out of the command substitution deliberately: a pattern's
-  # closing parenthesis inside `$( )` is misread as the end of the substitution,
-  # and the resulting syntax error only appears when the line finally runs.
+  # The listing is scanned once, before anything is concluded from it. The `case`
+  # is kept out of a command substitution deliberately: a pattern's closing
+  # parenthesis inside `$( )` is misread as the end of the substitution, and the
+  # resulting syntax error only appears when the line finally runs. Versions are
+  # read by trimming the coordinate rather than by field index, so this carries no
+  # bare numeral a reader could mistake for policy.
   VERSIONS=""
   for TOKEN in $CHANNEL; do
     case "$TOKEN" in
@@ -283,6 +281,37 @@ if [ -n "$AGAINST" ]; then
         VERSIONS="$VERSIONS ${TRIMMED##*/}" ;;
     esac
   done
+
+  # An empty listing is diagnosed apart from a wrong baseline, and this is the
+  # whole reason the two are separate checks. A failed listing already stops the
+  # script, because `set -e` aborts on the assignment above; a listing that
+  # succeeds and names nothing is the ambiguous case — an empty store, or a grant
+  # scoped so it cannot see this prefix. Neither says anything about the baseline,
+  # so telling the operator to regenerate it would send them to fix the one file
+  # that is not broken.
+  if [ -z "${VERSIONS# }" ]; then
+    echo "the channel listed nothing under skarbiec/, so absence is unproven: the"
+    echo "store is empty, or this grant cannot see the prefix. The baseline is not"
+    echo "the thing to change here."
+    false
+  fi
+
+  # Forward: what the baseline claims was published must be downloadable. A
+  # baseline nobody can fetch measures nothing. Note this is a PRESENCE assertion,
+  # never an absence one — the direction matters, because a silent channel makes
+  # it refuse rather than pass.
+  case "$CHANNEL" in
+    *"$RECORDED_OBJECT"*) ;;
+    *)
+      echo "released-surface.json names $RECORDED_OBJECT, which the channel does"
+      echo "not list, though it does list other versions. Recover the baseline from"
+      echo "a published artifact instead."
+      false ;;
+  esac
+
+  # And it must be the NEWEST published version, not merely a published one. If
+  # the baseline lags the channel, every later comparison is measured against a
+  # superseded artifact while still looking healthy.
   NEWEST="$(printf '%s' "$VERSIONS" | tr ' ' '\n' | sort -V | awk 'END {print}')"
   if [ "$NEWEST" != "$RECORDED" ]; then
     echo "the channel serves $NEWEST, but released-surface.json records $RECORDED."
