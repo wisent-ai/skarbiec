@@ -7,6 +7,9 @@ skarbiec.vault.json
 skarbiec.audit.jsonl
 *.vault.json
 *.audit.jsonl
+# The journal's flock sibling. Ignoring the journal but not its lock left a
+# runtime artifact deciding whether the tree looked publishable.
+*.audit.jsonl.lock
 .vault-resolved/
 vault.enc.json
 *.local.json
