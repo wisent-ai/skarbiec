@@ -110,9 +110,12 @@ stado storage get stado://releases/skarbiec/<version>/darwin-arm64/skarbiec ./sk
 `skarbiec version` then reports the coordinate and the source commit that copy was
 built from, so a build is never identified by guesswork.
 
-Publishing is `scripts/publish.sh`. The version number is not chosen by hand:
-`--bump` derives it from what the command surface gained or lost against the
-published build. That rule, the channel, and what durability it still lacks are in
+Publishing is `stado release publish`. This repository holds no publish script:
+`.stado-release.json` declares the facts about this product, and the procedure —
+guards, classification, checksum, create-only upload — is the same for every product
+and lives in Stado. The version number is not chosen by hand either; `--bump` derives
+it from what the command surface gained or lost against the published build. That
+rule, the channel, and what durability it still lacks are in
 [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quickstart

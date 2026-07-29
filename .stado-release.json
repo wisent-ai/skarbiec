@@ -1,0 +1,10 @@
+{
+  "_comment": "Facts about this product's releases. The procedure - guards, classification, checksum, create-only upload - lives in `stado release publish`, so it is not reimplemented here and cannot drift from what other products do.",
+  "product": "skarbiec",
+  "version_file": "Cargo.toml",
+  "build": ["cargo", "build", "--release", "--quiet"],
+  "artifact": "target/release/skarbiec",
+  "surface_command": "help",
+  "release_uri_env": "SKARBIEC_RELEASE_URI",
+  "commit_env": "SKARBIEC_RELEASE_COMMIT"
+}

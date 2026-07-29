@@ -108,15 +108,23 @@ exactly this.
 ## How to publish
 
 ```sh
-STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh --dry-run   # coordinates only
-STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh             # build and publish
+STADO_RELEASE_PLATFORM=darwin-arm64 stado release publish --dry-run
+STADO_RELEASE_PLATFORM=darwin-arm64 stado release publish --against <version> --bump
+STADO_RELEASE_PLATFORM=darwin-arm64 stado release publish --against <version>
 ```
 
-The platform string is not invented by the script; it reads
+There is no publish script in this repository, on purpose. What this product
+declares about its releases lives in `.stado-release.json` — the version file, the
+build command, the artifact, the surface command, and the variables the coordinate
+and revision are baked through. The procedure around those facts is identical for
+every product and lives in `stado`, which every publisher already needs because the
+channel is reached through it.
+
+The platform string is not invented; it reads
 `STADO_RELEASE_PLATFORM`, the same key Stado publishes its own releases under, so
 the two can never disagree about what a platform is called.
 
-What the script guarantees, in order:
+What the publish guarantees, in order:
 
 - The release coordinate is compiled into the binary, so `skarbiec version`
   reports it afterwards. This is the answer to identifying builds by counting
@@ -138,7 +146,8 @@ A version is not a label on a moving target. It is the middle segment of the
 coordinate, and it selects exactly one set of bytes for as long as the store
 exists.
 
-**Where the number comes from.** `Cargo.toml`, read by `scripts/publish.sh`. There
+**Where the number comes from.** The file named by `version_file` in
+`.stado-release.json`, which for this product is `Cargo.toml`. There
 is one place to change it and the binary's own `version` output cannot disagree
 with the coordinate it was published at, because both are derived from that read.
 
@@ -159,13 +168,13 @@ version, because while major is zero Cargo puts the compatibility boundary in th
 minor slot: `breaking` gives `0.2.0`, while `additive` and `internal` both give
 `0.1.1` since a `0.x` crate has no third slot to separate them.
 
-**Nobody types a version.** `publish.sh --against <published-version> --bump` runs
-the comparison, writes the derived number into `Cargo.toml`, and stops:
+**Nobody types a version.** `stado release publish --against <published-version>
+--bump` runs the comparison, writes the derived number into the version file, and
+stops:
 
 ```
-change:   additive against 0.1.0
-Cargo.toml: 0.1.0 -> 0.1.1
-commit and push that, then: sh scripts/publish.sh --against 0.1.0
+change:  internal against 0.1.1
+Cargo.toml: 0.1.1 -> 0.1.2
 ```
 
 The commit is left to the operator deliberately, not as a missing feature: a
@@ -240,9 +249,9 @@ happened. What the loop still governs:
 - The install route stays bearer-free either way, so a machine with no credentials
   at all can still fetch a verified binary.
 
-`scripts/publish.sh` performs the publish. It is a script rather than a workflow
-because CI has no store to write to and no bearer to write with; the operator's
-host has the store.
+`stado release publish` performs the publish. It is a command rather than a
+workflow because CI has no store to write to and no bearer to write with; the
+operator's host has the store.
 
 ## What is missing, concretely
 
