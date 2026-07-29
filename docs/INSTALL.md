@@ -142,6 +142,33 @@ exists.
 is one place to change it and the binary's own `version` output cannot disagree
 with the coordinate it was published at, because both are derived from that read.
 
+**Which number, decided rather than remembered.** `stado release next` compares the
+published build's advertised commands with the candidate's and derives the only
+version the release may carry:
+
+```sh
+stado release next --current <published> \
+  --published <fetched-binary> --candidate ./target/release/skarbiec
+```
+
+Anything removed is `breaking`, anything added is `additive`, an identical surface
+is `internal`. `--breaking` declares breakage the command list cannot show — a
+field dropped from a payload, a stored format changed — and can only escalate the
+classification, never lower it. The mapping onto slots depends on the current
+version, because while major is zero Cargo puts the compatibility boundary in the
+minor slot: `breaking` gives `0.2.0`, while `additive` and `internal` both give
+`0.1.1` since a `0.x` crate has no third slot to separate them.
+
+`publish.sh --against <published-version>` runs that comparison, and refuses to
+publish under any other number. The predecessor is fetched off the channel, which
+works because release downloads need no credentials. Without `--against` the script
+says the classification was skipped rather than passing quietly.
+
+**Only advertised commands count.** The surface is what `help` lists. A command
+that dispatches but is unlisted is private, and nothing may be told to depend on
+it. That is not a technicality: `version` shipped dispatchable but unadvertised,
+the docs pointed at it anyway, and the classifier is what noticed.
+
 **Nothing resolves "newest" for you.** Stado deliberately has no mutable channel
 pointer: `self_update` documents "no mutable channel pointer, bucket fallback, or
 provider credential path", and the `latest.json` machinery survives only under
