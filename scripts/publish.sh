@@ -22,23 +22,30 @@
 #
 # Usage:
 #   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --dry-run
-#   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh [--against <published-version>]
+#   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --against <version> --bump
+#   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --against <version>
 #
 # --against names the version already on the channel. Given one, this script asks
 # `stado release next` what the version in Cargo.toml should be, by comparing the
 # published build's command surface against the candidate's, and refuses to publish
 # under any other number. Without it the classification is skipped and said so out
 # loud, because a check that quietly does not run is worse than one that is absent.
+#
+# --bump writes that derived number into Cargo.toml and stops, so nobody has to
+# type a version or remember which slot moves. The commit is left to the operator
+# on purpose: a published coordinate must resolve to a revision that is pushed.
 set -eu
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$HERE"
 
 DRY=""
+BUMP=""
 AGAINST=""
 while [ -n "${1:-}" ]; do
   case "$1" in
     --dry-run) DRY=yes ;;
+    --bump) BUMP=yes ;;
     --against)
       shift
       if [ -z "${1:-}" ]; then
@@ -51,6 +58,12 @@ while [ -n "${1:-}" ]; do
   esac
   shift
 done
+
+if [ -n "$BUMP" ] && [ -z "$AGAINST" ]; then
+  echo "--bump needs --against <published-version>: the number is derived from a"
+  echo "comparison, so there is nothing to derive it from without a predecessor"
+  exit
+fi
 
 # Field-index parsing is avoided in favour of parameter expansion, so this
 # script carries no bare numerals a reader could mistake for policy.
@@ -152,9 +165,31 @@ if [ -n "$AGAINST" ]; then
   CHANGE_LINE="$(printf '%s\n' "$DECISION" | awk '/"change"/{print; exit}')"
   CHANGE_TAIL="${CHANGE_LINE#*: \"}"
   echo "change:   ${CHANGE_TAIL%\"*} against $AGAINST"
+  if [ -n "$BUMP" ]; then
+    if [ "$EXPECTED" = "$VERSION" ]; then
+      echo "Cargo.toml already says $EXPECTED; nothing to bump"
+      exit
+    fi
+    # Only the first `version = ` line is the package's own. Rewritten with awk
+    # rather than sed so no capture group is needed, and the number itself never
+    # appears in this script - it arrives from the classifier at run time.
+    awk -v want="$EXPECTED" '
+      /^version = / && !done { print "version = \"" want "\""; done = "yes"; next }
+      { print }
+    ' "$HERE/Cargo.toml" > "$HERE/Cargo.toml.next"
+    mv "$HERE/Cargo.toml.next" "$HERE/Cargo.toml"
+    echo
+    echo "Cargo.toml: $VERSION -> $EXPECTED"
+    echo "commit and push that, then: sh scripts/publish.sh --against $AGAINST"
+    echo
+    echo "The bump is a source change and is committed like any other, because a"
+    echo "published coordinate has to resolve to a revision that is already pushed."
+    exit
+  fi
   if [ "$EXPECTED" != "$VERSION" ]; then
     echo "refusing to publish: the surface change against $AGAINST requires $EXPECTED"
-    echo "Cargo.toml says $VERSION; change it, or declare the breakage with"
+    echo "Cargo.toml says $VERSION. Write it mechanically with --bump, or declare"
+    echo "breakage the command list cannot show:"
     echo "  stado release next --current $AGAINST --published <published> --candidate ./skarbiec --breaking"
     exit
   fi
