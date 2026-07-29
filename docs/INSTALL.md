@@ -105,6 +105,33 @@ that owns the service: stop the launch agent, replace, start, and confirm with
 `key-doctor` before declaring success. `stado service restart` already exists for
 exactly this.
 
+## How to publish
+
+```sh
+STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh --dry-run   # coordinates only
+STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh             # build and publish
+```
+
+The platform string is not invented by the script; it reads
+`STADO_RELEASE_PLATFORM`, the same key Stado publishes its own releases under, so
+the two can never disagree about what a platform is called.
+
+What the script guarantees, in order:
+
+- The release coordinate is compiled into the binary, so `skarbiec version`
+  reports it afterwards. This is the answer to identifying builds by counting
+  their commands.
+- `SHA256SUMS` is written next to the binary and covers the exact bytes uploaded.
+- The build is **refused** if it cannot report the coordinate it was built for. A
+  released artifact with no provenance is the defect this path removes, so the
+  script would rather publish nothing.
+- Both objects go up create-only. The `releases` namespace enforces that with or
+  without `--if-absent`, so re-publishing a version fails instead of quietly
+  replacing what the fleet already installed.
+
+A version is therefore one artifact, forever, and every installed copy can name
+its own origin.
+
 ## The bootstrapping loop, stated plainly
 
 Publishing a release requires a create-only publisher credential. That credential
@@ -120,8 +147,9 @@ This is survivable but it has to be deliberate:
 - The first publish after a vault loss is therefore a manual, documented
   ceremony, not an automated pipeline.
 
-Until that credential is arranged, `scripts/install.sh` is the supported path and
-this document should not pretend otherwise.
+`scripts/publish.sh` performs that ceremony. It is a script and not a workflow
+precisely because the first publish cannot be automated: the credential it needs
+is in the vault it is publishing.
 
 ## What is missing, concretely
 
@@ -136,15 +164,11 @@ this document should not pretend otherwise.
   | `stado://releases/skarbiec/...` | Correct in every respect and **empty**. |
   | `~/.stado/bin/skarbiec` | A hand build on one laptop, replaced twice in one afternoon by different actors during the July incident, identifiable only by asking it for its command list. |
 
-- A publish workflow in this repository, targeting
-  `stado://releases/skarbiec/<version>/<platform>/`, emitting `skarbiec` and
-  `SHA256SUMS`. Not added yet: the repository's CI cannot start at all right now,
-  and the publisher grant is the vault item `skarbiec-release-publisher`, inside
-  the vault it would publish.
-- `self_update` taking a product parameter instead of a hardcoded one.
-- A version the fleet can compare. `skarbiec help` lists commands, which is why
-  the installer counts them, but a build carries no version string a supervisor
-  can check. `--version` reporting the crate version and the release coordinate
-  it came from would end the guessing that this incident ran on.
+- **CI wiring.** `scripts/publish.sh` is the mechanism and it is exercised, but
+  nothing calls it on a push. A runner would need `stado` installed and holding
+  the `skarbiec-release-publisher` grant — which is the bootstrapping loop above,
+  not a missing script. Wire it once the grant has an offline copy.
+- `self_update` taking a product parameter instead of a hardcoded one. It builds
+  `stado://releases/stado/...` today, so it cannot update this product at all.
 - Install verification in `stado doctor`, so a stale broker binary is a failed
   probe rather than a discovery made during an outage.

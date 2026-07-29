@@ -91,16 +91,16 @@ sh scripts/install.sh
 Builds a release binary and installs it into `$HOME/.stado/bin` — the prefix the
 fleet's launchers look in — by rename, so a concurrent process never sees a
 half-written file. Override the destination with `SKARBIEC_INSTALL_DIR`. The
-script runs the installed binary afterwards and prints how many commands it
-answers, because a stale install otherwise looks exactly like a fresh one.
+script runs the installed binary afterwards and prints what it reports for
+`skarbiec version`, so a stale install does not look exactly like a fresh one.
 
 Runtime dependencies are invoked as subprocesses and must be on `PATH`: `gpg`,
 `openssl`, `shasum` (`oathtool` is optional, for one-time codes).
 
-There is **no published release channel yet**, so this source install is the only
-one there is, and updates mean running it again. What the channel has to be, how
-updates must work, and the bootstrapping loop in the way — publishing needs a
-credential that lives in the vault being published — are written down in
+Nothing has been published to the release channel yet, so this source install is
+the only one there is. `scripts/publish.sh` is the mechanism that changes that,
+and it is blocked on one thing: the publisher credential lives in the vault it
+would publish. The channel, the publish steps, and that loop are written down in
 [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quickstart

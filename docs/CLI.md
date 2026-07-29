@@ -102,6 +102,7 @@ skarbiec resolve github --consumer ci --token "$GRANT" --emit --out /run/ci
 
 | Command | What it does |
 | --- | --- |
+| `version` | Report the crate version, and the immutable release coordinate the artifact was published at. A source build says so instead of guessing, so a supervisor never has to identify a build by counting the commands it answers. |
 | `generate --length N [--symbols]` | Generate a login string of length N from OS entropy. |
 | `generate --passphrase --words N` | Generate an N-word passphrase. |
 | `totp <item-id>` | Print the current one-time code from an item's saved seed (needs `oathtool`). |

@@ -12,6 +12,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::io::Read;
 
 use core::{crypto, items, vault::Vault};
 
@@ -99,6 +100,33 @@ fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()
     vault.set_item(id, item_type, &secret, &recipients, &tags)?;
     emit(&json!({"ok": true, "id": id}))
 }
+fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
+    let id = positionals
+        .first()
+        .context("usage: set-json <id> --type t")?;
+    let item_type = flags
+        .get("type")
+        .map(String::as_str)
+        .unwrap_or("secret");
+    let mut encoded = String::new();
+    std::io::stdin().read_to_string(&mut encoded)?;
+    let secret: Value = serde_json::from_str(&encoded).context("stdin must be one JSON value")?;
+    if !secret.is_object() {
+        bail!("set-json requires a JSON object");
+    }
+    let recipients: Vec<String> = flags
+        .get("recipients")
+        .map(|value| value.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let tags: Vec<String> = flags
+        .get("tags")
+        .map(|value| value.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let mut vault = Vault::open(vault_path())?;
+    vault.set_item(id, item_type, &secret, &recipients, &tags)?;
+    emit(&json!({"ok": true, "id": id}))
+}
+
 
 fn cmd_get(positionals: &[String]) -> Result<()> {
     let id = positionals.first().context("usage: get <id>")?;
@@ -218,6 +246,26 @@ fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]) -> Result
     emit(&json!({"ok": true, "exported": rows.len(), "out": out}))
 }
 
+/// Report what this binary is, so a supervisor never has to identify a build by
+/// counting the commands it answers — which is what the July incident actually
+/// resorted to, twice, on a broker that had been replaced by hand.
+///
+/// `release` is the immutable coordinate the artifact was published at, baked in
+/// at build time by the publishing pipeline. A source build has none and says so
+/// rather than guessing, because an unpublished binary claiming a release
+/// coordinate is worse than one admitting it has no provenance.
+fn cmd_version() -> Result<()> {
+    let release = option_env!("SKARBIEC_RELEASE_URI");
+    emit(&json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "release": release,
+        "provenance": match release {
+            Some(_) => "published",
+            None => "source build",
+        },
+    }))
+}
+
 fn main() -> Result<()> {
     let mut argv = std::env::args();
     argv.next();
@@ -226,9 +274,11 @@ fn main() -> Result<()> {
     let (flags, positionals) = parse_args(&rest);
 
     match command.as_str() {
+        "version" | "--version" | "-V" => cmd_version(),
         "init" => cmd_init(&flags, &positionals),
         "set" => cmd_set(&flags, &positionals),
         "get" => cmd_get(&positionals),
+        "set-json" => cmd_set_json(&flags, &positionals),
         "list" => cmd_list(&flags),
         "delete" => {
             Vault::open(vault_path())?
@@ -260,7 +310,7 @@ fn main() -> Result<()> {
         "import" => cmd_import(&positionals),
         "export" => cmd_export(&flags, &positionals),
         "help" => emit(
-            &json!({"commands": ["init","set","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp"]}),
+            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp"]}),
         ),
         "mcp" => net::mcp::serve(),
         other => {
