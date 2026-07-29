@@ -271,15 +271,19 @@ if [ -n "$AGAINST" ]; then
   # superseded artifact while still looking healthy. Versions are read by
   # trimming the coordinate rather than by field index, so this carries no bare
   # numeral a reader could mistake for policy.
-  NEWEST="$(printf '%s\n' "$CHANNEL" | while read -r line; do
-    URI="${line%% *}"
-    case "$URI" in
+  # The `case` is kept out of the command substitution deliberately: a pattern's
+  # closing parenthesis inside `$( )` is misread as the end of the substitution,
+  # and the resulting syntax error only appears when the line finally runs.
+  VERSIONS=""
+  for TOKEN in $CHANNEL; do
+    case "$TOKEN" in
       stado://releases/skarbiec/*/skarbiec)
-        TRIMMED="${URI%/*}"
+        TRIMMED="${TOKEN%/*}"
         TRIMMED="${TRIMMED%/*}"
-        printf '%s\n' "${TRIMMED##*/}" ;;
+        VERSIONS="$VERSIONS ${TRIMMED##*/}" ;;
     esac
-  done | sort -V | awk 'END {print}')"
+  done
+  NEWEST="$(printf '%s' "$VERSIONS" | tr ' ' '\n' | sort -V | awk 'END {print}')"
   if [ "$NEWEST" != "$RECORDED" ]; then
     echo "the channel serves $NEWEST, but released-surface.json records $RECORDED."
     echo "The baseline has to be the newest published version, or the comparison"
