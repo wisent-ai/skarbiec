@@ -67,8 +67,23 @@ version and the API origin are bound in by the caller and validated again by the
 script; the installer never resolves a "latest" pointer, because an install that
 discovers its own version cannot be reproduced.
 
-Skarbiec needs the same thing under product `skarbiec`, publishing `skarbiec` and
-`SHA256SUMS`.
+The product slot already exists. Stado's configuration, both the local and the
+Azure deployment, registers Skarbiec in the release publisher map:
+
+```json
+"skarbiec": {"item": "skarbiec-release-publisher", "prefix": "skarbiec/"}
+```
+
+beside `oko`, `stado`, `trading-autonomy` and `wisent-backend`, and the
+authorization model around it is already specified: a dedicated
+`stado-release-api-verifier` consumer checks publisher bearers, `PUT` is
+create-only with `if_absent`, delete is forbidden, authenticated reads and lists
+stay inside the product prefix, and public downloads remain a tokenless `GET`.
+
+So nothing needs designing. The prefix is allocated, the publisher item is named,
+the route is built. What is missing is that **nothing has ever been published
+into it**, and the grant that would authorize the publish is an item in the
+vault.
 
 ## What updates have to be
 
@@ -110,10 +125,22 @@ this document should not pretend otherwise.
 
 ## What is missing, concretely
 
+- **A publish. Any publish.** The `skarbiec/` prefix is allocated and empty. No
+  version of this binary has ever reached the channel the fleet is supposed to
+  install from, which is why three impostors currently compete to be the
+  canonical build:
+
+  | Candidate | Why it is not canonical |
+  | --- | --- |
+  | `skarbiec-bin-latest` on `lbartoszcze/entitlements-rotator` | A **rolling** tag, so the coordinate is mutable and a version means nothing. Built from the vendored lineage that no longer exists, its asset is named `skarbiec-entitlements-router`, and its download count is zero — nothing ever consumed it. |
+  | `stado://releases/skarbiec/...` | Correct in every respect and **empty**. |
+  | `~/.stado/bin/skarbiec` | A hand build on one laptop, replaced twice in one afternoon by different actors during the July incident, identifiable only by asking it for its command list. |
+
 - A publish workflow in this repository, targeting
   `stado://releases/skarbiec/<version>/<platform>/`, emitting `skarbiec` and
   `SHA256SUMS`. Not added yet: the repository's CI cannot start at all right now,
-  and the publisher credential is inside the vault it would publish.
+  and the publisher grant is the vault item `skarbiec-release-publisher`, inside
+  the vault it would publish.
 - `self_update` taking a product parameter instead of a hardcoded one.
 - A version the fleet can compare. `skarbiec help` lists commands, which is why
   the installer counts them, but a build carries no version string a supervisor
