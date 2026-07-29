@@ -1,34 +1,85 @@
 # skarbiec
 
-Self-contained vault for sensitive values — a single Rust binary, with no
-dependency on any hosted manager or external service. All cryptography is
+A password manager for the agent era, and the thing that ends `.env`.
+
+One Rust binary, no hosted dependency, no external service. All cryptography is
 delegated to vetted local tools (`gpg`, `openssl`, `shasum`, and optional
 `oathtool`); none is hand-rolled.
+
+## Why this is not a password manager with an API
+
+The comparison to a consumer manager is exact on primitives — one vault, one
+owner, per-recipient sharing, recovery material, an audit trail — and misleading
+on clients.
+
+A consumer manager's client is a human at a keyboard who unlocks with a master
+secret and then holds the item. Skarbiec's clients are processes:
+non-interactive, numerous, short-lived, spawned by schedulers and by other
+processes, often on machines nobody is sitting at. There is no human to prompt,
+no session to unlock, and **no reason a client should ever hold an item**.
+
+Everything below follows from that.
+
+## The end of `.env`, in three steps
+
+**A file of values.** `.env` is a copy of every secret a process might need,
+plaintext, duplicated into every checkout, image and CI runner. It cannot be
+rotated, because nobody knows where the copies are.
+
+**A vault with standing grants.** Values live in one place, access is scoped,
+every request is recorded. Better — but the consumer still holds a long-lived
+bearer, and that bearer is the new `.env`: smaller, still copied, still
+effectively unrotatable.
+
+**A capability requested per use.** The consumer holds no secret. It proves what
+it *is* — a workload identity, an executable path, a host, a signed attestation —
+and receives one field, once, bound to that identity and that field, expiring in
+seconds. Rotation works for the first time, because nothing holds a copy to
+invalidate.
+
+The pitch, and the bar to clear: *your agents never hold a credential — they
+prove who they are and borrow one field for one call, and you can see every
+borrow.*
+
+Where the implementation actually stands against that sentence is written down,
+not glossed: see [docs/PRODUCT.md](docs/PRODUCT.md).
 
 ## Features
 
 - **Encryption at rest.** Every item is armored ciphertext, sealed to the public
-  keys of its recipients. The on-disk file is safe at rest.
+  keys of its recipients. The on-disk file is safe at rest; its metadata is not
+  secret and is documented as such.
 - **Multi-recipient sharing.** Register a user, share an item (re-encrypt to
   include them), revoke (re-encrypt to the remaining recipients).
-- **Scoped service-account grants.** Existing read, write, and delete scopes are
-  checked independently. Request-only grants can instead issue a short-lived,
-  field-bound bearer that is atomically consumed by its first successful read.
-- **Recovery and emergency access.** A recovery recipient is on every item, so
-  losing the daily identity never loses data; time-delayed emergency grants share
-  the vault after an operator-chosen moment.
-- **Tamper-evident audit.** An append-only journal where each line carries the
-  prior line's hash; `verify-chain` detects any retroactive edit.
+- **Scoped service-account grants.** Read, write and delete scopes are checked
+  independently. Request-only grants issue instead a short-lived, field-bound
+  bearer that its first successful read atomically consumes.
+- **Real owner rotation.** `rotate-owner` rewraps every current and historical
+  ciphertext onto a new owner, drops the previous one per item, and keeps the
+  recovery recipient. Nothing is written until all of it succeeds, so a
+  half-finished rotation cannot leave the vault readable by neither owner.
+- **Recovery and emergency access.** A recovery recipient is on every item;
+  time-delayed emergency grants share the vault after an operator-chosen moment.
+- **Diagnosis that does not need the patient healthy.** `key-doctor` reports
+  which keys can still open the vault and, when none can, the exact
+  `private-keys-v1.d/<KEYGRIP>.key` files a restore has to produce. It reads the
+  document and the keyring directly, never the API.
+- **Honest failure.** `GET /health` opens real key material rather than reporting
+  that a process is alive. A read of an item that exists but will not decrypt
+  answers `503` with `infra_down`, never a dropped connection. A consumer can
+  tell "you are not allowed" from "I am broken".
+- **Tamper-evident audit.** Append-only journal, each line carrying the prior
+  line's hash; `verify-chain` detects any retroactive edit.
 - **Runtime injection.** `resolve` emits an owner-only env file and returns its
   path; `expand` fills reference lines in a template. Values land in files, never
   on stdout.
 - **Generator, one-time codes, breach health.** Login strings and passphrases
   from operating-system entropy; a current one-time code from a saved seed; a
   breach check under k-anonymity (only a hash prefix leaves the host).
-- **Sync.** Git-backed transfer of the encrypted file across many devices — only
+- **Sync.** Git-backed transfer of the encrypted file across devices — only
   ciphertext crosses the wire.
-- **Local HTTP API and MCP server.** A loopback API for GUI/CLI clients and a
-  stdio Model Context Protocol server for agents, sharing one policy and audit
+- **Local HTTP API and MCP server.** A loopback API for GUI and CLI clients, and
+  a stdio Model Context Protocol server for agents, sharing one policy and audit
   core.
 
 ## Install
@@ -37,7 +88,7 @@ delegated to vetted local tools (`gpg`, `openssl`, `shasum`, and optional
 cargo build --release
 ```
 
-The binary is `target/release/skarbiec`. It shells out to `gpg`, `openssl`, and
+The binary is `target/release/skarbiec`. It shells out to `gpg`, `openssl` and
 `shasum` at runtime, so those must be on `PATH` (`oathtool` is optional, for
 one-time codes).
 
@@ -55,18 +106,35 @@ skarbiec list
 
 # Read one item back
 skarbiec get github
+
+# Prove the vault can still be opened, and by which key
+skarbiec key-doctor
 ```
 
 The vault lives at `SKARBIEC_VAULT_FILE` (default
 `~/.stado/skarbiec.vault.json`): armored ciphertext, safe at rest.
 
+**Move the recovery material off this machine before you store anything real.**
+`init` generates the owner and recovery keys into the same local keyring, so
+until you export the recovery secret and remove it from that keyring, one
+directory holds both halves of the failure domain. `recovery-status` tells you
+whether that is still the case, and treats a local recovery secret as a fault.
+This is not a hypothetical: it is the failure that produced
+[docs/ARCHITECTURE-REVIEW.md](docs/ARCHITECTURE-REVIEW.md).
+
 ## Documentation
 
+- [docs/PRODUCT.md](docs/PRODUCT.md) — what this is for, the three generations of
+  secret handling, and where the implementation honestly stands.
 - [docs/CLI.md](docs/CLI.md) — every command, grouped, with examples.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design, client boundary, HTTP and
   MCP surface, and the cryptographic model.
 - [docs/SECURITY.md](docs/SECURITY.md) — trust boundaries, threat model, and the
   invariants the vault upholds.
+- [docs/ARCHITECTURE-REVIEW.md](docs/ARCHITECTURE-REVIEW.md) — defects ranked by
+  what can destroy or leak the vault, written from the shipped source.
+- [docs/LINEAGE.md](docs/LINEAGE.md) — the two code bases this once had, and why
+  there is now one.
 
 ## License
 
