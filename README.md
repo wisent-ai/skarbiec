@@ -110,13 +110,22 @@ stado storage get stado://releases/skarbiec/<version>/darwin-arm64/skarbiec ./sk
 `skarbiec version` then reports the coordinate and the source commit that copy was
 built from, so a build is never identified by guesswork.
 
-Publishing is `stado release publish`. This repository holds no publish script:
-`.stado-release.json` declares the facts about this product, and the procedure —
-guards, classification, checksum, create-only upload — is the same for every product
-and lives in Stado. The version number is not chosen by hand either; `--bump` derives
-it from what the command surface gained or lost against the published build. That
-rule, the channel, and what durability it still lacks are in
-[docs/INSTALL.md](docs/INSTALL.md).
+Publishing is `sh scripts/publish.sh`, and a dry run prints the plan without
+touching the channel. The script keeps the guards this product needs: a refused
+dirty tree, a refused `HEAD` that is not an ancestor of `origin/main`, the release
+coordinate and the source commit baked into the binary, a `SHA256SUMS` manifest, a
+create-only upload, and confirmation read back from the channel listing.
+
+The version number is not chosen by hand, and the rule that decides it is not
+copied into this repository. It lives once for the whole fleet, in
+[AutoVersion](https://github.com/lbartoszcze/AutoVersion), and is called as
+`autoversion decide` on two command surfaces: the one the published build
+advertises and the one this checkout advertises. Anything removed is `breaking`,
+anything added is `additive`, an identical surface is `internal`. `--bump` writes
+the derived number into `Cargo.toml`. `released-surface.json` records the surface
+of the version currently on the channel, recovered by downloading that artifact
+and asking it for its own command list. That rule, the channel, and what
+durability it still lacks are in [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quickstart
 

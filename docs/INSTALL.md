@@ -2,14 +2,17 @@
 
 ## The honest state
 
-There is no published release channel for Skarbiec. Installation today means
-building from a checkout and replacing a file by hand, and updates mean somebody
-remembering to do it again. During the July incident the binary serving the fleet
-was replaced twice in one afternoon by different actors, and the only way to tell
-which build was live was to ask it for its command list.
+There is a published release channel for Skarbiec now, and it holds a lineage:
+`0.1.0`, `0.1.1` and `0.1.2` for `darwin-arm64`, immutable, retrievable without a
+credential, each naming its own coordinate when run. What it does not hold yet is a
+copy that is not on one machine, or a second platform. Building from a checkout is
+still supported and is what a contributor does.
 
-That is unacceptable for the component every other component authenticates
-against, and this document says both what to do now and what has to be built.
+During the July incident the binary serving the fleet was replaced twice in one
+afternoon by different actors, and the only way to tell which build was live was to
+ask it for its command list. That is unacceptable for the component every other
+component authenticates against, and this document says both what to do now and
+what is still missing.
 
 ## Installing now, from source
 
@@ -22,8 +25,9 @@ sh scripts/install.sh
 `scripts/install.sh` builds a release binary, stages it inside the destination
 directory, and moves it into place by rename, so a concurrent process sees the
 old binary or the new one and never a half-written file. It then runs the
-installed binary and prints how many commands it answers, because a stale
-install otherwise looks exactly like a fresh one.
+installed binary and prints the version and provenance it reports, because a stale
+install otherwise looks exactly like a fresh one — and because counting the
+commands a build answers is the identification this channel exists to replace.
 
 Destination is `$HOME/.stado/bin`, overridable with `SKARBIEC_INSTALL_DIR`. That
 prefix is where Stado installs its own binaries and where the fleet's launchers
@@ -44,7 +48,8 @@ and the key material is not, and it names the exact key files a restore needs.
 
 ## What the release channel has to be
 
-Stado already has the mechanism, correctly shaped, and Skarbiec is not using it.
+Stado already had the mechanism, correctly shaped. This is the shape Skarbiec now
+publishes into.
 
 Objects live at a canonical, immutable coordinate:
 
@@ -80,10 +85,10 @@ authorization model around it is already specified: a dedicated
 create-only with `if_absent`, delete is forbidden, authenticated reads and lists
 stay inside the product prefix, and public downloads remain a tokenless `GET`.
 
-So nothing needs designing. The prefix is allocated, the publisher item is named,
-the route is built. What is missing is that **nothing has ever been published
-into it**, and the grant that would authorize the publish is an item in the
-vault.
+So nothing needed designing. The prefix is allocated, the publisher item is named,
+the route is built, and three versions are published into it. What the channel
+still lacks is durability and a second platform, both listed at the end of this
+document.
 
 ## What updates have to be
 
@@ -108,21 +113,31 @@ exactly this.
 ## How to publish
 
 ```sh
-STADO_RELEASE_PLATFORM=darwin-arm64 stado release publish --dry-run
-STADO_RELEASE_PLATFORM=darwin-arm64 stado release publish --against <version> --bump
-STADO_RELEASE_PLATFORM=darwin-arm64 stado release publish --against <version>
+STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh --dry-run
+STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh --against <version> --bump
+STADO_RELEASE_PLATFORM=darwin-arm64 sh scripts/publish.sh --against <version>
 ```
 
-There is no publish script in this repository, on purpose. What this product
-declares about its releases lives in `.stado-release.json` — the version file, the
-build command, the artifact, the surface command, and the variables the coordinate
-and revision are baked through. The procedure around those facts is identical for
-every product and lives in `stado`, which every publisher already needs because the
-channel is reached through it.
+`scripts/publish.sh` holds the procedure. What it deliberately does **not** hold is
+the rule that decides the version. That rule lives once for the whole fleet, in
+[AutoVersion](https://github.com/lbartoszcze/AutoVersion):
+
+```sh
+pip install "git+https://github.com/lbartoszcze/AutoVersion@v0.1.0"
+```
+
+and is called as `autoversion decide`. The script supplies only the two things this
+repository alone knows — the surface of the build already on the channel and the
+surface of the candidate — and obeys the answer. A copy of the rule inside this
+repository would be a second policy, free to drift from every other product's.
 
 The platform string is not invented; it reads
 `STADO_RELEASE_PLATFORM`, the same key Stado publishes its own releases under, so
 the two can never disagree about what a platform is called.
+
+`--dry-run` publishes nothing. It prints the coordinate it would write and *every*
+guard that would refuse a real run, not merely the first, so what blocks a publish
+is learned in one invocation rather than one refusal at a time.
 
 What the publish guarantees, in order:
 
@@ -146,18 +161,23 @@ A version is not a label on a moving target. It is the middle segment of the
 coordinate, and it selects exactly one set of bytes for as long as the store
 exists.
 
-**Where the number comes from.** The file named by `version_file` in
-`.stado-release.json`, which for this product is `Cargo.toml`. There
-is one place to change it and the binary's own `version` output cannot disagree
-with the coordinate it was published at, because both are derived from that read.
+**Where the number comes from.** `Cargo.toml`, read once by the publish script.
+There is one place to change it, and the binary's own `version` output cannot
+disagree with the coordinate it was published at, because both are derived from
+that read.
 
-**Which number, decided rather than remembered.** `stado release next` compares the
+**Which number, decided rather than remembered.** `autoversion decide` compares the
 published build's advertised commands with the candidate's and derives the only
-version the release may carry:
+version the release may carry. Both sides are surface documents — exactly
+`{"surface": ["name", ...]}`, sorted and unique — reshaped from what each binary's
+`help` prints:
 
 ```sh
-stado release next --current <published> \
-  --published <fetched-binary> --candidate ./target/release/skarbiec
+./target/release/skarbiec help | jq '{surface: (.commands | unique)}' > candidate.json
+
+autoversion decide --current <published> \
+  --published-surface released-surface.json \
+  --candidate-surface candidate.json --json
 ```
 
 Anything removed is `breaking`, anything added is `additive`, an identical surface
@@ -165,16 +185,17 @@ is `internal`. `--breaking` declares breakage the command list cannot show — a
 field dropped from a payload, a stored format changed — and can only escalate the
 classification, never lower it. The mapping onto slots depends on the current
 version, because while major is zero Cargo puts the compatibility boundary in the
-minor slot: `breaking` gives `0.2.0`, while `additive` and `internal` both give
-`0.1.1` since a `0.x` crate has no third slot to separate them.
+minor slot: against the published `0.1.2`, `breaking` gives `0.2.0`, while
+`additive` and `internal` both give `0.1.3`, since a `0.x` crate has no third slot
+to separate them.
 
-**Nobody types a version.** `stado release publish --against <published-version>
---bump` runs the comparison, writes the derived number into the version file, and
+**Nobody types a version.** `sh scripts/publish.sh --against <published-version>
+--bump` runs the comparison, writes the derived number into `Cargo.toml`, and
 stops:
 
 ```
-change:  internal against 0.1.1
-Cargo.toml: 0.1.1 -> 0.1.2
+change:   internal against 0.1.2
+Cargo.toml: 0.1.2 -> 0.1.3
 ```
 
 The commit is left to the operator deliberately, not as a missing feature: a
@@ -186,6 +207,16 @@ Without `--bump`, the same comparison runs as a check and refuses to publish und
 any other number. Without `--against` the classification is skipped and says so,
 rather than passing quietly. The predecessor is fetched off the channel, which
 works because release downloads need no credentials.
+
+**The baseline is recovered, not remembered.** `released-surface.json` records the
+surface of the version the channel currently serves, beside a marker naming where
+that record came from — `stado:releases/skarbiec/<version>/<platform>/skarbiec` —
+and it is regenerated by downloading that artifact and asking it for its own
+command list, never written by hand. The publish script checks all of it: that the
+marker names a coordinate the channel actually lists, that the version recorded is
+the newest published one, and that the recorded surface equals what the artifact
+advertises. A baseline that lags the channel, or that was typed in, would make
+every later comparison measure against something nobody installed.
 
 **Only advertised commands count.** The surface is what `help` lists. A command
 that dispatches but is unlisted is private, and nothing may be told to depend on
@@ -224,7 +255,8 @@ stopped existing when the shell exited.
 One exception, stated rather than hidden: `0.1.0` predates the commit stamp and
 reports `"commit": null`, reproducible only through the repository history around
 its publish time. `0.1.1` was the first version derived and stamped mechanically,
-and every version after it carries its revision.
+and every version after it carries its revision — `0.1.2`, the version the channel
+currently serves, reports its own commit when asked.
 
 ## The bootstrapping loop, and where it does not apply
 
@@ -249,17 +281,18 @@ happened. What the loop still governs:
 - The install route stays bearer-free either way, so a machine with no credentials
   at all can still fetch a verified binary.
 
-`stado release publish` performs the publish. It is a command rather than a
-workflow because CI has no store to write to and no bearer to write with; the
-operator's host has the store.
+`sh scripts/publish.sh` performs the publish. It is a script an operator runs
+rather than a workflow because CI has no store to write to and no bearer to write
+with; the operator's host has the store.
 
 ## What is missing, concretely
 
-The channel holds a lineage now, not a single artifact. `0.1.0` and `0.1.1` for
-`darwin-arm64` are published, listed, immutable, retrievable without a bearer, and
-each reports its own coordinate when run. `0.1.1` also reports the commit it was
-built from, and its number was derived from the surface change rather than chosen.
-That settles which of the three candidates is canonical:
+The channel holds a lineage now, not a single artifact. `0.1.0`, `0.1.1` and
+`0.1.2` for `darwin-arm64` are published, listed, immutable, retrievable without a
+bearer, and each reports its own coordinate when run. `0.1.1` and `0.1.2` also
+report the commit they were built from, and their numbers were derived from the
+surface change rather than chosen; `0.1.2` is the version the channel currently
+serves. That settles which of the three candidates is canonical:
 
 | Candidate | Standing |
 | --- | --- |
