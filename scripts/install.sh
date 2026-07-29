@@ -1,10 +1,10 @@
 #!/bin/sh
 # Build Skarbiec from this checkout and install it where the fleet looks for it.
 #
-# This is the source install. It is the only install that exists today: there is
-# no published release channel for Skarbiec yet, so nothing can be fetched and
-# checksum-verified the way `stado` itself is. See docs/INSTALL.md for the
-# channel this should become and what blocks it.
+# This is the source install, and it is what a contributor uses. It is no longer
+# the only one: releases are published to stado://releases/skarbiec/, so a machine
+# that only needs a binary can fetch a checksum-verified one instead of building.
+# See docs/INSTALL.md for the channel, and for what durability it still lacks.
 #
 # The replacement is done by rename inside the destination directory, so a
 # concurrent process either sees the old binary or the new one and never a
