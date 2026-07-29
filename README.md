@@ -97,16 +97,22 @@ script runs the installed binary afterwards and prints what it reports for
 Runtime dependencies are invoked as subprocesses and must be on `PATH`: `gpg`,
 `openssl`, `shasum` (`oathtool` is optional, for one-time codes).
 
-`0.1.0` for `darwin-arm64` is published to the release channel, immutable and
-retrievable without credentials:
+Releases are published to the channel, immutable and retrievable without
+credentials. There is deliberately no `latest` pointer — an install that discovers
+its own version cannot be reproduced — so ask the channel which versions exist and
+name the one you want:
 
 ```sh
-stado storage get stado://releases/skarbiec/0.1.0/darwin-arm64/skarbiec ./skarbiec
+stado storage objects releases skarbiec/
+stado storage get stado://releases/skarbiec/<version>/darwin-arm64/skarbiec ./skarbiec
 ```
 
-`scripts/publish.sh` publishes a version, and `skarbiec version` reports the exact
-coordinate a copy came from, so a build is never identified by guesswork. The
-channel, the publish steps, and what durability it still lacks are in
+`skarbiec version` then reports the coordinate and the source commit that copy was
+built from, so a build is never identified by guesswork.
+
+Publishing is `scripts/publish.sh`. The version number is not chosen by hand:
+`--bump` derives it from what the command surface gained or lost against the
+published build. That rule, the channel, and what durability it still lacks are in
 [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Quickstart

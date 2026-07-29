@@ -159,10 +159,24 @@ version, because while major is zero Cargo puts the compatibility boundary in th
 minor slot: `breaking` gives `0.2.0`, while `additive` and `internal` both give
 `0.1.1` since a `0.x` crate has no third slot to separate them.
 
-`publish.sh --against <published-version>` runs that comparison, and refuses to
-publish under any other number. The predecessor is fetched off the channel, which
-works because release downloads need no credentials. Without `--against` the script
-says the classification was skipped rather than passing quietly.
+**Nobody types a version.** `publish.sh --against <published-version> --bump` runs
+the comparison, writes the derived number into `Cargo.toml`, and stops:
+
+```
+change:   additive against 0.1.0
+Cargo.toml: 0.1.0 -> 0.1.1
+commit and push that, then: sh scripts/publish.sh --against 0.1.0
+```
+
+The commit is left to the operator deliberately, not as a missing feature: a
+published coordinate has to resolve to a revision that is already pushed, which is
+the same guard that refuses a dirty tree. So the number is derived mechanically and
+the decision to release stays deliberate.
+
+Without `--bump`, the same comparison runs as a check and refuses to publish under
+any other number. Without `--against` the classification is skipped and says so,
+rather than passing quietly. The predecessor is fetched off the channel, which
+works because release downloads need no credentials.
 
 **Only advertised commands count.** The surface is what `help` lists. A command
 that dispatches but is unlisted is private, and nothing may be told to depend on
@@ -198,10 +212,10 @@ uncommitted changes or a `HEAD` that is not an ancestor of `origin/main`. Withou
 those two refusals a coordinate would be permanently bound to a working copy that
 stopped existing when the shell exited.
 
-One exception, stated rather than hidden: the first published version predates the
-commit stamp, so it reports `"commit": null`. It is reproducible only through the
-repository history around its publish time. Every version after it carries its
-revision.
+One exception, stated rather than hidden: `0.1.0` predates the commit stamp and
+reports `"commit": null`, reproducible only through the repository history around
+its publish time. `0.1.1` was the first version derived and stamped mechanically,
+and every version after it carries its revision.
 
 ## The bootstrapping loop, and where it does not apply
 
@@ -232,13 +246,15 @@ host has the store.
 
 ## What is missing, concretely
 
-The channel is no longer empty. `0.1.0` for `darwin-arm64` is published, listed,
-immutable, retrievable without a bearer, and reports its own coordinate when run.
+The channel holds a lineage now, not a single artifact. `0.1.0` and `0.1.1` for
+`darwin-arm64` are published, listed, immutable, retrievable without a bearer, and
+each reports its own coordinate when run. `0.1.1` also reports the commit it was
+built from, and its number was derived from the surface change rather than chosen.
 That settles which of the three candidates is canonical:
 
 | Candidate | Standing |
 | --- | --- |
-| `stado://releases/skarbiec/0.1.0/darwin-arm64/` | **Canonical.** Immutable coordinate, checksum manifest beside it, bearer-free download, and the binary names this coordinate when asked. |
+| `stado://releases/skarbiec/<version>/darwin-arm64/` | **Canonical.** Immutable coordinates, a checksum manifest beside each, bearer-free download, and the binary names its own coordinate and revision when asked. |
 | `skarbiec-bin-latest` on `lbartoszcze/entitlements-rotator` | Superseded. A **rolling** tag, so the coordinate is mutable and a version means nothing; built from the vendored lineage that no longer exists; asset named `skarbiec-entitlements-router`; download count zero. |
 | `~/.stado/bin/skarbiec` | Superseded. A hand build on one laptop, replaced twice in one afternoon by different actors during the July incident. It can now be checked against the channel instead of guessed at. |
 
