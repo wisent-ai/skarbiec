@@ -250,15 +250,22 @@ fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]) -> Result
 /// counting the commands it answers — which is what the July incident actually
 /// resorted to, twice, on a broker that had been replaced by hand.
 ///
-/// `release` is the immutable coordinate the artifact was published at, baked in
-/// at build time by the publishing pipeline. A source build has none and says so
-/// rather than guessing, because an unpublished binary claiming a release
-/// coordinate is worse than one admitting it has no provenance.
+/// `release` is the immutable coordinate the artifact was published at, and
+/// `commit` is the source revision it was built from. Both are baked in at build
+/// time by the publishing pipeline. A source build has neither and says so rather
+/// than guessing, because an unpublished binary claiming a release coordinate is
+/// worse than one admitting it has no provenance.
+///
+/// The coordinate alone would only identify bytes. Publishing refuses a tree with
+/// uncommitted changes, so a released coordinate resolves to a revision anyone can
+/// check out and rebuild — which is the difference between an artifact that is a
+/// source of truth and one that is merely unique.
 fn cmd_version() -> Result<()> {
     let release = option_env!("SKARBIEC_RELEASE_URI");
     emit(&json!({
         "version": env!("CARGO_PKG_VERSION"),
         "release": release,
+        "commit": option_env!("SKARBIEC_RELEASE_COMMIT"),
         "provenance": match release {
             Some(_) => "published",
             None => "source build",

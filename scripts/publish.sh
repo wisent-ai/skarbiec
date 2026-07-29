@@ -57,8 +57,26 @@ PREFIX="stado://releases/skarbiec/$VERSION/$PLATFORM"
 BINARY="$PREFIX/skarbiec"
 MANIFEST="$PREFIX/SHA256SUMS"
 
+# An immutable coordinate that nobody can rebuild identifies bytes, not software.
+# A dirty tree is therefore refused outright: the published artifact must resolve
+# to a revision that still exists after this shell exits.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "refusing to publish: the tree has uncommitted changes"
+  echo "commit them first, so $VERSION resolves to a revision that can be rebuilt"
+  exit
+fi
+COMMIT="$(git rev-parse HEAD)"
+
+# And a revision only on this laptop is the same fragility under a better name.
+if ! git merge-base --is-ancestor HEAD origin/main; then
+  echo "refusing to publish: HEAD is not on origin/main"
+  echo "push it first, or fetch if this ref is stale"
+  exit
+fi
+
 echo "version:  $VERSION"
 echo "platform: $PLATFORM"
+echo "commit:   $COMMIT"
 echo "binary:   $BINARY"
 echo "manifest: $MANIFEST"
 
@@ -68,22 +86,30 @@ if [ -n "$DRY" ]; then
   exit
 fi
 
-# Bake the coordinate in, so the artifact can name itself afterwards.
-SKARBIEC_RELEASE_URI="$BINARY" cargo build --release --quiet
+# Bake both in, so the artifact can name itself and its source afterwards.
+SKARBIEC_RELEASE_URI="$BINARY" SKARBIEC_RELEASE_COMMIT="$COMMIT" \
+  cargo build --release --quiet
 
 cd target/release
 DIGEST_LINE="$(openssl dgst -sha256 -r skarbiec)"
 DIGEST="${DIGEST_LINE%% *}"
 printf '%s  %s\n' "$DIGEST" skarbiec > SHA256SUMS
 
-# Refuse to publish a binary that cannot report the coordinate it was built for.
-# A failed bake means a released artifact with no provenance, which is the defect
-# this path exists to remove.
+# Refuse to publish a binary that cannot report the coordinate and the revision it
+# was built from. A failed bake means a released artifact whose provenance stops at
+# "some tree on some machine", which is the defect this path exists to remove.
 REPORTED_LINE="$(./skarbiec version | awk '/"release"/{print; exit}')"
 REPORTED_TAIL="${REPORTED_LINE#*: \"}"
 REPORTED="${REPORTED_TAIL%\"*}"
 if [ "$REPORTED" != "$BINARY" ]; then
   echo "built binary reports release '$REPORTED', expected '$BINARY'"
+  exit
+fi
+STAMPED_LINE="$(./skarbiec version | awk '/"commit"/{print; exit}')"
+STAMPED_TAIL="${STAMPED_LINE#*: \"}"
+STAMPED="${STAMPED_TAIL%\"*}"
+if [ "$STAMPED" != "$COMMIT" ]; then
+  echo "built binary reports commit '$STAMPED', expected '$COMMIT'"
   exit
 fi
 
