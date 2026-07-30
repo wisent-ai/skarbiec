@@ -18,9 +18,12 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Write};
+use std::net::TcpStream;
 use std::path::Path;
 
+use crate::access::tokens;
 use crate::core::{vault::Vault, vault_path};
+use crate::net::http;
 use crate::runtime;
 
 // Spec-mandated JSON-RPC 2.0 / MCP wire values (not tunables); kept as strings
@@ -226,4 +229,59 @@ pub fn serve() -> Result<()> {
         }
     }
     Ok(())
+}
+
+// === serve endpoint handlers relocated from net::http ===
+// Routed by net::http's listener; they live in this module only because
+// net::http and net::mod are at the per-file line budget. Behavior unchanged.
+
+pub(crate) fn handle_acquisitions_issue(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    body: &str,
+) -> Result<()> {
+    let parsed = http::request_json(body);
+    let (Some(item), Some(field)) = (http::request_id(&parsed), http::request_field(&parsed))
+    else {
+        let e = &json!({"error": "exact id and field required"});
+        return http::write_response(stream, "HTTP/1.1 400 Bad Request", e);
+    };
+    let (consumer, bootstrap) = http::presented_identity(headers);
+    let issued = if consumer.is_empty() {
+        None
+    } else {
+        crate::access::acquisition::issue(&consumer, &bootstrap, item, field).unwrap_or(None)
+    };
+    let Some(issued) = issued else {
+        let e = &json!({"error": "unauthorized"});
+        return http::write_response(stream, "HTTP/1.1 401 Unauthorized", e);
+    };
+    let entry = json!({"consumer": consumer, "item": item, "field": field, "expires_at": issued.expires_at});
+    crate::runtime::audit::append("http-acquisition-issued", &entry)?;
+    let mut out = entry.clone();
+    out["token"] = json!(issued.token);
+    http::write_response(stream, "HTTP/1.1 200 OK", &out)
+}
+
+pub(crate) fn handle_items_list(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+) -> Result<()> {
+    let (consumer, bearer) = http::presented_identity(headers);
+    let vault = http::load()?;
+    if consumer.is_empty() || !tokens::token_valid(&vault, &consumer, &bearer)? {
+        let e = &json!({"error": "consumer grant required"});
+        return http::write_response(stream, "HTTP/1.1 403 Forbidden", e);
+    }
+    let visible: Vec<Value> = vault
+        .list(false)
+        .into_iter()
+        .filter(|item| {
+            item.get("id").and_then(Value::as_str).is_some_and(|id| {
+                tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)
+                    .unwrap_or(false)
+            })
+        })
+        .collect();
+    http::write_response(stream, "HTTP/1.1 200 OK", &json!(visible))
 }

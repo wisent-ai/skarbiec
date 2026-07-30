@@ -164,6 +164,31 @@ pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) ->
     token_allows_action(vault, consumer, presented, "read", id)
 }
 
+/// Check whether a consumer grant authorizes a vault-wide action that names
+/// no item id: `sync:pull` authorizes serving the whole ciphertext document,
+/// and a bare `donate` (or `donate:<glob>`) authorizes an inbound p2p item
+/// write. These are checked only by the vault-level endpoints, so they can
+/// never widen an item read; a bare glob stays read-only for items.
+pub fn token_allows_vault_action(
+    vault: &Vault,
+    consumer: &str,
+    presented: &str,
+    action: &str,
+    capability: &str,
+) -> Result<bool> {
+    match scopes_for(vault, consumer, presented)? {
+        Some(scopes) => Ok(scopes.iter().any(|scope| {
+            match scope.split_once(':') {
+                Some((scope_action, pattern)) => {
+                    scope_action == action && glob_matches(pattern, capability)
+                }
+                None => capability.is_empty() && scope == action,
+            }
+        })),
+        None => Ok(false),
+    }
+}
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,

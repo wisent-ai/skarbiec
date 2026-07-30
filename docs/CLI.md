@@ -126,3 +126,46 @@ Only ciphertext crosses the wire.
 | `mcp` | Start the stdio Model Context Protocol server for agents. |
 
 See [SECURITY.md](SECURITY.md) for how `resolve`, grants, and the servers are gated.
+
+## Stan operacyjny (2026-07-28, po incydencie rotacji)
+
+Aktywny vault: `~/.stado/brama-runtime-config/local.vault.json` (383 itemy).
+Klucz właściciela: `skarbiec-owner-20260728 <lukasz.bartoszcze@wisent.ai>`;
+fraza w `~/.skarbiec-unlock` (600); eksport recovery:
+`~/.skarbiec-recovery-20260728.asc` (do trzymania poza maszyną). Stary vault
+`~/.stado/skarbiec.vault.json` (378 itemów) jest zasealowany na utracone
+klucze i pozostaje archiwum.
+
+Codzienna praca:
+
+```sh
+export SKARBIEC_BIN=~/Documents/CodingProjects/Wisent/skarbiec/target/release/skarbiec
+export SKARBIEC_VAULT_FILE=~/.stado/brama-runtime-config/local.vault.json
+export SKARBIEC_UNLOCK_FILE=~/.skarbiec-unlock
+skarbiec list | get <id> [--field f] | set <id> --type t pole=v | audit
+```
+
+Aplikacje trzymają w configach referencje `skarbiec://<item>/<pole>`,
+rozwiązywane przez CLI przy starcie (np. `game_asset_creator/pipeline.config.json`).
+Konsument HTTP: launchd `com.wisent.skarbiec` (tokeny z zakresami `read:<item>`).
+Brama (model-router) czyta subskrypcje z Supabase, nie z vaulta; Weles trzyma
+kopię `platform-admin-*` w vaultcie przy źródle w tabelach Supabase Weles.
+
+Zasady pożarowe po incydencie:
+
+1. Rotacja wyłącznie przez `rotate-owner` (re-szyfruje wszystko), nigdy przez
+   `add-user --role owner` (zabronione przez CLI).
+2. Przed rotacją: eksport klucza offline + testowy decrypt poza sesją.
+3. Recovery (`75709EF1…`, pusta fraza) — eksport `.asc` poza maszyną.
+4. Wartości tylko przez stdin/pliki/zmienne — nigdy inline w komendach.
+5. Braki po incydencie: `~/.stado/brama-runtime-config/still-missing.txt`.
+
+## Examples — skarbiec w praktyce
+
+Praktyczne przykłady mieszkają w folderze [`examples/`](examples/README.md):
+
+1. [create-skarbiec.sh](examples/create-skarbiec.sh)
+2. [create-three-skarbiecs.sh](examples/create-three-skarbiecs.sh)
+3. [rotate-skarbiec-owner.sh](examples/rotate-skarbiec-owner.sh)
+4. [add-credential.sh](examples/add-credential.sh)
+5. [sharing/share-credential-with-user.sh](examples/sharing/share-credential-with-user.sh)

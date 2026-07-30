@@ -165,6 +165,136 @@ pub fn dispatch(
                 json!({"uid": uid, "public_key": crypto::export_public_key(&fpr)?}),
             ))
         }
+        // The bond (docs/design/bond.md) is the named synchronization
+        // relationship between two vaults. Only non-secret config is stored:
+        // mode, role, channel address, and peer key fingerprints — never
+        // tokens or key material.
+        "bond-add" => {
+            let name = positionals.first().context(
+                "usage: bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr]",
+            )?;
+            let mode = flags.get("mode").context("--mode required")?;
+            let role = flags.get("role").context("--role required")?;
+            let channel = flags.get("channel").context("--channel required")?;
+            let modes = ["replica", "hub", "p2p", "git"];
+            if !modes.contains(&mode.as_str()) {
+                anyhow::bail!("mode must be one of: {}", modes.join(", "));
+            }
+            let roles = ["source", "replica", "consumer", "peer"];
+            if !roles.contains(&role.as_str()) {
+                anyhow::bail!("role must be one of: {}", roles.join(", "));
+            }
+            let (channel_type, address) = channel
+                .split_once(':')
+                .context("channel must be <type:address>")?;
+            let channel_types = ["serve", "git", "file"];
+            if !channel_types.contains(&channel_type) {
+                anyhow::bail!("channel type must be one of: {}", channel_types.join(", "));
+            }
+            let peers: Vec<String> = flags
+                .get("peers")
+                .map(|value| value.split(',').map(str::to_string).collect())
+                .unwrap_or_default();
+            let mut vault = Vault::open(vault_path())?;
+            let doc = vault
+                .doc_mut()
+                .as_object_mut()
+                .context("vault document is not an object")?;
+            if !doc.contains_key("bond") {
+                doc.insert("bond".to_string(), json!({}));
+            }
+            doc.get_mut("bond")
+                .and_then(Value::as_object_mut)
+                .context("bond section is an object")?
+                .insert(
+                    name.clone(),
+                    json!({
+                        "mode": mode,
+                        "role": role,
+                        "channel": {"type": channel_type, "address": address},
+                        "peers": peers,
+                    }),
+                );
+            vault.save()?;
+            crate::runtime::audit::append(
+                "bond-add",
+                &json!({"bond": name, "mode": mode, "role": role}),
+            )?;
+            Ok(Some(json!({"ok": true, "bond": name, "mode": mode, "role": role})))
+        }
+        "bond-list" => {
+            let vault = Vault::open(vault_path())?;
+            Ok(Some(
+                vault.doc().get("bond").cloned().unwrap_or_else(|| json!({})),
+            ))
+        }
+        "bond-remove" => {
+            let name = positionals.first().context("usage: bond-remove <name>")?;
+            let mut vault = Vault::open(vault_path())?;
+            let removed = vault
+                .doc_mut()
+                .get_mut("bond")
+                .and_then(Value::as_object_mut)
+                .and_then(|bonds| bonds.remove(name));
+            if removed.is_none() {
+                anyhow::bail!("no bond named: {name}");
+            }
+            vault.save()?;
+            crate::runtime::audit::append("bond-remove", &json!({"bond": name}))?;
+            Ok(Some(json!({"ok": true, "bond": name})))
+        }
+        // p2p outbound write: seal one item's fields JSON to the remote
+        // vault's owner key (fetched from its serve and imported here), then
+        // POST it as a donation. The remote side applies the merge rule.
+        "donate" => {
+            let item_id = positionals.first().context(
+                "usage: donate <item-id> --to <base-url> --consumer <name> --token <token>",
+            )?;
+            let to = flags.get("to").context("--to required")?;
+            let consumer = flags.get("consumer").context("--consumer required")?;
+            let token = flags.get("token").context("--token required")?;
+            let vault = Vault::open(vault_path())?;
+            let fields = vault.get_item(item_id)?;
+            let item_type = vault
+                .doc()
+                .get("items")
+                .and_then(|items| items.get(item_id))
+                .and_then(|item| item.get("type"))
+                .and_then(Value::as_str)
+                .unwrap_or("secret")
+                .to_string();
+            let (_status, owner) =
+                crate::net::sync::serve_request(to, "GET", "/v1/owner-pubkey", consumer, token, None)?;
+            let armored = owner
+                .get("armored")
+                .and_then(Value::as_str)
+                .context("remote did not return an owner public key")?;
+            let fingerprint = owner
+                .get("fingerprint")
+                .and_then(Value::as_str)
+                .context("remote owner key has no fingerprint")?;
+            crypto::import_key(armored).context("import remote owner public key")?;
+            let armor =
+                crypto::encrypt_to(&[fingerprint.to_string()], &serde_json::to_string(&fields)?)?;
+            let (_status, response) = crate::net::sync::serve_request(
+                to,
+                "POST",
+                "/v1/donations",
+                consumer,
+                token,
+                Some(&json!({
+                    "consumer": consumer,
+                    "item_id": item_id,
+                    "type": item_type,
+                    "armor": armor,
+                })),
+            )?;
+            crate::runtime::audit::append(
+                "donate",
+                &json!({"to": to, "item": item_id, "consumer": consumer}),
+            )?;
+            Ok(Some(response))
+        }
         _ => Ok(None),
     }
 }

@@ -106,3 +106,52 @@ field for one call, and you can see every borrow.*
 For that sentence to be honest: no standing secret at the edge, a write path
 that cannot lose the vault, recovery that survives one machine, and failures a
 caller can read. Three of the four are not true yet.
+
+## Examples are a product requirement
+
+Every shipped feature, command and integration carries examples of real use.
+A user who reads only the examples must be able to perform the task. No
+feature is "done" without them.
+
+What every example set contains:
+
+- **A practical task**, not a flag demo: "publish a release", "let the
+  pipeline read one field", "recover after a lost laptop" — never
+  "run `set` with these flags".
+- **The full arc in order**: preconditions (env vars, keyring state, vault
+  path), the commands, and the verification step that proves it worked —
+  with the expected output shape, not just "it should succeed".
+- **Copy-paste runnable commands**: exact paths as deployed today, no
+  ellipses in command position, no invented URLs.
+- **The secret-safe pattern demonstrated, never violated**: values enter via
+  `skarbiec://` refs, stdin, files or env vars — never inline, and never a
+  fake-but-realistic token (those get pasted into real vaults).
+- **The failure case**: what the user actually sees when it breaks and the
+  next diagnostic step. An example without the failure path teaches half
+  the task.
+
+How to write a good example:
+
+1. Start from the user's goal in one sentence; everything after it must
+   serve that sentence.
+2. One example, one outcome. Two outcomes = two examples.
+3. Run it yourself before committing. An untested example is a bug report
+   waiting to be filed; paste the real observed output (redacted, never a
+   secret) not the imagined one.
+4. Keep the reader's machine in view: state which host, which vault file,
+   which key must exist first.
+5. End with where to go next: the exact command or doc for the adjacent
+   task.
+
+Template:
+
+    ## <Task name, as the user phrases it>
+    Goal: <one sentence>. Requires: <env/host/key preconditions>.
+    1. <command>            # what this does
+    2. <command>            # what this does
+    Verify: <command whose output proves success> → <expected output>
+    If it fails: <the error you will actually see> → <diagnostic step>
+
+Examples live next to their feature: per command in `CLI.md`, per flow in
+the feature's own doc. This section applies to every Wisent vault consumer
+(Brama, game_asset_creator, Weles, jeden releases).

@@ -53,3 +53,64 @@ unreachable copy was cited as the recovery procedure.
 
 One repository. One publish path. If a feature is worth having, it lands on
 `main`.
+
+## Archiwum: examples z 2026-07-28 (odrzucone)
+
+Poniższe przykłady wyleciały z `CLI.md` decyzją właściciela („totalnie bez
+sensu"). Zostają jako kontekst decyzji — zastąpione examples właściciela
+(tworzenie skarbca od zera; trzy skarbce na jednym hoście).
+
+### [archived] Odczyt jednej wartości z vaulta
+
+```sh
+skarbiec get MODEL_ROUTER_URL --field value
+```
+
+### [archived] Dodanie nowego sekretu (secret-safe)
+
+```sh
+read -rs NEWKEY < ~/new-api-key.txt        # albo NEWKEY=$SOME_ENV_VAR
+skarbiec set VENDOR_API_KEY --type env "value=$NEWKEY"; unset NEWKEY
+skarbiec get VENDOR_API_KEY | jq -r 'has("value")'
+```
+
+### [archived] Aplikacja czytająca kredyty przez referencje
+
+```json
+"url": "skarbiec://MODEL_ROUTER_URL/value",
+"key": "skarbiec://agent:wisent-app/value",
+"agent_id": "skarbiec://WISENT_APP_AGENT_ID/value"
+```
+
+```sh
+node pipeline/cli.js check-config
+```
+
+### [archived] Wykonanie pracy przez Bramę z kredytami ze skarbca
+
+```sh
+curl http://127.0.0.1:8080/health           # → {"status":"ok"}
+blender --python /tmp/start_blender_mcp.py &  # socket 9876
+node pipeline/cli.js sculpt 'krasnolud wojownik, low-poly RTS, T-pose' --out assets --filename krasnolud.glb
+node pipeline/cli.js verify assets/krasnolud.glb
+```
+
+### [archived] Odzyskiwanie dostępu po problemie z kluczem
+
+```sh
+skarbiec recovery-status
+gpg --list-secret-keys skarbiec-owner-20260728
+# na INNEJ maszynie:
+gpg --import ~/.skarbiec-recovery-20260728.asc
+skarbiec get MODEL_ROUTER_URL --field value
+```
+
+### [archived] Współdzielenie jednego itemu z innym kluczem
+
+```sh
+skarbiec add-user 'worker-nazwa' --import ./worker-pub.asc --role member
+skarbiec share MODEL_ROUTER_URL 'worker-nazwa'
+# na maszynie workera:
+skarbiec get MODEL_ROUTER_URL --field value   # → wartość
+skarbiec get STRIPE_PRIVATE_KEY               # → No secret key
+```

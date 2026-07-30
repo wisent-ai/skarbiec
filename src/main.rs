@@ -164,62 +164,8 @@ fn cmd_generate(flags: &HashMap<String, String>) -> Result<()> {
     emit(&json!({"password": value}))
 }
 
-// Lossless migration: store each row of a JSON array verbatim (nested metadata,
-// TOTP seeds, tags preserved) under its own id. Recipients default to owner +
-// recovery unless the row already carries a `recipients` array.
-fn cmd_import(positionals: &[String]) -> Result<()> {
-    let path = positionals.first().context("usage: import <file.json>")?;
-    let rows: Value = serde_json::from_str(
-        &std::fs::read_to_string(path).with_context(|| format!("read {path}"))?,
-    )?;
-    let rows = rows
-        .as_array()
-        .context("import file must be a JSON array of rows")?;
-    let mut vault = Vault::open(vault_path())?;
-    let mut imported = Vec::new();
-    let mut skipped = Vec::new();
-    for row in rows {
-        match row.get("id").and_then(Value::as_str) {
-            Some(id) => {
-                let item_type = row
-                    .get("type")
-                    .or_else(|| row.get("category"))
-                    .and_then(Value::as_str)
-                    .unwrap_or("login")
-                    .to_string();
-                let recipients: Vec<String> = row
-                    .get("recipients")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let tags: Vec<String> = row
-                    .get("tags")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                vault.set_item(id, &item_type, row, &recipients, &tags)?;
-                imported.push(id.to_string());
-            }
-            None => skipped.push(
-                row.get("display_name")
-                    .and_then(Value::as_str)
-                    .unwrap_or("(no id)")
-                    .to_string(),
-            ),
-        }
-    }
-    emit(&json!({"ok": true, "imported": imported.len(), "skipped": skipped.len()}))
-}
+// Lossless migration lives in core::items::import_json (moved so this entry
+// point stays under the per-file line budget).
 
 // Bridge for consumers that read a JSON-array file (via an env-configured path):
 // decrypt every live item and write the array
@@ -314,14 +260,14 @@ fn main() -> Result<()> {
             emit(&json!({"ok": true}))
         }
         "generate" => cmd_generate(&flags),
-        "import" => cmd_import(&positionals),
+        "import" => emit(&items::import_json(&positionals)?),
         "export" => cmd_export(&flags, &positionals),
         // The advertised list is the contract: a command that is dispatchable but
         // absent here is private, and no caller can be told to rely on it. The
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","serve","mcp","version"]}),
+            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","bond-add","bond-list","bond-remove","serve","mcp","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         other => {

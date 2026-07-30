@@ -6,11 +6,13 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
 
 use crate::access::tokens;
 use crate::core::{vault::Vault, vault_path};
+use crate::net::http;
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
@@ -64,6 +66,53 @@ fn normalize_id(vault: &Vault, target: &str) -> String {
     } else {
         format!("platform-admin-{target}")
     }
+}
+
+fn login_mapping(row: &Value) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for (field, name) in [
+        ("login_email", "ADMIN_EMAIL"),
+        ("login_password", "ADMIN_PASSWORD"),
+    ] {
+        if let Some(value) = row.get(field).and_then(Value::as_str) {
+            out.push((name.to_string(), value.to_string()));
+        }
+    }
+    out
+}
+
+// HTTP `POST /resolve` handler, routed by net::http's listener. It lives here
+// — next to the CLI resolve it mirrors — because net::http is at the
+// repository's per-file line budget. Behavior is unchanged from when it was
+// inline in the router.
+pub fn handle_http_resolve(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    body: &str,
+) -> Result<()> {
+    let parsed = http::request_json(body);
+    let platform = parsed.get("platform").and_then(Value::as_str).unwrap_or("");
+    if platform.is_empty() {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "platform required"}),
+        );
+    }
+    let (consumer, bearer) = http::presented_identity(headers);
+    let vault = load()?;
+    let id = normalize_id(&vault, platform);
+    if consumer.is_empty() || !http::permitted(&vault, &consumer, &bearer, &id)? {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": "consumer not authorized for item"}),
+        );
+    }
+    let row = vault.get_item(&id)?;
+    let mapping: HashMap<String, String> = login_mapping(&row).into_iter().collect();
+    crate::runtime::audit::append("http-resolve", &json!({"item": id, "consumer": consumer}))?;
+    http::write_response(stream, "HTTP/1.1 200 OK", &json!(mapping))
 }
 
 pub fn dispatch(

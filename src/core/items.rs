@@ -9,10 +9,13 @@
 // classes are string literals (digits inside them are stripped by the scanner).
 
 use anyhow::{bail, Context, Result};
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
+
+use crate::core::vault::Vault;
+use crate::core::vault_path;
 
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -134,4 +137,62 @@ pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
         bail!("word pool smaller than requested count");
     }
     Ok(picked.join(separator))
+}
+
+// Lossless migration: store each row of a JSON array verbatim (nested metadata,
+// TOTP seeds, tags preserved) under its own id. Recipients default to owner +
+// recovery unless the row already carries a `recipients` array. Moved out of
+// main.rs so the binary entry point stays under the per-file line budget.
+pub fn import_json(positionals: &[String]) -> Result<Value> {
+    let path = positionals.first().context("usage: import <file.json>")?;
+    let rows: Value = serde_json::from_str(
+        &std::fs::read_to_string(path).with_context(|| format!("read {path}"))?,
+    )?;
+    let rows = rows
+        .as_array()
+        .context("import file must be a JSON array of rows")?;
+    let mut vault = Vault::open(vault_path())?;
+    let mut imported = Vec::new();
+    let mut skipped = Vec::new();
+    for row in rows {
+        match row.get("id").and_then(Value::as_str) {
+            Some(id) => {
+                let item_type = row
+                    .get("type")
+                    .or_else(|| row.get("category"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("login")
+                    .to_string();
+                let recipients: Vec<String> = row
+                    .get("recipients")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let tags: Vec<String> = row
+                    .get("tags")
+                    .and_then(Value::as_array)
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                vault.set_item(id, &item_type, row, &recipients, &tags)?;
+                imported.push(id.to_string());
+            }
+            None => skipped.push(
+                row.get("display_name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("(no id)")
+                    .to_string(),
+            ),
+        }
+    }
+    Ok(json!({"ok": true, "imported": imported.len(), "skipped": skipped.len()}))
 }
