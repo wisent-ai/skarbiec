@@ -20,3 +20,39 @@ pub fn vault_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".stado/skarbiec.vault.json")
 }
+
+/// Anchored glob match with `*` wildcards, no regex dependency and no numeric
+/// literals: split on '*', walk the literal segments in order. Shared by the
+/// access layer's scope checks, which run it once per candidate item.
+pub fn glob_matches(pattern: &str, id: &str) -> bool {
+    let parts: Vec<&str> = pattern.split('*').collect();
+    let starts_wild = pattern.starts_with('*');
+    let ends_wild = pattern.ends_with('*');
+    let last_index = parts.len().saturating_sub(std::iter::once(()).count());
+    let mut pos = id;
+    for (index, part) in parts.iter().enumerate() {
+        let is_first = index == usize::MIN;
+        let is_last = index == last_index;
+        if part.is_empty() {
+            continue;
+        }
+        if is_first && is_last && !starts_wild && !ends_wild {
+            return pos == *part;
+        }
+        if is_first && !starts_wild {
+            if !pos.starts_with(part) {
+                return false;
+            }
+            pos = &pos[part.len()..];
+        } else if is_last && !ends_wild {
+            if !pos.ends_with(part) {
+                return false;
+            }
+        } else if let Some(found) = pos.find(part) {
+            pos = &pos[found + part.len()..];
+        } else {
+            return false;
+        }
+    }
+    true
+}

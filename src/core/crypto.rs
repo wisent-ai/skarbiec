@@ -152,13 +152,15 @@ pub fn decrypt(ciphertext: &str) -> Result<String> {
     }
 }
 
-// Protected-key path: stage the (already-encrypted) ciphertext to a temp file
-// and feed the unlock phrase to gpg over stdin via --passphrase-fd, so the
-// phrase never lands in argv (ps) or on disk. The temp file holds only armored
-// ciphertext, so it needs no special mode; it is removed right after.
+// Protected-key path: stage the ciphertext to a temp file and feed the phrase
+// to gpg over stdin. The temp name gets a per-call sequence: a pid-only name
+// let threaded decrypts swap each other's input file.
+static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MIN);
+
 fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
     let mut path = std::env::temp_dir();
-    path.push(format!("skarbiec-ct-{}.asc", std::process::id()));
+    let one = std::iter::once(()).count() as u64;
+    path.push(format!("skarbiec-ct-{}-{}.asc", std::process::id(), TEMP_SEQ.fetch_add(one, std::sync::atomic::Ordering::Relaxed)));
     std::fs::write(&path, ciphertext).context("stage ciphertext")?;
     let file = path.to_string_lossy().into_owned();
     let out = run(
@@ -180,9 +182,8 @@ fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
 }
 
 #[allow(dead_code)] // public API surface consumed by the HTTP layer / clients
-/// True when the local keyring (plus any SKARBIEC_UNLOCK) can decrypt this
-/// ciphertext — i.e. the caller holds a recipient/recovery private key and, if
-/// the key is protected, the unlock phrase. Used to gate reads by possession.
+/// True when the local keyring (plus any SKARBIEC_UNLOCK) opens this
+/// ciphertext. Used to gate reads by possession.
 pub fn can_decrypt(ciphertext: &str) -> bool {
     decrypt(ciphertext).is_ok()
 }

@@ -257,7 +257,7 @@ pub(crate) fn handle_acquisitions_issue(
         return http::write_response(stream, "HTTP/1.1 401 Unauthorized", e);
     };
     let entry = json!({"consumer": consumer, "item": item, "field": field, "expires_at": issued.expires_at});
-    crate::runtime::audit::append("http-acquisition-issued", &entry)?;
+    crate::runtime::audit::append_sync("http-acquisition-issued", &entry)?;
     let mut out = entry.clone();
     out["token"] = json!(issued.token);
     http::write_response(stream, "HTTP/1.1 200 OK", &out)
@@ -269,7 +269,10 @@ pub(crate) fn handle_items_list(
 ) -> Result<()> {
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
-    if consumer.is_empty() || !tokens::token_valid(&vault, &consumer, &bearer)? {
+    // Hash the bearer once: hashing shells out to `shasum`, so per-item
+    // hashing turned this filter into one subprocess spawn per vault item.
+    let hash = tokens::presented_hash(&bearer)?;
+    if consumer.is_empty() || !tokens::token_valid_hash(&vault, &consumer, &hash) {
         let e = &json!({"error": "consumer grant required"});
         return http::write_response(stream, "HTTP/1.1 403 Forbidden", e);
     }
@@ -278,8 +281,7 @@ pub(crate) fn handle_items_list(
         .into_iter()
         .filter(|item| {
             item.get("id").and_then(Value::as_str).is_some_and(|id| {
-                tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)
-                    .unwrap_or(false)
+                tokens::token_allows_action_hash(&vault, &consumer, &hash, "read", id)
             })
         })
         .collect();

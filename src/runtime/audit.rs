@@ -7,11 +7,38 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{Read as _, Seek as _, Write};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 use crate::core::crypto;
+
+// Appends are serialized process-wide: the hash chain is read-modify-write,
+// so concurrent handlers (the HTTP listener is thread-per-connection) must
+// never interleave two appends. High-frequency read paths enqueue entries on
+// a channel that one worker thread journals; mutating operations call
+// `append_sync` so their evidence is durable before the response returns.
+static TAIL: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+static QUEUE: OnceLock<std::sync::mpsc::Sender<(String, Value)>> = OnceLock::new();
+
+fn tail_lock() -> &'static Mutex<Option<String>> {
+    TAIL.get_or_init(|| Mutex::new(None))
+}
+
+fn queue() -> &'static std::sync::mpsc::Sender<(String, Value)> {
+    QUEUE.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<(String, Value)>();
+        std::thread::spawn(move || {
+            while let Ok((op, extra)) = rx.recv() {
+                if let Err(error) = append_sync(&op, &extra) {
+                    eprintln!("audit append failed: {error}");
+                }
+            }
+        });
+        tx
+    })
+}
 
 fn audit_path() -> PathBuf {
     if let Ok(p) = std::env::var("SKARBIEC_AUDIT_FILE") {
@@ -54,23 +81,68 @@ fn digest_input(prev: &str, at: &str, op: &str, extra: &Value) -> String {
     format!("{prev}|{at}|{op}|{extra}")
 }
 
-/// Append one hash-chained entry. `prev` is the previous line's hash (empty for
-/// the genesis line). Never records any stored value.
+/// Read only the journal's tail: the hash of the last complete line. Seeks to
+/// the final window instead of parsing the whole file on every request.
+fn tail_hash() -> Result<String> {
+    let path = audit_path();
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    let mut file = std::fs::File::open(&path)?;
+    let len = file.metadata()?.len();
+    let window = u64::try_from(usize::from(u16::MAX)).unwrap_or(u64::MAX);
+    let skip = len.saturating_sub(window);
+    file.seek(std::io::SeekFrom::Start(skip))?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf)?;
+    // The window may open mid-line; walk back to the last line that parses as
+    // a journal entry rather than trusting the first '{' after the cut.
+    for line in buf.lines().rev() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with('{') {
+            continue;
+        }
+        if let Ok(entry) = serde_json::from_str::<Value>(trimmed) {
+            return Ok(entry
+                .get("hash")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string());
+        }
+    }
+    Ok(String::new())
+}
+
+/// Queue one entry for the background journal worker. Read paths use this so
+/// the hash-chain serialization (two subprocess spawns per line) never lands
+/// on the consumer's response latency. Falls back to a synchronous append
+/// when the worker is gone, so evidence is never silently dropped.
 pub fn append(op: &str, extra: &Value) -> Result<()> {
-    let existing = lines()?;
-    let prev = existing
-        .last()
-        .and_then(|e| e.get("hash"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    match queue().send((op.to_string(), extra.clone())) {
+        Ok(()) => Ok(()),
+        Err(std::sync::mpsc::SendError((op, extra))) => append_sync(&op, &extra),
+    }
+}
+
+/// Append one hash-chained entry inline. `prev` is the previous line's hash
+/// (empty for the genesis line). Never records any stored value.
+pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
+    let mut tail = tail_lock().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let prev = match tail.as_ref() {
+        Some(cached) => cached.clone(),
+        None => tail_hash()?,
+    };
     let at = now_iso();
     let hash = crypto::sha256_hex(&digest_input(&prev, &at, op, extra))?;
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
     let path = audit_path();
+    let fresh = !path.exists();
     let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
     writeln!(file, "{entry}")?;
-    Command::new("chmod").arg("600").arg(&path).status().ok();
+    if fresh {
+        Command::new("chmod").arg("600").arg(&path).status().ok();
+    }
+    *tail = Some(hash);
     Ok(())
 }
 

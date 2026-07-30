@@ -19,6 +19,30 @@ use std::net::TcpStream;
 use crate::access::tokens;
 use crate::core::{crypto, inbox};
 
+// Shared request helpers, re-exported by net::http so handler call sites read
+// the same in every module. Moved here to keep net::http under its line
+// budget after the listener went thread-per-connection.
+pub(crate) fn bounded_detail(detail: &str) -> String {
+    let limit: usize = "400".parse().unwrap_or_default();
+    detail.chars().take(limit).collect()
+}
+
+pub(crate) fn request_json(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or(Value::Null)
+}
+
+pub(crate) fn request_id(body: &Value) -> Option<&str> {
+    body.get("id")
+        .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+}
+
+pub(crate) fn request_field(body: &Value) -> Option<&str> {
+    body.get("field")
+        .and_then(Value::as_str)
+        .filter(|field| !field.is_empty())
+}
+
 pub(crate) fn handle_items_read(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,

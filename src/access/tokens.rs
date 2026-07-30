@@ -6,55 +6,24 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::core::{crypto, vault::Vault, vault_path};
+use crate::core::{crypto, glob_matches, vault::Vault, vault_path};
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-// Anchored glob match with `*` wildcards, no regex dependency and no numeric
-// literals: split on '*', walk the literal segments in order.
-fn glob_matches(pattern: &str, id: &str) -> bool {
-    let parts: Vec<&str> = pattern.split('*').collect();
-    let starts_wild = pattern.starts_with('*');
-    let ends_wild = pattern.ends_with('*');
-    let last_index = parts.len().saturating_sub(std::iter::once(()).count());
-    let mut pos = id;
-    for (index, part) in parts.iter().enumerate() {
-        let is_first = index == usize::MIN;
-        let is_last = index == last_index;
-        if part.is_empty() {
-            continue;
-        }
-        if is_first && is_last && !starts_wild && !ends_wild {
-            return pos == *part;
-        }
-        if is_first && !starts_wild {
-            if !pos.starts_with(part) {
-                return false;
-            }
-            pos = &pos[part.len()..];
-        } else if is_last && !ends_wild {
-            if !pos.ends_with(part) {
-                return false;
-            }
-        } else if let Some(found) = pos.find(part) {
-            pos = &pos[found + part.len()..];
-        } else {
-            return false;
-        }
-    }
-    true
+/// Hash one presented bearer once per request. `crypto::sha256_hex` shells
+/// out to `shasum`, so handlers checking many items in one loop must hoist
+/// this call and use the `_hash` variants below instead of the per-check
+/// ones — otherwise each item costs a subprocess spawn.
+pub fn presented_hash(presented: &str) -> Result<String> {
+    crypto::sha256_hex(presented)
 }
 
-fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<Vec<String>>> {
-    let hash = crypto::sha256_hex(presented)?;
-    let entry = match vault.doc().get("tokens").and_then(|t| t.get(consumer)) {
-        Some(e) => e,
-        None => return Ok(None),
-    };
-    if entry.get("hash").and_then(Value::as_str) != Some(hash.as_str()) {
-        return Ok(None);
+fn scopes_for_hash(vault: &Vault, consumer: &str, hash: &str) -> Option<Vec<String>> {
+    let entry = vault.doc().get("tokens").and_then(|t| t.get(consumer))?;
+    if entry.get("hash").and_then(Value::as_str) != Some(hash) {
+        return None;
     }
     let scopes = entry
         .get("scopes")
@@ -66,12 +35,24 @@ fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<V
                 .collect()
         })
         .unwrap_or_default();
-    Ok(Some(scopes))
+    Some(scopes)
+}
+
+fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<Vec<String>>> {
+    let hash = presented_hash(presented)?;
+    Ok(scopes_for_hash(vault, consumer, &hash))
 }
 
 /// Authenticate a consumer grant without authorizing any particular item.
+/// Single-check call sites use this; per-item loops use [`token_valid_hash`].
+#[allow(dead_code)]
 pub fn token_valid(vault: &Vault, consumer: &str, presented: &str) -> Result<bool> {
     Ok(scopes_for(vault, consumer, presented)?.is_some())
+}
+
+/// [`token_valid`] with a precomputed bearer hash (see [`presented_hash`]).
+pub fn token_valid_hash(vault: &Vault, consumer: &str, hash: &str) -> bool {
+    scopes_for_hash(vault, consumer, hash).is_some()
 }
 
 /// Check whether a bootstrap grant may request one exact field acquisition.
@@ -135,11 +116,22 @@ fn acquisition_scopes(vault: &Vault, raw: Option<&String>) -> Result<Vec<Value>>
     }
     Ok(vec![json!({"item": item, "field": field})])
 }
-/// Check whether a consumer grant authorizes an action on one item.
+/// Match one already-resolved scope set against an action on one item.
 ///
 /// Action-aware scopes use `read:<glob>`, `write:<glob>`, or `delete:<glob>`.
 /// Legacy bare globs remain read-only so existing resolver grants do not gain
 /// mutation rights when the HTTP item API is enabled.
+fn scopes_allow(scopes: &[String], action: &str, id: &str) -> bool {
+    scopes.iter().any(|scope| {
+        if let Some((scope_action, pattern)) = scope.split_once(':') {
+            scope_action == action && glob_matches(pattern, id)
+        } else {
+            action == "read" && glob_matches(scope, id)
+        }
+    })
+}
+
+/// Check whether a consumer grant authorizes an action on one item.
 pub fn token_allows_action(
     vault: &Vault,
     consumer: &str,
@@ -148,14 +140,23 @@ pub fn token_allows_action(
     id: &str,
 ) -> Result<bool> {
     match scopes_for(vault, consumer, presented)? {
-        Some(scopes) => Ok(scopes.iter().any(|scope| {
-            if let Some((scope_action, pattern)) = scope.split_once(':') {
-                scope_action == action && glob_matches(pattern, id)
-            } else {
-                action == "read" && glob_matches(scope, id)
-            }
-        })),
+        Some(scopes) => Ok(scopes_allow(&scopes, action, id)),
         None => Ok(false),
+    }
+}
+
+/// [`token_allows_action`] with a precomputed bearer hash: the per-item loop
+/// form that costs no subprocess per item (see [`presented_hash`]).
+pub fn token_allows_action_hash(
+    vault: &Vault,
+    consumer: &str,
+    hash: &str,
+    action: &str,
+    id: &str,
+) -> bool {
+    match scopes_for_hash(vault, consumer, hash) {
+        Some(scopes) => scopes_allow(&scopes, action, id),
+        None => false,
     }
 }
 

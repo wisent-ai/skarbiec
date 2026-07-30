@@ -59,32 +59,30 @@ fn canary_item_id(vault: &Vault) -> Option<String> {
 /// A gpg failure names key ids and recipient uids, which is exactly what an
 /// operator needs to see and is not secret material. The cap keeps a runaway
 /// message out of a JSON body; the full text stays in the process log.
-pub(crate) fn bounded_detail(detail: &str) -> String {
-    let limit: usize = "400".parse().unwrap_or_default();
-    detail.chars().take(limit).collect()
-}
-
-pub(crate) fn request_json(body: &str) -> Value {
-    serde_json::from_str(body).unwrap_or(Value::Null)
-}
-
-pub(crate) fn request_id(body: &Value) -> Option<&str> {
-    body.get("id")
-        .and_then(Value::as_str)
-        .filter(|id| !id.is_empty())
-}
-
-pub(crate) fn request_field(body: &Value) -> Option<&str> {
-    body.get("field")
-        .and_then(Value::as_str)
-        .filter(|field| !field.is_empty())
-}
+pub(crate) use super::{bounded_detail, request_field, request_id, request_json};
 
 pub(crate) fn write_response(stream: &mut TcpStream, status_line: &str, value: &Value) -> Result<()> {
     let body = serde_json::to_string(value)?;
     let response = format!("{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
     stream.write_all(response.as_bytes())?;
     Ok(())
+}
+
+// Mutating routes serialize process-wide (the listener is threaded): a
+// read-modify-write on the vault file must never interleave with another
+// writer. Read-only routes stay parallel.
+static WRITE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+fn is_mutation(method: &str, path: &str) -> bool {
+    matches!(
+        (method, path),
+        ("PUT", "/v1/items")
+            | ("DELETE", "/v1/items")
+            | ("POST", "/v1/acquisitions")
+            | ("POST", "/v1/acquisitions/read")
+            | ("POST", "/v1/donations")
+            | ("POST", "/v1/enroll")
+    )
 }
 
 fn handle(mut stream: TcpStream) -> Result<()> {
@@ -94,6 +92,9 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("").to_string();
     let path = parts.next().unwrap_or("").to_string();
+    let _write_guard = is_mutation(&method, &path).then(|| {
+        WRITE_LOCK.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    });
 
     let mut headers: HashMap<String, String> = HashMap::new();
     loop {
@@ -122,14 +123,9 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     let unavailable_line = "HTTP/1.1 503 Service Unavailable";
 
     if method == "GET" && path == "/health" {
-        // This probe used to answer `ok: true` without touching the vault. A
-        // broker holding 204 items it can no longer decrypt therefore reported
-        // itself healthy for hours while every consumer failed, and the outage
-        // was diagnosed from consumer-side symptoms instead of from here.
-        //
-        // Recipients are vault-wide, so one item settles it: if a single value
-        // opens, the key material is present for all of them. The plaintext is
-        // dropped immediately and never logged or returned.
+        // The probe opens one vault item and drops the plaintext: a broker
+        // holding ciphertext it can no longer decrypt must report unhealthy,
+        // not ok. Recipients are vault-wide, so one item settles it.
         let (ready, detail) = match load() {
             Err(error) => (false, format!("vault is unreadable: {error}")),
             Ok(vault) => match canary_item_id(&vault) {
@@ -196,7 +192,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
                 &json!({"error": "unauthorized"}),
             );
         };
-        crate::runtime::audit::append(
+        crate::runtime::audit::append_sync(
             "http-acquisition-consumed",
             &json!({"consumer": consumer, "item": item, "field": field}),
         )?;
@@ -244,7 +240,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             );
         }
         vault.delete_item(id)?;
-        crate::runtime::audit::append(
+        crate::runtime::audit::append_sync(
             "http-item-delete",
             &json!({"item": id, "consumer": consumer}),
         )?;
@@ -285,10 +281,14 @@ pub fn dispatch(
             eprintln!("skarbiec API listening on http://{address} (loopback only)");
             for incoming in listener.incoming() {
                 match incoming {
+                    // Thread per connection so a slow handler never queues
+                    // every consumer; mutating routes take WRITE_LOCK inside.
                     Ok(stream) => {
-                        if let Err(e) = handle(stream) {
-                            eprintln!("request error: {e}");
-                        }
+                        std::thread::spawn(|| {
+                            if let Err(e) = handle(stream) {
+                                eprintln!("request error: {e}");
+                            }
+                        });
                     }
                     Err(e) => eprintln!("accept error: {e}"),
                 }
