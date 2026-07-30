@@ -184,3 +184,58 @@ Rules:
   say), so the answer can never drift between surfaces.
 - If answering requires a flag, the command is wrong: defaults must be
   the deployed paths.
+
+## CLI design contract
+
+How commands in this repo are shaped. Applies to every Wisent CLI; the
+reference implementation is `skarbiec`.
+
+### Command shape
+
+- **Core actions are single verbs**: `init`, `set`, `get`, `list`,
+  `delete`, `restore`, `status`. Short, memorizable, no hierarchy for
+  the things used daily.
+- **Families use `<noun>-<verb>`**: `token-mint`, `sync-status`,
+  `donation-accept`, `bond-add`. The noun is the object family, the verb
+  is the action on it. Never deeper than two words.
+- **The family noun alone is the read path**: `donations` lists pending,
+  `tokens` lists grants, `bonds` lists bonds. A plural noun is always
+  safe to run and always read-only.
+- **`help` lists every command** as machine-readable JSON. If a command
+  is not in `help`, it does not exist.
+
+### Arguments
+
+- **The object acted upon is positional, first**: `skarbiec get <id>`,
+  `skarbiec delete <id>`, `skarbiec share <id> <uid>`. At most two
+  positionals; a third means the flags are wrong.
+- **Modifiers are flags**: `--key value` pairs or bare `--flag`
+  (`--field value`, `--type login`, `--force`, `--dry-run`). No
+  single-letter flags, no `--key=value` requirement (both accepted,
+  space preferred in docs).
+- **Secrets never go positional**: values arrive via stdin, env vars, or
+  files — never as `argv` (argv leaks into ps, history and transcripts).
+- **Every command documents itself**: wrong usage prints `usage: ...`
+  and exits non-zero. No interactive prompts; non-interactive by
+  default.
+
+### Output and errors
+
+- **One JSON object to stdout, always.** No tables, no prose on the
+  success path. Lists are JSON arrays; absence is `[]` or `{}`, never
+  silence.
+- **Errors are JSON on stderr with a non-zero exit**: `1` for
+  operational failure, `2` for usage error. The error object names the
+  failure point (`{"error": "...", "retryable": false}` style), never a
+  bare panic.
+- **Soft by default**: `delete` soft-deletes (recoverable via
+  `restore`); destruction has a distinct name (`purge`). Refusal beats
+  pretending everywhere (missing item → error, not empty).
+
+### Navigation for an operator
+
+Daily loop needs four commands, no more: `status`, `list`, `get`,
+`set`. Everything beyond that is administration: recipients (`users`,
+`add-user`, `share`, `revoke`, `rotate-owner`), access (`token-*`,
+acquisition), sync (`pull`, `sync-*`, `bond-*`, `donate`), serving
+(`serve`, `mcp`). Docs and examples must keep that split visible.
