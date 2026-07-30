@@ -196,3 +196,27 @@ pub fn import_json(positionals: &[String]) -> Result<Value> {
     }
     Ok(json!({"ok": true, "imported": imported.len(), "skipped": skipped.len()}))
 }
+
+/// Composite one-shot status: the operator picture in a single JSON,
+/// composed from the same reads the individual status commands do.
+pub fn status_json() -> Result<Value> {
+    let vault = Vault::open(vault_path())?;
+    let doc = vault.doc();
+    let count = |key: &str| {
+        doc.get(key)
+            .and_then(Value::as_object)
+            .map(|m| m.len())
+            .unwrap_or_default()
+    };
+    let fpr = vault.recovery_fpr().to_string();
+    let held = !fpr.is_empty() && crate::core::crypto::secret_key_present(&fpr);
+    Ok(json!({
+        "vault": vault_path().display().to_string(),
+        "item_count": count("items"),
+        "recipient_count": count("recipients"),
+        "token_count": count("tokens"),
+        "bond_count": count("bond"),
+        "recovery_fpr": fpr,
+        "recovery_present_locally": held,
+    }))
+}

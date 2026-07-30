@@ -155,3 +155,32 @@ Template:
 Examples live next to their feature: per command in `CLI.md`, per flow in
 the feature's own doc. This section applies to every Wisent vault consumer
 (Brama, game_asset_creator, Weles, jeden releases).
+
+## Simple status commands are a product requirement
+
+Every Wisent product exposes a small, stable set of simple commands for
+the questions an operator asks daily. Nobody composes raw API calls, env
+var juggling or multi-step pipelines to answer them. The bar: one command,
+one JSON answer, no prerequisites beyond the product's own config.
+
+Required surface per product:
+
+- **`<product> status`** — the whole operator picture in one shot: what
+  runs, where the data lives, how much of it, is recovery possible.
+  (`skarbiec status` answers: vault path, item/recipient/token/bond
+  counts, recovery fingerprint and whether its secret half is present.)
+- **`<product> health`** — a liveness probe safe for load balancers and
+  launchd (`/health` on serves; exit code carries the verdict).
+- **`<product> doctor`** — diagnosis that works when the product is
+  broken: reads state directly, never through the API it is diagnosing
+  (pattern: `key-doctor`, `stado secrets doctor`).
+
+Rules:
+
+- Status output is JSON by default, stable field names, never a secret
+  value (counts, fingerprints, booleans — no material).
+- Composite status commands compose the reads of the granular ones
+  (`status` = what `recovery-status` + `list` + `tokens` + `bonds` would
+  say), so the answer can never drift between surfaces.
+- If answering requires a flag, the command is wrong: defaults must be
+  the deployed paths.
