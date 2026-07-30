@@ -255,7 +255,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     }
     // Bond endpoints (docs/design/bond.md): replica pull channel + p2p donations.
     if method == "GET" && path == "/v1/vault" {
-        return crate::net::sync::handle_vault_pull(&mut stream, &headers);
+        return crate::net::bond::handle_vault_pull(&mut stream, &headers);
     }
     if method == "GET" && path == "/v1/owner-pubkey" {
         return crate::net::handle_owner_pubkey(&mut stream);
@@ -263,6 +263,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     if method == "POST" && path == "/v1/donations" {
         return crate::net::handle_donation(&mut stream, &headers, &body);
     }
+    if method == "POST" && path == "/v1/enroll" { return crate::net::bond::handle_enroll(&mut stream, &headers, &body); }
     write_response(&mut stream, missing_line, &json!({"error": "not found"}))
 }
 

@@ -6,6 +6,7 @@
 // listener, the route table, and the shared helpers they call. Routing and
 // behavior are unchanged by the split.
 
+pub mod bond;
 pub mod http;
 pub mod mcp;
 pub mod sync;
@@ -16,7 +17,7 @@ use std::collections::HashMap;
 use std::net::TcpStream;
 
 use crate::access::tokens;
-use crate::core::crypto;
+use crate::core::{crypto, inbox};
 
 pub(crate) fn handle_items_read(
     stream: &mut TcpStream,
@@ -138,6 +139,7 @@ pub(crate) fn handle_items_put(
         .map(str::to_string)
         .collect();
     vault.set_item(id, &item_type, value, &recipients, &tags)?;
+    inbox::mark_written_by(&mut vault, id, Some(&consumer))?;
     crate::runtime::audit::append(
         "http-item-write",
         &json!({"item": id, "consumer": consumer}),
@@ -164,10 +166,10 @@ pub(crate) fn handle_owner_pubkey(stream: &mut TcpStream) -> Result<()> {
     )
 }
 
-/// `POST /v1/donations` — the p2p inbound write. The body names a consumer,
-/// an item id, and the item's fields JSON encrypted to this vault's owner
-/// key; a `donate` grant is required. v1 merge rule: a new id is appended,
-/// an existing id is rejected with status "exists" — never overwritten.
+/// `POST /v1/donations` — p2p v2: enqueue into the donation inbox instead of
+/// merging; the owner merges with donation-accept (docs/design/bond.md).
+/// Requires a `donate` grant. Provenance rule: an existing id admits the
+/// donation only when its `written_by` matches the donor's `from` claim.
 pub(crate) fn handle_donation(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
@@ -196,7 +198,7 @@ pub(crate) fn handle_donation(
         .filter(|name| !name.is_empty())
         .map(str::to_string)
         .unwrap_or(header_consumer);
-    let mut vault = http::load()?;
+    let vault = http::load()?;
     if consumer.is_empty()
         || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "donate", "")?
     {
@@ -206,55 +208,37 @@ pub(crate) fn handle_donation(
             &json!({"error": "donate grant required"}),
         );
     }
-    let exists = vault
-        .doc()
-        .get("items")
-        .and_then(Value::as_object)
-        .is_some_and(|items| items.contains_key(item_id));
-    if exists {
+    let from = parsed
+        .get("from")
+        .and_then(Value::as_str)
+        .filter(|f| !f.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| consumer.clone());
+    let rule = inbox::admission(&vault, item_id, &from);
+    if rule != "append" && rule != "overwrite" {
         crate::runtime::audit::append(
-            "http-donation-exists",
-            &json!({"item": item_id, "consumer": consumer}),
+            "http-donation-refused",
+            &json!({"item": item_id, "consumer": consumer, "from": from, "status": rule}),
         )?;
         return http::write_response(
             stream,
             "HTTP/1.1 200 OK",
-            &json!({"ok": false, "status": "exists", "id": item_id}),
+            &json!({"ok": false, "status": rule, "id": item_id}),
         );
     }
-    let plain = match crypto::decrypt(armor) {
-        Ok(plain) => plain,
-        Err(error) => {
-            return http::write_response(
-                stream,
-                bad,
-                &json!({"ok": false, "error": "donation armor could not be decrypted", "detail": http::bounded_detail(&error.to_string())}),
-            );
-        }
-    };
-    let fields: Value = match serde_json::from_str::<Value>(&plain) {
-        Ok(value) if value.is_object() => value,
-        _ => {
-            return http::write_response(
-                stream,
-                bad,
-                &json!({"ok": false, "error": "donation payload is not a JSON object"}),
-            );
-        }
-    };
     let item_type = parsed
         .get("type")
         .and_then(Value::as_str)
         .unwrap_or("secret");
-    vault.set_item(item_id, item_type, &fields, &[], &[])?;
+    let donation_id = inbox::enqueue(item_id, &consumer, &from, item_type, armor)?;
     crate::runtime::audit::append(
-        "http-donation-stored",
-        &json!({"item": item_id, "consumer": consumer}),
+        "http-donation-queued",
+        &json!({"donation": donation_id, "item": item_id, "consumer": consumer, "from": from}),
     )?;
     http::write_response(
         stream,
         "HTTP/1.1 200 OK",
-        &json!({"ok": true, "status": "created", "id": item_id}),
+        &json!({"ok": true, "status": "pending", "donation_id": donation_id, "id": item_id}),
     )
 }
 
@@ -263,6 +247,9 @@ pub fn dispatch(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if let Some(v) = bond::dispatch(command, flags, positionals)? {
+        return Ok(Some(v));
+    }
     if let Some(v) = sync::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }

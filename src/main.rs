@@ -4,7 +4,9 @@
 // counts/lengths arrive from argv via parse(), never as source constants.
 
 mod access;
+mod bonds;
 mod core;
+mod invite;
 mod net;
 mod runtime;
 
@@ -98,6 +100,7 @@ fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()
         .unwrap_or_default();
     let mut vault = Vault::open(vault_path())?;
     vault.set_item(id, item_type, &secret, &recipients, &tags)?;
+    core::inbox::mark_written_by(&mut vault, id, None)?;
     emit(&json!({"ok": true, "id": id}))
 }
 fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
@@ -124,9 +127,9 @@ fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
         .unwrap_or_default();
     let mut vault = Vault::open(vault_path())?;
     vault.set_item(id, item_type, &secret, &recipients, &tags)?;
+    core::inbox::mark_written_by(&mut vault, id, None)?;
     emit(&json!({"ok": true, "id": id}))
 }
-
 
 fn cmd_get(positionals: &[String]) -> Result<()> {
     let id = positionals.first().context("usage: get <id>")?;
@@ -267,7 +270,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","bond-add","bond-list","bond-remove","serve","mcp","version"]}),
+            &json!({"commands": ["init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","serve","mcp","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         other => {
@@ -276,6 +279,12 @@ fn main() -> Result<()> {
             } else if let Some(v) = runtime::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else if let Some(v) = net::dispatch(other, &flags, &positionals)? {
+                emit(&v)
+            } else if let Some(v) = bonds::dispatch(other, &flags, &positionals)? {
+                emit(&v)
+            } else if let Some(v) = invite::dispatch(other, &flags, &positionals)? {
+                emit(&v)
+            } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else {
                 bail!("unknown command: {other}")

@@ -62,6 +62,15 @@ Each script is self-contained and refuses to overwrite existing vault files.
 10. [`git/git-sync-two-hosts.sh`](git/git-sync-two-hosts.sh) —
     the git bond mode: owner pushes ciphertext to a shared bare repo,
     replica pulls it and opens exactly the shared item. Tested end-to-end.
+11. [`bond/enroll-replica.sh`](bond/enroll-replica.sh) —
+    enroll a replica onto a source host: pubkey handshake, member grant,
+    re-sealed items, pull. Tested end-to-end.
+12. [`bond/donation-inbox.sh`](bond/donation-inbox.sh) —
+    bond v2 review flow: donation lands pending in the remote inbox, owner
+    accepts into the vault (reject path included). Tested end-to-end.
+13. [`bond/invite-person.sh`](bond/invite-person.sh) —
+    one redeemable package for a human: bootstrap + redeem instructions,
+    single-use consumption proven. Tested end-to-end.
 7. [`sharing/give-person-access-to-service.sh`](sharing/give-person-access-to-service.sh) —
    lend a person access to ONE service (Supabase): scoped grant for exactly
    those items, handoff bundle, proof she reads Supabase and nothing else,

@@ -77,3 +77,38 @@ format.
 
 `bond` reads in both registers: the masonry joint that holds separate
 stones as one structure, and the obligation of trust between parties.
+
+## v2 additions (implemented 2026-07-30)
+
+- **Donation inbox** — `POST /v1/donations` no longer merges on arrival; it
+  enqueues the armored donation into a per-vault, owner-only inbox file
+  (`<vault>.donations.json`) and answers `{"ok":true,"status":"pending"}`.
+  The owner lists (`skarbiec donations`), merges (`donation-accept`, applying
+  the append-only / owner-of-id rules), or drops (`donation-reject`); every
+  transition is audited.
+- **Provenance + owner-of-id overwrite** — every item carries `written_by`
+  (uid or consumer of its writer; recorded by set/set-json, the HTTP write
+  path, and donation merges). An overwriting donation is admitted only when
+  its `from` claim matches the item's `written_by`, otherwise it is rejected
+  `not-owner`; items predating provenance keep the v1 `exists` rejection.
+  v1 trust model: the donate token's consumer IS the writer identity —
+  `from` is an unsigned claim, signing arrives with real peer keys later.
+- **Enroll** — `skarbiec enroll --as <uid> --to <base-url> --token <t>
+  --items a,b,c` sends the local owner's armored public key to
+  `POST /v1/enroll` (scope `enroll`); the source registers it as a member
+  and re-seals the listed items to it (preserving `written_by`). After the
+  next pull the replica opens exactly the enrolled items with its own key.
+- **sync-daemon** — `skarbiec sync-daemon --bond <name> --token <t>` pulls
+  on `bond.channel.interval_seconds` (read from the vault doc, never a
+  literal) and shuts down cleanly on SIGTERM. launchd wraps it for
+  persistence; no plist is created by the tool. A pull preserves the local
+  `bond` section across the replace and stamps `last_pull_at` /
+  `last_items_after` into it.
+- **sync-status** — `skarbiec sync-status [--bond <name>] [--token <t>]`
+  reports per bond: config, last pull stamp, local vs remote item counts
+  (via `GET /v1/vault` when the channel is serve), and channel health.
+- **invite** — `skarbiec invite <item> --for <consumer>` prints one JSON
+  package wrapping an acquisition bootstrap for the `value` field plus
+  redeem instructions; the secret itself is never printed.
+- **bonds** — `skarbiec bonds` lists the whole bond registry (config plus
+  last-pull stamps), read-only.
