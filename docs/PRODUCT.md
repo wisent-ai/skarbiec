@@ -143,6 +143,18 @@ How to write a good example:
 5. End with where to go next: the exact command or doc for the adjacent
    task.
 
+Style — examples are plain command sequences:
+
+- The example IS the commands a user would type, in order, nothing else.
+  No helper functions, no jq/awk plumbing, no loops, no traps.
+- Shell is for framing only: `set -eu`, a usage comment, env exports,
+  `${SKARBIEC_BIN:-skarbiec}` for the binary. If a line is not a command
+  the user could run verbatim, it does not belong.
+- Verification is a command too (`get`, `status`, `health`), printed,
+  not asserted in shell logic.
+- A reader must be able to copy any line into their terminal and get the
+  same result.
+
 Template:
 
     ## <Task name, as the user phrases it>
