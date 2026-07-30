@@ -59,6 +59,9 @@ Each script is self-contained and refuses to overwrite existing vault files.
    p2p donation: encrypt one item to the remote owner pubkey, POST to the
    donations endpoint with a `donate` grant, prove it lands and a repeat is
    rejected with status `exists`. Tested end-to-end.
+10. [`git/git-sync-two-hosts.sh`](git/git-sync-two-hosts.sh) —
+    the git bond mode: owner pushes ciphertext to a shared bare repo,
+    replica pulls it and opens exactly the shared item. Tested end-to-end.
 7. [`sharing/give-person-access-to-service.sh`](sharing/give-person-access-to-service.sh) —
    lend a person access to ONE service (Supabase): scoped grant for exactly
    those items, handoff bundle, proof she reads Supabase and nothing else,
