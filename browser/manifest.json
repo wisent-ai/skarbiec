@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Skarbiec Autofill",
+  "version": "0.1",
+  "description": "Fill logins from your local Skarbiec vault. Credentials travel only between your vault and the page, never through any server.",
+  "permissions": ["nativeMessaging", "activeTab", "scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Skarbiec Autofill"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "skarbiec-autofill@wisent.ai"
+    }
+  }
+}
