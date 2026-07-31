@@ -27,7 +27,15 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo build --release
+      - name: Build source candidate
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: cargo build --release
+      - name: Build provenance-stamped tagged artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SKARBIEC_RELEASE_URI: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/skarbiec-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz
+          SKARBIEC_RELEASE_COMMIT: ${{ github.sha }}
+        run: cargo build --release
       - name: Publish immutable tagged artifact
         if: startsWith(github.ref, 'refs/tags/v')
         env:
