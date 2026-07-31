@@ -3,11 +3,20 @@
   "name": "Skarbiec Autofill",
   "version": "0.1",
   "description": "Fill logins from your local Skarbiec vault. Credentials travel only between your vault and the page, never through any server.",
-  "permissions": ["nativeMessaging", "activeTab", "scripting", "storage"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "action": {
     "default_popup": "popup.html",
@@ -15,8 +24,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -24,5 +37,6 @@
     "gecko": {
       "id": "skarbiec-autofill@wisent.ai"
     }
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuRVQY/5rcmzgn9hUVb23y7XIsN50vFtuiGJjOGcyTbXFZC7gz+/JG/3O7BN9eIWxVksPaAQ6gyfDwlrUCCHsG7Nxqoe3sB7/gWf2dLLFnVmlGxjoudYkjP2ch4Ro1QtCNIBlSTVt1mbEwbHjlSXOmZ6NYXZNMC6T3AZ6CR7fMok1MPu0MqyI0z2H+E8RGEpeRbBiZrEBfSgspGYxUV5JLRAAovZFnh7C6VUhLzOaQ9z8r4G52N2ZWX/fmPvUTk9el2vGakOOGS5vakFUAAliviLDopnJquGxswKO0l1suskTP08BYlYP2CiE7gghqDlk+tr8InOJcEnxVcY3EEUbvQIDAQAB"
 }
