@@ -97,35 +97,28 @@ script runs the installed binary afterwards and prints what it reports for
 Runtime dependencies are invoked as subprocesses and must be on `PATH`: `gpg`,
 `openssl`, `shasum` (`oathtool` is optional, for one-time codes).
 
-Releases are published to the channel, immutable and retrievable without
-credentials. There is deliberately no `latest` pointer — an install that discovers
-its own version cannot be reproduced — so ask the channel which versions exist and
-name the one you want:
+Tagged releases are published as immutable, bearer-free GitHub Release assets
+for `linux-amd64` and `darwin-arm64`, each with a sibling SHA-256 file. There is
+deliberately no mutable `latest` binary: deployments pin an exact tag, platform,
+archive URL, and digest. See [the install and release contract](docs/INSTALL.md)
+for the download and atomic rollout procedure.
 
-```sh
-stado storage objects releases skarbiec/
-stado storage get stado://releases/skarbiec/<version>/darwin-arm64/skarbiec ./skarbiec
-```
+`skarbiec version` reports the immutable GitHub asset URL and source commit baked
+into a tagged binary. A source build reports that it is a source build instead of
+claiming a published coordinate.
 
-`skarbiec version` then reports the coordinate and the source commit that copy was
-built from, so a build is never identified by guesswork.
+Publishing is tag-driven. The version is not chosen by hand, and the rule that
+decides it is not copied into this repository. It lives once for the whole fleet
+in [AutoVersion](https://github.com/lbartoszcze/AutoVersion), and compares two
+advertised command surfaces: the published predecessor and this checkout.
+Anything removed is `breaking`, anything added is `additive`, and an identical
+surface is `internal`. `scripts/publish.sh --against <version> --bump` writes the
+derived version into both Cargo manifests and stops before upload; after that
+commit passes branch CI, its signed tag drives the public release matrix.
 
-Publishing is `sh scripts/publish.sh`, and a dry run prints the plan without
-touching the channel. The script keeps the guards this product needs: a refused
-dirty tree, a refused `HEAD` that is not an ancestor of `origin/main`, the release
-coordinate and the source commit baked into the binary, a `SHA256SUMS` manifest, a
-create-only upload, and confirmation read back from the channel listing.
-
-The version number is not chosen by hand, and the rule that decides it is not
-copied into this repository. It lives once for the whole fleet, in
-[AutoVersion](https://github.com/lbartoszcze/AutoVersion), and is called as
-`autoversion decide` on two command surfaces: the one the published build
-advertises and the one this checkout advertises. Anything removed is `breaking`,
-anything added is `additive`, an identical surface is `internal`. `--bump` writes
-the derived number into `Cargo.toml`. `released-surface.json` records the surface
-of the version currently on the channel, recovered by downloading that artifact
-and asking it for its own command list. That rule, the channel, and what
-durability it still lacks are in [docs/INSTALL.md](docs/INSTALL.md).
+`released-surface.json` records the predecessor recovered from the historical
+Stado artifact. Stado may receive an exact mirror, but GitHub Releases is the
+durable public distribution channel.
 
 ## Quickstart
 
