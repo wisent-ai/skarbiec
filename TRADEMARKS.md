@@ -26,6 +26,24 @@ and the product page at `https://skarbiec.wisent.com/`. The Apache-2.0 licence
 does not grant branding rights, and the hosted offering is presented as a
 separate commercial service.
 
+### Candidate application data
+
+The following is a preparation record, not an authorization to file:
+
+- Applicant: `Wisent AI, Inc` (confirm the exact entity name, state of
+  incorporation, domicile, and current correspondence address).
+- Mark: `SKARBIEC`, standard characters, without a design claim.
+- Filing basis: unresolved. Use-based filing requires the authorized owner to
+  verify first-use dates and qualifying commerce; intent-to-use requires the
+  owner's corresponding declaration. Repository or deployment timestamps must
+  not be substituted for either declaration.
+- Candidate specimens: the product page and public source repository. Counsel
+  or the authorized filer must confirm that the selected specimen is accepted
+  for each class and matches the services actually offered.
+- Clearance: an authorized filer must search the selected office's live
+  register for exact, phonetic, translated, and related software/security marks
+  before signing the application. A general web search is not legal clearance.
+
 The public Wisent privacy policy currently identifies `Wisent AI, Inc`,
 `2261 Market Street STE 10030, San Francisco, CA 94114`, and
 `contact@wisent.ai`. Before filing, an authorized representative must verify
