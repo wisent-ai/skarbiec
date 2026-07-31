@@ -26,9 +26,13 @@ and the product page at `https://skarbiec.wisent.com/`. The Apache-2.0 licence
 does not grant branding rights, and the hosted offering is presented as a
 separate commercial service.
 
-Before filing, the authorized owner must supply its exact legal name, legal
-form, registered address, jurisdiction, and representative details; select the
-filing territory; approve the final goods-and-services wording; and pay the
-official fee. Until the relevant office accepts the application and registration
+The public Wisent privacy policy currently identifies `Wisent AI, Inc`,
+`2261 Market Street STE 10030, San Francisco, CA 94114`, and
+`contact@wisent.ai`. Before filing, an authorized representative must verify
+that these are the current applicant details and supply the state of
+incorporation and representative authority; select the filing territory;
+approve the final goods-and-services wording; and pay the official fee.
+Source: `https://www.wisent.com/privacy-policy`.
+Until the relevant office accepts the application and registration
 completes, project materials must not use the registered-mark symbol or state
 that SKARBIEC is registered.
