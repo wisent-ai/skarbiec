@@ -16,7 +16,7 @@ GitHub Releases is the durable public distribution channel.
 From a public tagged release, set the exact version and platform:
 
 ```sh
-version=v0.2.0
+version=vX.Y.Z
 platform=darwin-arm64
 archive="skarbiec-${version}-${platform}.tar.gz"
 origin="https://github.com/wisent-ai/skarbiec/releases/download/${version}"
@@ -125,19 +125,34 @@ operator's rollout decision and the rollback coordinate remains explicit.
 
 ## Publish
 
-Publishing is tag-driven:
+Publishing is tag-driven. First derive the version from the advertised command
+surface and commit both package manifests:
 
 ```sh
-git tag -s v0.2.0 -m 'Skarbiec v0.2.0'
-git push origin v0.2.0
+previous="$(jq -r .version released-surface.json)"
+STADO_RELEASE_PLATFORM=darwin-arm64 \
+  sh scripts/publish.sh --against "$previous" --bump
+git add Cargo.toml Cargo.lock
+git commit -m 'Prepare Skarbiec release'
+git push origin main
+```
+
+After the branch CI succeeds, tag that exact pushed commit:
+
+```sh
+version="v$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)"
+git tag -s "$version" -m "Skarbiec $version"
+git push origin "$version"
 ```
 
 The tag must match the version reported by `Cargo.toml`. GitHub Actions creates
 the immutable release and uploads both platform archives plus checksums. A tag is
 never moved or reused; changed bytes require a new version.
 
-The legacy `scripts/publish.sh` path may mirror an exact build into Stado object
-storage, but it is no longer the public channel or a release prerequisite.
+The `--bump` invocation uses the historical Stado artifact as its comparison
+baseline and exits before upload. A later invocation without `--bump` may mirror
+the exact build into Stado object storage, but Stado is no longer the public
+distribution channel.
 
 ## Versioning
 

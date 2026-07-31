@@ -356,8 +356,24 @@ if [ -n "$AGAINST" ]; then
       { print }
     ' "$HERE/Cargo.toml" > "$HERE/Cargo.toml.next"
     mv "$HERE/Cargo.toml.next" "$HERE/Cargo.toml"
+    if ! awk -v want="$EXPECTED" '
+      /^\[\[package\]\]$/ { package_name = "" }
+      /^name = "skarbiec"$/ { package_name = "skarbiec" }
+      package_name == "skarbiec" && /^version = / && !done {
+        print "version = \"" want "\""
+        done = "yes"
+        next
+      }
+      { print }
+      END { if (!done) exit 1 }
+    ' "$HERE/Cargo.lock" > "$HERE/Cargo.lock.next"; then
+      rm -f "$HERE/Cargo.lock.next"
+      echo "could not update the skarbiec package version in Cargo.lock"
+      false
+    fi
+    mv "$HERE/Cargo.lock.next" "$HERE/Cargo.lock"
     echo
-    echo "Cargo.toml: $VERSION -> $EXPECTED"
+    echo "Cargo.toml and Cargo.lock: $VERSION -> $EXPECTED"
     echo "commit and push that, then: sh scripts/publish.sh --against $AGAINST"
     echo
     echo "The bump is a source change and is committed like any other, because a"
