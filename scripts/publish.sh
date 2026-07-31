@@ -355,7 +355,6 @@ if [ -n "$AGAINST" ]; then
       /^version = / && !done { print "version = \"" want "\""; done = "yes"; next }
       { print }
     ' "$HERE/Cargo.toml" > "$HERE/Cargo.toml.next"
-    mv "$HERE/Cargo.toml.next" "$HERE/Cargo.toml"
     if ! awk -v want="$EXPECTED" '
       /^\[\[package\]\]$/ { package_name = "" }
       /^name = "skarbiec"$/ { package_name = "skarbiec" }
@@ -367,10 +366,11 @@ if [ -n "$AGAINST" ]; then
       { print }
       END { if (!done) exit 1 }
     ' "$HERE/Cargo.lock" > "$HERE/Cargo.lock.next"; then
-      rm -f "$HERE/Cargo.lock.next"
+      rm -f "$HERE/Cargo.toml.next" "$HERE/Cargo.lock.next"
       echo "could not update the skarbiec package version in Cargo.lock"
       false
     fi
+    mv "$HERE/Cargo.toml.next" "$HERE/Cargo.toml"
     mv "$HERE/Cargo.lock.next" "$HERE/Cargo.lock"
     echo
     echo "Cargo.toml and Cargo.lock: $VERSION -> $EXPECTED"
