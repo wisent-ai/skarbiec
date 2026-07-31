@@ -3,11 +3,23 @@ name: ci
 on:
   push:
     branches: [ main ]
+    tags: [ "v*" ]
   pull_request:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+            architecture: x86_64
+          - os: macos-latest
+            platform: darwin-arm64
+            architecture: arm64
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -16,3 +28,44 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo build --release
+      - name: Publish immutable tagged artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actual_architecture="$(uname -m)"
+          if [ "$actual_architecture" != "${{ matrix.architecture }}" ]; then
+            printf '%s\n' "release runner architecture $actual_architecture does not match ${{ matrix.architecture }}"
+            false
+          fi
+          archive="skarbiec-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz"
+          checksum="${archive}.sha256"
+          stage="$(mktemp -d)"
+          cp target/release/skarbiec LICENSE NOTICE TRADEMARKS.md "$stage/"
+          tar -czf "$archive" -C "$stage" .
+          openssl dgst -sha256 -r "$archive" > "$checksum"
+          gh release view "$GITHUB_REF_NAME" >/dev/null \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "$archive" "$checksum" --clobber
+      - name: Publish signed browser extension channel
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'linux-amd64'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKARBIEC_EXTENSION_PRIVATE_KEY_B64: ${{ secrets.SKARBIEC_EXTENSION_PRIVATE_KEY_B64 }}
+        run: |
+          if [ -z "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" ]; then
+            printf '%s\n' "SKARBIEC_EXTENSION_PRIVATE_KEY_B64 is required for tagged releases"
+            false
+          fi
+          private_key="$(mktemp)"
+          trap 'rm -f "$private_key"' EXIT
+          printf '%s' "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" | base64 --decode > "$private_key"
+          crx="skarbiec-autofill.crx"
+          update="skarbiec-autofill.xml"
+          codebase="https://github.com/wisent-ai/skarbiec/releases/latest/download/$crx"
+          version="${GITHUB_REF_NAME#v}"
+          extension_id="$(cat deploy/chrome-extension-id)"
+          python3 tools/package-crx3.py browser "$private_key" "$crx" "$update" "$codebase" "$version" "$extension_id"
+          sha256sum "$crx" > "$crx.sha256"
+          gh release upload "$GITHUB_REF_NAME" "$crx" "$crx.sha256" "$update" --clobber

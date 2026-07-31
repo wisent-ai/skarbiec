@@ -58,8 +58,7 @@ pub(crate) fn handle_items_read(
     };
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
-    if consumer.is_empty()
-        || !tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)?
+    if consumer.is_empty() || !tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)?
     {
         return http::write_response(
             stream,
@@ -104,11 +103,12 @@ pub(crate) fn handle_items_read(
             );
         }
     };
-    crate::runtime::audit::append(
-        "http-item-read",
-        &json!({"item": id, "consumer": consumer}),
-    )?;
-    http::write_response(stream, "HTTP/1.1 200 OK", &json!({"id": id, "value": value}))
+    crate::runtime::audit::append("http-item-read", &json!({"item": id, "consumer": consumer}))?;
+    http::write_response(
+        stream,
+        "HTTP/1.1 200 OK",
+        &json!({"id": id, "value": value}),
+    )
 }
 
 pub(crate) fn handle_items_put(
@@ -133,8 +133,7 @@ pub(crate) fn handle_items_put(
     };
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
-    if consumer.is_empty()
-        || !tokens::token_allows_action(&vault, &consumer, &bearer, "write", id)?
+    if consumer.is_empty() || !tokens::token_allows_action(&vault, &consumer, &bearer, "write", id)?
     {
         return http::write_response(
             stream,

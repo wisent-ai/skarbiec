@@ -58,9 +58,7 @@ fn items_missing_from_mirror(live: &PathBuf, mirror: &PathBuf) -> Result<Vec<Str
     };
     let mut missing: Vec<String> = live_items
         .iter()
-        .filter(|(_, item)| {
-            item.get("deleted") != Some(&Value::Bool(true))
-        })
+        .filter(|(_, item)| item.get("deleted") != Some(&Value::Bool(true)))
         .map(|(name, _)| name)
         .filter(|name| !mirror_items.is_some_and(|items| items.contains_key(name.as_str())))
         .cloned()

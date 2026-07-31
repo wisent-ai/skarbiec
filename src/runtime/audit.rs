@@ -127,7 +127,9 @@ pub fn append(op: &str, extra: &Value) -> Result<()> {
 /// Append one hash-chained entry inline. `prev` is the previous line's hash
 /// (empty for the genesis line). Never records any stored value.
 pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
-    let mut tail = tail_lock().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut tail = tail_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let prev = match tail.as_ref() {
         Some(cached) => cached.clone(),
         None => tail_hash()?,
@@ -170,13 +172,59 @@ fn verify_chain() -> Result<Value> {
     }))
 }
 
+fn query(flags: &HashMap<String, String>) -> Result<Value> {
+    let limit: usize = flags
+        .get("limit")
+        .map(String::as_str)
+        .unwrap_or("100")
+        .parse()
+        .context("--limit must be a positive integer")?;
+    let maximum: usize = "10000".parse()?;
+    if limit == usize::MIN || limit > maximum {
+        anyhow::bail!("--limit must be between one and 10000");
+    }
+    let operation = flags.get("op").map(String::as_str);
+    let consumer = flags.get("consumer").map(String::as_str);
+    let item = flags.get("item").map(String::as_str);
+    let since = flags.get("since").map(String::as_str);
+    let until = flags.get("until").map(String::as_str);
+    let mut entries: Vec<Value> = lines()?
+        .into_iter()
+        .filter(|entry| {
+            let at = entry.get("at").and_then(Value::as_str).unwrap_or_default();
+            let extra = entry.get("extra");
+            operation.is_none_or(|value| entry.get("op").and_then(Value::as_str) == Some(value))
+                && consumer.is_none_or(|value| {
+                    extra
+                        .and_then(|object| object.get("consumer"))
+                        .and_then(Value::as_str)
+                        == Some(value)
+                })
+                && item.is_none_or(|value| {
+                    extra
+                        .and_then(|object| object.get("item"))
+                        .and_then(Value::as_str)
+                        == Some(value)
+                })
+                && since.is_none_or(|value| at >= value)
+                && until.is_none_or(|value| at <= value)
+        })
+        .collect();
+    let matched = entries.len();
+    if entries.len() > limit {
+        entries.drain(..entries.len() - limit);
+    }
+    Ok(json!({"matched": matched, "returned": entries.len(), "entries": entries}))
+}
+
 pub fn dispatch(
     command: &str,
-    _flags: &HashMap<String, String>,
+    flags: &HashMap<String, String>,
     _positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
         "audit" => Ok(Some(json!(lines()?))),
+        "audit-query" => Ok(Some(query(flags)?)),
         "verify-chain" => Ok(Some(verify_chain()?)),
         _ => Ok(None),
     }

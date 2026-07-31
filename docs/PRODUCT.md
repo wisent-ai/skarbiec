@@ -24,12 +24,9 @@ every CI runner. It cannot be rotated, because nobody knows where the copies
 are. This is what we are replacing.
 
 **A vault with standing grants.** A consumer holds a long-lived bearer with
-scopes and asks for items. Better: the values live in one place, access is
-scoped, and every request is recorded. But the consumer still holds a standing
-secret, and that secret is the new `.env` — smaller, still copied, still
-long-lived, still unrotatable in practice. **This is where we are.** Dozens of
-`~/.stado/<consumer>-skarbiec-token` files exist right now, plaintext,
-permanent, one per consumer.
+scopes and asks for items. Better than `.env`, but the bearer is still copied
+and difficult to rotate. This remains only as a compatibility path for existing
+consumers; new integrations must use acquisition.
 
 **A capability requested per use.** The consumer holds no secret at all. It
 proves what it *is* — a workload identity, an executable path, a host, a signed
@@ -37,17 +34,11 @@ attestation — and receives one field, once, bound to that identity and that
 field, expiring in seconds. Rotation becomes possible for the first time,
 because nothing anywhere holds a copy to invalidate.
 
-The third generation is not aspirational: two of its pieces are already written.
-The acquisition flow in `access/acquisition` issues exactly that kind of bearer —
-request-only bootstrap grants that cannot read an item, exchanged for a
-single-use bearer bound to one consumer, item and field, dying on replay, expiry
-or any binding mismatch. And `access/capability` on the `vendored-superset`
-branch carries the identity half: a workload registry keyed by executable path,
-a trust root, delegation with a depth bound, leases, rate policy and checkpoint
-records.
-
-They have never been joined, and neither is the default path. The default is
-still a standing grant against `/v1/items/read`.
+The third generation is now the default integration path. A workload registers
+an Ed25519 public key, signs a timestamped and nonced acquisition request, and
+receives one short-lived bearer bound to one consumer, item, and field. The
+bootstrap grant cannot read secret material; accepted proof hashes reject replay.
+Standing direct scopes remain only for migration of existing consumers.
 
 ## What this means for priorities
 
@@ -63,21 +54,20 @@ Revised order, superseding the feature-parity note in the architecture review:
 1. **Durable, atomic, locked writes.** Unchanged and still first. A product whose
    claim is "the only copy lives here" cannot have a write path that truncates
    the only copy.
-2. **Acquisition becomes the default.** Standing direct scopes become the legacy
-   compatibility path, documented as such. Every new consumer gets a
-   request-only bootstrap grant.
-3. **Join capability to acquisition.** Replace the bootstrap token file with a
-   workload identity, so the edge holds an identity instead of a secret. This is
-   the step that actually retires `.env`, because the bootstrap token is the last
-   `.env`.
-4. **Recovery fit for a fleet.** One offline key that a single agent can delete
-   is a consumer-manager answer to a fleet-shaped problem, and it is what broke
-   in July. Threshold recovery, or custody split across machines, with a
-   recorded drill.
-5. **Audit as a product surface.** One field per request, per identity, hash
-   chained, is provenance a consumer manager structurally cannot offer, because
-   it hands over whole items and never learns which field was used. Make it
-   queryable: what did this agent take, when, under which grant.
+2. **Acquisition is the default.** Standing direct scopes are the legacy
+   compatibility path. Every new consumer gets one exact acquisition scope and
+   a registered workload public key.
+3. **Workload identity is joined to acquisition.** The edge holds an Ed25519
+   signing key, not a bootstrap bearer. A timestamped, nonced proof authorizes
+   one short-lived field-bound acquisition; accepted proof hashes reject replay.
+4. **Recovery is operated as a fleet control.** Recovery material stays in an
+   isolated custodian keyring off the workload host. `recovery-drill` requires
+   that it be the only registered opener, opens and discards a deterministic
+   canary, and records the result in the tamper-evident journal.
+5. **Audit is a product surface.** One field per request, per workload identity,
+   hash chained, is provenance a consumer manager structurally cannot offer,
+   because it hands over whole items and never learns which field was used.
+   `audit-query` filters the local record by operation, consumer, item, and time.
 
 ## Non-negotiables that the outage established
 
@@ -103,9 +93,42 @@ encrypted" suggests.
 *Your agents never hold a credential. They prove who they are and borrow one
 field for one call, and you can see every borrow.*
 
-For that sentence to be honest: no standing secret at the edge, a write path
-that cannot lose the vault, recovery that survives one machine, and failures a
-caller can read. Three of the four are not true yet.
+That sentence is now the source contract: the default edge has no standing read
+secret, writes are locked and atomic, recovery can be held by an isolated fleet
+custodian, and callers receive structured authorization versus infrastructure
+failures. Public release artifacts remain the delivery boundary.
+
+## Monetization assessment
+
+**Decision: strong free-core / paid-control-plane split.** The Apache-2.0 core
+owns the security-critical local path and has no hosted dependency. Charging for
+the vault itself would weaken adoption and invite operators to keep `.env`.
+Hosted Hub instead sells fleet-level coordination that one local broker cannot
+provide: central chain-preserving audit, retention and export, signed webhook
+alerts, custodied threshold recovery, consumer-identity metering, and
+contract-specific estimates.
+
+**Buyer and trigger.** The buyer is the platform or security owner after a fleet
+has multiple workload identities or more than one recovery custodian. The
+purchase trigger is audit retention, incident response, or recovery governance
+across machines—not access to a secret already stored locally.
+
+**Commercial unit.** Price by active consumer identity per month with an included
+event allowance and explicit overage. The hosted service records accepted audit
+events and alert fan-out as cost provenance; estimate reads are side-effect free.
+Contract terms stay configured per tenant rather than compiled into the core or
+published before sales evidence exists.
+
+**Distribution.** The public page leads with the free core and its source, then
+offers Hosted Hub through a waitlist. There is no checkout or invented public
+price. This makes the adoption path usable today while collecting buyer,
+retention, event-volume, and recovery requirements before fixing packages.
+
+**Residual risks.** Hosted operation still needs a provisioned Postgres/PostgREST
+backend, Cloud Run runtime identity, contract limits, and an exercised recovery
+ceremony before taking a paying fleet. Trademark filing and a signed public
+binary release are separate legal and release gates; neither is implied by the
+live waitlist.
 
 ## Examples are a product requirement
 

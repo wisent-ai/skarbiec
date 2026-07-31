@@ -25,6 +25,36 @@ skarbiec list --all
 skarbiec restore-version github 2026-07-01T12:00:00Z
 ```
 
+## Credential acquisition through Weles
+
+| Command | What it does |
+| --- | --- |
+| `credential acquire <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--dry-run]` | Ask the fixed Weles bridge to acquire one exact allowlisted credential. An existing live item returns `ready`; a duplicate pending request returns the original request. The request and Weles job identifiers are encrypted in `request:credential/<item-id>`; secret values never enter the request or audit journal. |
+| `credential status <item-id>` | Return `pending`, `failed`, or `ready`. Once the exact item exists, the pending request is retired. |
+
+`SKARBIEC_WELES_ACQUIRE_COMMAND` must name an absolute, owner-controlled,
+non-symlink executable. Skarbiec passes
+`skarbiec.credential-request.v1` JSON on stdin and accepts only a bounded,
+sanitized JSON response on stdout. The bridge owns the finite mapping from item
+IDs to Weles acquisition contracts; an unknown item/provider pair fails closed.
+
+```sh
+export SKARBIEC_WELES_ACQUIRE_COMMAND="$HOME/weles/scripts/secrets/skarbiec-acquire.mjs"
+
+skarbiec credential acquire weles-snapchat-snap-kit-api \
+  --provider snapchat \
+  --consumer content-platform \
+  --purpose snap-kit-production
+
+skarbiec credential status weles-snapchat-snap-kit-api
+```
+
+The Snapchat contract writes field `api_token` to
+`weles-snapchat-snap-kit-api`. Before queueing a real acquisition, provision
+the Weles host with the exact writer grant in the owner-only file
+`~/.stado/weles-snapchat-snap-kit-api-writer-skarbiec-token`; no broader writer
+or global bearer is accepted.
+
 ## Recipients and sharing
 
 | Command | What it does |
@@ -40,25 +70,29 @@ skarbiec restore-version github 2026-07-01T12:00:00Z
 
 | Command | What it does |
 | --- | --- |
-| `token-mint <consumer> --scopes a,b` | Issue a direct scoped grant for a consumer. Scopes are `read:<glob>`, `write:<glob>`, or `delete:<glob>`; a legacy bare glob is read-only. Only a hash is retained; the grant is shown once. |
-| `token-mint <consumer> --acquisition-scopes item#field` | Issue a request-only bootstrap grant for one exact existing item field. Direct and acquisition scopes cannot be combined. Wildcards and globs are rejected. |
-| `token-verify <consumer> <item-id> --token T` | Check whether a presented direct grant authorizes read access to that item. |
-| `token-revoke <consumer>` | Drop a consumer's grant. |
-| `tokens` | List consumers and direct/acquisition scope metadata (no grant values). |
-| `acquisition-request <consumer> <item> <field> --token T` | Exchange an authorized bootstrap grant for an opaque short-TTL bearer bound to that consumer, item, and field. |
+| `token-mint <consumer> --scopes a,b` | Issue a legacy direct scoped bearer for a consumer. Scopes are `read:<glob>`, `write:<glob>`, or `delete:<glob>`; a legacy bare glob is read-only. Only a hash is retained; the bearer is shown once. |
+| `token-mint <consumer> --acquisition-scopes item#field --workload-public-key-file PATH` | Register a request-only workload identity for one exact existing item field. The output token is null: the private workload signing key, not a standing bearer, authenticates acquisitions. Direct and acquisition scopes cannot be combined. |
+| `token-verify <consumer> <item-id> --token T` | Check whether a presented legacy direct grant authorizes read access to that item. |
+| `token-revoke <consumer>` | Drop a direct grant or acquisition workload identity. |
+| `tokens` | List consumers, direct/acquisition scope metadata, and whether acquisition is workload-bound (no bearer or key material). |
+| `acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX` | Verify an Ed25519 workload proof and issue an opaque short-TTL bearer bound to that workload, consumer, item, and field. |
 | `acquisition-read <consumer> <item> <field> --token T` | Return only the bound field and atomically consume the acquisition bearer. Replay, expiry, or a binding mismatch is unauthorized. |
 
-Bootstrap grants have an empty direct-scope list, so they cannot read or list an
-item. Each acquisition request and response names exactly one field. Issued
-bearer hashes live in an owner-only acquisition state file; a successful read
-removes the hash under an exclusive state lock before the value is returned.
-Failed binding checks do not broaden or consume the bearer; expired bearers are
-removed and rejected. `SKARBIEC_ACQUISITION_TTL_SECONDS` may set the nonsecret
-TTL from one through 300 seconds; the default is 30.
+Acquisition identities have an empty direct-scope list and no bearer hash, so
+they cannot read or list an item. The operator registers an owner-controlled PEM
+public key; the workload retains only its matching private key. Each request
+signs the domain-separated consumer, item, field, workload id, epoch timestamp,
+and random nonce. Skarbiec verifies the signature, rejects proofs outside the
+short clock window, and records accepted nonce hashes until replay is impossible.
+Each acquisition request and response names exactly one field. Issued bearer
+hashes live in an owner-only acquisition state file; a successful read removes
+the hash under an exclusive state lock before the value is returned.
+`SKARBIEC_ACQUISITION_TTL_SECONDS` may set the nonsecret TTL from one through
+300 seconds; the default is 30.
 
-The loopback item API retains existing action/item scope behavior. Acquisition
-clients use `POST /v1/acquisitions` followed immediately by
-`POST /v1/acquisitions/read`, with `X-Consumer` and the applicable bearer.
+HTTP clients use `POST /v1/acquisitions` with `X-Consumer` and the proof fields,
+then immediately call `POST /v1/acquisitions/read` with the one-time bearer.
+No standing authorization bearer is sent on the issue request.
 
 ## Recovery and emergency access
 
@@ -66,6 +100,7 @@ clients use `POST /v1/acquisitions` followed immediately by
 | --- | --- |
 | `key-doctor` | Whether any key on this machine can still open the vault, and if not, the exact `private-keys-v1.d/<KEYGRIP>.key` files a restore has to produce. Reads the vault document and the keyring directly, never the HTTP API, so it answers while the service is down. Opens a deterministic canary item as proof and discards the plaintext. |
 | `recovery-status` | Report the recovery recipient, the item count it covers, and whether its secret half is on this machine — which it should not be, since offline material sharing a keyring with the owner key is one failure domain, not two. |
+| `recovery-drill <recipient-uid\|recovery>` | In an isolated recovery keyring, require exactly the named vault opener, decrypt and discard a deterministic live canary, and append the pass/fail evidence to the audit chain. Use a separate `GNUPGHOME` on the custodian machine. |
 | `emergency-grant <grantee> --activate-after <iso>` | Arrange a time-delayed share to a trusted user. |
 | `emergency-list` | List pending emergency grants. |
 | `emergency-cancel <grantee>` | Cancel a pending emergency grant before it activates. |
@@ -83,7 +118,8 @@ clients use `POST /v1/acquisitions` followed immediately by
 
 | Command | What it does |
 | --- | --- |
-| `audit` | Print a summary of the append-only journal. |
+| `audit` | Print the complete append-only journal. |
+| `audit-query [--op OP] [--consumer ID] [--item ID] [--since ISO] [--until ISO] [--limit N]` | Query local provenance by operation, workload consumer, item, and time window. Returns the newest matching bounded slice in chronological order. |
 | `verify-chain` | Verify the hash chain; report any retroactive edit. |
 
 ## Runtime injection
@@ -124,6 +160,8 @@ Only ciphertext crosses the wire.
 | --- | --- |
 | `serve [--port <n>]` | Start the loopback HTTP API (see [ARCHITECTURE.md](ARCHITECTURE.md)). |
 | `mcp` | Start the stdio Model Context Protocol server for agents. |
+| `native-host` | Run the length-framed browser native-messaging bridge. |
+| `browser-host-install [--binary <path>]` | Rotate the narrow browser grant and atomically register the installed native host. |
 
 See [SECURITY.md](SECURITY.md) for how `resolve`, grants, and the servers are gated.
 

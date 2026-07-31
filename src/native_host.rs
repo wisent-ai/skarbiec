@@ -36,7 +36,7 @@ fn api_post(path: &str, body: &Value) -> Result<Value> {
         .trim_end_matches('/')
         .to_string();
     let token = std::fs::read_to_string(token_file())
-        .context("read browser-host grant (run scripts/install-browser-host.sh)")?;
+        .context("read browser-host grant (run `skarbiec browser-host-install`)")?;
     let payload = serde_json::to_string(body)?;
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: {base}\r\nX-Consumer: {}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
@@ -99,7 +99,10 @@ fn list_logins(host: &str) -> Result<Value> {
         let Some(value) = detail.get("value") else {
             continue;
         };
-        if !item_domains(value).iter().any(|domain| domain_matches(domain, host)) {
+        if !item_domains(value)
+            .iter()
+            .any(|domain| domain_matches(domain, host))
+        {
             continue;
         }
         logins.push(json!({

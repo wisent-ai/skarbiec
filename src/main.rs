@@ -5,7 +5,9 @@
 
 mod access;
 mod bonds;
+mod browser;
 mod core;
+mod credential;
 mod invite;
 mod native_host;
 mod net;
@@ -14,8 +16,8 @@ mod runtime;
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::io::Read;
+use std::path::PathBuf;
 
 use core::{crypto, items, vault::Vault};
 
@@ -108,10 +110,7 @@ fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
     let id = positionals
         .first()
         .context("usage: set-json <id> --type t")?;
-    let item_type = flags
-        .get("type")
-        .map(String::as_str)
-        .unwrap_or("secret");
+    let item_type = flags.get("type").map(String::as_str).unwrap_or("secret");
     let mut encoded = String::new();
     std::io::stdin().read_to_string(&mut encoded)?;
     let secret: Value = serde_json::from_str(&encoded).context("stdin must be one JSON value")?;
@@ -272,12 +271,15 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","serve","mcp","native-host","version"]}),
+            &json!({"commands": ["status","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
+        "browser-host-install" => emit(&browser::install_host(&flags)?),
         other => {
-            if let Some(v) = access::dispatch(other, &flags, &positionals)? {
+            if let Some(v) = credential::dispatch(other, &flags, &positionals, &vault_path())? {
+                emit(&v)
+            } else if let Some(v) = access::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else if let Some(v) = runtime::dispatch(other, &flags, &positionals)? {
                 emit(&v)

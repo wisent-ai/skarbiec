@@ -140,8 +140,8 @@ pub(crate) fn handle_enroll(
         );
     }
     crypto::import_key(armored).context("import enrolled public key")?;
-    let fingerprint = crypto::fingerprint_for(uid)?
-        .context("enrolled key has no uid match in the keyring")?;
+    let fingerprint =
+        crypto::fingerprint_for(uid)?.context("enrolled key has no uid match in the keyring")?;
     vault.register_recipient(uid, &fingerprint, "member")?;
     let mut shared = Vec::new();
     let mut skipped = Vec::new();
@@ -206,9 +206,9 @@ pub(crate) fn handle_enroll(
 // configs are the replica's own relationships — they are carried across the
 // replace and stamped with the pull time so sync-status can report it.
 pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
-    let from = flags
-        .get("from")
-        .context("usage: pull --from <base-url> --token <token> [--bond name] [--consumer name] [--force]")?;
+    let from = flags.get("from").context(
+        "usage: pull --from <base-url> --token <token> [--bond name] [--consumer name] [--force]",
+    )?;
     let token = flags.get("token").context("--token required")?;
     let consumer = flags
         .get("consumer")

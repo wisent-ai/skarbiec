@@ -61,7 +61,11 @@ fn canary_item_id(vault: &Vault) -> Option<String> {
 /// message out of a JSON body; the full text stays in the process log.
 pub(crate) use super::{bounded_detail, request_field, request_id, request_json};
 
-pub(crate) fn write_response(stream: &mut TcpStream, status_line: &str, value: &Value) -> Result<()> {
+pub(crate) fn write_response(
+    stream: &mut TcpStream,
+    status_line: &str,
+    value: &Value,
+) -> Result<()> {
     let body = serde_json::to_string(value)?;
     let response = format!("{status_line}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
     stream.write_all(response.as_bytes())?;
@@ -93,7 +97,10 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     let method = parts.next().unwrap_or("").to_string();
     let path = parts.next().unwrap_or("").to_string();
     let _write_guard = is_mutation(&method, &path).then(|| {
-        WRITE_LOCK.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        WRITE_LOCK
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     });
 
     let mut headers: HashMap<String, String> = HashMap::new();
@@ -259,7 +266,9 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     if method == "POST" && path == "/v1/donations" {
         return crate::net::handle_donation(&mut stream, &headers, &body);
     }
-    if method == "POST" && path == "/v1/enroll" { return crate::net::bond::handle_enroll(&mut stream, &headers, &body); }
+    if method == "POST" && path == "/v1/enroll" {
+        return crate::net::bond::handle_enroll(&mut stream, &headers, &body);
+    }
     write_response(&mut stream, missing_line, &json!({"error": "not found"}))
 }
 

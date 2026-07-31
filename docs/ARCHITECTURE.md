@@ -37,15 +37,16 @@ Verified end to end against the compiled binary: init, save, lossless
 round-trip decrypt, generate, grant-gated resolve (allow and deny), verify-chain
 intact, delete and restore, share, and policy — all green. Every row decrypts losslessly.
 
-## The client boundary — these are separate products
+## The client boundary
 
-The vault engine and its local API are complete. The following are distinct
-applications on different toolchains, not part of this binary. They are not
-stubbed or faked here; they would be built separately and integrate through the
-local HTTP API below:
+The vault engine, local API, browser extension, and native-messaging host are
+part of this repository. The extension in `browser/` uses the host to exchange
+framed requests with the loopback API; the browser process never receives the
+vault bearer or encryption keys. `skarbiec browser-host-install` provisions the
+owner-private host registration and its narrow `read:login-*` grant.
 
-- Browser extension with autofill. A web extension (its own build) that talks to
-  the local API to list and fill logins.
+The following remain distinct applications on different toolchains:
+
 - Desktop and mobile clients. Native apps (their own toolchains) for unlock,
   browse, and biometric gating.
 - Administrative web console. A web interface over the admin endpoints for user,

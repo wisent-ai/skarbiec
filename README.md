@@ -173,4 +173,6 @@ This is not a hypothetical: it is the failure that produced
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache License, Version Two — see [LICENSE](LICENSE). Existing copies previously received under MIT remain under that grant.
+
+The software licence grants no trademark rights. See [TRADEMARKS.md](TRADEMARKS.md).

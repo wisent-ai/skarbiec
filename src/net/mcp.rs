@@ -241,25 +241,56 @@ pub(crate) fn handle_acquisitions_issue(
     body: &str,
 ) -> Result<()> {
     let parsed = http::request_json(body);
-    let (Some(item), Some(field)) = (http::request_id(&parsed), http::request_field(&parsed))
-    else {
-        let e = &json!({"error": "exact id and field required"});
+    let (Some(item), Some(field), Some(workload_id), Some(timestamp), Some(nonce), Some(signature)) = (
+        http::request_id(&parsed),
+        http::request_field(&parsed),
+        parsed.get("workload_id").and_then(Value::as_str),
+        parsed.get("workload_timestamp").and_then(Value::as_u64),
+        parsed.get("workload_nonce").and_then(Value::as_str),
+        parsed.get("workload_signature").and_then(Value::as_str),
+    ) else {
+        let e = &json!({"error": "exact id, field, and workload proof required"});
         return http::write_response(stream, "HTTP/1.1 400 Bad Request", e);
     };
-    let (consumer, bootstrap) = http::presented_identity(headers);
+    let (consumer, _) = http::presented_identity(headers);
     let issued = if consumer.is_empty() {
         None
     } else {
-        crate::access::acquisition::issue(&consumer, &bootstrap, item, field).unwrap_or(None)
+        match crate::access::acquisition::issue(
+            &consumer,
+            item,
+            field,
+            workload_id,
+            timestamp,
+            nonce,
+            signature,
+        ) {
+            Ok(value) => value,
+            Err(_) => {
+                let e = &json!({"error": "infra_down"});
+                return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
+            }
+        }
     };
     let Some(issued) = issued else {
         let e = &json!({"error": "unauthorized"});
         return http::write_response(stream, "HTTP/1.1 401 Unauthorized", e);
     };
-    let entry = json!({"consumer": consumer, "item": item, "field": field, "expires_at": issued.expires_at});
+    let entry = json!({
+        "consumer": consumer,
+        "item": item,
+        "field": field,
+        "workload_id": workload_id,
+        "expires_at": issued.expires_at,
+    });
     crate::runtime::audit::append_sync("http-acquisition-issued", &entry)?;
-    let mut out = entry.clone();
-    out["token"] = json!(issued.token);
+    let out = json!({
+        "consumer": consumer,
+        "item": item,
+        "field": field,
+        "expires_at": issued.expires_at,
+        "token": issued.token,
+    });
     http::write_response(stream, "HTTP/1.1 200 OK", &out)
 }
 

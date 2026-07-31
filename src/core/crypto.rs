@@ -160,7 +160,11 @@ static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::ne
 fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
     let mut path = std::env::temp_dir();
     let one = std::iter::once(()).count() as u64;
-    path.push(format!("skarbiec-ct-{}-{}.asc", std::process::id(), TEMP_SEQ.fetch_add(one, std::sync::atomic::Ordering::Relaxed)));
+    path.push(format!(
+        "skarbiec-ct-{}-{}.asc",
+        std::process::id(),
+        TEMP_SEQ.fetch_add(one, std::sync::atomic::Ordering::Relaxed)
+    ));
     std::fs::write(&path, ciphertext).context("stage ciphertext")?;
     let file = path.to_string_lossy().into_owned();
     let out = run(

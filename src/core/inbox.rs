@@ -35,19 +35,15 @@ fn load_inbox() -> Result<Value> {
     if !path.exists() {
         return Ok(json!({"donations": []}));
     }
-    let body = std::fs::read_to_string(&path)
-        .with_context(|| format!("read inbox {}", path.display()))?;
+    let body =
+        std::fs::read_to_string(&path).with_context(|| format!("read inbox {}", path.display()))?;
     Ok(serde_json::from_str(&body)?)
 }
 
 fn save_inbox(doc: &Value) -> Result<()> {
     let path = inbox_path();
     std::fs::write(&path, serde_json::to_string_pretty(doc)?)?;
-    Command::new("chmod")
-        .arg("600")
-        .arg(&path)
-        .status()
-        .ok();
+    Command::new("chmod").arg("600").arg(&path).status().ok();
     Ok(())
 }
 
@@ -254,7 +250,9 @@ pub fn dispatch(
                 "donation-reject",
                 &json!({"donation": donation_id, "item": donation.get("item_id")}),
             )?;
-            Ok(Some(json!({"ok": true, "status": "rejected", "donation_id": donation_id})))
+            Ok(Some(
+                json!({"ok": true, "status": "rejected", "donation_id": donation_id}),
+            ))
         }
         _ => Ok(None),
     }

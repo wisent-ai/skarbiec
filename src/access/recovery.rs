@@ -46,6 +46,75 @@ pub fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
+        "recovery-drill" => {
+            let expected = positionals
+                .first()
+                .context("usage: recovery-drill <recipient-uid|recovery>")?;
+            let vault = load()?;
+            let expected_fingerprint = if expected == "recovery" {
+                vault.recovery_fpr()
+            } else {
+                vault
+                    .recipient_fpr(expected)
+                    .with_context(|| format!("unknown recovery drill recipient {expected}"))?
+            };
+            if !crypto::secret_key_present(expected_fingerprint) {
+                anyhow::bail!("expected recovery secret half is absent from this keyring");
+            }
+            let mut local_openers: Vec<String> = vault
+                .doc()
+                .get("recipients")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flat_map(|recipients| recipients.values())
+                .filter_map(|entry| entry.get("fingerprint").and_then(Value::as_str))
+                .filter(|fingerprint| crypto::secret_key_present(fingerprint))
+                .map(str::to_string)
+                .collect();
+            let recovery = vault.recovery_fpr();
+            if !recovery.is_empty()
+                && crypto::secret_key_present(recovery)
+                && !local_openers
+                    .iter()
+                    .any(|fingerprint| fingerprint == recovery)
+            {
+                local_openers.push(recovery.to_string());
+            }
+            local_openers.sort();
+            local_openers.dedup();
+            match local_openers.as_slice() {
+                [fingerprint] if fingerprint == expected_fingerprint => {}
+                _ => anyhow::bail!(
+                    "recovery drill requires an isolated keyring containing only the expected vault opener"
+                ),
+            }
+            let mut ids: Vec<String> = vault
+                .list(false)
+                .iter()
+                .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
+                .collect();
+            ids.sort();
+            let canary = ids
+                .first()
+                .context("recovery drill requires at least one live item")?;
+            let passed = vault.get_item(canary).is_ok();
+            crate::runtime::audit::append_sync(
+                "recovery-drill",
+                &json!({
+                    "recipient": expected,
+                    "fingerprint": expected_fingerprint,
+                    "canary_item": canary,
+                    "passed": passed,
+                }),
+            )?;
+            Ok(Some(json!({
+                "status": if passed { "passed" } else { "failed" },
+                "recipient": expected,
+                "fingerprint": expected_fingerprint,
+                "canary_item": canary,
+                "isolated_keyring": true,
+            })))
+        }
         "recovery-status" => {
             let vault = load()?;
             let items = vault

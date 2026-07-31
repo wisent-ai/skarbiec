@@ -1,5 +1,5 @@
-// Short-lived, field-bound, single-use acquisition bearers. Bootstrap grants
-// may request an acquisition but can never use the direct item read path.
+// Short-lived, field-bound, single-use acquisition bearers. Registered
+// workload identities may request an acquisition but can never read directly.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -8,7 +8,7 @@ use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -100,15 +100,21 @@ fn validate_owned_regular(path: &Path) -> Result<()> {
 
 fn load_state(path: &Path) -> Result<Value> {
     if !path.exists() {
-        return Ok(json!({"version": "v1", "tokens": {}}));
+        return Ok(json!({"version": "v1", "tokens": {}, "proofs": {}}));
     }
     validate_owned_regular(path)?;
-    let state: Value =
+    let mut state: Value =
         serde_json::from_str(&fs::read_to_string(path)?).context("parse acquisition state")?;
     if state.get("version").and_then(Value::as_str) != Some("v1")
         || !state.get("tokens").is_some_and(Value::is_object)
     {
         bail!("invalid acquisition state document");
+    }
+    if state.get("proofs").is_none() {
+        state["proofs"] = json!({});
+    }
+    if !state.get("proofs").is_some_and(Value::is_object) {
+        bail!("invalid acquisition proof state");
     }
     Ok(state)
 }
@@ -161,6 +167,103 @@ fn exact_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
 
+fn valid_workload_id(value: &str) -> bool {
+    let maximum: usize = "128".parse().unwrap_or_default();
+    !value.is_empty()
+        && value.len() <= maximum
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
+}
+
+fn valid_nonce(value: &str) -> bool {
+    let expected: usize = "43".parse().unwrap_or_default();
+    value.len() == expected
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn decode_signature(value: &str) -> Option<Vec<u8>> {
+    let expected: usize = "128".parse().ok()?;
+    if value.len() != expected {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact("2".parse().ok()?)
+        .map(|pair| {
+            let text = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(text, "16".parse().ok()?).ok()
+        })
+        .collect()
+}
+
+fn workload_payload(
+    consumer: &str,
+    item: &str,
+    field: &str,
+    workload_id: &str,
+    timestamp: u64,
+    nonce: &str,
+) -> Vec<u8> {
+    format!(
+        "SKARBIEC-WORKLOAD-ACQUISITION\0v1\0{consumer}\0{item}\0{field}\0{workload_id}\0{timestamp}\0{nonce}"
+    )
+    .into_bytes()
+}
+
+fn write_private_file(path: &Path, value: &[u8]) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(private_file_mode()?)
+        .open(path)?;
+    file.write_all(value)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+fn verify_workload_proof(public_key: &str, payload: &[u8], signature: &str) -> Result<bool> {
+    let Some(signature) = decode_signature(signature) else {
+        return Ok(false);
+    };
+    let parent = state_path()
+        .parent()
+        .context("acquisition state has no parent")?
+        .to_path_buf();
+    fs::create_dir_all(&parent)?;
+    let stem = crypto::sha256_hex(&crypto::random_token()?)?;
+    let key_path = parent.join(format!(".skarbiec-proof-key-{stem}"));
+    let signature_path = parent.join(format!(".skarbiec-proof-signature-{stem}"));
+    let result = (|| -> Result<bool> {
+        write_private_file(&key_path, public_key.as_bytes())?;
+        write_private_file(&signature_path, &signature)?;
+        let mut child = Command::new("openssl")
+            .args(["pkeyutl", "-verify", "-pubin", "-inkey"])
+            .arg(&key_path)
+            .args(["-rawin", "-sigfile"])
+            .arg(&signature_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("verify workload proof with openssl")?;
+        child
+            .stdin
+            .as_mut()
+            .context("open workload proof verifier stdin")?
+            .write_all(payload)?;
+        Ok(child.wait()?.success())
+    })();
+    let _ = fs::remove_file(&key_path);
+    let _ = fs::remove_file(&signature_path);
+    result
+}
+
+fn proof_window_seconds() -> Result<u64> {
+    "30".parse().context("workload proof window")
+}
+
 fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {
     if !exact_name(item) || !exact_name(field) {
         bail!("item and field must be exact names without wildcards or separators");
@@ -186,6 +289,11 @@ fn purge_expired(state: &mut Value, now: u64) -> Result<()> {
             .and_then(Value::as_u64)
             .is_some_and(|expiry| expiry > now)
     });
+    let proofs = state
+        .get_mut("proofs")
+        .and_then(Value::as_object_mut)
+        .context("acquisition proofs section")?;
+    proofs.retain(|_, expiry| expiry.as_u64().is_some_and(|value| value > now));
     Ok(())
 }
 
@@ -196,24 +304,57 @@ pub struct IssuedAcquisition {
 
 pub fn issue(
     consumer: &str,
-    bootstrap: &str,
     item: &str,
     field: &str,
+    workload_id: &str,
+    timestamp: u64,
+    nonce: &str,
+    signature: &str,
 ) -> Result<Option<IssuedAcquisition>> {
-    if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || bootstrap.is_empty() {
+    if !exact_name(consumer)
+        || !exact_name(item)
+        || !exact_name(field)
+        || !valid_workload_id(workload_id)
+        || !valid_nonce(nonce)
+    {
         return Ok(None);
     }
     let vault = Vault::open(vault_path())?;
-    if !tokens::token_allows_acquisition(&vault, consumer, bootstrap, item, field)? {
+    let Some(public_key) = tokens::acquisition_workload_public_key(&vault, consumer, item, field)
+    else {
+        return Ok(None);
+    };
+    validate_target(&vault, item, field)?;
+    let now = now_epoch()?;
+    if now.abs_diff(timestamp) > proof_window_seconds()? {
         return Ok(None);
     }
-    validate_target(&vault, item, field)?;
+    let payload = workload_payload(consumer, item, field, workload_id, timestamp, nonce);
+    if !verify_workload_proof(&public_key, &payload, signature)? {
+        return Ok(None);
+    }
 
     let path = state_path();
     let _lock = acquire_lock(&path)?;
     let mut state = load_state(&path)?;
-    let now = now_epoch()?;
     purge_expired(&mut state, now)?;
+    let proof_hash = crypto::sha256_hex(&format!("{workload_id}\0{nonce}"))?;
+    let proofs = state
+        .get_mut("proofs")
+        .and_then(Value::as_object_mut)
+        .context("acquisition proofs section")?;
+    if proofs.contains_key(&proof_hash) {
+        return Ok(None);
+    }
+    let replay_retention = proof_window_seconds()?
+        .checked_mul("2".parse()?)
+        .context("workload proof retention overflow")?;
+    proofs.insert(
+        proof_hash,
+        json!(now
+            .checked_add(replay_retention)
+            .context("workload proof expiry overflow")?),
+    );
     let expires_at = now
         .checked_add(ttl_seconds()?)
         .context("acquisition expiry overflow")?;
@@ -233,6 +374,7 @@ pub fn issue(
             "item": item,
             "field": field,
             "expires_at": expires_at,
+            "workload_id": workload_id,
         }),
     );
     save_state(&path, &state)?;
@@ -300,21 +442,47 @@ pub fn dispatch(
     match command {
         "acquisition-request" => {
             let consumer = positionals.first().context(
-                "usage: acquisition-request <consumer> <item> <field> --token BOOTSTRAP",
+                "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
             let item = positionals.get("1".parse::<usize>()?).context(
-                "usage: acquisition-request <consumer> <item> <field> --token BOOTSTRAP",
+                "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
             let field = positionals.get("2".parse::<usize>()?).context(
-                "usage: acquisition-request <consumer> <item> <field> --token BOOTSTRAP",
+                "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let bootstrap = flags.get("token").context("--token required")?;
-            let Some(issued) = issue(consumer, bootstrap, item, field)? else {
+            let workload_id = flags.get("workload-id").context("--workload-id required")?;
+            let timestamp = flags
+                .get("workload-timestamp")
+                .context("--workload-timestamp required")?
+                .parse()
+                .context("--workload-timestamp must be an epoch integer")?;
+            let nonce = flags
+                .get("workload-nonce")
+                .context("--workload-nonce required")?;
+            let signature = flags
+                .get("workload-signature")
+                .context("--workload-signature required")?;
+            let Some(issued) = issue(
+                consumer,
+                item,
+                field,
+                workload_id,
+                timestamp,
+                nonce,
+                signature,
+            )?
+            else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
             };
             crate::runtime::audit::append(
                 "acquisition-issued",
-                &json!({"consumer": consumer, "item": item, "field": field, "expires_at": issued.expires_at}),
+                &json!({
+                    "consumer": consumer,
+                    "item": item,
+                    "field": field,
+                    "workload_id": workload_id,
+                    "expires_at": issued.expires_at,
+                }),
             )?;
             Ok(Some(json!({
                 "ok": true,

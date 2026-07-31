@@ -38,25 +38,32 @@ Three invariants keep values off surfaces that get logged or captured:
 
 ## Service-account grants
 
-A machine consumer never holds a recipient key. Existing direct consumers
-present a grant minted by `token-mint --scopes`; generic HTTP scopes remain
-action-qualified as `read:<item-glob>`, `write:<item-glob>`, and
-`delete:<item-glob>`. A legacy bare glob authorizes reads only, so enabling
-mutation endpoints cannot silently upgrade an existing grant.
+A machine consumer never holds a recipient key. Direct consumers are a legacy
+compatibility path: they present a bearer minted by `token-mint --scopes`;
+generic HTTP scopes remain action-qualified as `read:<item-glob>`,
+`write:<item-glob>`, and `delete:<item-glob>`. A legacy bare glob authorizes
+reads only, so enabling mutation endpoints cannot silently upgrade a grant.
 
-Startup consumers instead use `token-mint --acquisition-scopes item#field`.
-That grammar accepts only an exact existing item and exact field, rejects
-wildcards/globs, and cannot be combined with direct scopes. The long-lived
-bootstrap can request but cannot read. Skarbiec issues an opaque short-TTL
-bearer bound to consumer, item, and field; the first successful read removes its
-stored hash atomically before returning only that field. Binding mismatch does
-not consume or broaden it. Replay and expiry return unauthorized.
+New consumers use `token-mint --acquisition-scopes item#field` together with
+`--workload-public-key-file PATH`. That grammar accepts only one exact existing
+item and field, rejects wildcards/globs, and cannot be combined with direct
+scopes. Acquisition records have no standing bearer hash. The workload signs a
+domain-separated request with its Ed25519 private key; Skarbiec authorizes its
+registered public key, exact scope, workload id, timestamp, and nonce. Stale or
+replayed proofs are rejected.
+
+Skarbiec then issues an opaque short-TTL bearer bound to consumer, workload,
+item, and field. The first successful read removes its stored hash atomically
+before returning only that field. Binding mismatch does not consume or broaden
+it. Replay and expiry return unauthorized.
 
 Acquisition state is a separate owner-only regular file, updated through a
 same-owner temporary file and atomic rename while an exclusive state lock is
-held. Values never enter that file or the audit journal. Issuance and consumption
-audit entries contain only consumer, item, field, expiry, and operation metadata.
-`token-verify` continues to check direct read access without resolving.
+held. Values, signatures, and public keys never enter the audit journal.
+Issuance records only consumer, workload id, item, field, and expiry;
+consumption records consumer, item, and field. `audit-query` exposes this local
+provenance without decrypting a credential. `token-verify` checks only legacy
+direct read access.
 
 ## The MCP boundary is tighter than the CLI
 
@@ -74,6 +81,21 @@ With any of these absent, `skarbiec_resolve` returns a graceful "disabled"
 message while health, list, and audit stay available. The value-revealing and
 mutating verbs (item read, mint, rotation, export) are not exposed over MCP at
 all.
+
+## The browser boundary
+
+The extension never receives a vault bearer, owner key, or recovery key. It
+exchanges length-framed messages with `native-host`, which alone reads the
+owner-private token file and calls the loopback API as
+`skarbiec-browser-host`. `browser-host-install` rotates that consumer with only
+`read:login-*`; host matching and the stored login's domain allow-list are
+checked again by the native host before any value is returned.
+
+The Chrome native-messaging manifest accepts only the extension id derived from
+the release signing key. The release build refuses a signing key whose derived
+id differs from the repository pin, and managed policy force-installs only that
+same id. A compromised extension can therefore request eligible login items,
+but it cannot read non-login items or mint a broader grant.
 
 ## Recovery and rotation
 

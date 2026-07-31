@@ -40,7 +40,11 @@ fn cmd_bond_add(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
     }
     let interval: Option<u64> = flags
         .get("interval")
-        .map(|value| value.parse::<u64>().context("--interval must be seconds (a number)"))
+        .map(|value| {
+            value
+                .parse::<u64>()
+                .context("--interval must be seconds (a number)")
+        })
         .transpose()?;
     let peers: Vec<String> = flags
         .get("peers")
@@ -80,9 +84,9 @@ fn cmd_bond_add(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
 }
 
 fn cmd_enroll(flags: &HashMap<String, String>) -> Result<Value> {
-    let uid = flags
-        .get("as")
-        .context("usage: enroll --as <uid> --to <base-url> --token <t> [--items a,b,c] [--consumer name]")?;
+    let uid = flags.get("as").context(
+        "usage: enroll --as <uid> --to <base-url> --token <t> [--items a,b,c] [--consumer name]",
+    )?;
     let to = flags.get("to").context("--to required")?;
     let token = flags.get("token").context("--token required")?;
     let consumer = flags
@@ -107,10 +111,7 @@ fn cmd_enroll(flags: &HashMap<String, String>) -> Result<Value> {
         token,
         Some(&json!({"uid": uid, "armored": armored, "items": items})),
     )?;
-    crate::runtime::audit::append(
-        "enroll",
-        &json!({"to": to, "uid": uid, "items": items}),
-    )?;
+    crate::runtime::audit::append("enroll", &json!({"to": to, "uid": uid, "items": items}))?;
     Ok(response)
 }
 
@@ -215,14 +216,19 @@ fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> {
         let mut healthy = Value::Null;
         let mut remote_items = Value::Null;
         if channel_type == "serve" {
-            if let Ok((_status, health)) = crate::net::bond::serve_request(
-                address, "GET", "/health", "", "", None,
-            ) {
+            if let Ok((_status, health)) =
+                crate::net::bond::serve_request(address, "GET", "/health", "", "", None)
+            {
                 healthy = health.get("ok").cloned().unwrap_or(Value::Null);
             }
             if let Some(presented) = token {
                 if let Ok((_status, doc)) = crate::net::bond::serve_request(
-                    address, "GET", "/v1/vault", consumer, presented, None,
+                    address,
+                    "GET",
+                    "/v1/vault",
+                    consumer,
+                    presented,
+                    None,
                 ) {
                     remote_items = doc
                         .get("items")
@@ -257,7 +263,11 @@ pub fn dispatch(
         "bond-list" | "bonds" => {
             let vault = Vault::open(vault_path())?;
             Ok(Some(
-                vault.doc().get("bond").cloned().unwrap_or_else(|| json!({})),
+                vault
+                    .doc()
+                    .get("bond")
+                    .cloned()
+                    .unwrap_or_else(|| json!({})),
             ))
         }
         "bond-remove" => {

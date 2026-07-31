@@ -5,6 +5,10 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::fs;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::Path;
+use std::process::Command;
 
 use crate::core::{crypto, glob_matches, vault::Vault, vault_path};
 
@@ -55,28 +59,59 @@ pub fn token_valid_hash(vault: &Vault, consumer: &str, hash: &str) -> bool {
     scopes_for_hash(vault, consumer, hash).is_some()
 }
 
-/// Check whether a bootstrap grant may request one exact field acquisition.
-/// Acquisition grants are stored separately from direct item scopes, never
-/// use glob matching, and therefore cannot authorize an item read.
-pub fn token_allows_acquisition(
+fn effective_uid() -> Result<u32> {
+    let output = Command::new("id").arg("-u").output()?;
+    if !output.status.success() {
+        anyhow::bail!("could not determine effective uid");
+    }
+    String::from_utf8(output.stdout)?
+        .trim()
+        .parse()
+        .context("parse effective uid")
+}
+
+fn read_workload_public_key(path: &Path) -> Result<String> {
+    let metadata = fs::symlink_metadata(path)?;
+    let unsafe_bits = u32::from_str_radix("077", "8".parse()?)?;
+    if !metadata.file_type().is_file()
+        || metadata.uid() != effective_uid()?
+        || metadata.mode() & unsafe_bits != u32::MIN
+    {
+        anyhow::bail!("workload public key must be an owner-controlled regular file");
+    }
+    let key = fs::read_to_string(path)?;
+    let maximum: usize = "8192".parse()?;
+    if key.is_empty()
+        || key.len() > maximum
+        || !key.contains("-----BEGIN PUBLIC KEY-----")
+        || !key.contains("-----END PUBLIC KEY-----")
+    {
+        anyhow::bail!("workload public key must be a bounded PEM public key");
+    }
+    let output = Command::new("openssl")
+        .args(["pkey", "-pubin", "-in"])
+        .arg(path)
+        .args(["-text_pub", "-noout"])
+        .output()
+        .context("validate workload public key with openssl")?;
+    let description = String::from_utf8_lossy(&output.stdout);
+    if !output.status.success() || !description.to_ascii_uppercase().contains("ED25519") {
+        anyhow::bail!("workload public key must be a valid Ed25519 public key");
+    }
+    Ok(key)
+}
+
+pub fn acquisition_workload_public_key(
     vault: &Vault,
     consumer: &str,
-    presented: &str,
     item: &str,
     field: &str,
-) -> Result<bool> {
-    let hash = crypto::sha256_hex(presented)?;
-    let Some(entry) = vault
+) -> Option<String> {
+    let entry = vault
         .doc()
         .get("tokens")
-        .and_then(|tokens| tokens.get(consumer))
-    else {
-        return Ok(false);
-    };
-    if entry.get("hash").and_then(Value::as_str) != Some(hash.as_str()) {
-        return Ok(false);
-    }
-    Ok(entry
+        .and_then(|tokens| tokens.get(consumer))?;
+    let allowed = entry
         .get("acquisition_scopes")
         .and_then(Value::as_array)
         .is_some_and(|scopes| {
@@ -84,7 +119,14 @@ pub fn token_allows_acquisition(
                 scope.get("item").and_then(Value::as_str) == Some(item)
                     && scope.get("field").and_then(Value::as_str) == Some(field)
             })
-        }))
+        });
+    if !allowed {
+        return None;
+    }
+    entry
+        .get("workload_public_key")
+        .and_then(Value::as_str)
+        .map(str::to_string)
 }
 
 fn exact_component(value: &str) -> bool {
@@ -178,13 +220,11 @@ pub fn token_allows_vault_action(
     capability: &str,
 ) -> Result<bool> {
     match scopes_for(vault, consumer, presented)? {
-        Some(scopes) => Ok(scopes.iter().any(|scope| {
-            match scope.split_once(':') {
-                Some((scope_action, pattern)) => {
-                    scope_action == action && glob_matches(pattern, capability)
-                }
-                None => capability.is_empty() && scope == action,
+        Some(scopes) => Ok(scopes.iter().any(|scope| match scope.split_once(':') {
+            Some((scope_action, pattern)) => {
+                scope_action == action && glob_matches(pattern, capability)
             }
+            None => capability.is_empty() && scope == action,
         })),
         None => Ok(false),
     }
@@ -198,7 +238,7 @@ pub fn dispatch(
     match command {
         "token-mint" => {
             let consumer = positionals.first().context(
-                "usage: token-mint <consumer> [--scopes a,b | --acquisition-scopes item#field]",
+                "usage: token-mint <consumer> [--scopes a,b | --acquisition-scopes item#field --workload-public-key-file PATH]",
             )?;
             let scopes: Vec<String> = flags
                 .get("scopes")
@@ -212,8 +252,27 @@ pub fn dispatch(
             }
             let mut vault = load()?;
             let acquisition_scopes = acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
-            let minted = crypto::random_token()?;
-            let hash = crypto::sha256_hex(&minted)?;
+            let workload_public_key = match flags.get("workload-public-key-file") {
+                Some(path) => Some(read_workload_public_key(Path::new(path))?),
+                None => None,
+            };
+            if !acquisition_scopes.is_empty() && workload_public_key.is_none() {
+                anyhow::bail!(
+                    "acquisition grants require --workload-public-key-file with an owner-controlled PEM public key"
+                );
+            }
+            if acquisition_scopes.is_empty() && workload_public_key.is_some() {
+                anyhow::bail!("workload public keys are valid only for acquisition grants");
+            }
+            let minted = if acquisition_scopes.is_empty() {
+                Some(crypto::random_token()?)
+            } else {
+                None
+            };
+            let hash = match minted.as_deref() {
+                Some(token) => json!(crypto::sha256_hex(token)?),
+                None => Value::Null,
+            };
             vault
                 .doc_mut()
                 .get_mut("tokens")
@@ -225,6 +284,7 @@ pub fn dispatch(
                         "hash": hash,
                         "scopes": scopes,
                         "acquisition_scopes": acquisition_scopes,
+                        "workload_public_key": workload_public_key,
                     }),
                 );
             vault.save()?;
@@ -234,6 +294,7 @@ pub fn dispatch(
                     "consumer": consumer,
                     "scopes": scopes,
                     "acquisition_scopes": acquisition_scopes,
+                    "workload_bound": workload_public_key.is_some(),
                 }),
             )?;
             Ok(Some(json!({
@@ -241,6 +302,7 @@ pub fn dispatch(
                 "consumer": consumer,
                 "scopes": scopes,
                 "acquisition_scopes": acquisition_scopes,
+                "workload_bound": workload_public_key.is_some(),
                 "token": minted,
             })))
         }
@@ -288,6 +350,10 @@ pub fn dispatch(
                                 "consumer": consumer,
                                 "scopes": entry.get("scopes"),
                                 "acquisition_scopes": entry.get("acquisition_scopes"),
+                                "workload_bound": entry
+                                    .get("workload_public_key")
+                                    .and_then(Value::as_str)
+                                    .is_some(),
                             })
                         })
                         .collect()

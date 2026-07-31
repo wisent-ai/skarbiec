@@ -187,8 +187,14 @@ pub fn dispatch(
                 .and_then(Value::as_str)
                 .unwrap_or("secret")
                 .to_string();
-            let (_status, owner) =
-                crate::net::bond::serve_request(to, "GET", "/v1/owner-pubkey", consumer, token, None)?;
+            let (_status, owner) = crate::net::bond::serve_request(
+                to,
+                "GET",
+                "/v1/owner-pubkey",
+                consumer,
+                token,
+                None,
+            )?;
             let armored = owner
                 .get("armored")
                 .and_then(Value::as_str)
