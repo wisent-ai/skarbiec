@@ -1,10 +1,9 @@
 #!/bin/sh
 # Build Skarbiec from this checkout and install it where the fleet looks for it.
 #
-# This is the source install, and it is what a contributor uses. It is no longer
-# the only one: releases are published to stado://releases/skarbiec/, so a machine
-# that only needs a binary can fetch a checksum-verified one instead of building.
-# See docs/INSTALL.md for the channel, and for what durability it still lacks.
+# This is the source install used by contributors. Machines that only need a
+# binary can instead fetch a checksum-verified, platform-specific archive from
+# the immutable GitHub Release named in docs/INSTALL.md.
 #
 # The replacement is done by rename inside the destination directory, so a
 # concurrent process either sees the old binary or the new one and never a
