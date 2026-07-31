@@ -1,0 +1,11 @@
+{
+  "schema": "wisent.product-entitlements.current",
+  "product": "skarbiec",
+  "organization_id": "WISENT_ORGANIZATION_ID",
+  "principal_id": "authenticated secret consumer identity",
+  "community": ["skarbiec.local", "skarbiec.self-hosted"],
+  "managed": ["skarbiec.hosted-hub", "skarbiec.fleet-audit"],
+  "managed_failure": "hosted sync, recovery, and fleet audit fail closed",
+  "community_failure": "the local broker and self-hosted hub remain available",
+  "billing_unit": "active consumer identity"
+}
