@@ -139,17 +139,16 @@ echo "binary:   $BINARY"
 echo "manifest: $MANIFEST"
 
 # An immutable coordinate that nobody can rebuild identifies bytes, not software.
-# A dirty tree is therefore refused outright: the published artifact must resolve
-# to a revision that still exists after this shell exits. And a revision only on
-# this laptop is the same fragility under a better name, so HEAD must already be
-# an ancestor of origin/main.
+# A dirty tree is therefore refused outright. Uploading also requires HEAD on
+# origin/main. `--bump` is the deliberate exception: it derives the manifest
+# change that must be committed and pushed before a later upload can pass.
 DIRTY="$(git status --porcelain)"
 if [ -n "$DIRTY" ] && [ -z "$DRY" ]; then
   echo "refusing to publish: the tree has uncommitted changes"
   echo "commit them first, so $VERSION resolves to a revision that can be rebuilt"
   false
 fi
-if ! git merge-base --is-ancestor HEAD origin/main && [ -z "$DRY" ]; then
+if ! git merge-base --is-ancestor HEAD origin/main && [ -z "$DRY" ] && [ -z "$BUMP" ]; then
   echo "refusing to publish: HEAD is not on origin/main"
   echo "push it first, or fetch if this ref is stale"
   false
