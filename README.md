@@ -4,6 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/wisent-ai/skarbiec?display_name=tag&sort=semver)](https://github.com/wisent-ai/skarbiec/releases)
 [![Downloads](https://img.shields.io/github/downloads/wisent-ai/skarbiec/total)](https://github.com/wisent-ai/skarbiec/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Wisent-5865F2?logo=discord&logoColor=white)](https://discord.gg/qRjpkthq54)
 [![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
 
 A password manager for the agent era, and the thing that ends `.env`.
@@ -175,6 +176,7 @@ This is not a hypothetical: it is the failure that produced
 
 ## Support and community
 
+- Join the [Wisent Discord](https://discord.gg/qRjpkthq54) for real-time community chat.
 - Ask usage and design questions in [GitHub Discussions](https://github.com/wisent-ai/skarbiec/discussions).
 - Report reproducible bugs and request features in [GitHub Issues](https://github.com/wisent-ai/skarbiec/issues).
 - Report a vulnerability privately through [GitHub Security Advisories](https://github.com/wisent-ai/skarbiec/security/advisories/new). Do not put credentials, vault material, or exploit details in a public issue.
