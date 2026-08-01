@@ -23,9 +23,12 @@ pub fn dispatch(
             let field = "value";
             let mut mint_flags = HashMap::new();
             mint_flags.insert("acquisition-scopes".to_string(), format!("{item}#{field}"));
-            let minted =
-                crate::access::tokens::dispatch("token-mint", &mint_flags, &[consumer.clone()])?
-                    .context("token-mint produced no result")?;
+            let minted = crate::access::tokens::dispatch(
+                "token-mint",
+                &mint_flags,
+                std::slice::from_ref(consumer),
+            )?
+            .context("token-mint produced no result")?;
             let bootstrap = minted
                 .get("token")
                 .and_then(Value::as_str)

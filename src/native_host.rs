@@ -123,7 +123,7 @@ fn fill_login(id: &str) -> Result<Value> {
     let totp = value
         .get("totp_secret")
         .and_then(Value::as_str)
-        .and_then(|secret| crypto::totp_code(secret));
+        .and_then(crypto::totp_code);
     Ok(json!({
         "ok": true,
         "username": value.get("username").and_then(Value::as_str).unwrap_or_default(),

@@ -52,13 +52,13 @@ pub fn dispatch(
                 .context("usage: recovery-drill <recipient-uid|recovery>")?;
             let vault = load()?;
             let expected_fingerprint = if expected == "recovery" {
-                vault.recovery_fpr()
+                vault.recovery_fpr().to_string()
             } else {
                 vault
                     .recipient_fpr(expected)
                     .with_context(|| format!("unknown recovery drill recipient {expected}"))?
             };
-            if !crypto::secret_key_present(expected_fingerprint) {
+            if !crypto::secret_key_present(&expected_fingerprint) {
                 anyhow::bail!("expected recovery secret half is absent from this keyring");
             }
             let mut local_openers: Vec<String> = vault
@@ -83,7 +83,7 @@ pub fn dispatch(
             local_openers.sort();
             local_openers.dedup();
             match local_openers.as_slice() {
-                [fingerprint] if fingerprint == expected_fingerprint => {}
+                [fingerprint] if fingerprint == &expected_fingerprint => {}
                 _ => anyhow::bail!(
                     "recovery drill requires an isolated keyring containing only the expected vault opener"
                 ),
