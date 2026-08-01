@@ -1,5 +1,11 @@
 # skarbiec
 
+[![CI](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/wisent-ai/skarbiec?display_name=tag&sort=semver)](https://github.com/wisent-ai/skarbiec/releases)
+[![Downloads](https://img.shields.io/github/downloads/wisent-ai/skarbiec/total)](https://github.com/wisent-ai/skarbiec/releases)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
+
 A password manager for the agent era, and the thing that ends `.env`.
 
 One Rust binary, no hosted dependency, no external service. All cryptography is
@@ -97,11 +103,14 @@ script runs the installed binary afterwards and prints what it reports for
 Runtime dependencies are invoked as subprocesses and must be on `PATH`: `gpg`,
 `openssl`, `shasum` (`oathtool` is optional, for one-time codes).
 
-Tagged releases are published as immutable, bearer-free GitHub Release assets
-for `linux-amd64` and `darwin-arm64`, each with a sibling SHA-256 file. There is
-deliberately no mutable `latest` binary: deployments pin an exact tag, platform,
-archive URL, and digest. See [the install and release contract](docs/INSTALL.md)
-for the download and atomic rollout procedure.
+The Release and Downloads badges above report GitHub's public state, not merely
+the version written in `Cargo.toml`. A version is published only when its signed
+tag and release assets are visible without authorization. Each published version
+has immutable, bearer-free assets for `linux-amd64` and `darwin-arm64`, with a
+sibling SHA-256 file. There is deliberately no mutable `latest` binary:
+deployments pin an exact tag, platform, archive URL, and digest. See [the install
+and release contract](docs/INSTALL.md) for the download and atomic rollout
+procedure.
 
 `skarbiec version` reports the immutable GitHub asset URL and source commit baked
 into a tagged binary. A source build reports that it is a source build instead of
@@ -118,7 +127,7 @@ commit passes branch CI, its signed tag drives the public release matrix.
 
 `released-surface.json` records the predecessor recovered from the historical
 Stado artifact. Stado may receive an exact mirror, but GitHub Releases is the
-durable public distribution channel.
+designated durable public distribution channel.
 
 ## Quickstart
 
@@ -163,6 +172,12 @@ This is not a hypothetical: it is the failure that produced
   what can destroy or leak the vault, written from the shipped source.
 - [docs/LINEAGE.md](docs/LINEAGE.md) — the two code bases this once had, and why
   there is now one.
+
+## Support and community
+
+- Ask usage and design questions in [GitHub Discussions](https://github.com/wisent-ai/skarbiec/discussions).
+- Report reproducible bugs and request features in [GitHub Issues](https://github.com/wisent-ai/skarbiec/issues).
+- Report a vulnerability privately through [GitHub Security Advisories](https://github.com/wisent-ai/skarbiec/security/advisories/new). Do not put credentials, vault material, or exploit details in a public issue.
 
 ## License
 

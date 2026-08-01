@@ -2,14 +2,17 @@
 
 ## The release channel
 
-The source is public at <https://github.com/wisent-ai/skarbiec>. Tagged releases
-are built by GitHub Actions on independent Linux and macOS runners and published
-as bearer-free GitHub Release assets. The supported coordinates are
-`linux-amd64` and `darwin-arm64`; each archive has a sibling `.sha256` file.
+The source is public at <https://github.com/wisent-ai/skarbiec>. For every
+completed tagged release, GitHub Actions builds on independent Linux and macOS
+runners and publishes bearer-free GitHub Release assets. The supported
+coordinates are `linux-amd64` and `darwin-arm64`; each archive has a sibling
+`.sha256` file. A version in `Cargo.toml`, or a tag without all of those assets,
+is not a published release.
 
-There is no mutable `latest` binary artifact. A deployment pins an exact tag, platform,
-archive URL, and checksum. The older Stado object lineage remains historical;
-GitHub Releases is the durable public distribution channel.
+There is no mutable `latest` binary artifact. A deployment pins an exact tag,
+platform, archive URL, and checksum. The older Stado object lineage remains
+historical; GitHub Releases is the designated durable public distribution
+channel.
 
 ## Install
 
@@ -168,10 +171,11 @@ source revision. No mutable channel pointer participates in deployment.
 
 ## No credential bootstrapping loop
 
-Public source, release metadata, archives, and checksums are all readable without
-authorization. A new machine can therefore install the credential broker before
-it possesses any Skarbiec identity. Publication uses GitHub's ephemeral workflow
-token, not a credential stored inside the vault being published.
+For a completed release, the release metadata, archives, and checksums are all
+readable without authorization. A new machine can therefore install the
+credential broker before it possesses any Skarbiec identity. Publication uses
+GitHub's ephemeral workflow token, not a credential stored inside the vault
+being published.
 
 ## Remaining operational step
 
