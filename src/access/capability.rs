@@ -174,14 +174,8 @@ fn socket_group() -> Result<u32> {
     let gid: u32 = configured
         .parse()
         .context("SKARBIEC_CAP_SOCKET_GID must be a numeric GID")?;
-    let name = CString::new("skarbiec-capability-clients")?;
-    let group = unsafe { libc::getgrnam(name.as_ptr()) };
-    if group.is_null() {
-        bail!("required socket group skarbiec-capability-clients does not exist");
-    }
-    let expected = unsafe { (*group).gr_gid };
-    if gid != expected || gid != unsafe { libc::getegid() } {
-        bail!("SKARBIEC_CAP_SOCKET_GID must match the broker effective capability-clients group");
+    if gid != unsafe { libc::getegid() } {
+        bail!("SKARBIEC_CAP_SOCKET_GID must match the broker effective group");
     }
     Ok(gid)
 }
