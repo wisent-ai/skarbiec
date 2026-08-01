@@ -1,10 +1,14 @@
 # skarbiec
 
+<!-- wisent-readme-signals:start -->
 [![CI](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/wisent-ai/skarbiec?display_name=tag&sort=semver)](https://github.com/wisent-ai/skarbiec/releases)
 [![Downloads](https://img.shields.io/github/downloads/wisent-ai/skarbiec/total)](https://github.com/wisent-ai/skarbiec/releases)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/github/license/wisent-ai/skarbiec)](https://github.com/wisent-ai/skarbiec)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Wisent-5865F2?logo=discord&logoColor=white)](https://discord.gg/qRjpkthq54)
+<!-- wisent-readme-signals:end -->
+
+
 [![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
 
 A password manager for the agent era, and the thing that ends `.env`.
