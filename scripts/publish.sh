@@ -42,6 +42,7 @@
 #   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --dry-run
 #   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --against <version> --bump
 #   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --against <version>
+#   STADO_RELEASE_PLATFORM=... sh scripts/publish.sh --record-surface
 #
 # --against names the version already on the channel; released-surface.json
 # records which one that is. Given it, the predecessor is fetched off the channel
@@ -53,6 +54,10 @@
 # --bump writes the derived number into Cargo.toml and stops, so nobody has to
 # type a version or remember which slot moves. The commit is left to the operator
 # on purpose: a published coordinate must resolve to a revision that is pushed.
+#
+# --record-surface downloads the immutable artifact at the version currently in
+# Cargo.toml and replaces released-surface.json from that artifact's advertised
+# commands. It never trusts the just-built local binary for release evidence.
 #
 # --dry-run publishes nothing. It prints the plan and reports every guard that
 # would refuse a real run, rather than stopping at the first one — the point of a
@@ -66,10 +71,12 @@ cd "$HERE"
 DRY=""
 BUMP=""
 AGAINST=""
+RECORD=""
 while [ -n "${1:-}" ]; do
   case "$1" in
     --dry-run) DRY=yes ;;
     --bump) BUMP=yes ;;
+    --record-surface) RECORD=yes ;;
     --against)
       shift
       if [ -z "${1:-}" ]; then
@@ -86,6 +93,10 @@ done
 if [ -n "$BUMP" ] && [ -z "$AGAINST" ]; then
   echo "--bump needs --against <published-version>: the number is derived from a"
   echo "comparison, so there is nothing to derive it from without a predecessor"
+  false
+fi
+if [ -n "$RECORD" ] && { [ -n "$DRY" ] || [ -n "$BUMP" ] || [ -n "$AGAINST" ]; }; then
+  echo "--record-surface cannot be combined with publish, bump, or dry-run options"
   false
 fi
 
@@ -137,6 +148,21 @@ echo "platform: $PLATFORM"
 echo "commit:   $COMMIT"
 echo "binary:   $BINARY"
 echo "manifest: $MANIFEST"
+
+if [ -n "$RECORD" ]; then
+  RECORD_WORK="$(mktemp -d)"
+  trap 'rm -rf "$RECORD_WORK"' EXIT
+  stado storage get "$BINARY" "$RECORD_WORK/skarbiec"
+  chmod +x "$RECORD_WORK/skarbiec"
+  surface_of "$RECORD_WORK/skarbiec" "$RECORD_WORK/surface.json"
+  SOURCE="stado:${BINARY#stado://} recovered by downloading that published artifact and asking it for its own command list"
+  jq --arg version "$VERSION" --arg source "$SOURCE" \
+    '{version: $version, source: $source, surface: .surface}' \
+    "$RECORD_WORK/surface.json" > "$HERE/released-surface.json.next"
+  mv "$HERE/released-surface.json.next" "$HERE/released-surface.json"
+  echo "recorded released surface from $BINARY"
+  exit
+fi
 
 # An immutable coordinate that nobody can rebuild identifies bytes, not software.
 # A dirty tree is therefore refused outright. Uploading also requires HEAD on
