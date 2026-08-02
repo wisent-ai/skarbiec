@@ -1,13 +1,8 @@
-# skarbiec
+# Skarbiec
 
-World’s Best Credential Management and Authentication Solution.
-
-Built for AI Agents.
-
-Never use .env again. Share credentials easily across machines and projects.
-Eliminate the pain of manually clicking through interfaces to get API Keys. Get
-full logs of your agent’s actions. Give them scoped tokens to prevent credential
-leakage. Automatically rotate them whenever you want.
+<p align="center">
+  <img src="assets/banner.png" alt="Skarbiec — one field, one use, no standing secret" width="100%">
+</p>
 
 <!-- wisent-readme-signals:start -->
 [![ci](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml)
@@ -19,7 +14,19 @@ leakage. Automatically rotate them whenever you want.
 
 [![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
 
-[Install](docs/INSTALL.md) · [Quick start](#quick-start) · [CLI](docs/CLI.md) · [Examples](docs/examples/README.md) · [Security](docs/SECURITY.md) · [Contributing](CONTRIBUTING.md)
+**Skarbiec is a local credential broker for giving workloads one short-lived,
+field-bound capability at a time while retaining encrypted vault state,
+recovery, and a non-secret audit chain under operator control.**
+
+[Install](docs/INSTALL.md) · [Quick start](#quick-start) ·
+[CLI](docs/CLI.md) · [Examples](docs/examples/README.md) ·
+[Security](docs/SECURITY.md) · [Contributing](CONTRIBUTING.md)
+
+Skarbiec is an early public `0.1.x` product, not a hosted secret manager or a
+claim that local brokering makes a compromised host safe. The complete local
+broker works without a Wisent account, network licence check, item limit, or
+paid seat. Operated fleet synchronization, retained organization audit,
+governance, and custodied recovery are separate planned services.
 
 ```mermaid
 flowchart LR
@@ -29,34 +36,45 @@ flowchart LR
     B --> A[Tamper-evident audit]
 ```
 
-## Everything You and Your agents need to authenticate
+## Problem and intended users
 
-Skarbiec manages the entire credential lifecycle. We help you obtain, store,
-share, use, rotate, revoke, recover, and audit credentials. We move your
-credentials between teams of human users and AI agents. No need to store them in
-.env files or secret managers that only work on one cloud and vendor lock you.
-We are to 1Password and Bitwarden what Cursor is to VSCode. A new experience
-built with agents in mind.
+Long-lived environment variables and copied credential files give every process
+that can read them the whole secret for an indefinite period. AI workloads make
+that boundary harder to review: operators need to know which identity requested
+which field, reject replay, revoke access, rotate recipients, and recover the
+vault without putting plaintext into prompts or audit logs.
 
-Store API keys, logins, sessions, and tokens once in an encrypted vault, then
-use them safely across machines and projects without copying .env files. Host it
-yourself, pay us to host it or use peer-to-peer for truly decentralised
-credential management.
+Skarbiec serves:
 
-Give every agent exactly the access it needs. Scope access to a specific
-credential or field, make it short-lived or single-use, and revoke or rotate it
-without hunting through repositories, servers, and deployment settings.
+- **individual operators** storing and using credentials on machines they
+  control;
+- **agent and service owners** replacing standing read tokens with signed,
+  one-use acquisition;
+- **security and platform teams** defining exact consumer, item, and field
+  grants and reviewing a hash-chained local journal;
+- **recovery custodians** proving that an isolated recovery key can open a
+  deterministic canary before an incident;
+- **self-hosting teams** synchronizing ciphertext while retaining their own
+  host, keyring, network, backup, and upgrade responsibilities.
 
-Skarbiec can ask Weles (our automated Internet browser) to navigate the provider
-flow, obtain or refresh a credential, and save it directly into the vault. The
-credential never needs to pass through a chat, prompt, source file, or manual
-copy-and-paste step. The next time your agent tells you to click through some
-boring and confusing website to get a credential, tell him to go to skarbiec and
-sort itself out.
+## Product boundaries
 
-Every accepted credential action leaves an audit record. You see clearly which
-agent requested access, what it requested, and when it happened without
-recording the credential itself.
+Skarbiec stores API keys, logins, sessions, tokens, and typed fields as
+per-recipient ciphertext. It supports scoped grants, finite capabilities,
+field-bound acquisition, injection, sharing, TOTP, rotation, recovery,
+emergency access, breach checks, audit verification, a loopback API, CLI, MCP
+server, managed browser boundary, and self-hosted ciphertext sync.
+
+It does **not** protect secrets from a host already compromised while the
+matching owner key is usable; encrypt item names and other vault metadata;
+replace OS permissions, GPG key custody, TLS, firewalling, backups, monitoring,
+or recovery drills; or provide automatic plaintext cloud fallback. The optional
+Weles path is a separate reviewed browser workflow—not blanket authority to
+navigate providers, accept terms, or create credentials.
+
+Every accepted credential action records non-sensitive identifiers. Secret
+values, one-use tokens, signatures, and public keys are excluded from the audit
+journal.
 
 ## Core use cases
 
@@ -68,6 +86,35 @@ recording the credential itself.
 | Replace a lost or departing owner | Every current and historical ciphertext is rewrapped and recovery remains present | [Owner rotation](docs/examples/rotate-skarbiec-owner.sh) |
 | Prove recovery before an incident | An isolated custodian keyring opens and discards a deterministic canary and records pass/fail | [Recovery commands](docs/CLI.md#recovery-and-emergency-access) |
 | Move ciphertext between hosts | A replica receives encrypted vault state; local-only data is protected from accidental overwrite | [Sync examples](docs/examples/README.md#command-surfaces--which-tool-for-what) |
+
+## Real product journeys
+
+These GIFs are regenerated by `sh scripts/generate-readme-gifs.sh`. The command
+builds the current source, executes each journey against a disposable vault and
+isolated GPG keyring, checks its decisive outcome, and renders the resulting
+terminal transcript. They are not mocked UI recordings.
+
+### One field, one use, replay rejected
+
+<p align="center">
+  <img src="assets/demos/one-use-acquisition.gif" alt="Real one-use Skarbiec acquisition followed by a rejected replay" width="100%">
+</p>
+
+### Recoverable deletion and restore
+
+<p align="center">
+  <img src="assets/demos/delete-and-restore.gif" alt="Real Skarbiec item deletion, trash listing, restore, and read-back" width="100%">
+</p>
+
+### Encrypted vault lifecycle and operator status
+
+<p align="center">
+  <img src="assets/demos/vault-lifecycle.gif" alt="Real Skarbiec vault initialization, item storage, operator status, and audit-chain verification" width="100%">
+</p>
+
+[Transcripts and SHA-256 provenance](assets/demos/manifest.json) are retained
+beside the GIFs. The journeys use only explicit demonstration values and remove
+their temporary vaults and keyrings after capture.
 
 ## How it works
 

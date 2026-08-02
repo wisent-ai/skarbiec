@@ -1,0 +1,43 @@
+REAL JOURNEY: recoverable deletion and restore
+
+$ skarbiec init restore-demo-owner
+{
+  "ok": true,
+  "owner_fpr": "6DF336D030A564E5E7781D9FECA8BEAC0A7E6BFD",
+  "recovery_fpr": "D9A0C0AEB84FE7408B4CC23A442C50D1F26381F5",
+  "vault": "<isolated-temp>/demo.vault.json"
+}
+
+$ skarbiec set recoverable-note --type note value=restored-not-a-secret
+{
+  "id": "recoverable-note",
+  "ok": true
+}
+
+$ skarbiec delete recoverable-note
+{
+  "ok": true
+}
+
+$ skarbiec list --all
+[
+  {
+    "deleted": true,
+    "id": "recoverable-note",
+    "tags": [],
+    "type": "note",
+    "updated_at": "2026-08-02T22:44:50Z",
+    "versions": 1
+  }
+]
+
+$ skarbiec restore recoverable-note
+{
+  "ok": true
+}
+
+$ skarbiec get recoverable-note
+{
+  "type": "note",
+  "value": "restored-not-a-secret"
+}

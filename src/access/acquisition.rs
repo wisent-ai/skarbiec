@@ -235,28 +235,27 @@ fn verify_workload_proof(public_key: &str, payload: &[u8], signature: &str) -> R
     let stem = crypto::sha256_hex(&crypto::random_token()?)?;
     let key_path = parent.join(format!(".skarbiec-proof-key-{stem}"));
     let signature_path = parent.join(format!(".skarbiec-proof-signature-{stem}"));
+    let payload_path = parent.join(format!(".skarbiec-proof-payload-{stem}"));
     let result = (|| -> Result<bool> {
         write_private_file(&key_path, public_key.as_bytes())?;
         write_private_file(&signature_path, &signature)?;
-        let mut child = Command::new("openssl")
+        write_private_file(&payload_path, payload)?;
+        let status = Command::new("openssl")
             .args(["pkeyutl", "-verify", "-pubin", "-inkey"])
             .arg(&key_path)
             .args(["-rawin", "-sigfile"])
             .arg(&signature_path)
-            .stdin(Stdio::piped())
+            .arg("-in")
+            .arg(&payload_path)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
+            .status()
             .context("verify workload proof with openssl")?;
-        child
-            .stdin
-            .as_mut()
-            .context("open workload proof verifier stdin")?
-            .write_all(payload)?;
-        Ok(child.wait()?.success())
+        Ok(status.success())
     })();
     let _ = fs::remove_file(&key_path);
     let _ = fs::remove_file(&signature_path);
+    let _ = fs::remove_file(&payload_path);
     result
 }
 

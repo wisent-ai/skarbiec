@@ -1,0 +1,68 @@
+REAL JOURNEY: one field, one use, replay rejected
+
+$ sh docs/examples/acquire-one-field.sh
+{
+  "ok": true,
+  "owner_fpr": "9507D0E55D4DD0722A4E14F36A6A5C0980B37719",
+  "recovery_fpr": "6FA87D3D2EF2998FAEAC25A4128E431D15CA0B84",
+  "vault": "<isolated-temp>/acquisition/demo.vault.json"
+}
+{
+  "id": "demo-note",
+  "ok": true
+}
+{
+  "acquisition_scopes": [
+    {
+      "field": "value",
+      "item": "demo-note"
+    }
+  ],
+  "consumer": "demo-workload",
+  "ok": true,
+  "scopes": [],
+  "token": null,
+  "workload_bound": true
+}
+{
+  "consumer": "demo-workload",
+  "field": "value",
+  "item": "demo-note",
+  "ok": true,
+  "value": "not-a-secret"
+}
+{
+  "error": "unauthorized",
+  "ok": false
+}
+{
+  "entries": [
+    {
+      "at": "2026-08-02T22:44:32Z",
+      "extra": {
+        "consumer": "demo-workload",
+        "expires_at": 1785710702,
+        "field": "value",
+        "item": "demo-note",
+        "workload_id": "quickstart-workload"
+      },
+      "hash": "2110d81241827afe049670efceb885cc742189d1a45abbb5f742d59a15dc8b16",
+      "op": "acquisition-issued",
+      "prev": ""
+    },
+    {
+      "at": "2026-08-02T22:44:32Z",
+      "extra": {
+        "consumer": "demo-workload",
+        "field": "value",
+        "item": "demo-note"
+      },
+      "hash": "fc36af301a3d5c39d5fed61022cf6af2fde75c45a3f3df5c3cfb3b2cd081981e",
+      "op": "acquisition-consumed",
+      "prev": "2110d81241827afe049670efceb885cc742189d1a45abbb5f742d59a15dc8b16"
+    }
+  ],
+  "matched": 2,
+  "returned": 2
+}
+demo state: <isolated-temp>/acquisition

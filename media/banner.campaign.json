@@ -1,0 +1,44 @@
+{
+  "name": "Skarbiec README Banner",
+  "slug": "skarbiec-readme-banner",
+  "productName": "Skarbiec",
+  "description": "Local credential broker with encrypted vault state, one-use capabilities, recovery, and a non-secret audit chain.",
+  "audience": [
+    "agent and service owners",
+    "security and platform teams",
+    "individual operators"
+  ],
+  "channels": [
+    "public repository README"
+  ],
+  "formats": [
+    "readme-banner"
+  ],
+  "messages": [
+    "One field. One use. No standing secret.",
+    "Local credential brokering with encrypted vault state and a tamper-evident audit chain.",
+    "Give workloads narrow, short-lived access without copying whole credentials into environment variables or prompts."
+  ],
+  "cta": "Inspect the acquisition flow",
+  "desiredTone": [
+    "precise",
+    "security-conscious",
+    "calm",
+    "operator-controlled",
+    "technical"
+  ],
+  "motifs": [
+    "workload identity",
+    "field-bound capability",
+    "encrypted vault",
+    "audit chain"
+  ],
+  "avoid": [
+    "padlock stock imagery",
+    "generic cyber-security neon",
+    "generic AI sparkle symbols",
+    "purple-blue SaaS gradients",
+    "claims of protection from a compromised host",
+    "plaintext credential values"
+  ]
+}

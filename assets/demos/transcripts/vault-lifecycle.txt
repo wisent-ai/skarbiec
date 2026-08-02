@@ -1,0 +1,45 @@
+REAL JOURNEY: encrypted vault lifecycle and operator status
+
+$ skarbiec init demo-owner
+{
+  "ok": true,
+  "owner_fpr": "478FE5A9631500A1A65130700A2E9C3EC047B743",
+  "recovery_fpr": "8F3129DB97061E059497F023A4AC24EA6635D760",
+  "vault": "<isolated-temp>/demo.vault.json"
+}
+
+$ skarbiec set deploy-note --type note value=not-a-secret
+{
+  "id": "deploy-note",
+  "ok": true
+}
+
+$ skarbiec list
+[
+  {
+    "deleted": false,
+    "id": "deploy-note",
+    "tags": [],
+    "type": "note",
+    "updated_at": "2026-08-02T22:44:15Z",
+    "versions": 1
+  }
+]
+
+$ skarbiec status
+{
+  "bond_count": 0,
+  "item_count": 1,
+  "recipient_count": 1,
+  "recovery_fpr": "8F3129DB97061E059497F023A4AC24EA6635D760",
+  "recovery_present_locally": true,
+  "token_count": 0,
+  "vault": "<isolated-temp>/demo.vault.json"
+}
+
+$ skarbiec verify-chain
+{
+  "broken_at": null,
+  "entries": 0,
+  "intact": true
+}

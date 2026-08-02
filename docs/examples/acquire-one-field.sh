@@ -39,13 +39,16 @@ openssl pkey -in "$WORKLOAD_PRIVATE_KEY" -pubout -out "$WORKLOAD_PUBLIC_KEY"
 NONCE_BYTES=$(printf '%s' '................................' | wc -c | tr -d ' ')
 WORKLOAD_TIMESTAMP=$(date +%s)
 WORKLOAD_NONCE=$(openssl rand -base64 "$NONCE_BYTES" | tr '+/' '-_' | tr -d '=\n')
+WORKLOAD_PAYLOAD="$DEMO_DIR/workload-payload.bin"
+printf 'SKARBIEC-WORKLOAD-ACQUISITION\0v1\0%s\0%s\0%s\0%s\0%s\0%s' \
+  "$CONSUMER" "$ITEM" "$FIELD" "$WORKLOAD_ID" "$WORKLOAD_TIMESTAMP" "$WORKLOAD_NONCE" \
+  >"$WORKLOAD_PAYLOAD"
 WORKLOAD_SIGNATURE=$(
-  printf 'SKARBIEC-WORKLOAD-ACQUISITION\0v1\0%s\0%s\0%s\0%s\0%s\0%s' \
-    "$CONSUMER" "$ITEM" "$FIELD" "$WORKLOAD_ID" "$WORKLOAD_TIMESTAMP" "$WORKLOAD_NONCE" \
-  | openssl pkeyutl -sign -inkey "$WORKLOAD_PRIVATE_KEY" -rawin \
+  openssl pkeyutl -sign -inkey "$WORKLOAD_PRIVATE_KEY" -rawin -in "$WORKLOAD_PAYLOAD" \
   | od -An -tx1 \
   | tr -d ' \n'
 )
+rm -f "$WORKLOAD_PAYLOAD"
 
 ACQUISITION_RESPONSE=$(
   "$SB" acquisition-request "$CONSUMER" "$ITEM" "$FIELD" \

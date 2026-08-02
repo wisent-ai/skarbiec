@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-02T22:45:05Z",
+  "source": "real isolated Skarbiec CLI journeys",
+  "binary": {
+  "commit": null,
+  "provenance": "source build",
+  "release": null,
+  "version": "0.1.3"
+},
+  "binarySha256": "9fbe2ed7df0d6bf2e1448df21800e057522a270ec4b228758a16c1b6fdcaac42",
+  "journeys": [
+    {"journey":"vault-lifecycle","transcript":"transcripts/vault-lifecycle.txt","transcriptSha256":"cb5a84c09497553d68d5ad3f6ec48dca0f4a40d0d7698df3421d6d912d4fdf73","gif":"vault-lifecycle.gif","gifSha256":"0ab7aa432f517849e2caf01e8a13b7afffccaee20a6416397f55d8cab5d55add"},
+    {"journey":"one-use-acquisition","transcript":"transcripts/one-use-acquisition.txt","transcriptSha256":"0db085c122c449745ee61110799fa2a422e29ed6b197ecb3108180dec11ebcd4","gif":"one-use-acquisition.gif","gifSha256":"4f903dc48d88ac96c8190829b09873267b61853ae69fbadd9b55acd5ff83d403"},
+    {"journey":"delete-and-restore","transcript":"transcripts/delete-and-restore.txt","transcriptSha256":"a5da4882b34fef40f36115b5fd8c49858fe1be4a42d32e487b75e7d868710a2b","gif":"delete-and-restore.gif","gifSha256":"8d3b45497e714b78468444bfa5292064a626cdb9f7ee5dabcc3a656a95f5a803"}
+  ]
+}
