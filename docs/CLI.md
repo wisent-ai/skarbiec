@@ -1,7 +1,7 @@
 # CLI reference
 
 Every command prints a JSON result to stdout. The vault path comes from
-`SKARBIEC_VAULT_FILE` (default `~/.stado/skarbiec.vault.json`). Run
+`SKARBIEC_VAULT_FILE` (default `~/.local/share/skarbiec/skarbiec.vault.json`). Run
 `skarbiec help` for the raw command list.
 
 Flags are `--key value` or bare `--flag`; everything else is positional.
@@ -52,7 +52,7 @@ skarbiec credential status weles-snapchat-snap-kit-api
 The Snapchat contract writes field `api_token` to
 `weles-snapchat-snap-kit-api`. Before queueing a real acquisition, provision
 the Weles host with the exact writer grant in the owner-only file
-`~/.stado/weles-snapchat-snap-kit-api-writer-skarbiec-token`; no broader writer
+`~/.config/weles/secrets/snapchat-snap-kit-api-writer-token`; no broader writer
 or global bearer is accepted.
 
 ## Recipients and sharing
@@ -180,5 +180,4 @@ default workload path:
 2. [Create a vault](examples/create-skarbiec.sh)
 3. [Create three isolated vaults](examples/create-three-skarbiecs.sh)
 4. [Rotate the owner](examples/rotate-skarbiec-owner.sh)
-5. [Use the Stado compatibility adapter](examples/add-credential.sh)
-6. [Share a credential with another recipient](examples/sharing/share-credential-with-user.sh)
+5. [Share a credential with another recipient](examples/sharing/share-credential-with-user.sh)

@@ -9,17 +9,10 @@ to overwrite existing vault files.
 - **New workload access** — workload-bound one-use acquisition through
   `token-mint --acquisition-scopes`, `acquisition-request`, and
   `acquisition-read`. This is the default for a new machine integration.
-- **Vault creation, multi-vault work, owner rotation, recovery exports** —
-  the `skarbiec` CLI (`init`, `serve`, `rotate-owner`).
-  Stado has no `create`; it manages items inside an existing vault.
-- **Compatibility item operations** — `stado secrets put / get / ls / rm`,
-  talking to a running `skarbiec serve` over loopback HTTP
-  (`WC_SKARBIEC_URL`) with a direct consumer grant (`STADO_CONFIG` + token
-  file). These examples document deployed integrations, not the default for a
-  new workload.
-- **One vault.** Operator and Weles items live side by side in
-  `~/.stado/brama-runtime-config/local.vault.json`; the scope is the
-  boundary, not the file. Both launchd serves now serve this single vault.
+- **Vault creation, multi-vault work, owner rotation, recovery exports, and
+  service access** — use the `skarbiec` CLI and loopback broker directly.
+- **One vault.** Workload separation is enforced by exact acquisition scopes
+  and recipient policy, not by another product's configuration namespace.
 - **Sync (bond)** — `pull` / `sync-init`+`sync-push`/`sync-pull` /
   `enroll` / `donate` + `donations` / `sync-daemon` / `sync-status`.
 
@@ -29,19 +22,14 @@ to overwrite existing vault files.
 2. [`create-skarbiec.sh`](create-skarbiec.sh) — init, first item, read-back, status.
 3. [`create-three-skarbiecs.sh`](create-three-skarbiecs.sh) — three vaults, isolation proof.
 4. [`rotate-skarbiec-owner.sh`](rotate-skarbiec-owner.sh) — backup, rotate-owner, verify.
-5. [`add-credential.sh`](add-credential.sh) — store via stdin, reference in code, legacy direct scoped lend.
-6. [`operations/build-skarbiec-host.sh`](operations/build-skarbiec-host.sh) — init, compatibility grants, serve, health.
-7. [`operations/change-skarbiec-host.sh`](operations/change-skarbiec-host.sh) — pull to a new host, serve.
-8. [`operations/check-skarbiec-host.sh`](operations/check-skarbiec-host.sh) — where is my host right now.
-9. [`operations/print-skarbiec-config.sh`](operations/print-skarbiec-config.sh) — full config dump, no secrets.
-10. [`git/git-sync-two-hosts.sh`](git/git-sync-two-hosts.sh) — two vaults through a bare git remote.
-11. [`bond/enroll-replica.sh`](bond/enroll-replica.sh) — replica enroll handshake.
-12. [`bond/donation-inbox.sh`](bond/donation-inbox.sh) — donate, review in remote inbox.
-13. [`bond/invite-person.sh`](bond/invite-person.sh) — one redeemable package for a human.
-14. [`sharing/share-credential-with-user.sh`](sharing/share-credential-with-user.sh) — GIVE to another user's vault.
-15. [`sharing/give-person-access-to-service.sh`](sharing/give-person-access-to-service.sh) — LEND one service to a person.
-16. [`sharing/donate-item-to-host.sh`](sharing/donate-item-to-host.sh) — donate + duplicate rejection.
-17. [`weles/`](weles/) — deployed Weles compatibility flows: give, write back, remote access.
+5. [`operations/build-skarbiec-host.sh`](operations/build-skarbiec-host.sh) — init, grants, serve, health.
+6. [`operations/change-skarbiec-host.sh`](operations/change-skarbiec-host.sh) — pull to a new host, serve.
+7. [`git/git-sync-two-hosts.sh`](git/git-sync-two-hosts.sh) — two vaults through a bare git remote.
+8. [`bond/enroll-replica.sh`](bond/enroll-replica.sh) — replica enroll handshake.
+9. [`bond/donation-inbox.sh`](bond/donation-inbox.sh) — donate, review in remote inbox.
+10. [`bond/invite-person.sh`](bond/invite-person.sh) — one redeemable package for a human.
+11. [`sharing/share-credential-with-user.sh`](sharing/share-credential-with-user.sh) — GIVE to another user's vault.
+12. [`sharing/donate-item-to-host.sh`](sharing/donate-item-to-host.sh) — donate + duplicate rejection.
 
 ## Run the acquisition proof
 

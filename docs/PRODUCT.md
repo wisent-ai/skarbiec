@@ -208,7 +208,7 @@ Required surface per product:
   launchd (`/health` on serves; exit code carries the verdict).
 - **`<product> doctor`** — diagnosis that works when the product is
   broken: reads state directly, never through the API it is diagnosing
-  (pattern: `key-doctor`, `stado secrets doctor`).
+  (pattern: `key-doctor`, a generic broker-wrapper doctor).
 
 Rules:
 

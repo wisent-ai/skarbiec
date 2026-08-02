@@ -105,7 +105,7 @@ pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {
     }
 
     let home = home_dir()?;
-    let token_path = home.join(".stado/browser-host-skarbiec-token");
+    let token_path = home.join(".local/state/skarbiec/browser-host-token");
     let token = mint_browser_token()?;
     atomic_write(&token_path, token.as_bytes())?;
 

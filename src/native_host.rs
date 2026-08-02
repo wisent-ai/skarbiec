@@ -19,7 +19,7 @@ fn api_base() -> String {
 fn token_file() -> String {
     std::env::var("SKARBIEC_BROWSER_TOKEN_FILE").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_default();
-        format!("{home}/.stado/browser-host-skarbiec-token")
+        format!("{home}/.local/state/skarbiec/browser-host-token")
     })
 }
 

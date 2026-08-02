@@ -11,7 +11,7 @@
 # reports success — an install that cannot run is not an install.
 set -eu
 
-DEST="${SKARBIEC_INSTALL_DIR:-$HOME/.stado/bin}"
+DEST="${SKARBIEC_INSTALL_DIR:-$HOME/.local/bin}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 
 cd "$HERE"

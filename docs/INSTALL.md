@@ -13,9 +13,8 @@ administrator from deleting or recreating a tag or release, so repository
 administration remains a separate trust boundary.
 
 There is no mutable `latest` binary artifact. A deployment pins an exact tag,
-platform, archive URL, and checksum. The older Stado object lineage remains
-historical; GitHub Releases is the designated durable public distribution
-channel.
+platform, archive URL, and checksum. GitHub Releases is the sole durable public
+distribution channel.
 
 ## Install
 
@@ -36,7 +35,7 @@ cat "$archive.sha256"
 ```
 
 The two digest lines must match before extraction. Install into a staging
-directory, then rename the binary into `$HOME/.stado/bin`; never overwrite the
+directory, then rename the binary into `$HOME/.local/bin`; never overwrite the
 running broker in place.
 
 Contributors may build from source:
@@ -50,7 +49,7 @@ sh scripts/install.sh
 `scripts/install.sh` builds a release binary, stages it inside the destination
 directory, and moves it into place atomically. It then prints the installed
 binary's version and provenance. `SKARBIEC_INSTALL_DIR` overrides the default
-`$HOME/.stado/bin`.
+`$HOME/.local/bin`.
 
 Runtime requirements: `gpg`, `openssl`, and `shasum`. `oathtool` is optional
 and needed only for one-time codes.
@@ -131,17 +130,10 @@ operator's rollout decision and the rollback coordinate remains explicit.
 
 ## Publish
 
-Publishing is tag-driven. First derive the version from the advertised command
-surface and commit both package manifests:
-
-```sh
-previous="$(jq -r .version released-surface.json)"
-STADO_RELEASE_PLATFORM=darwin-arm64 \
-  sh scripts/publish.sh --against "$previous" --bump
-git add Cargo.toml Cargo.lock
-git commit -m 'Prepare Skarbiec release'
-git push origin main
-```
+Publishing is tag-driven. Update the version in `Cargo.toml`, regenerate
+`Cargo.lock`, and commit both manifests. The version must be strictly newer than
+the latest published release and must describe the reviewed command-surface
+change.
 
 After the branch CI succeeds, tag that exact pushed commit:
 
@@ -155,10 +147,9 @@ The tag must match the version reported by `Cargo.toml`. GitHub Actions creates
 the versioned release and uploads both platform archives plus checksums without
 replacement. A tag is never moved or reused; changed bytes require a new version.
 
-The `--bump` invocation uses the historical Stado artifact as its comparison
-baseline and exits before upload. A later invocation without `--bump` may mirror
-the exact build into Stado object storage, but Stado is no longer the public
-distribution channel.
+`released-surface.json` records the command surface recovered from the last
+GitHub Release asset. Update it only from the published archive, never from a
+mutable checkout.
 
 ## Versioning
 

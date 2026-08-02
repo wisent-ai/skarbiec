@@ -69,6 +69,9 @@ impl Vault {
     }
 
     pub fn save(&self) -> Result<()> {
+        let parent = self.path.parent().context("vault path has no parent")?;
+        fs::create_dir_all(parent)?;
+        Command::new("chmod").arg("700").arg(parent).status().ok();
         fs::write(&self.path, serde_json::to_string_pretty(&self.doc)?)?;
         Command::new("chmod")
             .arg("600")

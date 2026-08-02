@@ -47,7 +47,7 @@ fn audit_path() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".stado/skarbiec.audit.jsonl")
+        .join(".local/state/skarbiec/audit.jsonl")
 }
 
 fn now_iso() -> String {

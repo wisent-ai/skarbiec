@@ -6,13 +6,8 @@
 
 <!-- wisent-readme-signals:start -->
 [![ci](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/wisent-ai/skarbiec?display_name=tag&sort=semver)](https://github.com/wisent-ai/skarbiec/releases)
-[![Downloads](https://img.shields.io/github/downloads/wisent-ai/skarbiec/total)](https://github.com/wisent-ai/skarbiec/releases)
-[![License](https://img.shields.io/github/license/wisent-ai/skarbiec)](https://github.com/wisent-ai/skarbiec)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Wisent-5865F2?logo=discord&logoColor=white)](https://discord.gg/qRjpkthq54)
 <!-- wisent-readme-signals:end -->
 
-[![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
 
 **Skarbiec is a local credential broker for giving workloads one short-lived,
 field-bound capability at a time while retaining encrypted vault state,
@@ -150,7 +145,7 @@ cd skarbiec
 sh scripts/install.sh
 ```
 
-`SKARBIEC_INSTALL_DIR` overrides the default `$HOME/.stado/bin`.
+`SKARBIEC_INSTALL_DIR` overrides the default `$HOME/.local/bin`.
 
 ## Quick start
 
@@ -207,7 +202,7 @@ For a real vault, first follow
 [the recovery boundary](docs/SECURITY.md#recovery-and-rotation), move the
 recovery private material to its custodian, and verify it with
 `recovery-drill`. Store real values through stdin, as shown in
-[the credential example](docs/examples/add-credential.sh), and register new
+[the create-vault example](docs/examples/create-skarbiec.sh), and register new
 workloads through acquisition rather than a legacy direct bearer.
 
 ## Public interfaces
@@ -218,7 +213,6 @@ workloads through acquisition rather than a legacy direct bearer.
 | Loopback HTTP broker | Service acquisition, compatibility item access, health, and ciphertext sync | Public `/v1`; acquisition is the default, direct scopes are compatibility-only | [Acquisition contract](docs/CLI.md#service-account-grants) · [Build a host](docs/examples/operations/build-skarbiec-host.sh) |
 | MCP server | Agent-safe metadata and audit, plus explicitly configured compatibility resolve | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](docs/SECURITY.md#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](docs/CLI.md#servers) |
 | Chrome native host | Origin-checked fill through the managed extension | Public managed integration; the extension never receives a vault bearer or private key | [Browser boundary](docs/SECURITY.md#the-browser-boundary) · [Managed installation](docs/INSTALL.md#managed-browser-installation-and-updates) |
-| Stado adapter | Preserve exact deployed Wisent consumer/item contracts over the broker | Compatibility interface outside the core binary | [Compatibility example](docs/examples/add-credential.sh) |
 
 The MCP surface deliberately excludes raw item reads, minting, rotation, and
 export. Its compatibility `resolve` path writes a mode-0600 env file and returns
@@ -229,7 +223,7 @@ model and should not be used for new machine integrations.
 
 | Setting | Meaning |
 | --- | --- |
-| `SKARBIEC_VAULT_FILE` | Vault path; defaults to `~/.stado/skarbiec.vault.json` |
+| `SKARBIEC_VAULT_FILE` | Vault path; defaults to `~/.local/share/skarbiec/skarbiec.vault.json` |
 | `SKARBIEC_AUDIT_FILE` | Override the local append-only journal path |
 | `SKARBIEC_UNLOCK_FILE` | Owner-only file supplying a protected key's unlock phrase to a persistent service |
 | `SKARBIEC_UNLOCK` | Single-invocation unlock phrase, passed to `gpg` over stdin; prefer the file for services |

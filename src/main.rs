@@ -28,7 +28,7 @@ fn vault_path() -> PathBuf {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".stado/skarbiec.vault.json")
+        .join(".local/share/skarbiec/skarbiec.vault.json")
 }
 
 // key=value or bare --flag (present -> "true"); everything else is positional.
