@@ -58,42 +58,6 @@ Every accepted credential action leaves an audit record. You see clearly which
 agent requested access, what it requested, and when it happened without
 recording the credential itself.
 
-## Scope and product status
-
-Skarbiec is an **early public `0.1.x` release**, not a hosted secrets service.
-Deploy an exact release tag and checksum; do not infer readiness from
-`Cargo.toml` or a mutable `latest` pointer.
-
-| Boundary | Current contract |
-| --- | --- |
-| Latest complete release | [`v0.1.3`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.1.3) |
-| Supported release targets | `darwin-arm64` and `linux-amd64` |
-| Runtime dependencies | `gpg`, `openssl`, and `shasum`; `oathtool` only for TOTP |
-| Storage | One local JSON vault; values are per-recipient GPG ciphertext |
-| Metadata | Item ids, types, tags, recipients, and revision counts are cleartext |
-| Default machine access | Ed25519 workload proof → one short-lived, one-use, field-bound capability |
-| Compatibility access | Direct scoped bearers and owner-only emitted env files remain for existing consumers |
-| Network | Local CLI, MCP, native messaging, or the HTTP broker; no hosted control plane is required |
-| Availability | No cloud fallback by design; if the local broker cannot decrypt, the integration is unavailable |
-| Versioning | Additions require an additive bump; removals or changed command contracts require a compatibility-breaking bump |
-
-Not supported or promised:
-
-- no published Windows target;
-- no protection from a host already compromised while an owner key is
-  available;
-- no encryption of item names or other vault metadata;
-- no automatic cloud fallback, secret replication in plaintext, or mutable
-  release channel;
-- no claim that legacy direct grants provide the acquisition model's one-use
-  identity guarantee.
-
-The local core, acquisition flow, sharing, recovery, audit, sync, MCP boundary,
-and managed browser extension exist today. The fleet-level **Hosted Hub**
-described in [the product assessment](docs/PRODUCT.md#monetization-assessment)
-is planned commercial control-plane work, not a dependency or capability of the
-current core.
-
 ## Core use cases
 
 | Goal | Observable outcome | Start here |
@@ -278,6 +242,42 @@ not replace host security. See the complete
 - **Understand current priorities and planned work:** [Product contract](docs/PRODUCT.md)
 - **Trace the public code lineage:** [Lineage](docs/LINEAGE.md)
 - **Prepare a change:** [Contributing guide](CONTRIBUTING.md)
+
+## Scope and product status
+
+Skarbiec is an **early public `0.1.x` release**, not a hosted secrets service.
+Deploy an exact release tag and checksum; do not infer readiness from
+`Cargo.toml` or a mutable `latest` pointer.
+
+| Boundary | Current contract |
+| --- | --- |
+| Latest complete release | [`v0.1.3`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.1.3) |
+| Supported release targets | `darwin-arm64` and `linux-amd64` |
+| Runtime dependencies | `gpg`, `openssl`, and `shasum`; `oathtool` only for TOTP |
+| Storage | One local JSON vault; values are per-recipient GPG ciphertext |
+| Metadata | Item ids, types, tags, recipients, and revision counts are cleartext |
+| Default machine access | Ed25519 workload proof → one short-lived, one-use, field-bound capability |
+| Compatibility access | Direct scoped bearers and owner-only emitted env files remain for existing consumers |
+| Network | Local CLI, MCP, native messaging, or the HTTP broker; no hosted control plane is required |
+| Availability | No cloud fallback by design; if the local broker cannot decrypt, the integration is unavailable |
+| Versioning | Additions require an additive bump; removals or changed command contracts require a compatibility-breaking bump |
+
+Not supported or promised:
+
+- no published Windows target;
+- no protection from a host already compromised while an owner key is
+  available;
+- no encryption of item names or other vault metadata;
+- no automatic cloud fallback, secret replication in plaintext, or mutable
+  release channel;
+- no claim that legacy direct grants provide the acquisition model's one-use
+  identity guarantee.
+
+The local core, acquisition flow, sharing, recovery, audit, sync, MCP boundary,
+and managed browser extension exist today. The fleet-level **Hosted Hub**
+described in [the product assessment](docs/PRODUCT.md#monetization-assessment)
+is planned commercial control-plane work, not a dependency or capability of the
+current core.
 
 ## Compatibility, releases, and support
 
