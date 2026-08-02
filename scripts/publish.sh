@@ -164,7 +164,7 @@ if [ -n "$RECORD" ]; then
   exit
 fi
 
-# An immutable coordinate that nobody can rebuild identifies bytes, not software.
+# A versioned coordinate must resolve to one reviewed byte sequence, not merely a software name.
 # A dirty tree is therefore refused outright. Uploading also requires HEAD on
 # origin/main. `--bump` is the deliberate exception: it derives the manifest
 # change that must be committed and pushed before a later upload can pass.

@@ -1,6 +1,8 @@
 #!/bin/sh
 # change-skarbiec-location.sh — migrate the served vault to a new host
 # endpoint and prove consumers keep working.
+# This preserves already-deployed direct grants during migration; it does not
+# prescribe direct grants for a new workload.
 #
 # Why this works at all:
 #   A vault is one ciphertext file, and the consumer grants (hashed tokens

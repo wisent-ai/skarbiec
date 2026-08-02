@@ -1,6 +1,6 @@
 #!/bin/sh
-# add-credential.sh — store a credential, use it from code, lend it to an agent.
-# Nothing but the commands themselves. Run against your served vault.
+# add-credential.sh — compatibility path: store through Stado, resolve from
+# code, and issue a legacy direct scoped grant. New workloads use acquisition.
 set -eu
 
 SB=${SKARBIEC_BIN:-skarbiec}
@@ -13,5 +13,5 @@ printf '%s' "$EXAMPLE_VENDOR_KEY" | "$STADO" secrets put vendor-api
 #    config:  {"vendor_key": "skarbiec://vendor-api/value"}
 "$STADO" secrets get vendor-api
 
-# 3. lend exactly that item to an agent (scoped grant)
+# 3. lend exactly that item through the legacy direct-grant path
 "$SB" token-mint agent-demo --scopes 'read:vendor-api'

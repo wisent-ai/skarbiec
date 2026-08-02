@@ -1,6 +1,8 @@
 #!/bin/sh
 # give-person-access-to-service.sh — lend a person access to ONE service
 # (example: Supabase) from your vault, without ever copying the value.
+# This is the legacy direct-grant LEND path for an existing client. A new
+# machine workload should receive one field through acquisition instead.
 #
 # LEND vs GIVE:
 #   - this script LENDS: the credential stays in YOUR vault, she borrows it

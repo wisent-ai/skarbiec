@@ -7,7 +7,10 @@ completed tagged release, GitHub Actions builds on independent Linux and macOS
 runners and publishes bearer-free GitHub Release assets. The supported
 coordinates are `linux-amd64` and `darwin-arm64`; each archive has a sibling
 `.sha256` file. A version in `Cargo.toml`, or a tag without all of those assets,
-is not a published release.
+is not a published release. The publication workflow refuses to replace an
+existing asset; changed bytes require a new tag. This does not prevent a GitHub
+administrator from deleting or recreating a tag or release, so repository
+administration remains a separate trust boundary.
 
 There is no mutable `latest` binary artifact. A deployment pins an exact tag,
 platform, archive URL, and checksum. The older Stado object lineage remains
@@ -149,8 +152,8 @@ git push origin "$version"
 ```
 
 The tag must match the version reported by `Cargo.toml`. GitHub Actions creates
-the immutable release and uploads both platform archives plus checksums. A tag is
-never moved or reused; changed bytes require a new version.
+the versioned release and uploads both platform archives plus checksums without
+replacement. A tag is never moved or reused; changed bytes require a new version.
 
 The `--bump` invocation uses the historical Stado artifact as its comparison
 baseline and exits before upload. A later invocation without `--bump` may mirror
@@ -166,8 +169,10 @@ bump. The workload-proof acquisition cutover removes the bootstrap-bearer
 contract, so this release uses the next compatibility boundary rather than a
 patch.
 
-The Git tag is the immutable distribution coordinate and the binary reports its
-source revision. No mutable channel pointer participates in deployment.
+The Git tag is the versioned distribution coordinate and the workflow never
+moves or reuses it. GitHub administrators can still delete or recreate tags and
+releases; protect those permissions separately. The binary reports its source
+revision, and no mutable channel pointer participates in binary deployment.
 
 ## No credential bootstrapping loop
 

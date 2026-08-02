@@ -199,7 +199,7 @@ fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]) -> Result
 /// counting the commands it answers — which is what the July incident actually
 /// resorted to, twice, on a broker that had been replaced by hand.
 ///
-/// `release` is the immutable coordinate the artifact was published at, and
+/// `release` is the versioned coordinate the artifact was published at, and
 /// `commit` is the source revision it was built from. Both are baked in at build
 /// time by the publishing pipeline. A source build has neither and says so rather
 /// than guessing, because an unpublished binary claiming a release coordinate is

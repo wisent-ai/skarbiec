@@ -1,5 +1,5 @@
 #!/bin/sh
-# build-skarbiec-host.sh — vault + grants + serve = a complete host.
+# build-skarbiec-host.sh — compatibility host with direct grants and serve.
 # Usage: sh build-skarbiec-host.sh <vault-path> <port>
 set -eu
 

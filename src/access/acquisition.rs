@@ -474,7 +474,7 @@ pub fn dispatch(
             else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
             };
-            crate::runtime::audit::append(
+            crate::runtime::audit::append_sync(
                 "acquisition-issued",
                 &json!({
                     "consumer": consumer,
@@ -507,7 +507,7 @@ pub fn dispatch(
             let Some(value) = consume(consumer, presented, item, field)? else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
             };
-            crate::runtime::audit::append(
+            crate::runtime::audit::append_sync(
                 "acquisition-consumed",
                 &json!({"consumer": consumer, "item": item, "field": field}),
             )?;
