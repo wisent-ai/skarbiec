@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::net::TcpStream;
 
 use crate::access::tokens;
-use crate::core::{crypto, inbox};
+use crate::core::{crypto, inbox, schema};
 
 // Shared request helpers, re-exported by net::http so handler call sites read
 // the same in every module. Moved here to keep net::http under its line
@@ -56,14 +56,22 @@ pub(crate) fn handle_items_read(
             &json!({"error": "id required"}),
         );
     };
+    let Some(field) = http::request_field(&parsed) else {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "field required"}),
+        );
+    };
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
-    if consumer.is_empty() || !tokens::token_allows_action(&vault, &consumer, &bearer, "read", id)?
+    if consumer.is_empty()
+        || !tokens::token_allows_field_action(&vault, &consumer, &bearer, "read", id, field)?
     {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
-            &json!({"error": "consumer not authorized to read item"}),
+            &json!({"error": "consumer not authorized to read item field"}),
         );
     }
     let known = vault
@@ -78,19 +86,14 @@ pub(crate) fn handle_items_read(
             &json!({"error": "item not found"}),
         );
     }
-    // `?` here returned no HTTP response at all: the error travelled to the
-    // accept loop, which logged it and dropped the connection, so a caller
-    // saw a transport failure rather than a status. An item that is stored
-    // but unopenable is an outage on our side, and it must say so — never
-    // 404, which is the answer reserved for "this was never here".
-    let value = match vault.get_item(id) {
-        Ok(value) => value,
+    let payload = match vault.get_item(id) {
+        Ok(payload) => payload,
         Err(error) => {
             let detail = error.to_string();
             eprintln!("item decryption failed: {id}: {detail}");
             crate::runtime::audit::append(
                 "http-item-read-undecryptable",
-                &json!({"item": id, "consumer": consumer}),
+                &json!({"item": id, "field": field, "consumer": consumer}),
             )?;
             return http::write_response(
                 stream,
@@ -103,11 +106,22 @@ pub(crate) fn handle_items_read(
             );
         }
     };
-    crate::runtime::audit::append("http-item-read", &json!({"item": id, "consumer": consumer}))?;
+    let value = if field == "context" {
+        payload
+            .get("context")
+            .cloned()
+            .context("canonical item has no context")?
+    } else {
+        schema::field(&payload, field)?.clone()
+    };
+    crate::runtime::audit::append(
+        "http-item-read",
+        &json!({"item": id, "field": field, "consumer": consumer}),
+    )?;
     http::write_response(
         stream,
         "HTTP/1.1 200 OK",
-        &json!({"id": id, "value": value}),
+        &json!({"id": id, "field": field, "value": value}),
     )
 }
 
@@ -124,50 +138,190 @@ pub(crate) fn handle_items_put(
             &json!({"error": "id required"}),
         );
     };
-    let Some(value) = parsed.get("value") else {
+    let Some(field) = http::request_field(&parsed) else {
         return http::write_response(
             stream,
             "HTTP/1.1 400 Bad Request",
-            &json!({"error": "value required"}),
+            &json!({"error": "field required"}),
         );
     };
+    let Some(operation_id) = parsed.get("operation_id").and_then(Value::as_str) else {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "operation_id required"}),
+        );
+    };
+    let mode = parsed.get("mode").and_then(Value::as_str).unwrap_or("");
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
-    if consumer.is_empty() || !tokens::token_allows_action(&vault, &consumer, &bearer, "write", id)?
+    if id.starts_with("operation:credential/") {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": "credential operation records cannot be changed through item APIs"}),
+        );
+    }
+    if mode != "acquire"
+        && (!inbox::managed_by_weles(&vault, id)
+            || inbox::written_by(&vault, id).as_deref() != Some(consumer.as_str()))
     {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
-            &json!({"error": "consumer not authorized to write item"}),
+            &json!({"error": "item is not controlled by this exact Weles writer"}),
         );
     }
-    let existing = vault.doc().get("items").and_then(|items| items.get(id));
-    let item_type = parsed
-        .get("type")
-        .and_then(Value::as_str)
-        .or_else(|| {
-            existing
-                .and_then(|item| item.get("type"))
+    let revision = match mode {
+        "acquire" => {
+            if parsed.get("provider_verified").and_then(Value::as_bool) != Some(true) {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": "provider verification required before acquire"}),
+                );
+            }
+            if consumer.is_empty()
+                || !tokens::token_allows_field_action(
+                    &vault, &consumer, &bearer, "stage", id, field,
+                )?
+            {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 403 Forbidden",
+                    &json!({"error": "consumer not authorized to acquire item field"}),
+                );
+            }
+            if vault.get_item(id).is_ok() {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": "managed item already exists; use stage"}),
+                );
+            }
+            let payload = parsed
+                .get("value")
+                .cloned()
+                .context("canonical payload required for acquire")?;
+            let kind = payload
+                .get("kind")
                 .and_then(Value::as_str)
-        })
-        .unwrap_or("secret")
-        .to_string();
-    let recipients = vault.item_recipient_uids(id);
-    let tags: Vec<String> = existing
-        .and_then(|item| item.get("tags"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect();
-    vault.set_item(id, &item_type, value, &recipients, &tags)?;
-    inbox::mark_written_by(&mut vault, id, Some(&consumer))?;
+                .context("canonical payload kind required for acquire")?;
+            schema::field(&payload, field)
+                .context("acquired payload does not contain authorized field")?;
+            crate::credential::authorize_managed_write(
+                &vault,
+                id,
+                field,
+                &consumer,
+                operation_id,
+                &["acquire"],
+                u64::MIN,
+            )?;
+            vault.set_managed_item(
+                id,
+                kind,
+                &payload,
+                &[],
+                &["managed:weles".to_string()],
+                crate::core::vault::ManagedWrite {
+                    controller: "weles",
+                    writer: &consumer,
+                    operation_id: Some(operation_id),
+                },
+            )?;
+            "1".parse()?
+        }
+        "stage" => {
+            if consumer.is_empty()
+                || !tokens::token_allows_field_action(
+                    &vault, &consumer, &bearer, "stage", id, field,
+                )?
+            {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 403 Forbidden",
+                    &json!({"error": "consumer not authorized to stage item field"}),
+                );
+            }
+            let Some(value) = parsed.get("value").cloned() else {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 400 Bad Request",
+                    &json!({"error": "value required for stage"}),
+                );
+            };
+            let base_revision = parsed
+                .get("base_revision")
+                .and_then(Value::as_u64)
+                .or_else(|| {
+                    vault
+                        .get_item(&format!("operation:credential/{id}"))
+                        .ok()
+                        .and_then(|payload| schema::field(&payload, "value").ok().cloned())
+                        .and_then(|request| {
+                            request.get("baseline_revision").and_then(Value::as_u64)
+                        })
+                });
+            let Some(base_revision) = base_revision else {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 400 Bad Request",
+                    &json!({"error": "base_revision unavailable for stage"}),
+                );
+            };
+            crate::credential::authorize_managed_write(
+                &vault,
+                id,
+                field,
+                &consumer,
+                operation_id,
+                &["rotate", "verify"],
+                base_revision,
+            )?;
+            vault.stage_managed_field(
+                id,
+                field,
+                value,
+                base_revision,
+                crate::core::vault::ManagedWrite {
+                    controller: "weles",
+                    writer: &consumer,
+                    operation_id: Some(operation_id),
+                },
+            )?
+        }
+        _ => {
+            return http::write_response(
+                stream,
+                "HTTP/1.1 400 Bad Request",
+                &json!({"error": "mode must be acquire or stage"}),
+            );
+        }
+    };
     crate::runtime::audit::append(
-        "http-item-write",
-        &json!({"item": id, "consumer": consumer}),
+        "http-item-field-write",
+        &json!({
+            "item": id,
+            "field": field,
+            "mode": mode,
+            "operation_id": operation_id,
+            "revision": revision,
+            "consumer": consumer,
+        }),
     )?;
-    http::write_response(stream, "HTTP/1.1 200 OK", &json!({"ok": true, "id": id}))
+    http::write_response(
+        stream,
+        "HTTP/1.1 200 OK",
+        &json!({
+            "ok": true,
+            "id": id,
+            "field": field,
+            "mode": mode,
+            "operation_id": operation_id,
+            "revision": revision,
+        }),
+    )
 }
 
 // === bond serve endpoints: the p2p donation path (docs/design/bond.md) ===
@@ -249,11 +403,11 @@ pub(crate) fn handle_donation(
             &json!({"ok": false, "status": rule, "id": item_id}),
         );
     }
-    let item_type = parsed
-        .get("type")
+    let item_kind = parsed
+        .get("kind")
         .and_then(Value::as_str)
-        .unwrap_or("secret");
-    let donation_id = inbox::enqueue(item_id, &consumer, &from, item_type, armor)?;
+        .context("donation requires canonical item kind")?;
+    let donation_id = inbox::enqueue(item_id, &consumer, &from, item_kind, armor)?;
     crate::runtime::audit::append(
         "http-donation-queued",
         &json!({"donation": donation_id, "item": item_id, "consumer": consumer, "from": from}),

@@ -8,15 +8,90 @@
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File, OpenOptions};
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::core::crypto;
+use crate::core::{crypto, schema};
 
 pub struct Vault {
     pub path: PathBuf,
     doc: Value,
+    base_generation: u64,
+}
+#[derive(Clone, Copy)]
+pub struct ManagedWrite<'a> {
+    pub controller: &'a str,
+    pub writer: &'a str,
+    pub operation_id: Option<&'a str>,
+}
+
+#[derive(Default)]
+struct WritePolicy<'a> {
+    writer: Option<&'a str>,
+    managed: Option<ManagedWrite<'a>>,
+}
+
+struct VaultWriteLock(PathBuf);
+
+impl Drop for VaultWriteLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
+}
+
+fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
+    let lock_path = vault_path.with_extension("write.lock");
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(private_file_mode()?)
+        .open(&lock_path)
+        .with_context(|| {
+            format!(
+                "another process owns the vault write lock {}; verify it is no longer running before removing a stale lock",
+                lock_path.display()
+            )
+        })?;
+    let guard = VaultWriteLock(lock_path);
+    writeln!(file, "{}", std::process::id())?;
+    file.sync_all()?;
+    Ok(guard)
+}
+
+fn private_file_mode() -> Result<u32> {
+    u32::from_str_radix("600", "8".parse()?).context("private vault file mode")
+}
+
+fn document_generation(doc: &Value) -> u64 {
+    doc.get("generation")
+        .and_then(Value::as_u64)
+        .unwrap_or_default()
+}
+
+fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
+    let parent = path.parent().context("vault path has no parent")?;
+    let temp = path.with_extension(format!("tmp.{}", std::process::id()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(private_file_mode()?)
+        .open(&temp)
+        .with_context(|| format!("create vault temporary file {}", temp.display()))?;
+    let result = (|| -> Result<()> {
+        file.write_all(body)?;
+        file.sync_all()?;
+        fs::set_permissions(&temp, fs::Permissions::from_mode(private_file_mode()?))?;
+        fs::rename(&temp, path)?;
+        File::open(parent)?.sync_all()?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
 }
 
 fn obj_mut<'a>(v: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
@@ -48,6 +123,7 @@ impl Vault {
         }
         let doc = json!({
             "version": "v1",
+            "generation": u64::MIN,
             "owner": owner_uid,
             "recovery": recovery_fpr,
             "recipients": { owner_uid: {"fingerprint": owner_fpr, "role": "owner", "added_at": now()} },
@@ -55,7 +131,11 @@ impl Vault {
             "tokens": {},
             "policy": {},
         });
-        let vault = Self { path, doc };
+        let mut vault = Self {
+            path,
+            doc,
+            base_generation: u64::MIN,
+        };
         vault.save()?;
         Ok(vault)
     }
@@ -64,20 +144,50 @@ impl Vault {
         if !path.exists() {
             bail!("vault not initialized at {} (run: init)", path.display());
         }
-        let doc = serde_json::from_str(&fs::read_to_string(&path)?).context("parse vault file")?;
-        Ok(Self { path, doc })
+        let doc: Value =
+            serde_json::from_str(&fs::read_to_string(&path)?).context("parse vault file")?;
+        let base_generation = document_generation(&doc);
+        Ok(Self {
+            path,
+            doc,
+            base_generation,
+        })
     }
 
-    pub fn save(&self) -> Result<()> {
-        let parent = self.path.parent().context("vault path has no parent")?;
-        fs::create_dir_all(parent)?;
-        Command::new("chmod").arg("700").arg(parent).status().ok();
-        fs::write(&self.path, serde_json::to_string_pretty(&self.doc)?)?;
-        Command::new("chmod")
-            .arg("600")
-            .arg(&self.path)
-            .status()
-            .ok();
+    pub fn save(&mut self) -> Result<()> {
+        let _write_lock = acquire_write_lock(&self.path)?;
+        if self.path.exists() {
+            let persisted: Value = serde_json::from_str(&fs::read_to_string(&self.path)?)
+                .context("parse persisted vault under write lock")?;
+            let persisted_generation = document_generation(&persisted);
+            if persisted_generation != self.base_generation {
+                bail!(
+                    "vault changed concurrently: loaded generation {}, persisted generation {}; reopen and retry",
+                    self.base_generation,
+                    persisted_generation
+                );
+            }
+        } else if self.base_generation != u64::MIN {
+            bail!("vault disappeared before save; refusing to recreate it from stale state");
+        }
+        let next_generation = self
+            .base_generation
+            .checked_add(std::iter::once(()).count() as u64)
+            .context("vault generation overflow")?;
+        self.doc
+            .as_object_mut()
+            .context("vault document is not an object")?
+            .insert("generation".to_string(), json!(next_generation));
+        let mut encoded = serde_json::to_vec_pretty(&self.doc)?;
+        encoded.push(b'\n');
+        if let Err(error) = atomic_write(&self.path, &encoded) {
+            self.doc
+                .as_object_mut()
+                .context("vault document is not an object")?
+                .insert("generation".to_string(), json!(self.base_generation));
+            return Err(error).context("atomically persist vault");
+        }
+        self.base_generation = next_generation;
         Ok(())
     }
 
@@ -101,6 +211,24 @@ impl Vault {
             .get("recovery")
             .and_then(Value::as_str)
             .unwrap_or("")
+    }
+
+    pub fn ensure_owner_controlled(&self, id: &str) -> Result<()> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("item not found: {id}"))?;
+        let management = item
+            .get("management")
+            .and_then(Value::as_object)
+            .context("item has no canonical management metadata")?;
+        if management.get("mode").and_then(Value::as_str) != Some("owner")
+            || management.get("controller").and_then(Value::as_str) != Some(self.owner_uid())
+        {
+            bail!("{id} is not owner-controlled");
+        }
+        Ok(())
     }
 
     pub fn recipient_fpr(&self, uid: &str) -> Option<String> {
@@ -209,33 +337,40 @@ impl Vault {
                 .get("items")
                 .and_then(|items| items.get(id))
                 .with_context(|| format!("no item: {id}"))?;
-            let current = item
+            if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+                bail!("{id} uses a legacy envelope; run migrate-v2 before rotating the owner");
+            }
+            let mut current = item
                 .get("current")
+                .and_then(Value::as_object)
+                .cloned()
+                .with_context(|| format!("item has no current revision: {id}"))?;
+            let current_cipher = current
+                .get("ciphertext")
                 .and_then(Value::as_str)
-                .with_context(|| format!("item has no ciphertext: {id}"))?
-                .to_string();
-            let history: Vec<(Value, String)> = item
+                .with_context(|| format!("item has no current ciphertext: {id}"))?;
+            let rotated_current = Self::rewrap(&fprs, current_cipher)
+                .with_context(|| format!("rewrap current ciphertext: {id}"))?;
+            current.insert("ciphertext".to_string(), json!(rotated_current));
+            let history = item
                 .get("history")
                 .and_then(Value::as_array)
-                .map(|entries| {
-                    entries
-                        .iter()
-                        .filter_map(|entry| {
-                            let at = entry.get("at")?.clone();
-                            let cipher = entry.get("cipher")?.as_str()?.to_string();
-                            Some((at, cipher))
-                        })
-                        .collect()
-                })
+                .cloned()
                 .unwrap_or_default();
-
-            let rotated_current = Self::rewrap(&fprs, &current)
-                .with_context(|| format!("rewrap current ciphertext: {id}"))?;
             let mut rotated_history = Vec::new();
-            for (at, cipher) in &history {
+            for version in history {
+                let mut version = version
+                    .as_object()
+                    .cloned()
+                    .with_context(|| format!("historical revision is not an object: {id}"))?;
+                let cipher = version
+                    .get("ciphertext")
+                    .and_then(Value::as_str)
+                    .with_context(|| format!("historical revision has no ciphertext: {id}"))?;
                 let rotated = Self::rewrap(&fprs, cipher)
-                    .with_context(|| format!("rewrap historical ciphertext: {id} at {at}"))?;
-                rotated_history.push(json!({"at": at, "cipher": rotated}));
+                    .with_context(|| format!("rewrap historical ciphertext: {id}"))?;
+                version.insert("ciphertext".to_string(), json!(rotated));
+                rotated_history.push(Value::Object(version));
             }
             versions = versions.saturating_add(rotated_history.len());
 
@@ -243,7 +378,7 @@ impl Vault {
                 .get_mut(id)
                 .and_then(Value::as_object_mut)
                 .with_context(|| format!("no item: {id}"))?;
-            entry.insert("current".to_string(), json!(rotated_current));
+            entry.insert("current".to_string(), Value::Object(current));
             entry.insert("history".to_string(), json!(rotated_history));
             entry.insert("recipients".to_string(), json!(uids));
         }
@@ -274,53 +409,421 @@ impl Vault {
             .unwrap_or_default()
     }
 
-    // Store (or replace) a secret. Encrypts to the given recipients; the prior
-    // ciphertext is pushed onto the version history.
+    // Store a validated canonical item. Administrative callers may replace the
+    // payload and metadata; managed workloads use `set_managed_item`, which
+    // preserves protected envelope metadata.
     pub fn set_item(
         &mut self,
         id: &str,
-        item_type: &str,
-        secret: &Value,
+        item_kind: &str,
+        payload: &Value,
         recipient_uids: &[String],
         tags: &[String],
     ) -> Result<()> {
-        let fprs = self.fprs_for(recipient_uids);
-        let cipher = crypto::encrypt_to(&fprs, &serde_json::to_string(secret)?)?;
-        let stamp = now();
-        let items = obj_mut(&mut self.doc, "items");
-        let history = match items.get(id) {
-            Some(prev) => {
-                let mut h = prev
-                    .get("history")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                if let (Some(at), Some(c)) = (prev.get("updated_at"), prev.get("current")) {
-                    h.push(json!({"at": at, "cipher": c}));
+        self.set_item_with_writer(
+            id,
+            item_kind,
+            payload,
+            recipient_uids,
+            tags,
+            WritePolicy::default(),
+        )
+    }
+
+    pub fn set_item_written_by(
+        &mut self,
+        id: &str,
+        item_kind: &str,
+        payload: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+        writer: &str,
+    ) -> Result<()> {
+        self.set_item_with_writer(
+            id,
+            item_kind,
+            payload,
+            recipient_uids,
+            tags,
+            WritePolicy {
+                writer: Some(writer),
+                managed: None,
+            },
+        )
+    }
+
+    pub fn set_managed_item(
+        &mut self,
+        id: &str,
+        item_kind: &str,
+        payload: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+        write: ManagedWrite<'_>,
+    ) -> Result<()> {
+        self.set_item_with_writer(
+            id,
+            item_kind,
+            payload,
+            recipient_uids,
+            tags,
+            WritePolicy {
+                writer: Some(write.writer),
+                managed: Some(write),
+            },
+        )
+    }
+
+    fn set_item_with_writer(
+        &mut self,
+        id: &str,
+        item_kind: &str,
+        payload: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+        policy: WritePolicy<'_>,
+    ) -> Result<()> {
+        let writer = policy.writer;
+        let requested_management = policy
+            .managed
+            .map(|write| json!({"mode": "managed", "controller": write.controller}));
+        let preserve_metadata = policy.managed.is_some();
+        let operation_id = policy.managed.and_then(|write| write.operation_id);
+        schema::validate_payload(payload, item_kind)?;
+        let previous = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .and_then(|items| items.get(id))
+            .cloned();
+        if previous.as_ref().is_some_and(|entry| {
+            entry.get("format").and_then(Value::as_u64) != Some("2".parse().unwrap_or_default())
+        }) {
+            bail!("{id} still uses the legacy envelope; run migrate-v2 before updating it");
+        }
+        if let (Some(previous), Some(requested)) = (&previous, &requested_management) {
+            if let Some(existing) = previous.get("management") {
+                if existing != requested {
+                    bail!("{id} is controlled by a different management authority");
                 }
-                h
             }
-            None => Vec::new(),
+        }
+        if requested_management.is_none()
+            && previous.as_ref().is_some_and(|entry| {
+                entry
+                    .get("management")
+                    .and_then(|management| management.get("mode"))
+                    .and_then(Value::as_str)
+                    != Some("owner")
+            })
+        {
+            let existing = previous.as_ref().context("protected item disappeared")?;
+            let current_payload = self.get_item(id)?;
+            let current_tags = existing
+                .get("tags")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let requested_tags: Vec<Value> = tags.iter().cloned().map(Value::String).collect();
+            if existing.get("state").and_then(Value::as_str) != Some("active")
+                || existing.get("kind").and_then(Value::as_str) != Some(item_kind)
+                || current_payload != *payload
+                || current_tags != requested_tags
+            {
+                bail!(
+                    "{id} payload and protected metadata may only change through its controlling lifecycle"
+                );
+            }
+        }
+        let effective_recipients = if preserve_metadata {
+            previous
+                .as_ref()
+                .and_then(|entry| entry.get("recipients"))
+                .and_then(Value::as_array)
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_else(|| recipient_uids.to_vec())
+        } else {
+            recipient_uids.to_vec()
         };
-        let created = items
-            .get(id)
-            .and_then(|p| p.get("created_at"))
+        let effective_tags = if preserve_metadata {
+            previous
+                .as_ref()
+                .and_then(|entry| entry.get("tags"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_else(|| tags.iter().cloned().map(Value::String).collect())
+        } else {
+            tags.iter().cloned().map(Value::String).collect()
+        };
+        let management = requested_management
+            .or_else(|| {
+                previous
+                    .as_ref()
+                    .and_then(|entry| entry.get("management"))
+                    .cloned()
+            })
+            .unwrap_or_else(|| {
+                let controller = writer.unwrap_or_else(|| self.owner_uid());
+                let mode = if controller == self.owner_uid() {
+                    "owner"
+                } else {
+                    "external"
+                };
+                json!({"mode": mode, "controller": controller})
+            });
+        let revision = previous
+            .as_ref()
+            .and_then(|entry| entry.get("revision"))
+            .and_then(Value::as_u64)
+            .unwrap_or_default()
+            .checked_add(std::iter::once(()).count() as u64)
+            .context("item revision overflow")?;
+        let fprs = self.fprs_for(&effective_recipients);
+        let cipher = crypto::encrypt_to(&fprs, &serde_json::to_string(payload)?)?;
+        let stamp = now();
+        let mut history = previous
+            .as_ref()
+            .and_then(|entry| entry.get("history"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(current) = previous.as_ref().and_then(|entry| entry.get("current")) {
+            history.push(current.clone());
+        }
+        let created = previous
+            .as_ref()
+            .and_then(|entry| entry.get("created_at"))
             .cloned()
             .unwrap_or_else(|| json!(stamp));
-        items.insert(
-            id.to_string(),
-            json!({
-                "type": item_type,
-                "created_at": created,
-                "updated_at": stamp,
-                "recipients": recipient_uids,
-                "tags": tags,
-                "current": cipher,
-                "history": history,
-                "deleted": false,
-                "deleted_at": Value::Null,
-            }),
+        let written_by = writer.unwrap_or_else(|| self.owner_uid()).to_string();
+        let entry = json!({
+            "format": "2".parse::<u64>()?,
+            "kind": item_kind,
+            "state": "active",
+            "revision": revision,
+            "management": management,
+            "created_at": created,
+            "updated_at": stamp,
+            "recipients": effective_recipients,
+            "tags": effective_tags,
+            "current": {
+                "revision": revision,
+                "kind": item_kind,
+                "created_at": stamp,
+                "written_by": written_by,
+                "operation_id": operation_id,
+                "ciphertext": cipher,
+            },
+            "history": history,
+        });
+        obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        self.save()
+    }
+
+    pub fn stage_managed_field(
+        &mut self,
+        id: &str,
+        field: &str,
+        value: Value,
+        expected_revision: u64,
+        write: ManagedWrite<'_>,
+    ) -> Result<u64> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+            bail!("item uses the legacy envelope: {id} (run migrate-v2)");
+        }
+        if item.get("state").and_then(Value::as_str) != Some("active") {
+            bail!("{id} is not active");
+        }
+        if item.get("revision").and_then(Value::as_u64) != Some(expected_revision) {
+            bail!("item revision changed; reopen and retry the operation");
+        }
+        let management = item
+            .get("management")
+            .and_then(Value::as_object)
+            .context("managed item has no management envelope")?;
+        if management.get("mode").and_then(Value::as_str) != Some("managed")
+            || management.get("controller").and_then(Value::as_str) != Some(write.controller)
+        {
+            bail!("{id} is controlled by a different management authority");
+        }
+        if item
+            .get("current")
+            .and_then(|current| current.get("written_by"))
+            .and_then(Value::as_str)
+            != Some(write.writer)
+        {
+            bail!("{id} may only be staged by its exact active writer");
+        }
+        if let Some(pending) = item.get("pending") {
+            if pending.get("operation_id").and_then(Value::as_str) == write.operation_id {
+                return pending
+                    .get("revision")
+                    .and_then(Value::as_u64)
+                    .context("pending revision has no revision number");
+            }
+            bail!("{id} already has a different staged revision");
+        }
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .context("canonical item has no kind")?
+            .to_string();
+        let recipients = self.item_recipient_uids(id);
+        let mut payload = self.get_item(id)?;
+        schema::fields(&payload)?;
+        let same_as_current = schema::field(&payload, field).ok() == Some(&value);
+        payload
+            .get_mut("fields")
+            .and_then(Value::as_object_mut)
+            .context("canonical item has no mutable fields object")?
+            .insert(field.to_string(), value);
+        schema::validate_payload(&payload, &kind)?;
+        let revision = expected_revision
+            .checked_add(std::iter::once(()).count() as u64)
+            .context("item revision overflow")?;
+        let cipher = crypto::encrypt_to(
+            &self.fprs_for(&recipients),
+            &serde_json::to_string(&payload)?,
+        )?;
+        let stamp = now();
+        obj_mut(&mut self.doc, "items")
+            .get_mut(id)
+            .and_then(Value::as_object_mut)
+            .context("canonical item is not an object")?
+            .insert(
+                "pending".to_string(),
+                json!({
+                    "revision": revision,
+                    "created_at": stamp,
+                    "kind": kind,
+                    "written_by": write.writer,
+                    "operation_id": write.operation_id,
+                    "field": field,
+                    "same_as_current": same_as_current,
+                    "ciphertext": cipher,
+                }),
+            );
+        self.save()?;
+        Ok(revision)
+    }
+    pub fn trash_managed_item(&mut self, id: &str, controller: &str, writer: &str) -> Result<()> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        let management = item
+            .get("management")
+            .and_then(Value::as_object)
+            .context("managed item has no management envelope")?;
+        if item.get("state").and_then(Value::as_str) != Some("active")
+            || management.get("mode").and_then(Value::as_str) != Some("managed")
+            || management.get("controller").and_then(Value::as_str) != Some(controller)
+            || item
+                .get("current")
+                .and_then(|current| current.get("written_by"))
+                .and_then(Value::as_str)
+                != Some(writer)
+        {
+            bail!("{id} is not controlled by this exact management writer");
+        }
+        if item.get("pending").is_some() {
+            bail!("{id} has a staged revision; resolve it before removal");
+        }
+        let entry = obj_mut(&mut self.doc, "items")
+            .get_mut(id)
+            .and_then(Value::as_object_mut)
+            .context("canonical item is not an object")?;
+        entry.insert("state".to_string(), json!("trashed"));
+        entry.insert("deleted_at".to_string(), json!(now()));
+        self.save()
+    }
+
+    pub fn activate_staged_revision(
+        &mut self,
+        id: &str,
+        operation_id: &str,
+        field: &str,
+        writer: &str,
+    ) -> Result<u64> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        let pending = item
+            .get("pending")
+            .cloned()
+            .context("item has no staged revision")?;
+        if pending.get("operation_id").and_then(Value::as_str) != Some(operation_id)
+            || pending.get("field").and_then(Value::as_str) != Some(field)
+            || pending.get("written_by").and_then(Value::as_str) != Some(writer)
+        {
+            bail!("staged revision does not belong to this operation and writer");
+        }
+        let revision = pending
+            .get("revision")
+            .and_then(Value::as_u64)
+            .context("staged revision has no revision number")?;
+        let mut history = item
+            .get("history")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        history.push(
+            item.get("current")
+                .cloned()
+                .context("canonical item has no current revision")?,
         );
+        let stamp = now();
+        let entry = obj_mut(&mut self.doc, "items")
+            .get_mut(id)
+            .and_then(Value::as_object_mut)
+            .context("canonical item is not an object")?;
+        entry.insert("current".to_string(), pending);
+        entry.insert("history".to_string(), Value::Array(history));
+        entry.insert("revision".to_string(), json!(revision));
+        entry.insert("updated_at".to_string(), json!(stamp));
+        entry.remove("pending");
+        self.save()?;
+        Ok(revision)
+    }
+
+    pub fn discard_staged_revision(
+        &mut self,
+        id: &str,
+        operation_id: &str,
+        field: &str,
+        writer: &str,
+    ) -> Result<()> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        let pending = item.get("pending").context("item has no staged revision")?;
+        if pending.get("operation_id").and_then(Value::as_str) != Some(operation_id)
+            || pending.get("field").and_then(Value::as_str) != Some(field)
+            || pending.get("written_by").and_then(Value::as_str) != Some(writer)
+        {
+            bail!("staged revision does not belong to this operation and writer");
+        }
+        obj_mut(&mut self.doc, "items")
+            .get_mut(id)
+            .and_then(Value::as_object_mut)
+            .context("canonical item is not an object")?
+            .remove("pending");
         self.save()
     }
 
@@ -328,21 +831,27 @@ impl Vault {
         let item = self
             .doc
             .get("items")
-            .and_then(|m| m.get(id))
+            .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
-        if item
-            .get("deleted")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
+        if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+            bail!("item uses the legacy envelope: {id} (run migrate-v2)");
+        }
+        if item.get("state").and_then(Value::as_str) == Some("trashed") {
             bail!("item is in trash: {id} (restore it first)");
         }
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .context("canonical item has no kind")?;
         let cipher = item
             .get("current")
+            .and_then(|current| current.get("ciphertext"))
             .and_then(Value::as_str)
-            .context("item has no ciphertext")?;
+            .context("canonical item has no current ciphertext")?;
         let plain = crypto::decrypt(cipher)?;
-        serde_json::from_str(&plain).context("decrypted item is not JSON")
+        let payload: Value = serde_json::from_str(&plain).context("decrypted item is not JSON")?;
+        schema::validate_payload(&payload, kind)?;
+        Ok(payload)
     }
 
     pub fn list(&self, include_deleted: bool) -> Vec<Value> {
@@ -352,22 +861,29 @@ impl Vault {
             .map(|items| {
                 items
                     .iter()
-                    .filter_map(|(id, it)| {
-                        let deleted = it.get("deleted").and_then(Value::as_bool).unwrap_or(false);
+                    .filter_map(|(id, item)| {
+                        let state = item
+                            .get("state")
+                            .and_then(Value::as_str)
+                            .unwrap_or("legacy");
+                        let deleted = state == "trashed";
                         if deleted && !include_deleted {
                             return None;
                         }
-                        let history_len = it
+                        let history_len = item
                             .get("history")
                             .and_then(Value::as_array)
-                            .map(|h| h.len())
+                            .map(Vec::len)
                             .unwrap_or_default();
-                        let versions = history_len + std::iter::once(()).count(); // history + the current version
+                        let versions = history_len.saturating_add(std::iter::once(()).count());
                         Some(json!({
                             "id": id,
-                            "type": it.get("type"),
-                            "tags": it.get("tags"),
-                            "updated_at": it.get("updated_at"),
+                            "kind": item.get("kind"),
+                            "state": state,
+                            "revision": item.get("revision"),
+                            "management": item.get("management"),
+                            "tags": item.get("tags"),
+                            "updated_at": item.get("updated_at"),
                             "deleted": deleted,
                             "versions": versions,
                         }))
@@ -377,27 +893,26 @@ impl Vault {
             .unwrap_or_default()
     }
 
-    // Trash (soft delete): recoverable. Purge removes permanently.
+    // Trash is recoverable. Purge remains a separate owner-only operation.
     pub fn delete_item(&mut self, id: &str) -> Result<()> {
         let stamp = now();
-        let items = obj_mut(&mut self.doc, "items");
-        let item = items
+        let entry = obj_mut(&mut self.doc, "items")
             .get_mut(id)
+            .and_then(Value::as_object_mut)
             .with_context(|| format!("no item: {id}"))?;
-        let entry = item.as_object_mut().context("item is object")?;
-        entry.insert("deleted".to_string(), Value::Bool(true));
-        entry.insert("deleted_at".to_string(), json!(stamp));
+        entry.insert("state".to_string(), json!("trashed"));
+        entry.insert("updated_at".to_string(), json!(stamp));
         self.save()
     }
 
     pub fn restore_item(&mut self, id: &str) -> Result<()> {
-        let items = obj_mut(&mut self.doc, "items");
-        let item = items
+        let stamp = now();
+        let entry = obj_mut(&mut self.doc, "items")
             .get_mut(id)
+            .and_then(Value::as_object_mut)
             .with_context(|| format!("no item: {id}"))?;
-        let entry = item.as_object_mut().context("item is object")?;
-        entry.insert("deleted".to_string(), Value::Bool(false));
-        entry.insert("deleted_at".to_string(), Value::Null);
+        entry.insert("state".to_string(), json!("active"));
+        entry.insert("updated_at".to_string(), json!(stamp));
         self.save()
     }
 
@@ -408,37 +923,53 @@ impl Vault {
         self.save()
     }
 
-    // Restore a prior version by its timestamp: the chosen history ciphertext
-    // becomes current, and the replaced current is appended to history.
+    // Restoring history creates a fresh canonical revision instead of
+    // activating a historical ciphertext in place.
     pub fn restore_version(&mut self, id: &str, at: &str) -> Result<()> {
-        let stamp = now();
-        let items = obj_mut(&mut self.doc, "items");
-        let item = items
-            .get_mut(id)
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
-        let history = item
+        let envelope_kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .context("canonical item has no kind")?
+            .to_string();
+        let chosen = item
             .get("history")
             .and_then(Value::as_array)
-            .cloned()
+            .and_then(|history| {
+                history
+                    .iter()
+                    .find(|version| version.get("created_at").and_then(Value::as_str) == Some(at))
+            })
+            .with_context(|| format!("no version at {at} for {id}"))?;
+        let kind = chosen
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or(&envelope_kind)
+            .to_string();
+        let cipher = chosen
+            .get("ciphertext")
+            .and_then(Value::as_str)
+            .context("historical revision missing ciphertext")?;
+        let plain = crypto::decrypt(cipher)?;
+        let payload: Value =
+            serde_json::from_str(&plain).context("historical revision is not JSON")?;
+        schema::validate_payload(&payload, &kind)?;
+        let recipients = self.item_recipient_uids(id);
+        let tags: Vec<String> = item
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default();
-        let chosen = history
-            .iter()
-            .find(|e| e.get("at").and_then(Value::as_str) == Some(at))
-            .with_context(|| format!("no version at {at} for {id}"))?
-            .get("cipher")
-            .cloned()
-            .context("history entry missing cipher")?;
-        let entry = item.as_object_mut().context("item is object")?;
-        if let (Some(cur_at), Some(cur)) = (
-            entry.get("updated_at").cloned(),
-            entry.get("current").cloned(),
-        ) {
-            let mut h = history;
-            h.push(json!({"at": cur_at, "cipher": cur}));
-            entry.insert("history".to_string(), Value::Array(h));
-        }
-        entry.insert("current".to_string(), chosen);
-        entry.insert("updated_at".to_string(), json!(stamp));
-        self.save()
+        self.set_item(id, &kind, &payload, &recipients, &tags)
     }
 }

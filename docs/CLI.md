@@ -11,7 +11,7 @@ Flags are `--key value` or bare `--flag`; everything else is positional.
 | Command | What it does |
 | --- | --- |
 | `init <owner-uid>` | Create the vault, sealed to a fresh `gpg` owner key and a `skarbiec-recovery <owner>` key. |
-| `set <id> --type <t> --field k=v ... [--recipients a,b] [--tags x,y]` | Create or update an item. Fields are free-form `key=value` pairs; `--type` defaults to `login`. |
+| `set <id> --type <t> --field k=v ... [--recipients a,b] [--tags x,y]` | Create or update a schema-validated typed item. `--type` defaults to `login`; canonical field names depend on the type. |
 | `get <id>` | Return one item's decrypted fields as JSON. |
 | `list [--all]` | List item metadata (id, type, revision count, tags) — never values. `--all` includes trashed items. |
 | `delete <id>` | Move an item to the trash (recoverable). |
@@ -20,40 +20,68 @@ Flags are `--key value` or bare `--flag`; everything else is positional.
 | `restore-version <id> <at>` | Roll an item back to an earlier version by its timestamp. |
 
 ```sh
-skarbiec set github --type login --field login_email=alice@example.com --tags dev,ci
+skarbiec set github --type login --field username=alice@example.com --tags dev,ci
 skarbiec list --all
 skarbiec restore-version github 2026-07-01T12:00:00Z
 ```
 
-## Credential acquisition through Weles
+## Externally managed credentials through Weles
 
 | Command | What it does |
 | --- | --- |
-| `credential acquire <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--dry-run]` | Ask the fixed Weles bridge to acquire one exact allowlisted credential. An existing live item returns `ready`; a duplicate pending request returns the original request. The request and Weles job identifiers are encrypted in `request:credential/<item-id>`; secret values never enter the request or audit journal. |
-| `credential status <item-id>` | Return `pending`, `failed`, or `ready`. Once the exact item exists, the pending request is retired. |
+| `credential acquire <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Acquire or adopt one exact allowlisted provider credential. A pre-existing local item without Weles provenance is rejected rather than reported as ready. |
+| `credential rotate <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Ask Weles to rotate the credential at the provider, freshly authenticate it, and commit the exact value to Skarbiec. |
+| `credential verify <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Ask Weles to authenticate the stored value at the provider. A successful check rewrites the same value with the operation request ID as provenance. |
+| `credential remove <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Request provider-side revocation and local removal. Providers without a safe revocation contract fail closed. |
+| `credential status <item-id>` | Poll the exact Weles action-log ID, persist queued/failure/review/completed state, and verify that the current encrypted item is attributable to that request. A merely present item is `managed` or `unmanaged`, never externally verified. |
 
-`SKARBIEC_WELES_ACQUIRE_COMMAND` must name an absolute, owner-controlled,
-non-symlink executable. Skarbiec passes
-`skarbiec.credential-request.v1` JSON on stdin and accepts only a bounded,
+`SKARBIEC_WELES_CREDENTIAL_COMMAND` must name an absolute,
+owner-controlled, non-symlink executable. Skarbiec passes
+`skarbiec.credential-operation.v1` JSON on stdin and accepts only a bounded,
 sanitized JSON response on stdout. The bridge owns the finite mapping from item
-IDs to Weles acquisition contracts; an unknown item/provider pair fails closed.
+IDs to Weles lifecycle contracts; an unknown item/provider/operation tuple fails
+closed.
+
+Install the bridge from the public
+[`wisent-ai/weles-client`](https://github.com/wisent-ai/weles-client)
+repository, then configure the organization-scoped hosted service values:
 
 ```sh
-export SKARBIEC_WELES_ACQUIRE_COMMAND="$HOME/weles/scripts/secrets/skarbiec-acquire.mjs"
+git clone https://github.com/wisent-ai/weles-client
+npm install --global ./weles-client
 
-skarbiec credential acquire weles-snapchat-snap-kit-api \
-  --provider snapchat \
-  --consumer content-platform \
-  --purpose snap-kit-production
+export WELES_URL=https://weles.wisent.com/api/v1/
+export WISENT_ORGANIZATION_ID=<organization-uuid>
+export WELES_TOKEN=<organization-scoped-token>
+export SKARBIEC_WELES_CREDENTIAL_COMMAND="$(npm root --global)/@wisent-ai/weles-client/bin/weles-skarbiec-acquire.mjs"
 
-skarbiec credential status weles-snapchat-snap-kit-api
+skarbiec credential rotate weles-microsoft-primary-password \
+  --provider microsoft \
+  --consumer support-ops \
+  --account owner@example.com \
+  --purpose incident-remediation
+
+skarbiec credential status weles-microsoft-primary-password
 ```
 
-The Snapchat contract writes field `api_token` to
+The Snapchat contract writes canonical field `api_key` to
 `weles-snapchat-snap-kit-api`. Before queueing a real acquisition, provision
-the Weles host with the exact writer grant in the owner-only file
-`~/.config/weles/secrets/snapchat-snap-kit-api-writer-token`; no broader writer
-or global bearer is accepted.
+the Weles host with the exact `stage:weles-snapchat-snap-kit-api#api_key`
+capability in the owner-only writer token file; no broader writer or global
+bearer is accepted.
+
+Microsoft password rotation and verification use item IDs matching
+`weles-microsoft-<account-alias>-password`; the exact account is independently
+bound by `--account`. Weles writes canonical `username` and `password` fields,
+plus protected request and operation metadata through item-specific `stage`
+capabilities. It changes the provider first, performs a fresh password
+authentication, and only then writes the managed item. MFA or passkey challenges
+stop as `needs_human_approval` without changing Skarbiec.
+
+Once an item carries Weles provenance, owner-side `set`, `set-json`, `delete`,
+`restore`, `purge`, `restore-version`, and import overwrites are refused. Use
+the matching `credential` lifecycle operation so local and provider state
+cannot be changed independently.
 
 ## Recipients and sharing
 
@@ -70,16 +98,16 @@ or global bearer is accepted.
 
 | Command | What it does |
 | --- | --- |
-| `token-mint <consumer> --scopes a,b` | Issue a legacy direct scoped bearer for a consumer. Scopes are `read:<glob>`, `write:<glob>`, or `delete:<glob>`; a legacy bare glob is read-only. Only a hash is retained; the bearer is shown once. |
-| `token-mint <consumer> --acquisition-scopes item#field --workload-public-key-file PATH` | Register a request-only workload identity for one exact existing item field. The output token is null: the private workload signing key, not a standing bearer, authenticates acquisitions. Direct and acquisition scopes cannot be combined. |
-| `token-verify <consumer> <item-id> --token T` | Check whether a presented legacy direct grant authorizes read access to that item. |
+| `token-mint <consumer> --capabilities action:item[#field] [--workload-public-key-file PATH]` | Register exact structured capabilities. `acquire`, `stage`, `rotate`, and `verify` require a field. `acquire` requires an Ed25519 workload public key and returns no standing bearer; direct capabilities return a bearer once and retain only its hash. Replacing an existing capability set requires `--replace-capabilities`. |
+| `token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH [--ttl-seconds N] [--replace-capabilities]` | Atomically register a validated `consumer\|item\|field` catalog as workload-bound `acquire` capabilities. |
+| `token-verify <consumer> <resource> --action ACTION [--field FIELD] --token T` | Check one exact action/resource/field binding. |
 | `token-revoke <consumer>` | Drop a direct grant or acquisition workload identity. |
-| `tokens` | List consumers, direct/acquisition scope metadata, and whether acquisition is workload-bound (no bearer or key material). |
+| `tokens` | List consumers, structured capabilities, expiry, audience, and whether each identity is workload-bound. |
 | `acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX` | Verify an Ed25519 workload proof and issue an opaque short-TTL bearer bound to that workload, consumer, item, and field. |
 | `acquisition-read <consumer> <item> <field> --token T` | Return only the bound field and atomically consume the acquisition bearer. Replay, expiry, or a binding mismatch is unauthorized. |
 
-Acquisition identities have an empty direct-scope list and no bearer hash, so
-they cannot read or list an item. The operator registers an owner-controlled PEM
+Acquisition identities have no standing bearer hash and only `acquire`
+capabilities, so they cannot read or list an item directly. The operator registers an owner-controlled PEM
 public key; the workload retains only its matching private key. Each request
 signs the domain-separated consumer, item, field, workload id, epoch timestamp,
 and random nonce. Skarbiec verifies the signature, rejects proofs outside the
@@ -148,7 +176,7 @@ skarbiec resolve github --consumer ci --token "$GRANT" --emit --out /run/ci
 | `generate --length N [--symbols]` | Generate a login string of length N from OS entropy. |
 | `generate --passphrase --words N` | Generate an N-word passphrase. |
 | `totp <item-id>` | Print the current one-time code from an item's saved seed (needs `oathtool`). |
-| `breach-check <item-id> [--field login_password]` | Check a field against the breach corpus under k-anonymity (only a hash prefix leaves the host). |
+| `breach-check <item-id> [--field password]` | Check a field against the breach corpus under k-anonymity (only a hash prefix leaves the host). |
 
 ## Sync
 

@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::Command;
 
-use crate::core::{crypto, vault::Vault, vault_path};
+use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
@@ -27,17 +27,14 @@ pub fn dispatch(
         "breach-check" => {
             let id = positionals
                 .first()
-                .context("usage: breach-check <item-id> [--field login_password]")?;
-            let field = flags
-                .get("field")
-                .map(String::as_str)
-                .unwrap_or("login_password");
+                .context("usage: breach-check <item-id> [--field password]")?;
+            let field = flags.get("field").map(String::as_str).unwrap_or("password");
             let vault = load()?;
             let row = vault.get_item(id)?;
-            let candidate = row
-                .get(field)
+            let candidate = schema::field(&row, field)
+                .ok()
                 .and_then(Value::as_str)
-                .with_context(|| format!("{id} has no field {field}"))?;
+                .with_context(|| format!("{id} has no canonical text field {field}"))?;
             let hash = crypto::sha1_hex_upper(candidate)?;
             let (prefix, suffix) = hash.split_at(PREFIX_WIDTH_SAMPLE.len());
             let url = format!("https://api.pwnedpasswords.com/range/{prefix}");

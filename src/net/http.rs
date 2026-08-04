@@ -1,6 +1,6 @@
 // Local HTTP API used by separate products. The listener is loopback-only.
 //
-// Direct item endpoints require an action-scoped grant. Acquisition endpoints
+// Direct item endpoints require an action capability. Acquisition endpoints
 // exchange a request-only bootstrap for an exact consumer/item/field bearer,
 // then atomically consume it on the first successful single-field read.
 //
@@ -22,11 +22,6 @@ const LOOPBACK: &str = "127.0.0.1";
 
 pub(crate) fn load() -> Result<Vault> {
     Vault::open(vault_path())
-}
-
-// Auth wrapper: the scope check never sits next to an HTTP method name in source.
-pub(crate) fn permitted(vault: &Vault, consumer: &str, presented: &str, id: &str) -> Result<bool> {
-    tokens::token_allows(vault, consumer, presented, id)
 }
 
 pub(crate) fn presented_identity(headers: &HashMap<String, String>) -> (String, String) {
@@ -223,10 +218,17 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let Some(id) = request_id(&parsed) else {
             return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
         };
+        if id.starts_with("operation:credential/") {
+            return write_response(
+                &mut stream,
+                denied_line,
+                &json!({"error": "credential lifecycle requests cannot be changed through item APIs"}),
+            );
+        }
         let (consumer, bearer) = presented_identity(&headers);
         let mut vault = load()?;
         if consumer.is_empty()
-            || !tokens::token_allows_action(&vault, &consumer, &bearer, "delete", id)?
+            || !tokens::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
         {
             return write_response(
                 &mut stream,
@@ -244,6 +246,13 @@ fn handle(mut stream: TcpStream) -> Result<()> {
                 &mut stream,
                 missing_line,
                 &json!({"error": "item not found"}),
+            );
+        }
+        if vault.ensure_owner_controlled(id).is_err() {
+            return write_response(
+                &mut stream,
+                denied_line,
+                &json!({"error": "item must be removed through its controlling lifecycle"}),
             );
         }
         vault.delete_item(id)?;

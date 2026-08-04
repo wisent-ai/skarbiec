@@ -13,7 +13,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::access::tokens;
-use crate::core::{crypto, vault::Vault, vault_path};
+use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 struct StateLock {
     path: PathBuf,
@@ -267,13 +267,8 @@ fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {
     if !exact_name(item) || !exact_name(field) {
         bail!("item and field must be exact names without wildcards or separators");
     }
-    let value = vault.get_item(item)?;
-    let object = value
-        .as_object()
-        .context("acquisition item must be a JSON object")?;
-    if !object.contains_key(field) {
-        bail!("acquisition field does not exist on item");
-    }
+    let payload = vault.get_item(item)?;
+    schema::field(&payload, field).context("acquisition field does not exist on item")?;
     Ok(())
 }
 
@@ -418,10 +413,8 @@ pub fn consume(consumer: &str, presented: &str, item: &str, field: &str) -> Resu
     }
 
     let vault = Vault::open(vault_path())?;
-    let value = vault
-        .get_item(item)?
-        .as_object()
-        .and_then(|object| object.get(field))
+    let payload = vault.get_item(item)?;
+    let value = schema::field(&payload, field)
         .cloned()
         .context("acquisition field no longer exists on item")?;
     state

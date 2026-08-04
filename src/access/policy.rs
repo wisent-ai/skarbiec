@@ -2,7 +2,7 @@
 // relevant operation. Stored in the vault's `policy` section.
 //   min_generated_length : shortest length the generator may produce
 //   require_totp         : item ids (globs) that must carry a one-time-code seed
-//   consumer scope globs  : enforced by the tokens module
+//   consumer capabilities: enforced by the tokens module
 // Vocabulary here is deliberately neutral to keep policy metadata clear.
 
 use anyhow::{Context, Result};

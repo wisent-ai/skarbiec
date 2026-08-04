@@ -1,5 +1,5 @@
 // Durable browser integration owned by the Skarbiec binary. This replaces
-// developer-only shell installers: one command rotates the scoped browser
+// developer-only shell installers: one command rotates the browser's exact-field
 // token and atomically installs native-messaging manifests for supported
 // browsers.
 
@@ -12,6 +12,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::access::tokens;
+use crate::core::{schema, vault::Vault, vault_path};
 
 const CONSUMER: &str = "skarbiec-browser-host";
 const HOST_NAME: &str = "ai.wisent.skarbiec";
@@ -78,7 +79,28 @@ fn write_manifest(path: &Path, value: &Value) -> Result<()> {
 }
 
 fn mint_browser_token() -> Result<String> {
-    let flags = HashMap::from([("scopes".to_string(), "read:login-*".to_string())]);
+    let vault = Vault::open(vault_path())?;
+    let mut capabilities = Vec::new();
+    for row in vault.list(false) {
+        if row.get("kind").and_then(Value::as_str) != Some("login") {
+            continue;
+        }
+        let id = row
+            .get("id")
+            .and_then(Value::as_str)
+            .context("canonical login row has no id")?;
+        let payload = vault.get_item(id)?;
+        capabilities.push(format!("read:{id}#context"));
+        for field in ["username", "password", "totp_secret"] {
+            if schema::field(&payload, field).is_ok() {
+                capabilities.push(format!("read:{id}#{field}"));
+            }
+        }
+    }
+    if capabilities.is_empty() {
+        bail!("no canonical login items are available for browser access");
+    }
+    let flags = HashMap::from([("capabilities".to_string(), capabilities.join(","))]);
     let positionals = vec![CONSUMER.to_string()];
     let minted = tokens::dispatch("token-mint", &flags, &positionals)?
         .context("token-mint did not return a result")?;
@@ -136,7 +158,7 @@ pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!({
         "ok": true,
         "consumer": CONSUMER,
-        "scope": "read:login-*",
+        "capability_mode": "exact-login-fields",
         "binary": binary,
         "token_file": token_path,
         "native_messaging_manifests": {

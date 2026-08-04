@@ -38,19 +38,19 @@ Three invariants keep values off surfaces that get logged or captured:
 
 ## Service-account grants
 
-A machine consumer never holds a recipient key. Direct consumers are a legacy
-compatibility path: they present a bearer minted by `token-mint --scopes`;
-generic HTTP scopes remain action-qualified as `read:<item-glob>`,
-`write:<item-glob>`, and `delete:<item-glob>`. A legacy bare glob authorizes
-reads only, so enabling mutation endpoints cannot silently upgrade a grant.
+A machine consumer never holds a recipient key. Standing bearer consumers use
+exact structured capabilities: an action, one resource, and an optional exact
+field. Wildcards and legacy `scopes` are rejected by the v2 validator. Field
+mutations use `stage`; provider-verified activation remains inside the
+credential lifecycle.
 
-New consumers use `token-mint --acquisition-scopes item#field` together with
-`--workload-public-key-file PATH`. That grammar accepts only one exact existing
-item and field, rejects wildcards/globs, and cannot be combined with direct
-scopes. Acquisition records have no standing bearer hash. The workload signs a
+New consumers use
+`token-mint --capabilities acquire:item#field --workload-public-key-file PATH`.
+The grammar rejects wildcards and cannot be combined with direct capabilities.
+Acquisition records have no standing bearer hash. The workload signs a
 domain-separated request with its Ed25519 private key; Skarbiec authorizes its
-registered public key, exact scope, workload id, timestamp, and nonce. Stale or
-replayed proofs are rejected.
+registered public key, exact capability, workload id, timestamp, and nonce.
+Stale or replayed proofs are rejected.
 
 Skarbiec then issues an opaque short-TTL bearer bound to consumer, workload,
 item, and field. The first successful read removes its stored hash atomically

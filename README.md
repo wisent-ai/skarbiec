@@ -121,10 +121,10 @@ their temporary vaults and keyrings after capture.
 1. **Store.** The owner writes a typed item. Each value is encrypted to the
    item's recipient set; the vault file never contains plaintext values.
 2. **Register.** For a new consumer, the operator registers one exact
-   `item#field` acquisition scope and an Ed25519 workload public key. Wildcards
-   and direct scopes cannot be mixed into that identity.
+   `acquire:item#field` capability and an Ed25519 workload public key. Wildcards
+   and direct capabilities cannot be mixed into that identity.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
-   timestamp, and nonce. Skarbiec rejects stale proofs, scope mismatches, and
+   timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and
    replayed proof hashes.
 4. **Borrow once.** Skarbiec issues an opaque bearer with a default 30-second
    TTL. The first successful matching read deletes its stored hash before
@@ -191,10 +191,10 @@ output shapes:
 }
 ```
 
-The registration output has `workload_bound: true`, `token: null`, an empty
-direct `scopes` array, and one exact acquisition scope. The final audit query
-contains `acquisition-issued` and `acquisition-consumed`; it never contains the
-field value, signature, public key, or one-use token.
+The registration output has `workload_bound: true`, `token: null`, and one exact
+`acquire` capability. The final audit query contains `acquisition-issued` and
+`acquisition-consumed`; it never contains the field value, signature, public
+key, or one-use token.
 
 The script refuses to overwrite an existing demo directory. Remove the isolated
 state when finished:

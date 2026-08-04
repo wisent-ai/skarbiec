@@ -1,68 +1,138 @@
-// Long-lived consumer grants. Direct action scopes retain the existing item
-// behavior; acquisition scopes are exact item/field pairs and authorize only
-// issuance of a short-lived single-use bearer.
+// Structured, exact consumer capabilities. Long-lived grants authenticate a
+// consumer; workload-bound `acquire` capabilities may only mint a short-lived,
+// field-bound, single-use bearer through the acquisition module.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::core::{crypto, glob_matches, vault::Vault, vault_path};
+use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-/// Hash one presented bearer once per request. `crypto::sha256_hex` shells
-/// out to `shasum`, so handlers checking many items in one loop must hoist
-/// this call and use the `_hash` variants below instead of the per-check
-/// ones — otherwise each item costs a subprocess spawn.
 pub fn presented_hash(presented: &str) -> Result<String> {
     crypto::sha256_hex(presented)
 }
 
-fn scopes_for_hash(vault: &Vault, consumer: &str, hash: &str) -> Option<Vec<String>> {
-    let entry = vault.doc().get("tokens").and_then(|t| t.get(consumer))?;
-    if entry.get("hash").and_then(Value::as_str) != Some(hash) {
+fn now_epoch() -> Result<u64> {
+    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
+}
+
+fn active(entry: &Value) -> bool {
+    entry
+        .get("expires_at")
+        .and_then(Value::as_u64)
+        .is_some_and(|expires_at| now_epoch().is_ok_and(|now| now < expires_at))
+}
+
+fn capabilities_for_hash<'a>(
+    vault: &'a Vault,
+    consumer: &str,
+    hash: &str,
+) -> Option<&'a Vec<Value>> {
+    let entry = vault
+        .doc()
+        .get("tokens")
+        .and_then(|tokens| tokens.get(consumer))?;
+    if !active(entry) || entry.get("hash").and_then(Value::as_str) != Some(hash) {
         return None;
     }
-    let scopes = entry
-        .get("scopes")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    Some(scopes)
+    entry.get("capabilities").and_then(Value::as_array)
 }
 
-fn scopes_for(vault: &Vault, consumer: &str, presented: &str) -> Result<Option<Vec<String>>> {
+fn capabilities_for<'a>(
+    vault: &'a Vault,
+    consumer: &str,
+    presented: &str,
+) -> Result<Option<&'a Vec<Value>>> {
     let hash = presented_hash(presented)?;
-    Ok(scopes_for_hash(vault, consumer, &hash))
+    Ok(capabilities_for_hash(vault, consumer, &hash))
 }
 
-/// Authenticate a consumer grant without authorizing any particular item.
-/// Single-check call sites use this; per-item loops use [`token_valid_hash`].
 #[allow(dead_code)]
 pub fn token_valid(vault: &Vault, consumer: &str, presented: &str) -> Result<bool> {
-    Ok(scopes_for(vault, consumer, presented)?.is_some())
+    Ok(capabilities_for(vault, consumer, presented)?.is_some())
 }
 
-/// [`token_valid`] with a precomputed bearer hash (see [`presented_hash`]).
 pub fn token_valid_hash(vault: &Vault, consumer: &str, hash: &str) -> bool {
-    scopes_for_hash(vault, consumer, hash).is_some()
+    capabilities_for_hash(vault, consumer, hash).is_some()
+}
+
+fn capability_matches(capability: &Value, action: &str, item: &str, field: Option<&str>) -> bool {
+    capability.get("action").and_then(Value::as_str) == Some(action)
+        && capability.get("item").and_then(Value::as_str) == Some(item)
+        && capability.get("field").and_then(Value::as_str) == field
+}
+
+pub fn token_allows_field_action(
+    vault: &Vault,
+    consumer: &str,
+    presented: &str,
+    action: &str,
+    item: &str,
+    field: &str,
+) -> Result<bool> {
+    Ok(
+        capabilities_for(vault, consumer, presented)?.is_some_and(|capabilities| {
+            capabilities
+                .iter()
+                .any(|capability| capability_matches(capability, action, item, Some(field)))
+        }),
+    )
+}
+
+pub fn token_allows_action(
+    vault: &Vault,
+    consumer: &str,
+    presented: &str,
+    action: &str,
+    item: &str,
+) -> Result<bool> {
+    Ok(
+        capabilities_for(vault, consumer, presented)?.is_some_and(|capabilities| {
+            capabilities
+                .iter()
+                .any(|capability| capability_matches(capability, action, item, None))
+        }),
+    )
+}
+
+pub fn token_allows_any_item_hash(
+    vault: &Vault,
+    consumer: &str,
+    hash: &str,
+    action: &str,
+    item: &str,
+) -> bool {
+    capabilities_for_hash(vault, consumer, hash).is_some_and(|capabilities| {
+        capabilities.iter().any(|capability| {
+            capability.get("action").and_then(Value::as_str) == Some(action)
+                && capability.get("item").and_then(Value::as_str) == Some(item)
+        })
+    })
+}
+
+pub fn token_allows_vault_action(
+    vault: &Vault,
+    consumer: &str,
+    presented: &str,
+    action: &str,
+    resource: &str,
+) -> Result<bool> {
+    token_allows_action(vault, consumer, presented, action, resource)
 }
 
 fn effective_uid() -> Result<u32> {
     let output = Command::new("id").arg("-u").output()?;
     if !output.status.success() {
-        anyhow::bail!("could not determine effective uid");
+        bail!("could not determine effective uid");
     }
     String::from_utf8(output.stdout)?
         .trim()
@@ -77,7 +147,7 @@ fn read_workload_public_key(path: &Path) -> Result<String> {
         || metadata.uid() != effective_uid()?
         || metadata.mode() & unsafe_bits != u32::MIN
     {
-        anyhow::bail!("workload public key must be an owner-controlled regular file");
+        bail!("workload public key must be an owner-controlled regular file");
     }
     let key = fs::read_to_string(path)?;
     let maximum: usize = "8192".parse()?;
@@ -86,7 +156,7 @@ fn read_workload_public_key(path: &Path) -> Result<String> {
         || !key.contains("-----BEGIN PUBLIC KEY-----")
         || !key.contains("-----END PUBLIC KEY-----")
     {
-        anyhow::bail!("workload public key must be a bounded PEM public key");
+        bail!("workload public key must be a bounded PEM public key");
     }
     let output = Command::new("openssl")
         .args(["pkey", "-pubin", "-in"])
@@ -96,9 +166,142 @@ fn read_workload_public_key(path: &Path) -> Result<String> {
         .context("validate workload public key with openssl")?;
     let description = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || !description.to_ascii_uppercase().contains("ED25519") {
-        anyhow::bail!("workload public key must be a valid Ed25519 public key");
+        bail!("workload public key must be a valid Ed25519 public key");
     }
     Ok(key)
+}
+
+fn exact_component(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn exact_resource(value: &str) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':' | b'/')
+        })
+}
+
+fn allowed_action(action: &str) -> bool {
+    matches!(
+        action,
+        "acquire"
+            | "read"
+            | "stage"
+            | "rotate"
+            | "verify"
+            | "revoke"
+            | "share"
+            | "trash"
+            | "purge"
+            | "admin"
+            | "sync"
+            | "enroll"
+            | "donate"
+    )
+}
+
+fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
+    if raw.trim().is_empty() {
+        bail!("token-mint requires --capabilities action:item[#field]");
+    }
+    let mut capabilities = Vec::new();
+    for encoded in raw.split(',') {
+        let (action, target) = encoded
+            .split_once(':')
+            .context("capabilities use action:item[#field]")?;
+        if !allowed_action(action) {
+            bail!("unsupported capability action: {action}");
+        }
+        let (item, field) = match target.split_once('#') {
+            Some((item, field)) => (item, Some(field)),
+            None => (target, None),
+        };
+        if !exact_resource(item) || field.is_some_and(|field| !exact_component(field)) {
+            bail!("capabilities require exact resource and field names without globs");
+        }
+        if matches!(action, "acquire" | "stage" | "rotate" | "verify") && field.is_none() {
+            bail!("{action} capability requires one exact field");
+        }
+        if let Some(field) = field {
+            if field == "context" && action != "read" {
+                bail!("context is metadata and may only be named by read capabilities");
+            }
+            let item_exists = vault
+                .doc()
+                .get("items")
+                .and_then(Value::as_object)
+                .is_some_and(|items| items.contains_key(item));
+            if item_exists {
+                let payload = vault.get_item(item)?;
+                if schema::field(&payload, field).is_err()
+                    && !(matches!(action, "stage" | "acquire")
+                        && schema::allows_field(&payload, field))
+                {
+                    bail!("capability names a missing field: {item}#{field}");
+                }
+            } else if !matches!(action, "stage" | "acquire") {
+                bail!("capability names a missing item: {item}");
+            }
+        } else if matches!(action, "share" | "trash" | "purge" | "admin") {
+            vault
+                .doc()
+                .get("items")
+                .and_then(|items| items.get(item))
+                .with_context(|| format!("capability names a missing item: {item}"))?;
+        }
+        let capability = json!({"action": action, "item": item, "field": field});
+        if capabilities.contains(&capability) {
+            bail!("duplicate capability: {encoded}");
+        }
+        capabilities.push(capability);
+    }
+    Ok(capabilities)
+}
+
+fn read_acquisition_catalog(path: &Path) -> Result<Vec<(String, String, String)>> {
+    if !path.is_absolute() {
+        bail!("acquisition catalog path must be absolute");
+    }
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.file_type().is_file() || metadata.uid() != effective_uid()? {
+        bail!("acquisition catalog must be an owner-controlled regular file");
+    }
+    let mut rows = Vec::new();
+    for line in fs::read_to_string(path)?.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let columns: Vec<&str> = line.split('|').collect();
+        if columns.len() != ["consumer", "item", "field"].len()
+            || !columns.iter().all(|value| exact_component(value))
+        {
+            bail!("invalid acquisition catalog row: {line}");
+        }
+        let row = (
+            columns[usize::MIN].to_string(),
+            columns[std::iter::once(()).count()].to_string(),
+            columns[std::iter::once(())
+                .count()
+                .saturating_add(std::iter::once(()).count())]
+            .to_string(),
+        );
+        if rows.iter().any(|existing| existing == &row) {
+            bail!("duplicate acquisition catalog row: {line}");
+        }
+        if rows.iter().any(|(consumer, _, _)| consumer == &row.0) {
+            bail!("each acquisition catalog consumer must name one exact field");
+        }
+        rows.push(row);
+    }
+    if rows.is_empty() {
+        bail!("acquisition catalog cannot be empty");
+    }
+    Ok(rows)
 }
 
 pub fn acquisition_workload_public_key(
@@ -111,14 +314,16 @@ pub fn acquisition_workload_public_key(
         .doc()
         .get("tokens")
         .and_then(|tokens| tokens.get(consumer))?;
+    if !active(entry) {
+        return None;
+    }
     let allowed = entry
-        .get("acquisition_scopes")
+        .get("capabilities")
         .and_then(Value::as_array)
-        .is_some_and(|scopes| {
-            scopes.iter().any(|scope| {
-                scope.get("item").and_then(Value::as_str) == Some(item)
-                    && scope.get("field").and_then(Value::as_str) == Some(field)
-            })
+        .is_some_and(|capabilities| {
+            capabilities
+                .iter()
+                .any(|capability| capability_matches(capability, "acquire", item, Some(field)))
         });
     if !allowed {
         return None;
@@ -129,150 +334,182 @@ pub fn acquisition_workload_public_key(
         .map(str::to_string)
 }
 
-fn exact_component(value: &str) -> bool {
-    !value.is_empty()
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-}
-
-fn acquisition_scopes(vault: &Vault, raw: Option<&String>) -> Result<Vec<Value>> {
-    let Some(encoded) = raw else {
-        return Ok(Vec::new());
-    };
-    if encoded.contains(',') {
-        anyhow::bail!("an acquisition bootstrap grant must name exactly one field");
-    }
-    let (item, field) = encoded
-        .split_once('#')
-        .context("acquisition scopes use one exact item#field entry")?;
-    if !exact_component(item) || !exact_component(field) {
-        anyhow::bail!("acquisition scopes prohibit wildcards, globs, and empty names");
-    }
-    let secret = vault.get_item(item)?;
-    if !secret
-        .as_object()
-        .is_some_and(|object| object.contains_key(field))
-    {
-        anyhow::bail!("acquisition scope names a missing item field");
-    }
-    Ok(vec![json!({"item": item, "field": field})])
-}
-/// Match one already-resolved scope set against an action on one item.
-///
-/// Action-aware scopes use `read:<glob>`, `write:<glob>`, or `delete:<glob>`.
-/// Legacy bare globs remain read-only so existing resolver grants do not gain
-/// mutation rights when the HTTP item API is enabled.
-fn scopes_allow(scopes: &[String], action: &str, id: &str) -> bool {
-    scopes.iter().any(|scope| {
-        if let Some((scope_action, pattern)) = scope.split_once(':') {
-            scope_action == action && glob_matches(pattern, id)
-        } else {
-            action == "read" && glob_matches(scope, id)
-        }
-    })
-}
-
-/// Check whether a consumer grant authorizes an action on one item.
-pub fn token_allows_action(
-    vault: &Vault,
-    consumer: &str,
-    presented: &str,
-    action: &str,
-    id: &str,
-) -> Result<bool> {
-    match scopes_for(vault, consumer, presented)? {
-        Some(scopes) => Ok(scopes_allow(&scopes, action, id)),
-        None => Ok(false),
-    }
-}
-
-/// [`token_allows_action`] with a precomputed bearer hash: the per-item loop
-/// form that costs no subprocess per item (see [`presented_hash`]).
-pub fn token_allows_action_hash(
-    vault: &Vault,
-    consumer: &str,
-    hash: &str,
-    action: &str,
-    id: &str,
-) -> bool {
-    match scopes_for_hash(vault, consumer, hash) {
-        Some(scopes) => scopes_allow(&scopes, action, id),
-        None => false,
-    }
-}
-
-/// Backward-compatible read authorization used by the runtime resolvers.
-pub fn token_allows(vault: &Vault, consumer: &str, presented: &str, id: &str) -> Result<bool> {
-    token_allows_action(vault, consumer, presented, "read", id)
-}
-
-/// Check whether a consumer grant authorizes a vault-wide action that names
-/// no item id: `sync:pull` authorizes serving the whole ciphertext document,
-/// and a bare `donate` (or `donate:<glob>`) authorizes an inbound p2p item
-/// write. These are checked only by the vault-level endpoints, so they can
-/// never widen an item read; a bare glob stays read-only for items.
-pub fn token_allows_vault_action(
-    vault: &Vault,
-    consumer: &str,
-    presented: &str,
-    action: &str,
-    capability: &str,
-) -> Result<bool> {
-    match scopes_for(vault, consumer, presented)? {
-        Some(scopes) => Ok(scopes.iter().any(|scope| match scope.split_once(':') {
-            Some((scope_action, pattern)) => {
-                scope_action == action && glob_matches(pattern, capability)
-            }
-            None => capability.is_empty() && scope == action,
-        })),
-        None => Ok(false),
-    }
-}
-
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "token-mint" => {
-            let consumer = positionals.first().context(
-                "usage: token-mint <consumer> [--scopes a,b | --acquisition-scopes item#field --workload-public-key-file PATH]",
+        "token-register-acquisitions" => {
+            let catalog = positionals.first().context(
+                "usage: token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH [--ttl-seconds N] [--replace-capabilities]",
             )?;
-            let scopes: Vec<String> = flags
-                .get("scopes")
-                .map(|value| value.split(',').map(str::to_string).collect())
-                .unwrap_or_default();
-            if !scopes.is_empty() && flags.contains_key("acquisition-scopes") {
-                anyhow::bail!("direct scopes and acquisition scopes cannot share one grant");
+            let allowed_flags = [
+                "workload-public-key-file",
+                "ttl-seconds",
+                "replace-capabilities",
+            ];
+            if flags
+                .keys()
+                .any(|flag| !allowed_flags.contains(&flag.as_str()))
+            {
+                bail!("unsupported token-register-acquisitions flag");
             }
-            if flags.contains_key("acquisition-scopes") && !exact_component(consumer) {
-                anyhow::bail!("acquisition consumer must be one exact name");
+            let public_key_path = flags
+                .get("workload-public-key-file")
+                .context("--workload-public-key-file is required")?;
+            let workload_public_key = read_workload_public_key(Path::new(public_key_path))?;
+            let ttl_seconds: u64 = flags
+                .get("ttl-seconds")
+                .map(String::as_str)
+                .unwrap_or("2592000")
+                .parse()
+                .context("--ttl-seconds must be an integer")?;
+            if ttl_seconds == u64::MIN {
+                bail!("--ttl-seconds must be positive");
             }
+            let expires_at = now_epoch()?
+                .checked_add(ttl_seconds)
+                .context("grant expiry overflow")?;
+            let replace = flags
+                .get("replace-capabilities")
+                .is_some_and(|value| value == "true");
+            let rows = read_acquisition_catalog(Path::new(catalog))?;
             let mut vault = load()?;
-            let acquisition_scopes = acquisition_scopes(&vault, flags.get("acquisition-scopes"))?;
-            let workload_public_key = match flags.get("workload-public-key-file") {
-                Some(path) => Some(read_workload_public_key(Path::new(path))?),
-                None => None,
-            };
-            if !acquisition_scopes.is_empty() && workload_public_key.is_none() {
-                anyhow::bail!(
-                    "acquisition grants require --workload-public-key-file with an owner-controlled PEM public key"
+            let mut registrations = Vec::new();
+            for (consumer, item, field) in &rows {
+                let capabilities = parse_capabilities(&vault, &format!("acquire:{item}#{field}"))?;
+                if let Some(existing) = vault
+                    .doc()
+                    .get("tokens")
+                    .and_then(Value::as_object)
+                    .and_then(|tokens| tokens.get(consumer))
+                {
+                    let same_capabilities = existing.get("capabilities").and_then(Value::as_array)
+                        == Some(&capabilities);
+                    let same_key = existing.get("workload_public_key").and_then(Value::as_str)
+                        == Some(workload_public_key.as_str());
+                    if (!same_capabilities || !same_key) && !replace {
+                        bail!(
+                            "{consumer} differs from the acquisition catalog; pass --replace-capabilities"
+                        );
+                    }
+                }
+                registrations.push((consumer.clone(), capabilities));
+            }
+            let tokens = vault
+                .doc_mut()
+                .get_mut("tokens")
+                .and_then(Value::as_object_mut)
+                .context("tokens section")?;
+            for (consumer, capabilities) in &registrations {
+                tokens.insert(
+                    consumer.clone(),
+                    json!({
+                        "hash": Value::Null,
+                        "capabilities": capabilities,
+                        "workload_public_key": workload_public_key,
+                        "audience": consumer,
+                        "expires_at": expires_at,
+                    }),
                 );
             }
-            if acquisition_scopes.is_empty() && workload_public_key.is_some() {
-                anyhow::bail!("workload public keys are valid only for acquisition grants");
+            vault.save()?;
+            crate::runtime::audit::append(
+                "token-register-acquisitions",
+                &json!({
+                    "consumers": registrations.iter().map(|(consumer, _)| consumer).collect::<Vec<_>>(),
+                    "expires_at": expires_at,
+                }),
+            )?;
+            Ok(Some(json!({
+                "ok": true,
+                "registered": registrations.len(),
+                "expires_at": expires_at,
+            })))
+        }
+        "token-mint" => {
+            let consumer = positionals
+                .first()
+                .context("usage: token-mint <consumer> --capabilities action:item[#field]")?;
+            if !exact_component(consumer) {
+                bail!("consumer must be one exact name");
             }
-            let minted = if acquisition_scopes.is_empty() {
-                Some(crypto::random_token()?)
-            } else {
+            let mut vault = load()?;
+            let capabilities = parse_capabilities(
+                &vault,
+                flags
+                    .get("capabilities")
+                    .context("--capabilities is required")?,
+            )?;
+            if let Some(existing) = vault
+                .doc()
+                .get("tokens")
+                .and_then(Value::as_object)
+                .and_then(|tokens| tokens.get(consumer))
+            {
+                let existing_capabilities = existing
+                    .get("capabilities")
+                    .and_then(Value::as_array)
+                    .context("existing grant is not v2; run migrate-v2 first")?;
+                let same_capabilities = existing_capabilities.len() == capabilities.len()
+                    && existing_capabilities
+                        .iter()
+                        .all(|capability| capabilities.contains(capability));
+                let replace_capabilities = flags
+                    .get("replace-capabilities")
+                    .is_some_and(|value| value == "true");
+                if !same_capabilities && !replace_capabilities {
+                    bail!(
+                        "token-mint refuses to change existing capabilities without --replace-capabilities"
+                    );
+                }
+            }
+            let has_acquire = capabilities.iter().any(|capability| {
+                capability.get("action").and_then(Value::as_str) == Some("acquire")
+            });
+            if has_acquire
+                && capabilities.iter().any(|capability| {
+                    capability.get("action").and_then(Value::as_str) != Some("acquire")
+                })
+            {
+                bail!("acquire capabilities cannot share a grant with direct capabilities");
+            }
+            let workload_public_key = match flags.get("workload-public-key-file") {
+                Some(path) => Some(read_workload_public_key(Path::new(path))?),
+                None if has_acquire => {
+                    bail!("acquire capabilities require --workload-public-key-file")
+                }
+                None => None,
+            };
+            if !has_acquire && workload_public_key.is_some() {
+                bail!("workload public keys are valid only for acquire capabilities");
+            }
+            let ttl_seconds: u64 = flags
+                .get("ttl-seconds")
+                .map(String::as_str)
+                .unwrap_or("2592000")
+                .parse()
+                .context("--ttl-seconds must be an integer")?;
+            if ttl_seconds == u64::MIN {
+                bail!("--ttl-seconds must be positive");
+            }
+            let expires_at = now_epoch()?
+                .checked_add(ttl_seconds)
+                .context("grant expiry overflow")?;
+            let minted = if has_acquire {
                 None
+            } else {
+                Some(crypto::random_token()?)
             };
             let hash = match minted.as_deref() {
                 Some(token) => json!(crypto::sha256_hex(token)?),
                 None => Value::Null,
             };
+            let audience = flags
+                .get("audience")
+                .map(String::as_str)
+                .unwrap_or(consumer);
             vault
                 .doc_mut()
                 .get_mut("tokens")
@@ -282,9 +519,10 @@ pub fn dispatch(
                     consumer.clone(),
                     json!({
                         "hash": hash,
-                        "scopes": scopes,
-                        "acquisition_scopes": acquisition_scopes,
+                        "capabilities": capabilities,
                         "workload_public_key": workload_public_key,
+                        "audience": audience,
+                        "expires_at": expires_at,
                     }),
                 );
             vault.save()?;
@@ -292,17 +530,19 @@ pub fn dispatch(
                 "token-mint",
                 &json!({
                     "consumer": consumer,
-                    "scopes": scopes,
-                    "acquisition_scopes": acquisition_scopes,
+                    "capabilities": capabilities,
                     "workload_bound": workload_public_key.is_some(),
+                    "audience": audience,
+                    "expires_at": expires_at,
                 }),
             )?;
             Ok(Some(json!({
                 "ok": true,
                 "consumer": consumer,
-                "scopes": scopes,
-                "acquisition_scopes": acquisition_scopes,
+                "capabilities": capabilities,
                 "workload_bound": workload_public_key.is_some(),
+                "audience": audience,
+                "expires_at": expires_at,
                 "token": minted,
             })))
         }
@@ -322,19 +562,27 @@ pub fn dispatch(
             Ok(Some(json!({"ok": true, "consumer": consumer})))
         }
         "token-verify" => {
-            let mut args = positionals.iter();
-            let consumer = args
-                .next()
-                .context("usage: token-verify <consumer> <item-id> --token T")?;
-            let id = args
-                .next()
-                .context("usage: token-verify <consumer> <item-id> --token T")?;
+            let consumer = positionals.first().context(
+                "usage: token-verify <consumer> <item-id> --action read [--field field] --token T",
+            )?;
+            let item = positionals.get(std::iter::once(()).count()).context(
+                "usage: token-verify <consumer> <item-id> --action read [--field field] --token T",
+            )?;
+            let action = flags.get("action").map(String::as_str).unwrap_or("read");
             let presented = flags.get("token").context("--token required")?;
-            let vault = load()?;
-            let allowed = token_allows(&vault, consumer, presented, id)?;
-            Ok(Some(
-                json!({"consumer": consumer, "item": id, "allowed": allowed}),
-            ))
+            let allowed = match flags.get("field") {
+                Some(field) => {
+                    token_allows_field_action(&load()?, consumer, presented, action, item, field)?
+                }
+                None => token_allows_action(&load()?, consumer, presented, action, item)?,
+            };
+            Ok(Some(json!({
+                "consumer": consumer,
+                "action": action,
+                "item": item,
+                "field": flags.get("field"),
+                "allowed": allowed,
+            })))
         }
         "tokens" => {
             let vault = load()?;
@@ -348,12 +596,13 @@ pub fn dispatch(
                         .map(|(consumer, entry)| {
                             json!({
                                 "consumer": consumer,
-                                "scopes": entry.get("scopes"),
-                                "acquisition_scopes": entry.get("acquisition_scopes"),
+                                "capabilities": entry.get("capabilities"),
                                 "workload_bound": entry
                                     .get("workload_public_key")
                                     .and_then(Value::as_str)
                                     .is_some(),
+                                "audience": entry.get("audience"),
+                                "expires_at": entry.get("expires_at"),
                             })
                         })
                         .collect()

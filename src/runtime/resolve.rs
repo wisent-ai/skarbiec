@@ -1,5 +1,5 @@
 // Runtime credential resolution + reference expansion (like `op run` / `bws run`).
-//   resolve: gate by consumer scope, decrypt one item, optionally write a
+//   resolve: gate by consumer capability, decrypt one item, optionally write a
 //     mode-0600 shell file of ADMIN_* variables (names returned; values only in file).
 //   expand: replace `NAME=skarbiec://<id>/<field>` lines with decrypted values.
 
@@ -11,18 +11,19 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use crate::access::tokens;
-use crate::core::{vault::Vault, vault_path};
+use crate::core::{schema, vault::Vault, vault_path};
 use crate::net::http;
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-// (stored-field, exported-name) pairs, kept away from any output verb.
+// (logical field, exported name). Storage has no legacy aliases.
 fn name_table() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("login_email", "ADMIN_EMAIL"),
-        ("login_password", "ADMIN_PASSWORD"),
+        ("username", "ADMIN_EMAIL"),
+        ("password", "ADMIN_PASSWORD"),
+        ("totp_secret", "ADMIN_TOTP"),
     ]
 }
 
@@ -34,24 +35,17 @@ fn chmod_600(path: &PathBuf) {
     Command::new("chmod").arg("600").arg(path).status().ok();
 }
 
-// Canonical exported mapping from a decrypted item: login pair plus a one-time
-// code seed if present in metadata.
-fn mapping_for(row: &Value) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for (field, name) in name_table() {
-        if let Some(value) = row.get(field).and_then(Value::as_str) {
-            out.push((name.to_string(), value.to_string()));
-        }
-    }
-    let meta = row.get("metadata");
-    let seed = meta
-        .and_then(|m| m.get("totp_secret"))
-        .or_else(|| meta.and_then(|m| m.get("google_totp_secret")))
-        .and_then(Value::as_str);
-    if let Some(code_seed) = seed {
-        out.push(("ADMIN_TOTP".to_string(), code_seed.to_string()));
-    }
-    out
+// Canonical exported mapping from one validated login payload.
+fn mapping_for(payload: &Value) -> Vec<(String, String)> {
+    name_table()
+        .into_iter()
+        .filter_map(|(field, name)| {
+            schema::field(payload, field)
+                .ok()
+                .and_then(Value::as_str)
+                .map(|value| (name.to_string(), value.to_string()))
+        })
+        .collect()
 }
 
 fn normalize_id(vault: &Vault, target: &str) -> String {
@@ -68,17 +62,8 @@ fn normalize_id(vault: &Vault, target: &str) -> String {
     }
 }
 
-fn login_mapping(row: &Value) -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for (field, name) in [
-        ("login_email", "ADMIN_EMAIL"),
-        ("login_password", "ADMIN_PASSWORD"),
-    ] {
-        if let Some(value) = row.get(field).and_then(Value::as_str) {
-            out.push((name.to_string(), value.to_string()));
-        }
-    }
-    out
+fn login_mapping(payload: &Value) -> Vec<(String, String)> {
+    mapping_for(payload)
 }
 
 // HTTP `POST /resolve` handler, routed by net::http's listener. It lives here
@@ -102,16 +87,30 @@ pub fn handle_http_resolve(
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = load()?;
     let id = normalize_id(&vault, platform);
-    if consumer.is_empty() || !http::permitted(&vault, &consumer, &bearer, &id)? {
+    let payload = vault.get_item(&id)?;
+    let mapping: HashMap<String, String> = login_mapping(&payload)
+        .into_iter()
+        .filter(|(name, _)| {
+            let field = name_table()
+                .into_iter()
+                .find_map(|(field, exported)| (exported == name).then_some(field));
+            field.is_some_and(|field| {
+                tokens::token_allows_field_action(&vault, &consumer, &bearer, "read", &id, field)
+                    .unwrap_or(false)
+            })
+        })
+        .collect();
+    if consumer.is_empty() || mapping.is_empty() {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
-            &json!({"error": "consumer not authorized for item"}),
+            &json!({"error": "consumer has no authorized login fields"}),
         );
     }
-    let row = vault.get_item(&id)?;
-    let mapping: HashMap<String, String> = login_mapping(&row).into_iter().collect();
-    crate::runtime::audit::append("http-resolve", &json!({"item": id, "consumer": consumer}))?;
+    crate::runtime::audit::append(
+        "http-resolve",
+        &json!({"item": id, "consumer": consumer, "names": mapping.keys().collect::<Vec<_>>()}),
+    )?;
     http::write_response(stream, "HTTP/1.1 200 OK", &json!(mapping))
 }
 
@@ -128,16 +127,13 @@ pub fn dispatch(
             let vault = load()?;
             let id = normalize_id(&vault, target);
             let consumer = flags.get("consumer");
-            if let Some(name) = consumer {
-                let presented = flags
-                    .get("token")
-                    .context("--token required with --consumer")?;
-                if !tokens::token_allows(&vault, name, presented, &id)? {
-                    return Ok(Some(
-                        json!({"status": "blocked", "platform": id, "consumer": name, "reason": "token_denies_consumer"}),
-                    ));
-                }
-            }
+            let presented = consumer
+                .map(|_| {
+                    flags
+                        .get("token")
+                        .context("--token required with --consumer")
+                })
+                .transpose()?;
             let known = vault
                 .doc()
                 .get("items")
@@ -149,8 +145,37 @@ pub fn dispatch(
                     json!({"status": "blocked", "platform": id, "reason": "no_stored_credential"}),
                 ));
             }
-            let row = vault.get_item(&id)?;
-            let mapping = mapping_for(&row);
+            let payload = vault.get_item(&id)?;
+            let mapping: Vec<(String, String)> = mapping_for(&payload)
+                .into_iter()
+                .filter(|(name, _)| {
+                    let Some(consumer) = consumer else {
+                        return true;
+                    };
+                    let field = name_table()
+                        .into_iter()
+                        .find_map(|(field, exported)| (exported == name).then_some(field));
+                    field.is_some_and(|field| {
+                        tokens::token_allows_field_action(
+                            &vault,
+                            consumer,
+                            presented.expect("presented token required"),
+                            "read",
+                            &id,
+                            field,
+                        )
+                        .unwrap_or(false)
+                    })
+                })
+                .collect();
+            if consumer.is_some() && mapping.is_empty() {
+                return Ok(Some(json!({
+                    "status": "blocked",
+                    "platform": id,
+                    "consumer": consumer,
+                    "reason": "token_denies_all_fields",
+                })));
+            }
             let names: Vec<String> = mapping.iter().map(|(name, _)| name.clone()).collect();
             if flags.get("emit").map(|v| v == "true").unwrap_or(false) {
                 let dir = PathBuf::from(
@@ -176,9 +201,15 @@ pub fn dispatch(
                     json!({"status": "ready", "platform": id, "out_file": out_file.display().to_string(), "names": names}),
                 ));
             }
-            Ok(Some(
-                json!({"status": "ready", "platform": id, "names": names, "login_method": row.get("login_method")}),
-            ))
+            let context = schema::field(&payload, "context")
+                .ok()
+                .and_then(Value::as_object);
+            Ok(Some(json!({
+                "status": "ready",
+                "platform": id,
+                "names": names,
+                "login_method": context.and_then(|value| value.get("provider")),
+            })))
         }
         "expand" => {
             let template = positionals
@@ -195,11 +226,11 @@ pub fn dispatch(
                         let (id, field) = reference
                             .rsplit_once('/')
                             .context("reference must be skarbiec://<id>/<field>")?;
-                        let row = vault.get_item(id)?;
-                        let value = row
-                            .get(field)
-                            .and_then(Value::as_str)
-                            .with_context(|| format!("{id} has no field {field}"))?;
+                        let payload = vault.get_item(id)?;
+                        let value = schema::field(&payload, field)
+                            .with_context(|| format!("{id} has no canonical field {field}"))?
+                            .as_str()
+                            .with_context(|| format!("{id}#{field} is not text"))?;
                         result.push_str(&format!("{name}={}\n", shell_quote(value)));
                     }
                     None => {

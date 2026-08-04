@@ -93,15 +93,15 @@ lost update.
 **Fix:** one exclusive lock around read-modify-write, reusing the audit
 journal's existing lock discipline rather than inventing a second one.
 
-### `token-mint` overwrites the whole grant entry
+### Legacy `token-mint` overwrote the whole grant entry
 
-Minting replaces the consumer's entry outright, so re-minting a token drops any
-`acquisition_scopes` and any scope not restated on that command line. Rotation
-therefore silently narrows authority, and the failure appears later, in a
-different process, as an authorization error.
+Before v2, minting replaced the consumer's entry outright, so re-minting a
+token could drop `acquisition_scopes` or any scope not restated on the command
+line. Rotation therefore silently narrowed authority, and the failure appeared
+later, in a different process, as an authorization error.
 
-**Fix:** mint must either preserve the existing scope sets or refuse when they
-would change without an explicit flag.
+**Resolved in v2:** each grant contains one exact structured `capabilities`
+array, and changing an existing set requires `--replace-capabilities`.
 
 ### Permissions are applied after the fact and unchecked
 

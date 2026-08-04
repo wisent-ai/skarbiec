@@ -312,7 +312,7 @@ pub(crate) fn handle_items_list(
         .into_iter()
         .filter(|item| {
             item.get("id").and_then(Value::as_str).is_some_and(|id| {
-                tokens::token_allows_action_hash(&vault, &consumer, &hash, "read", id)
+                tokens::token_allows_any_item_hash(&vault, &consumer, &hash, "read", id)
             })
         })
         .collect();

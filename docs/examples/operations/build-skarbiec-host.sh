@@ -1,5 +1,5 @@
 #!/bin/sh
-# build-skarbiec-host.sh — compatibility host with direct grants and serve.
+# build-skarbiec-host.sh — host with one exact direct capability and serve.
 # Usage: sh build-skarbiec-host.sh <vault-path> <port>
 set -eu
 
@@ -8,8 +8,8 @@ PORT=$2
 SB=${SKARBIEC_BIN:-skarbiec}
 
 "$SB" init 'skarbiec-host <host@example.com>'
-"$SB" token-mint replica-sync --scopes 'sync:pull'
-"$SB" token-mint local-operator --scopes 'read:*,write:*'
+"$SB" set health-note --type note value=ready
+"$SB" token-mint local-operator --capabilities 'read:health-note'
 "$SB" serve --port "$PORT" &
 until curl -sf "http://localhost:$PORT/health" > /dev/null; do :; done
 echo "host up on port $PORT"

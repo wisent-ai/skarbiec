@@ -1,10 +1,7 @@
-// Browser native messaging host (`skarbiec native-host`). Speaks the
-// length-prefixed JSON protocol browsers expect on stdio: a u32 little-endian
-// byte count, then one JSON document. The host is a scoped CLIENT of the
-// loopback HTTP API, not a vault reader: it authenticates as the
-// `skarbiec-browser-host` consumer, whose grant covers only `read:login-*`,
-// so a compromised extension can reach login items and nothing else, and the
-// vault key material never enters the browser's process tree.
+// Browser native messaging host (`skarbiec native-host`). The host is a
+// field-scoped client of the loopback API: installation mints exact
+// `read:item#field` capabilities for the canonical login items that exist at
+// that point, so the extension never receives a whole vault item.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -85,49 +82,70 @@ fn item_domains(item: &Value) -> Vec<String> {
     out
 }
 
-/// Login summary for the popup: ids, display name, and username only — the
-/// password stays server-side until an explicit fill request.
+/// Login summary for the popup: ids, display name, and username only. Password
+/// and TOTP remain server-side until an explicit fill request.
 fn list_logins(host: &str) -> Result<Value> {
     let items = api_post("/v1/items/list", &json!({}))?;
     let rows = items.as_array().cloned().unwrap_or_default();
     let mut logins = Vec::new();
     for row in rows {
+        if row.get("kind").and_then(Value::as_str) != Some("login") {
+            continue;
+        }
         let Some(id) = row.get("id").and_then(Value::as_str) else {
             continue;
         };
-        let detail = api_post("/v1/items/read", &json!({"id": id}))?;
-        let Some(value) = detail.get("value") else {
-            continue;
-        };
-        if !item_domains(value)
+        let context = api_post("/v1/items/read", &json!({"id": id, "field": "context"}))?
+            .get("value")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        if !item_domains(&context)
             .iter()
             .any(|domain| domain_matches(domain, host))
         {
             continue;
         }
+        let username = api_post("/v1/items/read", &json!({"id": id, "field": "username"}))?
+            .get("value")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         logins.push(json!({
             "id": id,
-            "name": value.get("name").and_then(Value::as_str).unwrap_or(id),
-            "username": value.get("username").and_then(Value::as_str).unwrap_or_default(),
-            "domains": item_domains(value),
+            "name": context.get("name").and_then(Value::as_str).unwrap_or(id),
+            "username": username,
+            "domains": item_domains(&context),
         }));
     }
     Ok(json!({"ok": true, "logins": logins}))
 }
 
 /// Full credential material for one explicit fill. TOTP is computed here so
-/// the secret itself never crosses the protocol.
+/// the secret itself never crosses the native-messaging protocol.
 fn fill_login(id: &str) -> Result<Value> {
-    let detail = api_post("/v1/items/read", &json!({"id": id}))?;
-    let value = detail.get("value").cloned().unwrap_or(Value::Null);
-    let totp = value
-        .get("totp_secret")
+    let username = api_post("/v1/items/read", &json!({"id": id, "field": "username"}))?
+        .get("value")
         .and_then(Value::as_str)
-        .and_then(crypto::totp_code);
+        .unwrap_or_default()
+        .to_string();
+    let password = api_post("/v1/items/read", &json!({"id": id, "field": "password"}))?
+        .get("value")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let totp = api_post("/v1/items/read", &json!({"id": id, "field": "totp_secret"}))
+        .ok()
+        .and_then(|response| {
+            response
+                .get("value")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .and_then(|seed| crypto::totp_code(&seed));
     Ok(json!({
         "ok": true,
-        "username": value.get("username").and_then(Value::as_str).unwrap_or_default(),
-        "password": value.get("password").and_then(Value::as_str).unwrap_or_default(),
+        "username": username,
+        "password": password,
         "totp": totp,
     }))
 }

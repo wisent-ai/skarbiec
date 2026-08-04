@@ -8,17 +8,17 @@ use std::collections::HashMap;
 
 use crate::core::{crypto, vault::Vault, vault_path};
 
-// Item type + tags as stored, so a re-encrypt preserves them.
+// Canonical item kind + tags as stored, so re-encryption preserves them.
 fn item_meta(vault: &Vault, id: &str) -> Result<(String, Vec<String>)> {
     let item = vault
         .doc()
         .get("items")
-        .and_then(|m| m.get(id))
+        .and_then(|items| items.get(id))
         .with_context(|| format!("no item: {id}"))?;
-    let item_type = item
-        .get("type")
+    let item_kind = item
+        .get("kind")
         .and_then(Value::as_str)
-        .unwrap_or("login")
+        .context("canonical item has no kind")?
         .to_string();
     let tags = item
         .get("tags")
@@ -30,7 +30,7 @@ fn item_meta(vault: &Vault, id: &str) -> Result<(String, Vec<String>)> {
                 .collect()
         })
         .unwrap_or_default();
-    Ok((item_type, tags))
+    Ok((item_kind, tags))
 }
 
 pub fn dispatch(
@@ -116,13 +116,13 @@ pub fn dispatch(
                     json!({"status": "blocked", "reason": "unknown_recipient", "uid": uid}),
                 ));
             }
-            let (item_type, tags) = item_meta(&vault, id)?;
-            let secret = vault.get_item(id)?;
+            let (item_kind, tags) = item_meta(&vault, id)?;
+            let payload = vault.get_item(id)?;
             let mut recipients = vault.item_recipient_uids(id);
             if !recipients.iter().any(|r| r == uid) {
                 recipients.push(uid.clone());
             }
-            vault.set_item(id, &item_type, &secret, &recipients, &tags)?;
+            vault.set_item(id, &item_kind, &payload, &recipients, &tags)?;
             crate::runtime::audit::append("share", &json!({"item": id, "uid": uid}))?;
             Ok(Some(
                 json!({"ok": true, "item": id, "recipients": recipients}),
@@ -133,14 +133,14 @@ pub fn dispatch(
             let id = args.next().context("usage: revoke <item-id> <uid>")?;
             let uid = args.next().context("usage: revoke <item-id> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
-            let (item_type, tags) = item_meta(&vault, id)?;
-            let secret = vault.get_item(id)?;
+            let (item_kind, tags) = item_meta(&vault, id)?;
+            let payload = vault.get_item(id)?;
             let recipients: Vec<String> = vault
                 .item_recipient_uids(id)
                 .into_iter()
                 .filter(|r| r != uid)
                 .collect();
-            vault.set_item(id, &item_type, &secret, &recipients, &tags)?;
+            vault.set_item(id, &item_kind, &payload, &recipients, &tags)?;
             crate::runtime::audit::append("revoke", &json!({"item": id, "uid": uid}))?;
             Ok(Some(
                 json!({"ok": true, "item": id, "recipients": recipients}),
@@ -178,14 +178,14 @@ pub fn dispatch(
             let consumer = flags.get("consumer").context("--consumer required")?;
             let token = flags.get("token").context("--token required")?;
             let vault = Vault::open(vault_path())?;
-            let fields = vault.get_item(item_id)?;
-            let item_type = vault
+            let payload = vault.get_item(item_id)?;
+            let item_kind = vault
                 .doc()
                 .get("items")
                 .and_then(|items| items.get(item_id))
-                .and_then(|item| item.get("type"))
+                .and_then(|item| item.get("kind"))
                 .and_then(Value::as_str)
-                .unwrap_or("secret")
+                .context("canonical item has no kind")?
                 .to_string();
             let (_status, owner) = crate::net::bond::serve_request(
                 to,
@@ -204,8 +204,10 @@ pub fn dispatch(
                 .and_then(Value::as_str)
                 .context("remote owner key has no fingerprint")?;
             crypto::import_key(armored).context("import remote owner public key")?;
-            let armor =
-                crypto::encrypt_to(&[fingerprint.to_string()], &serde_json::to_string(&fields)?)?;
+            let armor = crypto::encrypt_to(
+                &[fingerprint.to_string()],
+                &serde_json::to_string(&payload)?,
+            )?;
             let from = flags.get("from").unwrap_or(consumer);
             let (_status, response) = crate::net::bond::serve_request(
                 to,
@@ -217,7 +219,7 @@ pub fn dispatch(
                     "consumer": consumer,
                     "from": from,
                     "item_id": item_id,
-                    "type": item_type,
+                    "kind": item_kind,
                     "armor": armor,
                 })),
             )?;

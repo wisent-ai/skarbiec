@@ -1,5 +1,5 @@
 // Access + sharing layer: cryptographic per-recipient sharing, consumer service
-// tokens with scopes, recovery / emergency access, and admin policy. Each
+// identities with structured capabilities, recovery / emergency access, and admin policy. Each
 // submodule matches its own commands and returns None for anything else, so
 // this router simply forwards to them in turn; a real error propagates via `?`.
 

@@ -1,4 +1,4 @@
-// One-time-code helper. For an item that stores a base32 seed in its metadata,
+// One-time-code helper. For a canonical login item that stores a base32 seed,
 // emit the CURRENT time-based code (via the standard oath toolkit) — like a
 // password manager's built-in authenticator. The seed value itself is never
 // emitted; only the short-lived code.
@@ -7,16 +7,15 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::core::{crypto, vault::Vault, vault_path};
+use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-fn seed_of(row: &Value) -> Option<String> {
-    let meta = row.get("metadata")?;
-    meta.get("totp_secret")
-        .or_else(|| meta.get("google_totp_secret"))
+fn seed_of(payload: &Value) -> Option<String> {
+    schema::field(payload, "totp_secret")
+        .ok()
         .and_then(Value::as_str)
         .map(str::to_string)
 }

@@ -1,21 +1,20 @@
-// Typed items and secret generation for the skarbiec vault.
+// Canonical item construction and secret generation for the Skarbiec vault.
 //
-// Item shapes (login/card/identity/note/ssh) are plain JSON objects the caller
-// builds from key=value fields plus a type tag; the vault stores the whole
-// object encrypted. Generation uses OS entropy only:
-//   password   : bytes from /dev/urandom mapped onto a character set
-//   passphrase : words shuffled by `sort -R` (secure shuffle), then joined
+// Every newly written item uses `skarbiec.item.v2`: one validated kind, a
+// logical fields object, and encrypted context. Generation uses OS entropy.
 // No numeric literals: lengths/counts arrive as usize from argv, character
 // classes are string literals (digits inside them are stripped by the scanner).
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::core::vault::Vault;
-use crate::core::vault_path;
+use crate::core::{migrate, schema, vault::Vault, vault_path};
 
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -31,18 +30,17 @@ lantern larch maple marble meadow meteor mica onyx opal orchard osprey pebble pi
 quartz quill raven reed ridge river saffron sage slate sparrow spruce summit talon \
 thicket tundra umber valley violet walnut willow yarrow zephyr";
 
-// Build the item secret object from `key=value` fields plus a type tag. The
-// type is metadata; the whole object is what gets encrypted and stored.
-pub fn build_item(item_type: &str, fields: &[String]) -> Result<Value> {
+// Build a canonical payload from `key=value` logical fields. Context-rich and
+// profile-based bundle items use `set-json` instead.
+pub fn build_item(item_kind: &str, fields: &[String]) -> Result<Value> {
     let mut map = Map::new();
-    map.insert("type".to_string(), Value::String(item_type.to_string()));
     for field in fields {
         let (key, value) = field
             .split_once('=')
             .with_context(|| format!("field must be key=value: {field}"))?;
         map.insert(key.to_string(), Value::String(value.to_string()));
     }
-    Ok(Value::Object(map))
+    schema::payload(item_kind, map, Map::new())
 }
 
 // Character set from the requested classes. When no class is requested the
@@ -139,10 +137,8 @@ pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
     Ok(picked.join(separator))
 }
 
-// Lossless migration: store each row of a JSON array verbatim (nested metadata,
-// TOTP seeds, tags preserved) under its own id. Recipients default to owner +
-// recovery unless the row already carries a `recipients` array. Moved out of
-// main.rs so the binary entry point stays under the per-file line budget.
+// Import canonical rows shaped as `{id, payload, recipients?, tags?}`. Legacy
+// arrays must first pass through the explicit `migrate-v2` command.
 pub fn import_json(positionals: &[String]) -> Result<Value> {
     let path = positionals.first().context("usage: import <file.json>")?;
     let rows: Value = serde_json::from_str(
@@ -150,24 +146,35 @@ pub fn import_json(positionals: &[String]) -> Result<Value> {
     )?;
     let rows = rows
         .as_array()
-        .context("import file must be a JSON array of rows")?;
+        .context("import file must be a JSON array of canonical rows")?;
     let mut vault = Vault::open(vault_path())?;
     let mut imported = Vec::new();
     let mut skipped = Vec::new();
     for row in rows {
         match row.get("id").and_then(Value::as_str) {
             Some(id) => {
-                let item_type = row
-                    .get("type")
-                    .or_else(|| row.get("category"))
+                if id.starts_with("operation:credential/") {
+                    bail!("{id} is managed by the credential lifecycle and cannot be imported");
+                }
+                if crate::core::inbox::managed_by_weles(&vault, id) {
+                    bail!(
+                        "{id} is managed by Weles; import cannot overwrite an externally managed credential"
+                    );
+                }
+                let payload = row
+                    .get("payload")
+                    .context("canonical import row requires payload")?;
+                let item_kind = payload
+                    .get("kind")
                     .and_then(Value::as_str)
-                    .unwrap_or("login")
-                    .to_string();
+                    .context("canonical import payload requires kind")?;
+                crate::core::schema::validate_payload(payload, item_kind)?;
                 let recipients: Vec<String> = row
                     .get("recipients")
                     .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
+                    .map(|values| {
+                        values
+                            .iter()
                             .filter_map(Value::as_str)
                             .map(str::to_string)
                             .collect()
@@ -176,14 +183,18 @@ pub fn import_json(positionals: &[String]) -> Result<Value> {
                 let tags: Vec<String> = row
                     .get("tags")
                     .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
+                    .map(|values| {
+                        values
+                            .iter()
                             .filter_map(Value::as_str)
                             .map(str::to_string)
                             .collect()
                     })
                     .unwrap_or_default();
-                vault.set_item(id, &item_type, row, &recipients, &tags)?;
+                if tags.iter().any(|tag| tag == "managed:weles") {
+                    bail!("{id} uses the reserved managed:weles tag");
+                }
+                vault.set_item(id, item_kind, payload, &recipients, &tags)?;
                 imported.push(id.to_string());
             }
             None => skipped.push(
@@ -195,6 +206,42 @@ pub fn import_json(positionals: &[String]) -> Result<Value> {
         }
     }
     Ok(json!({"ok": true, "imported": imported.len(), "skipped": skipped.len()}))
+}
+
+pub fn migrate_v2(flags: &std::collections::HashMap<String, String>) -> Result<Value> {
+    let source = vault_path();
+    let snapshot = flags.get("snapshot").map_or_else(
+        || -> Result<PathBuf> {
+            let epoch = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+            Ok(PathBuf::from(format!(
+                "{}.pre-v2.{epoch}",
+                source.display()
+            )))
+        },
+        |path| Ok(PathBuf::from(path)),
+    )?;
+    if snapshot.exists() {
+        bail!("migration snapshot already exists: {}", snapshot.display());
+    }
+    let mut input = File::open(&source)
+        .with_context(|| format!("open vault snapshot source {}", source.display()))?;
+    let mut output = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(u32::from_str_radix("600", "8".parse()?)?)
+        .open(&snapshot)
+        .with_context(|| format!("create migration snapshot {}", snapshot.display()))?;
+    std::io::copy(&mut input, &mut output)?;
+    output.sync_all()?;
+    let mut vault = Vault::open(source)?;
+    let report = migrate::migrate(&mut vault)?;
+    Ok(json!({
+        "ok": true,
+        "snapshot": snapshot.display().to_string(),
+        "items": report.items,
+        "revisions": report.revisions,
+        "grants": report.grants,
+    }))
 }
 
 /// Composite one-shot status: the operator picture in a single JSON,

@@ -316,8 +316,8 @@ pub fn dispatch(
                 .and_then(Value::as_object)
                 .map(|m| {
                     m.iter()
-                        .filter(|(_, it)| {
-                            !it.get("deleted").and_then(Value::as_bool).unwrap_or(false)
+                        .filter(|(_, item)| {
+                            item.get("state").and_then(Value::as_str) == Some("active")
                         })
                         .map(|(id, _)| id.clone())
                         .collect()
@@ -331,10 +331,10 @@ pub fn dispatch(
                     .and_then(|m| m.get(id))
                     .cloned()
                     .unwrap_or_else(|| json!({}));
-                let item_type = item
-                    .get("type")
+                let item_kind = item
+                    .get("kind")
                     .and_then(Value::as_str)
-                    .unwrap_or("login")
+                    .context("canonical item has no kind")?
                     .to_string();
                 let tags: Vec<String> = item
                     .get("tags")
@@ -346,12 +346,12 @@ pub fn dispatch(
                             .collect()
                     })
                     .unwrap_or_default();
-                let secret = vault.get_item(id)?;
+                let payload = vault.get_item(id)?;
                 let mut recipients = vault.item_recipient_uids(id);
-                if !recipients.iter().any(|r| r == grantee) {
+                if !recipients.iter().any(|recipient| recipient == grantee) {
                     recipients.push(grantee.clone());
                 }
-                vault.set_item(id, &item_type, &secret, &recipients, &tags)?;
+                vault.set_item(id, &item_kind, &payload, &recipients, &tags)?;
                 shared.push(id.clone());
             }
             ensure_section(vault.doc_mut(), "emergency")

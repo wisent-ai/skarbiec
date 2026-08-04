@@ -155,14 +155,14 @@ pub(crate) fn handle_enroll(
             skipped.push(id.clone());
             continue;
         }
-        let row = vault.get_item(id)?;
-        let item_type = vault
+        let payload = vault.get_item(id)?;
+        let item_kind = vault
             .doc()
             .get("items")
             .and_then(|all| all.get(id))
-            .and_then(|item| item.get("type"))
+            .and_then(|item| item.get("kind"))
             .and_then(Value::as_str)
-            .unwrap_or("secret")
+            .context("canonical item has no kind")?
             .to_string();
         let tags: Vec<String> = vault
             .doc()
@@ -179,11 +179,12 @@ pub(crate) fn handle_enroll(
         if !recipients.iter().any(|r| r == uid) {
             recipients.push(uid.to_string());
         }
-        // set_item replaces the whole entry; provenance must be carried across.
+        // Re-encryption preserves the active revision's provenance.
         let writer = inbox::written_by(&vault, id);
-        vault.set_item(id, &item_type, &row, &recipients, &tags)?;
-        if writer.is_some() {
-            inbox::mark_written_by(&mut vault, id, writer.as_deref())?;
+        if let Some(writer) = writer.as_deref() {
+            vault.set_item_written_by(id, &item_kind, &payload, &recipients, &tags, writer)?;
+        } else {
+            vault.set_item(id, &item_kind, &payload, &recipients, &tags)?;
         }
         shared.push(id.clone());
     }

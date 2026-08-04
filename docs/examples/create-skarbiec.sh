@@ -6,6 +6,6 @@ export SKARBIEC_VAULT_FILE=~/.skarbiec-moj.vault.json
 SB=${SKARBIEC_BIN:-skarbiec}
 
 "$SB" init 'skarbiec-moj <moj@email.pl>'
-"$SB" set moja-usluga --type login login_email=moj@email.pl login_password="$EXAMPLE_SECRET"
+"$SB" set moja-usluga --type login username=moj@email.pl password="$EXAMPLE_SECRET"
 "$SB" get moja-usluga
 "$SB" status

@@ -7,12 +7,12 @@ to overwrite existing vault files.
 ## Command surfaces — which tool for what
 
 - **New workload access** — workload-bound one-use acquisition through
-  `token-mint --acquisition-scopes`, `acquisition-request`, and
+  `token-mint --capabilities acquire:item#field`, `acquisition-request`, and
   `acquisition-read`. This is the default for a new machine integration.
 - **Vault creation, multi-vault work, owner rotation, recovery exports, and
   service access** — use the `skarbiec` CLI and loopback broker directly.
-- **One vault.** Workload separation is enforced by exact acquisition scopes
-  and recipient policy, not by another product's configuration namespace.
+- **One vault.** Workload separation is enforced by exact capabilities and
+  recipient policy, not by another product's configuration namespace.
 - **Sync (bond)** — `pull` / `sync-init`+`sync-push`/`sync-pull` /
   `enroll` / `donate` + `donations` / `sync-daemon` / `sync-status`.
 

@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
 
-use core::{crypto, items, vault::Vault};
+use core::{crypto, items, schema, vault::Vault};
 
 fn vault_path() -> PathBuf {
     if let Ok(p) = std::env::var("SKARBIEC_VAULT_FILE") {
@@ -82,41 +82,65 @@ fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) -> Result<(
     )
 }
 
+fn ensure_owner_mutation_allowed(vault: &Vault, id: &str, operation: &str) -> Result<()> {
+    vault.ensure_owner_controlled(id).with_context(|| {
+        format!("use the item's controlling lifecycle instead of direct owner {operation}")
+    })
+}
+
+fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
+    if tags.iter().any(|tag| tag == "managed:weles") {
+        bail!("managed:weles is reserved for authenticated Weles writes");
+    }
+    Ok(())
+}
+
 fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: set <id> --type t --field k=v ...")?;
-    let item_type = flags.get("type").map(String::as_str).unwrap_or("login");
+        .context("usage: set <id> --type <canonical-kind> --field k=v ...")?;
+    let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     let fields: Vec<String> = positionals
         .iter()
         .skip(std::iter::once(()).count())
         .cloned()
         .collect();
-    let secret = items::build_item(item_type, &fields)?;
+    let payload = items::build_item(item_kind, &fields)?;
     let recipients: Vec<String> = flags
         .get("recipients")
-        .map(|s| s.split(',').map(str::to_string).collect())
+        .map(|value| value.split(',').map(str::to_string).collect())
         .unwrap_or_default();
     let tags: Vec<String> = flags
         .get("tags")
-        .map(|s| s.split(',').map(str::to_string).collect())
+        .map(|value| value.split(',').map(str::to_string).collect())
         .unwrap_or_default();
-    let mut vault = Vault::open(vault_path())?;
-    vault.set_item(id, item_type, &secret, &recipients, &tags)?;
-    core::inbox::mark_written_by(&mut vault, id, None)?;
-    emit(&json!({"ok": true, "id": id}))
+    ensure_no_reserved_tags(&tags)?;
+    let writer = vault.owner_uid().to_string();
+    vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
+    emit(&json!({"ok": true, "id": id, "kind": item_kind}))
 }
+
 fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: set-json <id> --type t")?;
-    let item_type = flags.get("type").map(String::as_str).unwrap_or("secret");
+        .context("usage: set-json <id> [--type <canonical-kind>]")?;
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     let mut encoded = String::new();
     std::io::stdin().read_to_string(&mut encoded)?;
-    let secret: Value = serde_json::from_str(&encoded).context("stdin must be one JSON value")?;
-    if !secret.is_object() {
-        bail!("set-json requires a JSON object");
-    }
+    let payload: Value =
+        serde_json::from_str(&encoded).context("stdin must be one canonical JSON payload")?;
+    let payload_kind = payload
+        .get("kind")
+        .and_then(Value::as_str)
+        .context("set-json payload requires kind")?;
+    let item_kind = flags
+        .get("type")
+        .map(String::as_str)
+        .unwrap_or(payload_kind);
+    schema::validate_payload(&payload, item_kind)?;
     let recipients: Vec<String> = flags
         .get("recipients")
         .map(|value| value.split(',').map(str::to_string).collect())
@@ -125,10 +149,47 @@ fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
         .get("tags")
         .map(|value| value.split(',').map(str::to_string).collect())
         .unwrap_or_default();
+    ensure_no_reserved_tags(&tags)?;
+    let writer = vault.owner_uid().to_string();
+    vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
+    emit(&json!({"ok": true, "id": id, "kind": item_kind}))
+}
+
+fn cmd_delete(positionals: &[String]) -> Result<()> {
+    let id = positionals.first().context("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;
-    vault.set_item(id, item_type, &secret, &recipients, &tags)?;
-    core::inbox::mark_written_by(&mut vault, id, None)?;
-    emit(&json!({"ok": true, "id": id}))
+    ensure_owner_mutation_allowed(&vault, id, "remove")?;
+    vault.delete_item(id)?;
+    emit(&json!({"ok": true}))
+}
+
+fn cmd_restore(positionals: &[String]) -> Result<()> {
+    let id = positionals.first().context("usage: restore <id>")?;
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, id, "acquire")?;
+    vault.restore_item(id)?;
+    emit(&json!({"ok": true}))
+}
+
+fn cmd_purge(positionals: &[String]) -> Result<()> {
+    let id = positionals.first().context("usage: purge <id>")?;
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, id, "remove")?;
+    vault.purge_item(id)?;
+    emit(&json!({"ok": true}))
+}
+
+fn cmd_restore_version(positionals: &[String]) -> Result<()> {
+    let id = positionals
+        .first()
+        .context("usage: restore-version <id> <at>")?;
+    let at = positionals
+        .get(std::iter::once(()).count())
+        .context("usage: restore-version <id> <at>")?;
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, id, "rotate")?;
+    vault.restore_version(id, at)?;
+    emit(&json!({"ok": true}))
 }
 
 fn cmd_get(positionals: &[String]) -> Result<()> {
@@ -237,41 +298,20 @@ fn main() -> Result<()> {
         "get" => cmd_get(&positionals),
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => cmd_list(&flags),
-        "delete" => {
-            Vault::open(vault_path())?
-                .delete_item(positionals.first().context("usage: delete <id>")?)?;
-            emit(&json!({"ok": true}))
-        }
-        "restore" => {
-            Vault::open(vault_path())?
-                .restore_item(positionals.first().context("usage: restore <id>")?)?;
-            emit(&json!({"ok": true}))
-        }
-        "purge" => {
-            Vault::open(vault_path())?
-                .purge_item(positionals.first().context("usage: purge <id>")?)?;
-            emit(&json!({"ok": true}))
-        }
-        "restore-version" => {
-            Vault::open(vault_path())?.restore_version(
-                positionals
-                    .first()
-                    .context("usage: restore-version <id> <at>")?,
-                positionals
-                    .get(std::iter::once(()).count())
-                    .context("usage: restore-version <id> <at>")?,
-            )?;
-            emit(&json!({"ok": true}))
-        }
+        "delete" => cmd_delete(&positionals),
+        "restore" => cmd_restore(&positionals),
+        "purge" => cmd_purge(&positionals),
+        "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
         "import" => emit(&items::import_json(&positionals)?),
+        "migrate-v2" => emit(&items::migrate_v2(&flags)?),
         "export" => cmd_export(&flags, &positionals),
         // The advertised list is the contract: a command that is dispatchable but
         // absent here is private, and no caller can be told to rely on it. The
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","version"]}),
+            &json!({"commands": ["status","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),

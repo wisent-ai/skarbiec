@@ -47,36 +47,36 @@ fn save_inbox(doc: &Value) -> Result<()> {
     Ok(())
 }
 
-/// First writer of an item, when recorded.
+/// Writer of the active canonical revision.
 pub fn written_by(vault: &Vault, id: &str) -> Option<String> {
     vault
         .doc()
         .get("items")
         .and_then(|items| items.get(id))
-        .and_then(|item| item.get("written_by"))
+        .and_then(|item| item.get("current"))
+        .and_then(|current| current.get("written_by"))
         .and_then(Value::as_str)
         .map(str::to_string)
 }
 
-/// Record the writer of an item (`who` None = the vault owner, for local
-/// writes). Must run after set_item, which replaces the whole item entry.
-pub fn mark_written_by(vault: &mut Vault, id: &str, who: Option<&str>) -> Result<()> {
-    let writer = who
-        .map(str::to_string)
-        .unwrap_or_else(|| vault.owner_uid().to_string());
+pub fn managed_by_weles(vault: &Vault, id: &str) -> bool {
     vault
-        .doc_mut()
-        .get_mut("items")
-        .and_then(|items| items.get_mut(id))
-        .and_then(Value::as_object_mut)
-        .with_context(|| format!("no item: {id}"))?
-        .insert("written_by".to_string(), json!(writer));
-    vault.save()
+        .doc()
+        .get("items")
+        .and_then(|items| items.get(id))
+        .and_then(|item| item.get("management"))
+        .is_some_and(|management| {
+            management.get("mode").and_then(Value::as_str) == Some("managed")
+                && management.get("controller").and_then(Value::as_str) == Some("weles")
+        })
 }
 
 /// What an inbound donation for `item_id` may do, given current provenance.
 /// `from` is the writer identity claimed by the donor (v1: the consumer).
 pub fn admission(vault: &Vault, item_id: &str, from: &str) -> &'static str {
+    if item_id.starts_with("operation:credential/") {
+        return "credential-lifecycle";
+    }
     let exists = vault
         .doc()
         .get("items")
@@ -84,6 +84,9 @@ pub fn admission(vault: &Vault, item_id: &str, from: &str) -> &'static str {
         .is_some_and(|items| items.contains_key(item_id));
     if !exists {
         return "append";
+    }
+    if managed_by_weles(vault, item_id) {
+        return "managed";
     }
     match written_by(vault, item_id) {
         Some(owner) if owner == from => "overwrite",
@@ -98,7 +101,7 @@ pub fn enqueue(
     item_id: &str,
     consumer: &str,
     from: &str,
-    item_type: &str,
+    item_kind: &str,
     armor: &str,
 ) -> Result<String> {
     let donation_id = crypto::random_token()?;
@@ -107,7 +110,7 @@ pub fn enqueue(
         "from": from,
         "consumer": consumer,
         "item_id": item_id,
-        "type": item_type,
+        "kind": item_kind,
         "armor": armor,
         "received_at": now_iso(),
     });
@@ -152,7 +155,7 @@ pub fn dispatch(
                         "from": d.get("from"),
                         "consumer": d.get("consumer"),
                         "item_id": d.get("item_id"),
-                        "type": d.get("type"),
+                        "kind": d.get("kind"),
                         "received_at": d.get("received_at"),
                     })
                 })
@@ -194,26 +197,23 @@ pub fn dispatch(
                 ));
             }
             let plain = crypto::decrypt(armor).context("decrypt donation armor")?;
-            let fields: Value =
+            let payload: Value =
                 serde_json::from_str(&plain).context("donation payload is not JSON")?;
-            if !fields.is_object() {
-                anyhow::bail!("donation payload is not a JSON object");
-            }
             let existing = vault
                 .doc()
                 .get("items")
                 .and_then(|items| items.get(&item_id))
                 .cloned();
-            let item_type = donation
-                .get("type")
+            let item_kind = donation
+                .get("kind")
                 .and_then(Value::as_str)
                 .or_else(|| {
                     existing
                         .as_ref()
-                        .and_then(|item| item.get("type"))
+                        .and_then(|item| item.get("kind"))
                         .and_then(Value::as_str)
                 })
-                .unwrap_or("secret")
+                .context("donation has no canonical item kind")?
                 .to_string();
             let recipients = vault.item_recipient_uids(&item_id);
             let tags: Vec<String> = existing
@@ -225,8 +225,7 @@ pub fn dispatch(
                 .filter_map(Value::as_str)
                 .map(str::to_string)
                 .collect();
-            vault.set_item(&item_id, &item_type, &fields, &recipients, &tags)?;
-            mark_written_by(&mut vault, &item_id, Some(&from))?;
+            vault.set_item_written_by(&item_id, &item_kind, &payload, &recipients, &tags, &from)?;
             save_inbox(&inbox)?;
             crate::runtime::audit::append(
                 "donation-accept",
