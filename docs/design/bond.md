@@ -107,8 +107,9 @@ stones as one structure, and the obligation of trust between parties.
 - **sync-status** — `skarbiec sync-status [--bond <name>] [--token <t>]`
   reports per bond: config, last pull stamp, local vs remote item counts
   (via `GET /v1/vault` when the channel is serve), and channel health.
-- **invite** — `skarbiec invite <item> --for <consumer>` prints one JSON
-  package wrapping an acquisition bootstrap for the `value` field plus
-  redeem instructions; the secret itself is never printed.
+- **invite** — `skarbiec invite <item> --field <field> --for <consumer>
+  --workload-public-key-file <path>` registers one exact workload-bound
+  `acquire:<item>#<field>` capability and prints a non-secret redemption
+  contract; the secret itself is never printed.
 - **bonds** — `skarbiec bonds` lists the whole bond registry (config plus
   last-pull stamps), read-only.

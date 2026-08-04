@@ -1,29 +1,104 @@
 # CLI reference
 
-Every command prints a JSON result to stdout. The vault path comes from
-`SKARBIEC_VAULT_FILE` (default `~/.local/share/skarbiec/skarbiec.vault.json`). Run
-`skarbiec help` for the raw command list.
+`skarbiec` is a JSON-first command-line interface. Finite commands print one
+JSON value to stdout. `serve`, `mcp`, `native-host`, and `sync-daemon` are
+long-running process interfaces instead. Commands that return a credential
+(`get`, `acquisition-read`, `totp`) necessarily place that value in their JSON
+response; metadata-only reads such as `list`, `status`, `tokens`, and `bonds`
+never do.
 
-Flags are `--key value` or bare `--flag`; everything else is positional.
+The vault path comes from `SKARBIEC_VAULT_FILE` and defaults to
+`~/.local/share/skarbiec/skarbiec.vault.json`. Git synchronization uses
+`SKARBIEC_SYNC_DIR` and defaults to `~/.skarbiec-sync`.
+
+Arguments use this grammar:
+
+```text
+skarbiec <command> [positionals...] [--key value | --key=value] [--flag]
+```
+
+Flags are single-valued: if a flag is repeated, the last value wins. Commands
+that accept several values use comma-separated flags or positional values.
+In particular, fields passed to `set` are positional `name=value` arguments,
+not repeated `--field` flags.
+
+Run `skarbiec help` for the machine-readable public command inventory. The
+current contract contains the following 64 command names:
+
+```text
+Vault:       status init set set-json get list delete restore purge
+             restore-version
+Data:        generate import migrate-v2
+Recipients:  add-user rotate-owner share revoke users export-key
+Access:      token-mint token-revoke token-verify tokens
+             acquisition-request acquisition-read
+Recovery:    key-doctor recovery-status recovery-drill emergency-grant
+             emergency-cancel emergency-list emergency-activate
+Policy:      policy-set policy-get policy-check-length
+Audit:       audit audit-query verify-chain
+Runtime:     resolve expand totp breach-check
+Sync:        sync-init sync-push sync-pull pull donate donations
+             donation-accept donation-reject enroll sync-daemon sync-status
+             invite bond-add bond-list bond-remove bonds
+Credentials: credential
+Servers:     serve mcp native-host browser-host-install
+Build:       version
+```
 
 ## Vault items
 
 | Command | What it does |
 | --- | --- |
+| `status` | Return the vault path and counts of items, recipients, tokens, and bonds, plus the recovery fingerprint and whether its secret key is present locally. |
 | `init <owner-uid>` | Create the vault, sealed to a fresh `gpg` owner key and a `skarbiec-recovery <owner>` key. |
-| `set <id> --type <t> --field k=v ... [--recipients a,b] [--tags x,y]` | Create or update a schema-validated typed item. `--type` defaults to `login`; canonical field names depend on the type. |
+| `set <id> [--type <t>] name=value ... [--recipients a,b] [--tags x,y]` | Create or update a schema-validated typed item. `--type` defaults to `login`; canonical field names depend on the type. |
+| `set-json <id> [--type <t>] [--recipients a,b] [--tags x,y]` | Read one canonical item payload from stdin, validate its `kind` and fields, and create or update the item. `--type` overrides the payload's `kind` only when both describe the same valid schema. |
 | `get <id>` | Return one item's decrypted fields as JSON. |
-| `list [--all]` | List item metadata (id, type, revision count, tags) — never values. `--all` includes trashed items. |
+| `list [--all]` | List item metadata (id, type, revision count, tags)—never values. `--all` includes trashed items. |
 | `delete <id>` | Move an item to the trash (recoverable). |
 | `restore <id>` | Bring a trashed item back. |
 | `purge <id>` | Permanently remove a trashed item. |
 | `restore-version <id> <at>` | Roll an item back to an earlier version by its timestamp. |
 
 ```sh
-skarbiec set github --type login --field username=alice@example.com --tags dev,ci
+skarbiec set github --type login \
+  username=alice@example.com password=correct-horse-battery-staple \
+  --tags dev,ci
+printf '%s\n' '{"kind":"token","token":"value-from-stdin"}' |
+  skarbiec set-json deployment-token
 skarbiec list --all
 skarbiec restore-version github 2026-07-01T12:00:00Z
 ```
+
+`managed:weles` is a reserved tag. Once an item has authenticated Weles
+provenance, direct owner mutation is refused; use the `credential` lifecycle
+described below.
+
+## Import and migration
+
+| Command | What it does |
+| --- | --- |
+| `import <file.json>` | Import a JSON array of canonical rows. Each row requires `id` and `payload`; `recipients` and `tags` are optional arrays. Rows without `id` are counted as skipped. Schema-invalid rows, reserved Weles state, and attempts to overwrite a Weles-managed item fail closed. |
+| `migrate-v2 [--snapshot PATH]` | Copy the current vault to a new mode-0600 snapshot and migrate the live document to v2. The default snapshot is `<vault>.pre-v2.<epoch>`. An existing snapshot path is never overwritten. |
+
+Canonical import shape:
+
+```json
+[
+  {
+    "id": "deployment-token",
+    "payload": {
+      "kind": "token",
+      "token": "value"
+    },
+    "recipients": [],
+    "tags": ["production"]
+  }
+]
+```
+
+`import` is not a legacy-format detector. Convert legacy data explicitly with
+`migrate-v2` before importing canonical rows.
 
 ## Externally managed credentials through Weles
 
@@ -98,8 +173,7 @@ cannot be changed independently.
 
 | Command | What it does |
 | --- | --- |
-| `token-mint <consumer> --capabilities action:item[#field] [--workload-public-key-file PATH]` | Register exact structured capabilities. `acquire`, `stage`, `rotate`, and `verify` require a field. `acquire` requires an Ed25519 workload public key and returns no standing bearer; direct capabilities return a bearer once and retain only its hash. Replacing an existing capability set requires `--replace-capabilities`. |
-| `token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH [--ttl-seconds N] [--replace-capabilities]` | Atomically register a validated `consumer\|item\|field` catalog as workload-bound `acquire` capabilities. |
+| `token-mint <consumer> --capabilities action:item[#field] [--workload-public-key-file PATH] [--ttl-seconds N] [--audience NAME] [--replace-capabilities]` | Register exact structured capabilities. `acquire`, `stage`, `rotate`, and `verify` require a field. `acquire` requires an Ed25519 workload public key and returns no standing bearer; direct capabilities return a bearer once and retain only its hash. The TTL defaults to 30 days and the audience to the consumer. Replacing a different existing capability set requires `--replace-capabilities`. |
 | `token-verify <consumer> <resource> --action ACTION [--field FIELD] --token T` | Check one exact action/resource/field binding. |
 | `token-revoke <consumer>` | Drop a direct grant or acquisition workload identity. |
 | `tokens` | List consumers, structured capabilities, expiry, audience, and whether each identity is workload-bound. |
@@ -174,19 +248,81 @@ skarbiec resolve github --consumer ci --token "$GRANT" --emit --out /run/ci
 | --- | --- |
 | `version` | Report the crate version and the versioned, provenance-stamped release coordinate the artifact was built for. A source build says so instead of guessing, so a supervisor never has to identify a build by counting the commands it answers. |
 | `generate --length N [--symbols]` | Generate a login string of length N from OS entropy. |
-| `generate --passphrase --words N` | Generate an N-word passphrase. |
+| `generate --passphrase --words N [--separator TEXT]` | Generate an N-word passphrase. The separator defaults to `-`. |
 | `totp <item-id>` | Print the current one-time code from an item's saved seed (needs `oathtool`). |
 | `breach-check <item-id> [--field password]` | Check a field against the breach corpus under k-anonymity (only a hash prefix leaves the host). |
 
-## Sync
+## Synchronization, bonds, donations, and invitations
+
+All synchronization moves the encrypted vault document or an item sealed to
+the destination owner. It never merges two whole vault files. Pull operations
+therefore protect against obvious local-item loss and require an explicit
+`--force` to cross the documented regression guard.
+
+### Git synchronization
 
 | Command | What it does |
 | --- | --- |
-| `sync-init <remote-url>` | Point sync at a git remote for the encrypted file. |
-| `sync-push` | Push the encrypted vault to the remote. |
-| `sync-pull` | Pull the encrypted vault from the remote. |
+| `sync-init <remote-url>` | Initialize `SKARBIEC_SYNC_DIR` as a Git repository and replace its `origin` with the exact remote URL. |
+| `sync-push [--branch NAME] [--message TEXT]` | Copy the live vault to `vault.enc.json`, commit it, and push it. The branch defaults to `main`; the message defaults to `skarbiec sync`. A no-op commit is allowed. |
+| `sync-pull [--branch NAME] [--force]` | Pull `vault.enc.json`, back up the live vault, and replace it. Without `--force`, refuse when live non-trashed item IDs are absent from the mirror. |
 
-Only ciphertext crosses the wire.
+`sync-pull` creates `<vault>.pre-pull-<timestamp>` before its regression check.
+The reported backup remains available whether the replacement proceeds or is
+refused.
+
+### Serve-channel replication
+
+| Command | What it does |
+| --- | --- |
+| `pull --from <base-url> --token <token> [--consumer NAME] [--bond NAME] [--force]` | Fetch `GET /v1/vault` using the exact `sync:pull` grant and atomically replace the local vault. `--consumer` defaults to `replica`. The local `bond` registry is retained. Without `--force`, a remote vault with fewer item records is refused. |
+| `enroll --as <uid> --to <base-url> --token <token> [--items a,b,c] [--consumer NAME]` | Send the local owner's public key to the source. The source registers `uid` and re-seals exactly the named items to that recipient. `--consumer` defaults to `enroll`; the next `pull` brings the re-sealed ciphertext to the replica. |
+| `sync-daemon --bond <name> --token <token> [--consumer NAME]` | Repeatedly run serve-channel pulls using the bond's address and `interval_seconds`. It handles SIGTERM and reports the last pull when it exits. A service manager must provide persistence. |
+| `sync-status [--bond <name>] [--token <token>] [--consumer NAME]` | Return per-bond configuration, last-pull state, local item count, and serve-channel health. Supplying a token also permits the remote item count to be read. `--consumer` defaults to `replica`. |
+
+The source must run `skarbiec serve`. `pull` requires a direct token containing
+`sync:pull`. `enroll` is intended to require an `enroll` capability, but the
+current server checks an empty resource while `token-mint` rejects empty
+resources. A freshly minted direct token therefore cannot currently satisfy the
+enroll route; the CLI fails closed rather than broadening the grant.
+
+### Bond registry
+
+| Command | What it does |
+| --- | --- |
+| `bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval SECONDS]` | Create or replace non-secret bond configuration in the vault. Modes: `replica`, `hub`, `p2p`, `git`. Roles: `source`, `replica`, `consumer`, `peer`. Channel types: `serve`, `git`, `file`. |
+| `bond-list` | Return the complete bond registry. |
+| `bonds` | Alias of the read-only `bond-list`. |
+| `bond-remove <name>` | Remove one named bond and append the mutation to the audit chain. It does not modify vault items. |
+
+`sync-daemon` requires a bond whose channel contains both an address and
+`interval_seconds`; define the latter with `bond-add --interval`.
+
+### Item donations
+
+| Command | What it does |
+| --- | --- |
+| `donate <item-id> --to <base-url> --consumer <name> --token <token> [--from WRITER]` | Fetch the destination owner's public key, decrypt the local item, re-encrypt its canonical payload to that owner, and enqueue it remotely. `--from` defaults to the token consumer. |
+| `donations` | List pending donation metadata without returning armored or plaintext payloads. |
+| `donation-accept <donation-id>` | Recheck provenance, decrypt the queued payload, and append or overwrite the item when the donor is allowed to do so. |
+| `donation-reject <donation-id>` | Remove a pending donation without modifying the vault. |
+
+Inbound donations are review-first. A new item ID may be appended. An existing
+ID may be overwritten only when its `written_by` matches the donation's `from`;
+older items without provenance reject the collision. As with `enroll`, the
+current donation route checks an empty `donate` resource that the current
+`token-mint` grammar cannot create, so newly minted direct tokens cannot yet
+authorize the route.
+
+### Workload invitation
+
+| Command | What it does |
+| --- | --- |
+| `invite <item> --field <field> --for <consumer> --workload-public-key-file PATH` | Register one exact workload-bound `acquire:<item>#<field>` capability and return a non-secret redemption contract. The file must be an owner-controlled regular file containing an Ed25519 PEM public key. |
+
+The invitation never contains the field value or a standing bearer. The
+workload signs an acquisition proof and then uses `acquisition-request` followed
+by the one-use `acquisition-read`.
 
 ## Servers
 
@@ -201,11 +337,18 @@ See [SECURITY.md](SECURITY.md) for how `resolve`, grants, and the servers are ga
 
 ## Examples
 
-Executable examples live in [`examples/`](examples/README.md). Start with the
-default workload path:
+Executable examples live in [`examples/`](examples/README.md). They are plain
+command sequences and refuse to overwrite their disposable vaults.
 
 1. [Acquire one exact field once](examples/acquire-one-field.sh)
 2. [Create a vault](examples/create-skarbiec.sh)
 3. [Create three isolated vaults](examples/create-three-skarbiecs.sh)
 4. [Rotate the owner](examples/rotate-skarbiec-owner.sh)
-5. [Share a credential with another recipient](examples/sharing/share-credential-with-user.sh)
+5. [Build a serving host](examples/operations/build-skarbiec-host.sh)
+6. [Move a serving host](examples/operations/change-skarbiec-host.sh)
+7. [Synchronize two hosts through Git](examples/git/git-sync-two-hosts.sh)
+8. [Enroll a replica](examples/bond/enroll-replica.sh)
+9. [Review a donation inbox](examples/bond/donation-inbox.sh)
+10. [Create a workload invitation](examples/bond/invite-person.sh)
+11. [Share a credential with another recipient](examples/sharing/share-credential-with-user.sh)
+12. [Donate an item to another host](examples/sharing/donate-item-to-host.sh)

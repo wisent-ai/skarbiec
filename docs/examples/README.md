@@ -27,7 +27,7 @@ to overwrite existing vault files.
 7. [`git/git-sync-two-hosts.sh`](git/git-sync-two-hosts.sh) — two vaults through a bare git remote.
 8. [`bond/enroll-replica.sh`](bond/enroll-replica.sh) — replica enroll handshake.
 9. [`bond/donation-inbox.sh`](bond/donation-inbox.sh) — donate, review in remote inbox.
-10. [`bond/invite-person.sh`](bond/invite-person.sh) — one redeemable package for a human.
+10. [`bond/invite-person.sh`](bond/invite-person.sh) — register one workload-bound, one-field acquisition contract.
 11. [`sharing/share-credential-with-user.sh`](sharing/share-credential-with-user.sh) — GIVE to another user's vault.
 12. [`sharing/donate-item-to-host.sh`](sharing/donate-item-to-host.sh) — donate + duplicate rejection.
 
