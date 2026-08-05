@@ -6,8 +6,9 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::{self, OpenOptions};
 use std::io::{Read as _, Seek as _, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
@@ -138,6 +139,13 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     let hash = crypto::sha256_hex(&digest_input(&prev, &at, op, extra))?;
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
     let path = audit_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create audit directory {}", parent.display()))?;
+        let private_mode = u32::from_str_radix("700", "8".parse()?)?;
+        fs::set_permissions(parent, fs::Permissions::from_mode(private_mode))
+            .with_context(|| format!("protect audit directory {}", parent.display()))?;
+    }
     let fresh = !path.exists();
     let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
     writeln!(file, "{entry}")?;

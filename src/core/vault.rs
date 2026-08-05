@@ -10,7 +10,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -44,17 +44,32 @@ impl Drop for VaultWriteLock {
 
 fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
     let lock_path = vault_path.with_extension("write.lock");
-    let mut file = OpenOptions::new()
+    let parent = lock_path.parent().context("vault path has no parent")?;
+    if !parent.exists() {
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(u32::from_str_radix("700", "8".parse()?)?)
+            .create(parent)
+            .with_context(|| format!("create vault directory {}", parent.display()))?;
+    }
+    let mut file = match OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(private_file_mode()?)
         .open(&lock_path)
-        .with_context(|| {
-            format!(
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            bail!(
                 "another process owns the vault write lock {}; verify it is no longer running before removing a stale lock",
                 lock_path.display()
             )
-        })?;
+        }
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("create vault write lock {}", lock_path.display()))
+        }
+    };
     let guard = VaultWriteLock(lock_path);
     writeln!(file, "{}", std::process::id())?;
     file.sync_all()?;
@@ -883,6 +898,7 @@ impl Vault {
                             "revision": item.get("revision"),
                             "management": item.get("management"),
                             "tags": item.get("tags"),
+                            "recipients": item.get("recipients"),
                             "updated_at": item.get("updated_at"),
                             "deleted": deleted,
                             "versions": versions,
@@ -971,5 +987,32 @@ impl Vault {
             })
             .unwrap_or_default();
         self.set_item(id, &kind, &payload, &recipients, &tags)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_lock_creates_a_private_parent_for_a_fresh_vault() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("vault-lock-test-{}", std::process::id()));
+        let vault_path = root.join("fresh").join("vault.json");
+
+        let guard = acquire_write_lock(&vault_path).expect("fresh vault lock");
+        assert!(vault_path.with_extension("write.lock").is_file());
+        assert_eq!(
+            fs::metadata(vault_path.parent().expect("vault parent"))
+                .expect("vault parent metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+
+        drop(guard);
+        fs::remove_dir_all(root).expect("remove vault lock test directory");
     }
 }

@@ -54,7 +54,7 @@ Build:       version
 | `set <id> [--type <t>] name=value ... [--recipients a,b] [--tags x,y]` | Create or update a schema-validated typed item. `--type` defaults to `login`; canonical field names depend on the type. |
 | `set-json <id> [--type <t>] [--recipients a,b] [--tags x,y]` | Read one canonical item payload from stdin, validate its `kind` and fields, and create or update the item. `--type` overrides the payload's `kind` only when both describe the same valid schema. |
 | `get <id>` | Return one item's decrypted fields as JSON. |
-| `list [--all]` | List item metadata (id, type, revision count, tags)—never values. `--all` includes trashed items. |
+| `list [--all]` | List item metadata (id, type, revision count, recipient UIDs, tags)—never values. `--all` includes trashed items. |
 | `delete <id>` | Move an item to the trash (recoverable). |
 | `restore <id>` | Bring a trashed item back. |
 | `purge <id>` | Permanently remove a trashed item. |
@@ -114,8 +114,8 @@ Canonical import shape:
 owner-controlled, non-symlink executable. Skarbiec passes
 `skarbiec.credential-operation.v1` JSON on stdin and accepts only a bounded,
 sanitized JSON response on stdout. The bridge owns the finite mapping from item
-IDs to Weles lifecycle contracts; an unknown item/provider/operation tuple fails
-closed.
+IDs to Weles lifecycle contracts; an unknown item/provider/field/writer-consumer
+or operation tuple fails closed.
 
 Install the bridge from the public
 [`wisent-ai/weles-client`](https://github.com/wisent-ai/weles-client)
@@ -132,7 +132,7 @@ export SKARBIEC_WELES_CREDENTIAL_COMMAND="$(npm root --global)/@wisent-ai/weles-
 
 skarbiec credential rotate weles-microsoft-primary-password \
   --provider microsoft \
-  --consumer support-ops \
+  --consumer weles-microsoft-primary-password-writer \
   --account owner@example.com \
   --purpose incident-remediation
 
@@ -263,8 +263,8 @@ therefore protect against obvious local-item loss and require an explicit
 
 | Command | What it does |
 | --- | --- |
-| `sync-init <remote-url>` | Initialize `SKARBIEC_SYNC_DIR` as a Git repository and replace its `origin` with the exact remote URL. |
-| `sync-push [--branch NAME] [--message TEXT]` | Copy the live vault to `vault.enc.json`, commit it, and push it. The branch defaults to `main`; the message defaults to `skarbiec sync`. A no-op commit is allowed. |
+| `sync-init <remote-url>` | Initialize `SKARBIEC_SYNC_DIR` as a Git repository, replace its `origin` with the exact remote URL, and configure the repository-local automated commit identity. |
+| `sync-push [--branch NAME] [--message TEXT]` | Copy the live vault to `vault.enc.json`, commit it, and push the current `HEAD` to the selected remote branch. The branch defaults to `main`; the message defaults to `skarbiec sync`. A no-op commit is allowed. |
 | `sync-pull [--branch NAME] [--force]` | Pull `vault.enc.json`, back up the live vault, and replace it. Without `--force`, refuse when live non-trashed item IDs are absent from the mirror. |
 
 `sync-pull` creates `<vault>.pre-pull-<timestamp>` before its regression check.

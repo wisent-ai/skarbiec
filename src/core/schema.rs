@@ -20,11 +20,13 @@ const KEY_PAIR_FIELDS: &[&str] = &[
 const CERTIFICATE_FIELDS: &[&str] = &["certificate", "private_key", "chain", "passphrase"];
 const SERVICE_ACCOUNT_FIELDS: &[&str] = &["credential_json"];
 const VALUE_FIELDS: &[&str] = &["value"];
+const NOTE_FIELDS: &[&str] = &["value"];
 
 pub fn supported_kind(kind: &str) -> bool {
     matches!(
         kind,
         "login"
+            | "note"
             | "api-key"
             | "access-key"
             | "token"
@@ -50,6 +52,7 @@ fn exact_component(value: &str) -> bool {
 
 fn allowed_fields(kind: &str) -> Option<&'static [&'static str]> {
     match kind {
+        "note" => Some(NOTE_FIELDS),
         "login" => Some(LOGIN_FIELDS),
         "api-key" => Some(API_KEY_FIELDS),
         "access-key" => Some(ACCESS_KEY_FIELDS),
@@ -132,6 +135,7 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
         }
     }
     match expected_kind {
+        "note" => required(fields, &["value"], expected_kind)?,
         "login" => {
             required(fields, &["username"], expected_kind)?;
             if !["password", "totp_secret", "recovery_codes"]
@@ -499,5 +503,37 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
     match payload(kind, fields, context.clone()) {
         Ok(value) => Ok((kind.to_string(), value)),
         Err(_) => fallback_payload(fallback, context),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn note_requires_one_string_value() {
+        let valid = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "note",
+            "fields": {"value": "non-secret onboarding proof"},
+            "context": {},
+        });
+        validate_payload(&valid, "note").expect("valid note");
+
+        let missing = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "note",
+            "fields": {"title": "not canonical"},
+            "context": {},
+        });
+        assert!(validate_payload(&missing, "note").is_err());
+
+        let non_string = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "note",
+            "fields": {"value": true},
+            "context": {},
+        });
+        assert!(validate_payload(&non_string, "note").is_err());
     }
 }

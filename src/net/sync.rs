@@ -101,6 +101,17 @@ pub fn dispatch(
             if !ok2 {
                 bail!("git remote add failed: {}", e2.trim());
             }
+            let (name_ok, _o, name_error) = git(&["config", "user.name", "Skarbiec Desktop"])?;
+            if !name_ok {
+                bail!("git user.name configuration failed: {}", name_error.trim());
+            }
+            let (email_ok, _o, email_error) = git(&["config", "user.email", "skarbiec@localhost"])?;
+            if !email_ok {
+                bail!(
+                    "git user.email configuration failed: {}",
+                    email_error.trim()
+                );
+            }
             crate::runtime::audit::append("sync-init", &json!({"remote": remote}))?;
             Ok(Some(
                 json!({"ok": true, "sync_dir": sync_dir().display().to_string(), "remote": remote}),
@@ -120,7 +131,8 @@ pub fn dispatch(
                 .unwrap_or("skarbiec sync");
             git(&["commit", "-m", message]).ok(); // no-op commit is fine
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
-            let (ok, _o, e) = git(&["push", "origin", branch])?;
+            let remote_ref = format!("HEAD:refs/heads/{branch}");
+            let (ok, _o, e) = git(&["push", "origin", &remote_ref])?;
             crate::runtime::audit::append("sync-push", &json!({"branch": branch, "ok": ok}))?;
             Ok(Some(
                 json!({"ok": ok, "branch": branch, "detail": e.trim()}),
