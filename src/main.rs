@@ -11,6 +11,7 @@ mod credential;
 mod invite;
 mod native_host;
 mod net;
+mod onboarding;
 mod runtime;
 
 use anyhow::{bail, Context, Result};
@@ -88,6 +89,18 @@ fn ensure_owner_mutation_allowed(vault: &Vault, id: &str, operation: &str) -> Re
     })
 }
 
+fn ensure_owner_set_allowed(vault: &Vault, id: &str) -> Result<()> {
+    let item_exists = vault
+        .doc()
+        .get("items")
+        .and_then(Value::as_object)
+        .is_some_and(|items| items.contains_key(id));
+    if !item_exists {
+        return Ok(());
+    }
+    ensure_owner_mutation_allowed(vault, id, "rotate")
+}
+
 fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
     if tags.iter().any(|tag| tag == "managed:weles") {
         bail!("managed:weles is reserved for authenticated Weles writes");
@@ -101,7 +114,7 @@ fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()
         .context("usage: set <id> --type <canonical-kind> --field k=v ...")?;
     let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
     let mut vault = Vault::open(vault_path())?;
-    ensure_owner_mutation_allowed(&vault, id, "rotate")?;
+    ensure_owner_set_allowed(&vault, id)?;
     let fields: Vec<String> = positionals
         .iter()
         .skip(std::iter::once(()).count())
@@ -127,7 +140,7 @@ fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
         .first()
         .context("usage: set-json <id> [--type <canonical-kind>]")?;
     let mut vault = Vault::open(vault_path())?;
-    ensure_owner_mutation_allowed(&vault, id, "rotate")?;
+    ensure_owner_set_allowed(&vault, id)?;
     let mut encoded = String::new();
     std::io::stdin().read_to_string(&mut encoded)?;
     let payload: Value =
@@ -306,12 +319,13 @@ fn main() -> Result<()> {
         "import" => emit(&items::import_json(&positionals)?),
         "migrate-v2" => emit(&items::migrate_v2(&flags)?),
         "export" => cmd_export(&flags, &positionals),
+        "onboarding" => emit(&onboarding::run(&flags)?),
         // The advertised list is the contract: a command that is dispatchable but
         // absent here is private, and no caller can be told to rely on it. The
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","version"]}),
+            &json!({"commands": ["status","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","onboarding","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
