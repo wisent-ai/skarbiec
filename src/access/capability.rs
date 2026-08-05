@@ -99,6 +99,8 @@ struct Workload {
     gid: u32,
     executable_path: String,
     executable_sha256: String,
+    #[serde(default)]
+    macos_code_signing_requirement: Option<String>,
     proof_key: String,
     agent_ids: Vec<String>,
 }
@@ -174,14 +176,23 @@ fn socket_group() -> Result<u32> {
     let gid: u32 = configured
         .parse()
         .context("SKARBIEC_CAP_SOCKET_GID must be a numeric GID")?;
-    let name = CString::new("skarbiec-capability-clients")?;
-    let group = unsafe { libc::getgrnam(name.as_ptr()) };
-    if group.is_null() {
-        bail!("required socket group skarbiec-capability-clients does not exist");
+    #[cfg(target_os = "linux")]
+    {
+        let name = CString::new("skarbiec-capability-clients")?;
+        let group = unsafe { libc::getgrnam(name.as_ptr()) };
+        if group.is_null() {
+            bail!("required socket group skarbiec-capability-clients does not exist");
+        }
+        let expected = unsafe { (*group).gr_gid };
+        if gid != expected || gid != unsafe { libc::getegid() } {
+            bail!(
+                "SKARBIEC_CAP_SOCKET_GID must match the broker effective capability-clients group"
+            );
+        }
     }
-    let expected = unsafe { (*group).gr_gid };
-    if gid != expected || gid != unsafe { libc::getegid() } {
-        bail!("SKARBIEC_CAP_SOCKET_GID must match the broker effective capability-clients group");
+    #[cfg(target_os = "macos")]
+    if gid != unsafe { libc::getegid() } {
+        bail!("SKARBIEC_CAP_SOCKET_GID must match the broker effective group");
     }
     Ok(gid)
 }
@@ -406,6 +417,32 @@ pub(crate) fn zeroize_json_strings(value: &mut Value) {
 pub(crate) fn extract_scalar_secret(mut item: Value) -> Result<Vec<u8>> {
     let result = match &mut item {
         Value::String(value) if !value.is_empty() => Ok(std::mem::take(value).into_bytes()),
+        Value::Object(payload)
+            if payload.get("schema").and_then(Value::as_str) == Some("skarbiec.item.v2") =>
+        {
+            let exact_envelope = payload.len() == 4
+                && payload
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .is_some_and(valid_atom)
+                && payload.get("context").is_some_and(Value::is_object);
+            let fields = payload
+                .get_mut("fields")
+                .and_then(Value::as_object_mut)
+                .filter(|fields| fields.len() == 1);
+            if !exact_envelope {
+                Err(anyhow::anyhow!(
+                    "vault resource is not a canonical dedicated scalar secret"
+                ))
+            } else {
+                match fields.and_then(|fields| fields.values_mut().next()) {
+                    Some(Value::String(value)) if !value.is_empty() => {
+                        Ok(std::mem::take(value).into_bytes())
+                    }
+                    _ => Err(anyhow::anyhow!("vault canonical scalar secret is invalid")),
+                }
+            }
+        }
         Value::Object(fields) => {
             let exact = fields.len() == 2
                 && fields
@@ -503,7 +540,7 @@ fn ensure_redemption_supported() -> Result<()> {
 }
 #[cfg(target_os = "macos")]
 fn ensure_redemption_supported() -> Result<()> {
-    bail!("capability redemption is unsupported on macOS because peer executable identity cannot be guaranteed")
+    Ok(())
 }
 
 impl Broker {
@@ -625,6 +662,9 @@ impl Broker {
             {
                 bail!("invalid workload executable digest");
             }
+            validate_macos_code_signing_requirement(
+                workload.macos_code_signing_requirement.as_deref(),
+            )?;
             key(&workload.proof_key)?;
             if workload.agent_ids.is_empty() {
                 bail!("workload agent allowlist must be nonempty");
@@ -1124,7 +1164,7 @@ impl Broker {
         Ok(())
     }
     fn handle_stream(&mut self, mut stream: UnixStream) -> Result<()> {
-        let subject = peer_identity(&stream).map(|(uid, gid, _)| format!("{uid}:{gid}"));
+        let subject = peer_identity(&stream).map(|peer| format!("{}:{}", peer.uid, peer.gid));
         let attempt = match subject.as_ref() {
             Ok(subject)
                 if self
@@ -1179,7 +1219,7 @@ impl Broker {
 
     fn redeem(&mut self, stream: &UnixStream) -> Result<BrokerOutcome> {
         ensure_redemption_supported()?;
-        let (uid, gid, pid) = peer_identity(stream)?;
+        let peer = peer_identity(stream)?;
         let request = read_redeem_request(stream)?;
         if request.version != WIRE_VERSION
             || request.capability_id.len() != 64
@@ -1208,9 +1248,9 @@ impl Broker {
             .workloads
             .get(&request.workload_id)
             .context("unknown workload")?;
-        let (peer_path, peer_start) = peer_process(pid)?;
-        if uid != workload.uid
-            || gid != workload.gid
+        let (peer_path, peer_generation) = peer_process(&peer)?;
+        if peer.uid != workload.uid
+            || peer.gid != workload.gid
             || peer_path != PathBuf::from(&workload.executable_path)
             || hash_file(&peer_path)? != workload.executable_sha256.to_ascii_lowercase()
         {
@@ -1235,8 +1275,13 @@ impl Broker {
         key(&workload.proof_key)?
             .verify(&proof, &signature)
             .context("invalid workload proof")?;
-        let (confirmed_path, confirmed_start) = peer_process(pid)?;
-        if confirmed_path != peer_path || confirmed_start != peer_start {
+        verify_peer_code_signature(&peer, workload)?;
+        let confirmed_peer = peer_identity(stream)?;
+        let (confirmed_path, confirmed_generation) = peer_process(&confirmed_peer)?;
+        if confirmed_peer != peer
+            || confirmed_path != peer_path
+            || confirmed_generation != peer_generation
+        {
             bail!("peer process changed during authentication");
         }
 
@@ -1634,8 +1679,184 @@ fn hash_file(path: &Path) -> Result<String> {
     }
     Ok(format!("{:x}", hash.finalize()))
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PeerIdentity {
+    uid: u32,
+    gid: u32,
+    pid: i32,
+    #[cfg(target_os = "macos")]
+    audit_token: AuditToken,
+    #[cfg(target_os = "macos")]
+    pid_version: u64,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(C)]
+struct AuditToken {
+    val: [u32; 8],
+}
+
 #[cfg(target_os = "linux")]
-fn peer_identity(stream: &UnixStream) -> Result<(u32, u32, i32)> {
+fn validate_macos_code_signing_requirement(requirement: Option<&str>) -> Result<()> {
+    if requirement.is_some() {
+        bail!("macOS code-signing requirement is invalid on a Linux workload");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn verify_peer_code_signature(_peer: &PeerIdentity, _workload: &Workload) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+type CfRef = *const libc::c_void;
+
+#[cfg(target_os = "macos")]
+struct OwnedCf(CfRef);
+
+#[cfg(target_os = "macos")]
+impl OwnedCf {
+    fn new(value: CfRef, what: &str) -> Result<Self> {
+        if value.is_null() {
+            bail!("{what} returned no object");
+        }
+        Ok(Self(value))
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for OwnedCf {
+    fn drop(&mut self) {
+        unsafe { CFRelease(self.0) };
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    fn CFDataCreate(allocator: CfRef, bytes: *const u8, length: isize) -> CfRef;
+    fn CFDictionaryCreate(
+        allocator: CfRef,
+        keys: *const CfRef,
+        values: *const CfRef,
+        count: isize,
+        key_callbacks: *const libc::c_void,
+        value_callbacks: *const libc::c_void,
+    ) -> CfRef;
+    fn CFRelease(value: CfRef);
+    fn CFStringCreateWithBytes(
+        allocator: CfRef,
+        bytes: *const u8,
+        length: isize,
+        encoding: u32,
+        external_representation: u8,
+    ) -> CfRef;
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "Security", kind = "framework")]
+extern "C" {
+    static kSecGuestAttributeAudit: CfRef;
+    fn SecCodeCheckValidity(code: CfRef, flags: u32, requirement: CfRef) -> i32;
+    fn SecCodeCopyGuestWithAttributes(
+        host: CfRef,
+        attributes: CfRef,
+        flags: u32,
+        guest: *mut CfRef,
+    ) -> i32;
+    fn SecRequirementCreateWithString(text: CfRef, flags: u32, requirement: *mut CfRef) -> i32;
+}
+
+#[cfg(target_os = "macos")]
+fn security_status(status: i32, operation: &str) -> Result<()> {
+    if status != 0 {
+        bail!("{operation} failed with OSStatus {status}");
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn compile_macos_requirement(requirement: &str) -> Result<OwnedCf> {
+    const UTF8_ENCODING: u32 = 0x0800_0100;
+    let text = OwnedCf::new(
+        unsafe {
+            CFStringCreateWithBytes(
+                std::ptr::null(),
+                requirement.as_ptr(),
+                requirement.len() as isize,
+                UTF8_ENCODING,
+                0,
+            )
+        },
+        "CFStringCreateWithBytes",
+    )?;
+    let mut compiled = std::ptr::null();
+    security_status(
+        unsafe { SecRequirementCreateWithString(text.0, 0, &mut compiled) },
+        "compile macOS code-signing requirement",
+    )?;
+    OwnedCf::new(compiled, "SecRequirementCreateWithString")
+}
+
+#[cfg(target_os = "macos")]
+fn validate_macos_code_signing_requirement(requirement: Option<&str>) -> Result<()> {
+    let requirement = requirement.context("macOS workload has no code-signing requirement")?;
+    if requirement.len() > 4096 || !valid_atom(requirement) {
+        bail!("invalid macOS workload code-signing requirement");
+    }
+    let _ = compile_macos_requirement(requirement)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn verify_peer_code_signature(peer: &PeerIdentity, workload: &Workload) -> Result<()> {
+    let requirement_text = workload
+        .macos_code_signing_requirement
+        .as_deref()
+        .context("macOS workload has no code-signing requirement")?;
+    let requirement = compile_macos_requirement(requirement_text)?;
+    let audit_data = OwnedCf::new(
+        unsafe {
+            CFDataCreate(
+                std::ptr::null(),
+                &peer.audit_token as *const AuditToken as *const u8,
+                std::mem::size_of::<AuditToken>() as isize,
+            )
+        },
+        "CFDataCreate",
+    )?;
+    let keys = [unsafe { kSecGuestAttributeAudit }];
+    let values = [audit_data.0];
+    let attributes = OwnedCf::new(
+        unsafe {
+            CFDictionaryCreate(
+                std::ptr::null(),
+                keys.as_ptr(),
+                values.as_ptr(),
+                1,
+                std::ptr::null(),
+                std::ptr::null(),
+            )
+        },
+        "CFDictionaryCreate",
+    )?;
+    let mut code = std::ptr::null();
+    security_status(
+        unsafe { SecCodeCopyGuestWithAttributes(std::ptr::null(), attributes.0, 0, &mut code) },
+        "resolve peer code from audit token",
+    )?;
+    let code = OwnedCf::new(code, "SecCodeCopyGuestWithAttributes")?;
+    security_status(
+        unsafe { SecCodeCheckValidity(code.0, 0, requirement.0) },
+        "validate peer code signature",
+    )
+}
+
+#[cfg(target_os = "linux")]
+fn peer_identity(stream: &UnixStream) -> Result<PeerIdentity> {
     let fd = std::os::fd::AsRawFd::as_raw_fd(stream);
     let mut cred = libc::ucred {
         pid: 0,
@@ -1643,7 +1864,7 @@ fn peer_identity(stream: &UnixStream) -> Result<(u32, u32, i32)> {
         gid: 0,
     };
     let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
-    if unsafe {
+    let status = unsafe {
         libc::getsockopt(
             fd,
             libc::SOL_SOCKET,
@@ -1651,42 +1872,98 @@ fn peer_identity(stream: &UnixStream) -> Result<(u32, u32, i32)> {
             &mut cred as *mut _ as *mut _,
             &mut len,
         )
-    } != 0
-    {
-        return Err(std::io::Error::last_os_error().into());
+    };
+    if status != 0 {
+        return Err(std::io::Error::last_os_error()).context("resolve Linux peer credentials");
     }
-    Ok((cred.uid, cred.gid, cred.pid))
+    if len as usize != std::mem::size_of::<libc::ucred>() || cred.pid <= 0 {
+        bail!("Linux returned malformed peer credentials");
+    }
+    Ok(PeerIdentity {
+        uid: cred.uid,
+        gid: cred.gid,
+        pid: cred.pid,
+    })
 }
 #[cfg(target_os = "macos")]
-fn peer_identity(stream: &UnixStream) -> Result<(u32, u32, i32)> {
+fn peer_identity(stream: &UnixStream) -> Result<PeerIdentity> {
     use std::os::fd::AsRawFd;
-    let mut uid = 0;
-    let mut gid = 0;
-    if unsafe { libc::getpeereid(stream.as_raw_fd(), &mut uid, &mut gid) } != 0 {
-        return Err(std::io::Error::last_os_error().into());
+
+    #[link(name = "bsm")]
+    extern "C" {
+        fn audit_token_to_egid(token: AuditToken) -> u32;
+        fn audit_token_to_euid(token: AuditToken) -> u32;
+        fn audit_token_to_pid(token: AuditToken) -> i32;
+        fn audit_token_to_pidversion(token: AuditToken) -> i32;
     }
-    let mut pid: i32 = 0;
-    let mut len = std::mem::size_of::<i32>() as libc::socklen_t;
+
     const SOL_LOCAL: i32 = 0;
-    const LOCAL_PEERPID: i32 = 2;
-    if unsafe {
+    const LOCAL_PEERPID: i32 = 0x002;
+    const LOCAL_PEERTOKEN: i32 = 0x006;
+
+    let fd = stream.as_raw_fd();
+    let mut socket_uid = 0;
+    let mut socket_gid = 0;
+    if unsafe { libc::getpeereid(fd, &mut socket_uid, &mut socket_gid) } != 0 {
+        return Err(std::io::Error::last_os_error()).context("resolve macOS peer uid and gid");
+    }
+
+    let mut token = AuditToken { val: [0; 8] };
+    let mut token_len = std::mem::size_of::<AuditToken>() as libc::socklen_t;
+    let token_status = unsafe {
         libc::getsockopt(
-            stream.as_raw_fd(),
+            fd,
+            SOL_LOCAL,
+            LOCAL_PEERTOKEN,
+            &mut token as *mut _ as *mut _,
+            &mut token_len,
+        )
+    };
+    if token_status != 0 {
+        return Err(std::io::Error::last_os_error()).context("resolve macOS peer audit token");
+    }
+    if token_len as usize != std::mem::size_of::<AuditToken>() {
+        bail!("macOS returned a malformed peer audit token");
+    }
+
+    let mut socket_pid = 0;
+    let mut pid_len = std::mem::size_of::<i32>() as libc::socklen_t;
+    let pid_status = unsafe {
+        libc::getsockopt(
+            fd,
             SOL_LOCAL,
             LOCAL_PEERPID,
-            &mut pid as *mut _ as *mut _,
-            &mut len,
+            &mut socket_pid as *mut _ as *mut _,
+            &mut pid_len,
         )
-    } != 0
-    {
-        return Err(std::io::Error::last_os_error().into());
+    };
+    if pid_status != 0 {
+        return Err(std::io::Error::last_os_error()).context("resolve macOS peer pid");
     }
-    Ok((uid, gid, pid))
+    if pid_len as usize != std::mem::size_of::<i32>() {
+        bail!("macOS returned a malformed peer pid");
+    }
+
+    let uid = unsafe { audit_token_to_euid(token) };
+    let gid = unsafe { audit_token_to_egid(token) };
+    let pid = unsafe { audit_token_to_pid(token) };
+    let pid_version = unsafe { audit_token_to_pidversion(token) };
+    if uid != socket_uid || gid != socket_gid || pid != socket_pid || pid <= 0 || pid_version <= 0 {
+        bail!("macOS peer credentials and audit token disagree");
+    }
+    Ok(PeerIdentity {
+        uid,
+        gid,
+        pid,
+        audit_token: token,
+        pid_version: pid_version as u64,
+    })
 }
 #[cfg(target_os = "linux")]
-fn peer_process(pid: i32) -> Result<(PathBuf, u64)> {
-    let path = fs::read_link(format!("/proc/{pid}/exe")).context("resolve peer executable")?;
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat"))?;
+fn peer_process(peer: &PeerIdentity) -> Result<(PathBuf, u64)> {
+    let path =
+        fs::read_link(format!("/proc/{}/exe", peer.pid)).context("resolve peer executable")?;
+    let stat = fs::read_to_string(format!("/proc/{}/stat", peer.pid))?;
     let close = stat.rfind(')').context("invalid peer stat")?;
     let start = stat[close + 2..]
         .split_whitespace()
@@ -1696,67 +1973,32 @@ fn peer_process(pid: i32) -> Result<(PathBuf, u64)> {
     Ok((path, start))
 }
 #[cfg(target_os = "macos")]
-fn peer_process(pid: i32) -> Result<(PathBuf, u64)> {
-    #[repr(C)]
-    struct BsdInfo {
-        flags: u32,
-        status: u32,
-        xstatus: u32,
-        pid: u32,
-        ppid: u32,
-        uid: u32,
-        gid: u32,
-        ruid: u32,
-        rgid: u32,
-        svuid: u32,
-        svgid: u32,
-        rfu: u32,
-        comm: [u8; 16],
-        name: [u8; 32],
-        nfiles: u32,
-        pgid: u32,
-        pjobc: u32,
-        e_tdev: u32,
-        e_tpgid: u32,
-        nice: i32,
-        start_sec: u64,
-        start_usec: u64,
-    }
+fn peer_process(peer: &PeerIdentity) -> Result<(PathBuf, u64)> {
     extern "C" {
-        fn proc_pidpath(pid: i32, buffer: *mut libc::c_void, buffersize: u32) -> i32;
-        fn proc_pidinfo(
-            pid: i32,
-            flavor: i32,
-            arg: u64,
+        fn proc_pidpath_audittoken(
+            audit_token: *mut AuditToken,
             buffer: *mut libc::c_void,
-            buffersize: i32,
+            buffer_size: u32,
         ) -> i32;
     }
-    let mut pathbuf = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    let n = unsafe { proc_pidpath(pid, pathbuf.as_mut_ptr() as *mut _, pathbuf.len() as u32) };
-    if n <= 0 {
-        bail!("resolve peer executable")
-    };
-    pathbuf.truncate(n as usize);
-    let mut info: BsdInfo = unsafe { std::mem::zeroed() };
-    const PROC_PIDTBSDINFO: i32 = 3;
-    let got = unsafe {
-        proc_pidinfo(
-            pid,
-            PROC_PIDTBSDINFO,
-            0,
-            &mut info as *mut _ as *mut _,
-            std::mem::size_of::<BsdInfo>() as i32,
+
+    let mut token = peer.audit_token;
+    let mut path_buffer = vec![0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+    let length = unsafe {
+        proc_pidpath_audittoken(
+            &mut token,
+            path_buffer.as_mut_ptr() as *mut _,
+            path_buffer.len() as u32,
         )
     };
-    if got != std::mem::size_of::<BsdInfo>() as i32 || info.start_sec == 0 {
-        bail!("resolve peer process start");
+    if length <= 0 || length as usize > path_buffer.len() {
+        return Err(std::io::Error::last_os_error())
+            .context("resolve peer executable from audit token");
     }
+    path_buffer.truncate(length as usize);
     Ok((
-        PathBuf::from(String::from_utf8(pathbuf)?),
-        info.start_sec
-            .saturating_mul(1_000_000)
-            .saturating_add(info.start_usec),
+        PathBuf::from(String::from_utf8(path_buffer)?),
+        peer.pid_version,
     ))
 }
 
@@ -2612,6 +2854,15 @@ mod tests {
                 json!({"type": "api-token", "value": "sk_live\nvalue"}),
                 b"sk_live\nvalue".as_slice(),
             ),
+            (
+                json!({
+                    "schema": "skarbiec.item.v2",
+                    "kind": "stado-secret",
+                    "fields": {"token": "canonical-secret"},
+                    "context": {}
+                }),
+                b"canonical-secret".as_slice(),
+            ),
         ];
 
         for (item, expected) in cases {
@@ -2643,6 +2894,15 @@ mod tests {
                 "sibling field",
                 json!({"type": "api-token", "value": "secret", "metadata": "must-not-leak"}),
             ),
+            (
+                "canonical sibling field",
+                json!({
+                    "schema": "skarbiec.item.v2",
+                    "kind": "stado-secret",
+                    "fields": {"token": "secret", "metadata": "must-not-leak"},
+                    "context": {}
+                }),
+            ),
         ];
 
         for (case, item) in rejected {
@@ -2661,6 +2921,7 @@ mod tests {
             gid: 1000,
             executable_path: "/usr/bin/weles".into(),
             executable_sha256: "00".repeat(32),
+            macos_code_signing_requirement: None,
             proof_key: "proof-key".into(),
             agent_ids: agent_ids.into_iter().map(str::to_owned).collect(),
         };

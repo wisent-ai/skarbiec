@@ -365,9 +365,12 @@ impl Vault {
         {
             bail!("item is in trash: {id} (restore it first)");
         }
-        let cipher = item
+        let current = item
             .get("current")
-            .and_then(Value::as_str)
+            .context("item has no current revision")?;
+        let cipher = current
+            .as_str()
+            .or_else(|| current.get("ciphertext").and_then(Value::as_str))
             .context("item has no ciphertext")?;
         let mut plain = crypto::decrypt(cipher)?;
         let parsed = serde_json::from_str(&plain).context("decrypted item is not JSON");
