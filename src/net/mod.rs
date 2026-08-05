@@ -345,8 +345,8 @@ pub(crate) fn handle_owner_pubkey(stream: &mut TcpStream) -> Result<()> {
 
 /// `POST /v1/donations` — p2p v2: enqueue into the donation inbox instead of
 /// merging; the owner merges with donation-accept (docs/design/bond.md).
-/// Requires a `donate` grant. Provenance rule: an existing id admits the
-/// donation only when its `written_by` matches the donor's `from` claim.
+/// Requires an exact `donate:<item_id>` grant. Provenance rule: an existing id
+/// admits the donation only when its `written_by` matches the donor's `from` claim.
 pub(crate) fn handle_donation(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
@@ -377,12 +377,18 @@ pub(crate) fn handle_donation(
         .unwrap_or(header_consumer);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "donate", "")?
+        || !tokens::token_allows_vault_action(
+            &vault,
+            &consumer,
+            &bearer,
+            "donate",
+            item_id,
+        )?
     {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
-            &json!({"error": "donate grant required"}),
+            &json!({"error": format!("donate:{item_id} grant required")}),
         );
     }
     let from = parsed

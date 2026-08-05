@@ -276,15 +276,18 @@ refused.
 | Command | What it does |
 | --- | --- |
 | `pull --from <base-url> --token <token> [--consumer NAME] [--bond NAME] [--force]` | Fetch `GET /v1/vault` using the exact `sync:pull` grant and atomically replace the local vault. `--consumer` defaults to `replica`. The local `bond` registry is retained. Without `--force`, a remote vault with fewer item records is refused. |
-| `enroll --as <uid> --to <base-url> --token <token> [--items a,b,c] [--consumer NAME]` | Send the local owner's public key to the source. The source registers `uid` and re-seals exactly the named items to that recipient. `--consumer` defaults to `enroll`; the next `pull` brings the re-sealed ciphertext to the replica. |
+| `enroll --as <uid> --to <base-url> --token <token> [--items a,b,c] [--consumer NAME]` | Send the local owner's public key to the source using the exact `enroll:<uid>` grant. The source registers `uid` and re-seals exactly the named items to that recipient. `--consumer` defaults to `enroll`; the next `pull` brings the re-sealed ciphertext to the replica. |
 | `sync-daemon --bond <name> --token <token> [--consumer NAME]` | Repeatedly run serve-channel pulls using the bond's address and `interval_seconds`. It handles SIGTERM and reports the last pull when it exits. A service manager must provide persistence. |
 | `sync-status [--bond <name>] [--token <token>] [--consumer NAME]` | Return per-bond configuration, last-pull state, local item count, and serve-channel health. Supplying a token also permits the remote item count to be read. `--consumer` defaults to `replica`. |
 
-The source must run `skarbiec serve`. `pull` requires a direct token containing
-`sync:pull`. `enroll` is intended to require an `enroll` capability, but the
-current server checks an empty resource while `token-mint` rejects empty
-resources. A freshly minted direct token therefore cannot currently satisfy the
-enroll route; the CLI fails closed rather than broadening the grant.
+The source must run `skarbiec serve`. `pull` requires `sync:pull`; `enroll`
+requires `enroll:<uid>`, where `<uid>` exactly equals the value passed to
+`--as`. Both are direct capabilities minted on the source vault:
+
+```sh
+skarbiec token-mint replica --capabilities sync:pull
+skarbiec token-mint enroll --capabilities enroll:replica-1
+```
 
 ### Bond registry
 
@@ -302,17 +305,19 @@ enroll route; the CLI fails closed rather than broadening the grant.
 
 | Command | What it does |
 | --- | --- |
-| `donate <item-id> --to <base-url> --consumer <name> --token <token> [--from WRITER]` | Fetch the destination owner's public key, decrypt the local item, re-encrypt its canonical payload to that owner, and enqueue it remotely. `--from` defaults to the token consumer. |
+| `donate <item-id> --to <base-url> --consumer <name> --token <token> [--from WRITER]` | Fetch the destination owner's public key, decrypt the local item, re-encrypt its canonical payload to that owner, and enqueue it remotely using the exact `donate:<item-id>` grant. `--from` defaults to the token consumer. |
 | `donations` | List pending donation metadata without returning armored or plaintext payloads. |
 | `donation-accept <donation-id>` | Recheck provenance, decrypt the queued payload, and append or overwrite the item when the donor is allowed to do so. |
 | `donation-reject <donation-id>` | Remove a pending donation without modifying the vault. |
 
 Inbound donations are review-first. A new item ID may be appended. An existing
 ID may be overwritten only when its `written_by` matches the donation's `from`;
-older items without provenance reject the collision. As with `enroll`, the
-current donation route checks an empty `donate` resource that the current
-`token-mint` grammar cannot create, so newly minted direct tokens cannot yet
-authorize the route.
+older items without provenance reject the collision. The destination vault must
+mint a direct capability for the exact donated item and consumer:
+
+```sh
+skarbiec token-mint donor --capabilities donate:shared-item
+```
 
 ### Workload invitation
 

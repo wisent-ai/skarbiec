@@ -1,6 +1,6 @@
 # bond — the vault synchronization primitive
 
-Status: implemented (2026-07-29) — full-vault pull over serve (`GET /v1/vault` gated by a `sync:pull` grant, `skarbiec pull` with an item-count regression guard and atomic rename), the `bond` config section in the vault doc (`bond-add`/`bond-list`/`bond-remove`), and the p2p donation path (`GET /v1/owner-pubkey`, `POST /v1/donations` gated by a `donate` grant, append-only with `exists` rejection, `skarbiec donate`) all exist; hub mode needs nothing beyond scoped grants and git mode is `sync-init`/`sync-push`/`sync-pull`.
+Status: implemented (2026-07-29) — full-vault pull over serve (`GET /v1/vault` gated by a `sync:pull` grant, `skarbiec pull` with an item-count regression guard and atomic rename), the `bond` config section in the vault doc (`bond-add`/`bond-list`/`bond-remove`), and the p2p donation path (`GET /v1/owner-pubkey`, `POST /v1/donations` gated by an exact `donate:<item-id>` grant, append-only with `exists` rejection, `skarbiec donate`) all exist; hub mode needs nothing beyond scoped grants and git mode is `sync-init`/`sync-push`/`sync-pull`.
 
 ## Definition
 
@@ -95,9 +95,10 @@ stones as one structure, and the obligation of trust between parties.
   `from` is an unsigned claim, signing arrives with real peer keys later.
 - **Enroll** — `skarbiec enroll --as <uid> --to <base-url> --token <t>
   --items a,b,c` sends the local owner's armored public key to
-  `POST /v1/enroll` (scope `enroll`); the source registers it as a member
-  and re-seals the listed items to it (preserving `written_by`). After the
-  next pull the replica opens exactly the enrolled items with its own key.
+  `POST /v1/enroll` using the exact `enroll:<uid>` capability; the source
+  registers it as a member and re-seals the listed items to it (preserving
+  `written_by`). After the next pull the replica opens exactly the enrolled
+  items with its own key.
 - **sync-daemon** — `skarbiec sync-daemon --bond <name> --token <t>` pulls
   on `bond.channel.interval_seconds` (read from the vault doc, never a
   literal) and shuts down cleanly on SIGTERM. launchd wraps it for

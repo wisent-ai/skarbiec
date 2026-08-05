@@ -97,8 +97,8 @@ pub(crate) fn handle_vault_pull(
 
 /// `POST /v1/enroll` — a replica sends its armored public key and a list of
 /// item ids; the source registers the key as a member recipient and re-seals
-/// each listed item to include it. Requires an `enroll` grant. After the next
-/// pull, the replica can open exactly those items with its own key.
+/// each listed item to include it. Requires an exact `enroll:<uid>` grant.
+/// After the next pull, the replica can open exactly those items with its own key.
 pub(crate) fn handle_enroll(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
@@ -131,12 +131,18 @@ pub(crate) fn handle_enroll(
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "enroll", "")?
+        || !tokens::token_allows_vault_action(
+            &vault,
+            &consumer,
+            &bearer,
+            "enroll",
+            uid,
+        )?
     {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
-            &json!({"error": "enroll grant required"}),
+            &json!({"error": format!("enroll:{uid} grant required")}),
         );
     }
     crypto::import_key(armored).context("import enrolled public key")?;

@@ -1,6 +1,6 @@
 #!/bin/sh
 # donation-inbox.sh — donate an item, then review it in the remote inbox.
-# Usage: sh donation-inbox.sh <donor-vault> <item> <remote-base-url> <donate-token>
+# Usage: sh donation-inbox.sh <donor-vault> <item> <remote-base-url> <donate:item-token>
 set -eu
 
 export SKARBIEC_VAULT_FILE=$1
