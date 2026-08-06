@@ -4,6 +4,7 @@
 // this router simply forwards to them in turn; a real error propagates via `?`.
 
 pub mod acquisition;
+pub mod capability;
 pub mod policy;
 pub mod recipients;
 pub mod recovery;
@@ -22,6 +23,9 @@ pub fn dispatch(
         return Ok(Some(v));
     }
     if let Some(v) = acquisition::dispatch(command, flags, positionals)? {
+        return Ok(Some(v));
+    }
+    if let Some(v) = capability::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
     if let Some(v) = tokens::dispatch(command, flags, positionals)? {
