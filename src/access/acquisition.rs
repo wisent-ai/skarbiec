@@ -413,10 +413,20 @@ pub fn consume(consumer: &str, presented: &str, item: &str, field: &str) -> Resu
     }
 
     let vault = Vault::open(vault_path())?;
-    let payload = vault.get_item(item)?;
-    let value = schema::field(&payload, field)
-        .cloned()
-        .context("acquisition field no longer exists on item")?;
+    // While an adopt is in flight the operator-supplied candidate is the only
+    // value that proves anything, and only the adopt verification path may
+    // read it. Outside that exact window a candidate is unreadable and the
+    // single-use bearer is left unspent.
+    let value = match crate::credential::managed_read(&vault, item, field, consumer)? {
+        crate::credential::ManagedRead::Staged(candidate) => candidate,
+        crate::credential::ManagedRead::Refused => return Ok(None),
+        crate::credential::ManagedRead::Current => {
+            let payload = vault.get_item(item)?;
+            schema::field(&payload, field)
+                .cloned()
+                .context("acquisition field no longer exists on item")?
+        }
+    };
     state
         .get_mut("tokens")
         .and_then(Value::as_object_mut)

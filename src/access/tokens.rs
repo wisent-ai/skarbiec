@@ -201,6 +201,10 @@ fn allowed_action(action: &str) -> bool {
             | "sync"
             | "enroll"
             | "donate"
+            // Credential lifecycle: drive operations on one exact item, and
+            // reseal its directory contract. Neither reads a value.
+            | "lifecycle"
+            | "reseal"
     )
 }
 
@@ -226,6 +230,9 @@ fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
         if matches!(action, "acquire" | "stage" | "rotate" | "verify") && field.is_none() {
             bail!("{action} capability requires one exact field");
         }
+        if matches!(action, "lifecycle" | "reseal") && field.is_some() {
+            bail!("{action} capability is item-scoped and must not name a field");
+        }
         if let Some(field) = field {
             if field == "context" && action != "read" {
                 bail!("context is metadata and may only be named by read capabilities");
@@ -246,7 +253,10 @@ fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
             } else if !matches!(action, "stage" | "acquire") {
                 bail!("capability names a missing item: {item}");
             }
-        } else if matches!(action, "share" | "trash" | "purge" | "admin") {
+        } else if matches!(
+            action,
+            "share" | "trash" | "purge" | "admin" | "lifecycle" | "reseal"
+        ) {
             vault
                 .doc()
                 .get("items")
@@ -474,6 +484,24 @@ pub fn dispatch(
                 })
             {
                 bail!("acquire capabilities cannot share a grant with direct capabilities");
+            }
+            // Driving a credential lifecycle never authorizes reading the
+            // value it rotates, so the two never share one bearer.
+            let action_of = |capability: &Value| {
+                capability
+                    .get("action")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            if capabilities
+                .iter()
+                .any(|capability| action_of(capability) == "lifecycle")
+                && capabilities
+                    .iter()
+                    .any(|capability| action_of(capability) == "read")
+            {
+                bail!("lifecycle capabilities cannot share a grant with read capabilities");
             }
             let workload_public_key = match flags.get("workload-public-key-file") {
                 Some(path) => Some(read_workload_public_key(Path::new(path))?),

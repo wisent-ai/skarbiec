@@ -153,7 +153,7 @@ pub fn import_json(positionals: &[String]) -> Result<Value> {
     for row in rows {
         match row.get("id").and_then(Value::as_str) {
             Some(id) => {
-                if id.starts_with("operation:credential/") {
+                if crate::credential::lifecycle_owned_item(id) {
                     bail!("{id} is managed by the credential lifecycle and cannot be imported");
                 }
                 if crate::core::inbox::managed_by_weles(&vault, id) {

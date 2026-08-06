@@ -102,20 +102,285 @@ Canonical import shape:
 
 ## Externally managed credentials through Weles
 
+Every `credential` command is a thin client of the canonical Skarbiec, which is
+the only remote hop of a credential lifecycle. The endpoint comes from
+`${STADO_FORWARDS_DIR:-$HOME/.stado/forwards}/skarbiec.local`: an owner-owned
+regular file without group or world write, holding exactly one `https` URL or
+one loopback `http` URL with an exact port. Anything else fails closed as
+`SKARBIEC_ENDPOINT_UNRESOLVED`, and a canonical endpoint this binary cannot
+reach without a TLS client fails as `SKARBIEC_ENDPOINT_TLS_UNSUPPORTED`. A `409`
+reply that reports a stale service directory is surfaced as
+`SERVICE_DIRECTORY_STALE`. Client calls authenticate with `--as <caller>` and
+`--token-file <path>` (or `SKARBIEC_CREDENTIAL_TOKEN_FILE`); the bearer is read
+from an owner-only file so it never reaches argv.
+
+`--local` is the only way to act on this vault file directly. `adopt`,
+`seal-directory`, `reseal`, and `resolve-quarantine` hold the vault file and the
+operator's own secrets, so they exist only in local mode.
+
+### Which vault file is the canonical one
+
+One vault file is the canonical Skarbiec for a directory credential, and the
+`--local` commands — `adopt`, `seal-directory`, `reseal`, `resolve-quarantine`
+— must run against that exact file, on the host that holds it. A second vault
+on a second machine may well hold an item with the same id; sealing a contract
+or rotating a password there produces a credential nobody reads.
+
+Skarbiec never infers that file from a path, a hostname, or a default. The
+criterion that decides it, for one exact item:
+
+1. The vault where both consumers of that item are registered: the writer
+   holding `write:<item-id>` and the reader bound to the field the item
+   carries.
+2. Which is the same vault backing the Skarbiec service declared for that
+   credential in the Stado registry — the service this host's launcher starts.
+3. And in which the item itself is live.
+
+All three name one file, or the question is not settled yet. An operator
+confirms a candidate read-only before deciding:
+
+```
+SKARBIEC_VAULT_FILE=<candidate>.vault.json skarbiec tokens
+SKARBIEC_VAULT_FILE=<candidate>.vault.json skarbiec list
+SKARBIEC_VAULT_FILE=<candidate>.vault.json skarbiec credential status <item-id> --local
+```
+
+The first names the registered consumers and the exact field each one reads,
+the second proves the item is live in that file, and the third reports whether
+it is eligible for a lifecycle at all. Where two candidate files exist on two
+machines, choosing between them is an operator decision made once and recorded;
+running a lifecycle against the wrong one is not recoverable by rerunning it
+against the right one.
+
+### Directory identity is an item contract, never a call argument
+
+An item carries its directory identity as a sealed block written once:
+
+```json
+{
+  "provider": "microsoft_entra",
+  "tenant_id": "23572277-0021-42ac-b2b9-10bd86c7d2af",
+  "principal_object_id": "4c888895-03cf-4ab1-a11e-46942c568217",
+  "account_upn": "jakub@wisent.com",
+  "sealed_at": "2026-08-05T09:14:02Z"
+}
+```
+
+No lifecycle command accepts that identity: Skarbiec reads it from the item and
+puts the four canonical fields on the wire itself, so no caller can rotate one
+principal's password while naming another. `sealed_at` stays item-local. The
+sealed block lives in the item's canonical `context.directory` and, so it also
+survives an item that does not exist yet, in an owner-controlled record at
+`directory:credential/<item-id>`. The two copies must agree; a divergence is
+`DIRECTORY_CONTRACT_DIVERGED` and refuses every operation until a reseal.
+
+`--expect-tenant`, `--expect-object-id`, and `--expect-upn` are a cross-check
+only. They supply nothing: a value that does not match the sealed contract fails
+as `DIRECTORY_EXPECTATION_MISMATCH` before anything reaches the bridge.
+
 | Command | What it does |
 | --- | --- |
-| `credential acquire <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Acquire or adopt one exact allowlisted provider credential. A pre-existing local item without Weles provenance is rejected rather than reported as ready. |
-| `credential rotate <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Ask Weles to rotate the credential at the provider, freshly authenticate it, and commit the exact value to Skarbiec. |
-| `credential verify <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Ask Weles to authenticate the stored value at the provider. A successful check rewrites the same value with the operation request ID as provenance. |
-| `credential remove <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--purpose <purpose>] [--dry-run]` | Request provider-side revocation and local removal. Providers without a safe revocation contract fail closed. |
-| `credential status <item-id>` | Poll the exact Weles action-log ID, persist queued/failure/review/completed state, and verify that the current encrypted item is attributable to that request. A merely present item is `managed` or `unmanaged`, never externally verified. |
+| `credential seal-directory <item-id> --provider <p> --tenant <uuid> --object-id <uuid> --account-upn <email> --local` | Seal the directory identity of one item, once. The item does not have to exist yet. An item that already carries a sealed contract is refused. |
+| `credential reseal <item-id> --provider <p> --tenant <uuid> --object-id <uuid> --account-upn <email> --as <consumer> --token-file <path> --local` | Replace a sealed contract. Requires a `reseal` capability on that exact item. No lifecycle operation ever writes or overwrites the block. |
+| `credential acquire <item-id> --consumer <consumer> [--purpose <purpose>]` | Acquire a new provider credential Weles generates. A pre-existing local item without Weles provenance is rejected rather than reported as ready. |
+| `credential adopt <item-id> --provider <p> --consumer <consumer> --password-stdin --local` | Take over a password the operator already knows. The password is read from stdin only, never from argv or an endpoint body, and its buffer is zeroed after use. Skarbiec stages the candidate, Weles performs a fresh login and returns only a verdict, and the value is committed on `operation_completed`. After a committed adopt the item is `managed` and `rotate` is available. An item that is already `managed` is refused. |
+| `credential rotate <item-id> --consumer <consumer> [--purpose <purpose>]` | Rotate a credential whose current value Skarbiec already manages. Because the current value is known, a failed change can be rolled back. |
+| `credential reset <item-id> --consumer <consumer> [--purpose <purpose>]` | Set a new password when the current one is unknown, so no rollback value exists. Interactive identity verification stops as `needs_human_approval`; a reset is never queued as a `rotate`. Directory providers only. |
+| `credential verify <item-id> --consumer <consumer> [--purpose <purpose>]` | Authenticate the stored value at the provider with a fresh login and rewrite the same value with this request as provenance. |
+| `credential remove <item-id> --consumer <consumer> [--purpose <purpose>]` | Request provider-side revocation and local removal. Providers without a safe revocation contract fail closed. |
+| `credential resume <item-id> --approval <id> --resume-token <token>` | Resume the operation that stopped as `needs_human_approval`. `--resume-token-file <path>` reads the token from an owner-only file instead of argv. Resubmitting the operation is not a way to resume it. |
+| `credential resolve-quarantine <item-id> --confirm '<phrase>' [--staged keep\|activate\|discard] --as <consumer> --token-file <path> --local` | Settle a quarantined item. Requires an `admin` capability on that exact item (on its operation record when the item does not exist) and the exact confirmation phrase `I know which password this provider account accepts`. Writes an audit entry and returns the item to `unmanaged`, so knowing the password again is always an explicit act. |
+| `credential status <item-id> [--follow]` | Poll the exact Weles action-log ID, persist queued/failure/review/completed state, commit or roll back the staged revision, and report the item's lifecycle state, receipt, quarantine block, and whether it is eligible for a lifecycle at all. `--follow` repeats that same persisted poll every 5 seconds for at most 30 minutes. |
 
-`SKARBIEC_WELES_CREDENTIAL_COMMAND` must name an absolute,
-owner-controlled, non-symlink executable. Skarbiec passes
-`skarbiec.credential-operation.v1` JSON on stdin and accepts only a bounded,
-sanitized JSON response on stdout. The bridge owns the finite mapping from item
-IDs to Weles lifecycle contracts; an unknown item/provider/field/writer-consumer
-or operation tuple fails closed.
+`--dry-run` is a local-mode flag: it plans one operation without taking the
+operation lock or writing a request record. `adopt` has no dry run because it
+would have to read the operator's password for nothing.
+
+### The item's field is a contract, not a mapping
+
+A provider contract writes one exact field: `password` for `microsoft_entra`
+and `microsoft`, `api_key` for anything else. Before a managed item begins any
+operation, Skarbiec checks that the item already carries that exact field. An
+item whose field is named something else — `login_password`, say — is refused
+as `CREDENTIAL_FIELD_CONTRACT_MISMATCH`, naming both the field the item carries
+and the field the contract writes.
+
+There is no alias, and no automatic migration. Mapping one name onto the other
+is what allowed one credential to be known by two names in the first place, and
+a lifecycle that wrote `password` beside `login_password` would leave the
+password the provider now accepts in a key none of that item's readers resolve.
+An item with a non-canonical field is not eligible for a lifecycle, and making
+it eligible is an explicit operator decision:
+
+1. Establish which name is canonical for that item, and which name its
+   registered readers actually read (`skarbiec tokens`).
+2. Move the item and every consumer registration onto that one name, or leave
+   the item outside the lifecycle entirely.
+3. Only then seal its directory contract and run the first operation.
+
+Skarbiec takes none of those steps on an operator's behalf, and refuses every
+operation until they are taken.
+
+### One command answers why an item is not ready
+
+`credential status` reports `lifecycle_eligible`, and whenever it is false,
+every reason at once in `lifecycle_blockers`. Readiness is one question with
+one answer, not one refused operation per reason:
+
+| `reason` | What it means |
+| --- | --- |
+| `legacy_envelope` | The item still uses the pre-v2 envelope; run `migrate-v2`. Its payload cannot be read at all, so its field cannot be judged until that envelope is gone. |
+| `noncanonical_field` | The item's field is not the one its provider contract writes. The detail names both. |
+| `no_directory_contract` | No sealed directory block resolves for the item, or its two copies disagree. |
+| `quarantined` | The item is frozen until `credential resolve-quarantine` settles it. |
+
+```json
+{
+  "lifecycle_eligible": false,
+  "lifecycle_blockers": [
+    {"reason": "legacy_envelope", "detail": "<item-id> still uses the pre-v2 envelope; run migrate-v2 before any lifecycle operation"},
+    {"reason": "no_directory_contract", "detail": "<item-id> has no sealed directory block; seal it with credential seal-directory before any lifecycle operation"}
+  ]
+}
+```
+
+The list is never cut short at the first reason found, and an empty list with
+`lifecycle_eligible: true` is the only statement that an item is ready.
+
+### Provider effect and retries
+
+Every response carries what the operation did to the password the provider
+accepts:
+
+| `provider_effect` | Automatic retry |
+| --- | --- |
+| `none` | Allowed. |
+| `changed` | Refused until a `verify` succeeds or a rollback is confirmed (`PROVIDER_EFFECT_CHANGED_RETRY_BLOCKED`). |
+| `unknown` | Always refused. The item is quarantined. |
+
+A rollback reported as `failed` or `unknown` quarantines the item for the same
+reason: nobody knows which password is live. So does a failed operation that
+reports `changed` without a confirmed rollback — the provider may hold exactly
+the value Skarbiec staged, so that staged candidate is frozen rather than rolled
+back away, and `credential resolve-quarantine --staged activate` is how an
+operator adopts it once they have checked.
+
+### Item lifecycle states
+
+`unmanaged`, `managed`, `adopting`, or `quarantined`. An unknown stored state is
+a refusal, not a guess.
+
+A quarantined item blocks every operation until `credential
+resolve-quarantine`. The freeze is recorded in the operation record, as an item
+tag, and — whenever the item has no staged revision to preserve — in
+`context.quarantine`. A staged candidate is never discarded on the way into
+quarantine, because it may be the value the provider now accepts; `--staged`
+decides its fate at resolution time.
+
+`adopting` means an operator-supplied candidate is in flight. Such an item never
+reports as externally verified, and the candidate is readable only by the adopt
+verification path: an active adopt for that exact item, request ID, field, and
+presenting consumer. Any other read is refused. Because an item can only enter
+Weles management at creation, `adopt` is the sole legitimate entry point into
+`managed` for a password whose value is already known; if adopt created the item
+and then failed, it trashes exactly what it created and nothing else.
+
+### Approval as a resource
+
+A `needs_human_approval` response carries all six fields or none:
+
+```json
+{
+  "approval": {
+    "approval_id": "review-8842",
+    "phase": "identity_verification",
+    "provider_effect": "none",
+    "expires_at": "2026-08-05T10:14:02Z",
+    "resume_token": "0f3c...",
+    "instruction": "Approve the sign-in prompt on the enrolled device."
+  }
+}
+```
+
+`credential resume` refuses an approval that does not match the waiting
+operation, and an expired `expires_at` releases the operation instead of
+resuming it: the staged candidate goes back, the record stops blocking, and a
+fresh submit is the only way forward (`APPROVAL_EXPIRED`).
+
+### Receipt persisted with the revision it proves
+
+After a terminal success Skarbiec stores a receipt in the item's
+`context.receipt`, so `credential status` answers "was exactly this principal
+rotated" without reading a mailbox or a log:
+
+```json
+{
+  "receipt": {
+    "tenant_id": "23572277-0021-42ac-b2b9-10bd86c7d2af",
+    "principal_object_id": "4c888895-03cf-4ab1-a11e-46942c568217",
+    "account_upn": "jakub@wisent.com",
+    "operation": "rotate",
+    "request_id": "<64 hex>",
+    "evidence_digest": "<64 hex>",
+    "execution_host": "weles-worker-3",
+    "changed_at": "2026-08-05T09:41:55Z",
+    "verified_at": "2026-08-05T09:42:07Z",
+    "action_log_id": "task-77213"
+  }
+}
+```
+
+`changed_at` may be null, `verified_at` may not, and `request_id` and
+`evidence_digest` are 64 hexadecimal characters. A receipt naming another
+principal, request, or operation rejects the whole response. For provider
+`microsoft_entra` a completed operation without a valid receipt cannot be
+attributed to the sealed principal, so the item is quarantined instead of
+committed.
+
+### Serve endpoints
+
+| Endpoint | What it does |
+| --- | --- |
+| `POST /v1/credential/operations` | Submit or resume one operation. Body: `{item, operation, consumer, purpose?, expect?, approval?, resume_token?}`. It carries no directory identity and no provider: both come from the item contract, so an item with neither a sealed contract nor an earlier operation fails closed. `adopt` is refused here because its password only exists on operator stdin. |
+| `GET /v1/credential/operations/<item-id>` | The persisted state of that item's operation, with its receipt and quarantine block. The poll can commit a staged revision, so it serializes with every other writer. |
+
+Both endpoints require one exact `lifecycle` capability on that exact item, and
+`lifecycle` never authorizes reading a credential value.
+
+### Bridge contract
+
+`SKARBIEC_WELES_CREDENTIAL_COMMAND` must name an absolute, owner-controlled,
+non-symlink executable. Skarbiec passes `skarbiec.credential-operation.v3` JSON
+on stdin and accepts only a bounded, sanitized JSON response on stdout. Wire
+versions `v1` and `v2` are not accepted anywhere, including in persisted
+operation records. The bridge owns the finite mapping from item IDs to Weles
+lifecycle contracts; an unknown item/provider/field/writer-consumer or operation
+tuple fails closed. The bridge resolves the Weles admission endpoint through the
+Stado forward directory
+(`${STADO_FORWARDS_DIR:-$HOME/.stado/forwards}/weles-admission.local`) on the
+Weles host loopback, never from a `WELES_URL` environment variable; an absent or
+unsafe forward file is an explicit `needs_configuration` failure.
+
+Provider `microsoft_entra` requires a sealed directory contract, always writes
+canonical field `password`, and accepts only `adopt`, `rotate`, `verify`, and
+`reset`. Provider `microsoft` requires `--account <email>` and no sealed
+contract. Any other combination fails closed instead of guessing a contract.
+
+Beyond `status`, `message`, and the action-log IDs, Skarbiec accepts and emits
+these diagnostic fields when Weles reports them. Any value outside the accepted
+set rejects the whole response.
+
+| Field | Meaning |
+| --- | --- |
+| `code` | Machine-readable cause, `^[A-Z][A-Z0-9_]{0,63}$`, for example `ENTRA_IDENTITY_MISMATCH`. |
+| `phase` | Where the operation stopped: `admission`, `placement`, `credential_read`, `entra_sign_in`, `identity_verification`, `password_change`, `fresh_login_verification`, `skarbiec_stage`, `skarbiec_commit`, or `rollback`. |
+| `retryable` | Whether the same request can be resubmitted unchanged. |
+| `provider_effect` | `none`, `changed`, or `unknown`: what the operation did to the password the provider accepts. |
+| `rollback_status` | `none`, `completed`, `failed`, or `unknown`. |
+| `execution_host` | Worker host that ran the trajectory. |
+| `tenant_id`, `principal_object_id` | Directory identity Weles acted on; a mismatch with the sealed contract rejects the response. |
+| `approval` | The approval resource described above. |
+| `receipt` | The receipt described above. |
 
 Install the bridge from the public
 [`wisent-ai/weles-client`](https://github.com/wisent-ai/weles-client)
@@ -125,18 +390,30 @@ repository, then configure the organization-scoped hosted service values:
 git clone https://github.com/wisent-ai/weles-client
 npm install --global ./weles-client
 
-export WELES_URL=https://weles.wisent.com/api/v1/
 export WISENT_ORGANIZATION_ID=<organization-uuid>
 export WELES_TOKEN=<organization-scoped-token>
 export SKARBIEC_WELES_CREDENTIAL_COMMAND="$(npm root --global)/@wisent-ai/weles-client/bin/weles-skarbiec-acquire.mjs"
 
-skarbiec credential rotate weles-microsoft-primary-password \
-  --provider microsoft \
-  --consumer weles-microsoft-primary-password-writer \
-  --account owner@example.com \
-  --purpose incident-remediation
+skarbiec credential seal-directory weles-microsoft-jakub-wisent-com-password \
+  --provider microsoft_entra \
+  --tenant 23572277-0021-42ac-b2b9-10bd86c7d2af \
+  --object-id 4c888895-03cf-4ab1-a11e-46942c568217 \
+  --account-upn jakub@wisent.com \
+  --local
 
-skarbiec credential status weles-microsoft-primary-password
+printf '%s' "$CURRENT_PASSWORD" | skarbiec credential adopt \
+  weles-microsoft-jakub-wisent-com-password \
+  --provider microsoft_entra \
+  --consumer weles-microsoft-jakub-wisent-com-password-writer \
+  --local --password-stdin
+
+skarbiec credential rotate weles-microsoft-jakub-wisent-com-password \
+  --consumer weles-microsoft-jakub-wisent-com-password-writer \
+  --expect-upn jakub@wisent.com \
+  --purpose incident-remediation \
+  --as skarbiec-operator --token-file /etc/skarbiec/lifecycle.token
+
+skarbiec credential status weles-microsoft-jakub-wisent-com-password --follow --local
 ```
 
 The Snapchat contract writes canonical field `api_key` to
@@ -145,18 +422,27 @@ the Weles host with the exact `stage:weles-snapchat-snap-kit-api#api_key`
 capability in the owner-only writer token file; no broader writer or global
 bearer is accepted.
 
-Microsoft password rotation and verification use item IDs matching
-`weles-microsoft-<account-alias>-password`; the exact account is independently
-bound by `--account`. Weles writes canonical `username` and `password` fields,
-plus protected request and operation metadata through item-specific `stage`
-capabilities. It changes the provider first, performs a fresh password
-authentication, and only then writes the managed item. MFA or passkey challenges
+Entra password adoption, rotation, reset, and verification use item IDs matching
+`weles-microsoft-<account-alias>-password`, and the exact account is bound by the
+sealed directory contract of that item. The two accounts this exists for today
+are `weles-microsoft-jakub-wisent-com-password` (`jakub@wisent.com`, object ID
+`4c888895-03cf-4ab1-a11e-46942c568217`) and
+`weles-microsoft-lukasz-wisent-com-password` (`lukasz@wisent.com`, object ID
+`1f636f97-b07f-4e9b-952a-5d069ccc5b20`), both in tenant
+`23572277-0021-42ac-b2b9-10bd86c7d2af`. Weles writes canonical `username` and
+`password` fields plus protected request and operation metadata through
+item-specific `stage` capabilities. It confirms the signed-in tenant, object ID,
+and UPN before touching the password and again after the fresh login, changes the
+provider first, and only then writes the managed item. MFA or passkey challenges
 stop as `needs_human_approval` without changing Skarbiec.
 
 Once an item carries Weles provenance, owner-side `set`, `set-json`, `delete`,
 `restore`, `purge`, `restore-version`, and import overwrites are refused. Use
 the matching `credential` lifecycle operation so local and provider state
-cannot be changed independently.
+cannot be changed independently. Operation records
+(`operation:credential/<item-id>`) and sealed directory contracts
+(`directory:credential/<item-id>`) are owned end to end by the lifecycle: no
+item API, import, or donation may touch them.
 
 ## Recipients and sharing
 
@@ -173,7 +459,7 @@ cannot be changed independently.
 
 | Command | What it does |
 | --- | --- |
-| `token-mint <consumer> --capabilities action:item[#field] [--workload-public-key-file PATH] [--ttl-seconds N] [--audience NAME] [--replace-capabilities]` | Register exact structured capabilities. `acquire`, `stage`, `rotate`, and `verify` require a field. `acquire` requires an Ed25519 workload public key and returns no standing bearer; direct capabilities return a bearer once and retain only its hash. The TTL defaults to 30 days and the audience to the consumer. Replacing a different existing capability set requires `--replace-capabilities`. |
+| `token-mint <consumer> --capabilities action:item[#field] [--workload-public-key-file PATH] [--ttl-seconds N] [--audience NAME] [--replace-capabilities]` | Register exact structured capabilities. `acquire`, `stage`, `rotate`, and `verify` require a field; `share`, `trash`, `purge`, `admin`, `lifecycle`, and `reseal` are item-scoped and must not name one. `lifecycle` drives credential operations on that exact item and grants no read of its value, so it cannot share a grant with a `read` capability; `reseal` may replace that item's sealed directory contract. `acquire` requires an Ed25519 workload public key and returns no standing bearer; direct capabilities return a bearer once and retain only its hash. The TTL defaults to 30 days and the audience to the consumer. Replacing a different existing capability set requires `--replace-capabilities`. |
 | `token-verify <consumer> <resource> --action ACTION [--field FIELD] --token T` | Check one exact action/resource/field binding. |
 | `token-revoke <consumer>` | Drop a direct grant or acquisition workload identity. |
 | `tokens` | List consumers, structured capabilities, expiry, audience, and whether each identity is workload-bound. |

@@ -131,13 +131,7 @@ pub(crate) fn handle_enroll(
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(
-            &vault,
-            &consumer,
-            &bearer,
-            "enroll",
-            uid,
-        )?
+        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "enroll", uid)?
     {
         return http::write_response(
             stream,

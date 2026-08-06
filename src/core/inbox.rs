@@ -74,7 +74,7 @@ pub fn managed_by_weles(vault: &Vault, id: &str) -> bool {
 /// What an inbound donation for `item_id` may do, given current provenance.
 /// `from` is the writer identity claimed by the donor (v1: the consumer).
 pub fn admission(vault: &Vault, item_id: &str, from: &str) -> &'static str {
-    if item_id.starts_with("operation:credential/") {
+    if crate::credential::lifecycle_owned_item(item_id) {
         return "credential-lifecycle";
     }
     let exists = vault

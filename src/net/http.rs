@@ -16,6 +16,7 @@ use std::net::{TcpListener, TcpStream};
 
 use crate::access::tokens;
 use crate::core::{vault::Vault, vault_path};
+use crate::credential::CREDENTIAL_OPERATIONS_PATH;
 
 const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
@@ -72,7 +73,22 @@ pub(crate) fn write_response(
 // writer. Read-only routes stay parallel.
 static WRITE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
 
+// `GET /v1/credential/operations/<item>` names one exact item and nothing else.
+fn credential_status_item<'a>(method: &str, path: &'a str) -> Option<&'a str> {
+    if method != "GET" {
+        return None;
+    }
+    path.strip_prefix(CREDENTIAL_OPERATIONS_PATH)?
+        .strip_prefix('/')
+        .filter(|item| !item.is_empty() && !item.contains('/') && !item.contains('?'))
+}
+
 fn is_mutation(method: &str, path: &str) -> bool {
+    // A credential status poll commits or rolls back a staged revision, so it
+    // serializes with every other writer despite being a GET.
+    if credential_status_item(method, path).is_some() {
+        return true;
+    }
     matches!(
         (method, path),
         ("PUT", "/v1/items")
@@ -81,6 +97,7 @@ fn is_mutation(method: &str, path: &str) -> bool {
             | ("POST", "/v1/acquisitions/read")
             | ("POST", "/v1/donations")
             | ("POST", "/v1/enroll")
+            | ("POST", CREDENTIAL_OPERATIONS_PATH)
     )
 }
 
@@ -218,11 +235,11 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let Some(id) = request_id(&parsed) else {
             return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
         };
-        if id.starts_with("operation:credential/") {
+        if crate::credential::lifecycle_owned_item(id) {
             return write_response(
                 &mut stream,
                 denied_line,
-                &json!({"error": "credential lifecycle requests cannot be changed through item APIs"}),
+                &json!({"error": "credential lifecycle requests and sealed directory contracts cannot be changed through item APIs"}),
             );
         }
         let (consumer, bearer) = presented_identity(&headers);
@@ -261,6 +278,14 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             &json!({"item": id, "consumer": consumer}),
         )?;
         return write_response(&mut stream, ok_line, &json!({"ok": true, "id": id}));
+    }
+    // Credential lifecycle: the canonical Skarbiec is the only remote hop, so
+    // every operation and every status poll arrives here.
+    if method == "POST" && path == CREDENTIAL_OPERATIONS_PATH {
+        return crate::net::handle_credential_operations(&mut stream, &headers, &body);
+    }
+    if let Some(item) = credential_status_item(&method, &path) {
+        return crate::net::handle_credential_operation_status(&mut stream, &headers, item);
     }
     if method == "POST" && path == "/resolve" {
         return crate::runtime::resolve::handle_http_resolve(&mut stream, &headers, &body);

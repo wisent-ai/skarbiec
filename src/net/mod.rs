@@ -74,6 +74,20 @@ pub(crate) fn handle_items_read(
             &json!({"error": "consumer not authorized to read item field"}),
         );
     }
+    // An adopt candidate the provider has not confirmed is readable only by
+    // the adopt verification path, never by an ordinary read grant.
+    if field != "context"
+        && matches!(
+            crate::credential::managed_read(&vault, id, field, &consumer)?,
+            crate::credential::ManagedRead::Refused
+        )
+    {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 409 Conflict",
+            &json!({"error": "credential adoption is in flight; the staged candidate is not readable"}),
+        );
+    }
     let known = vault
         .doc()
         .get("items")
@@ -155,11 +169,11 @@ pub(crate) fn handle_items_put(
     let mode = parsed.get("mode").and_then(Value::as_str).unwrap_or("");
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
-    if id.starts_with("operation:credential/") {
+    if crate::credential::lifecycle_owned_item(id) {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
-            &json!({"error": "credential operation records cannot be changed through item APIs"}),
+            &json!({"error": "credential operation records and sealed directory contracts cannot be changed through item APIs"}),
         );
     }
     if mode != "acquire"
@@ -276,7 +290,7 @@ pub(crate) fn handle_items_put(
                 field,
                 &consumer,
                 operation_id,
-                &["rotate", "verify"],
+                &["rotate", "reset", "verify"],
                 base_revision,
             )?;
             vault.stage_managed_field(
@@ -377,13 +391,7 @@ pub(crate) fn handle_donation(
         .unwrap_or(header_consumer);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(
-            &vault,
-            &consumer,
-            &bearer,
-            "donate",
-            item_id,
-        )?
+        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "donate", item_id)?
     {
         return http::write_response(
             stream,
@@ -423,6 +431,105 @@ pub(crate) fn handle_donation(
         "HTTP/1.1 200 OK",
         &json!({"ok": true, "status": "pending", "donation_id": donation_id, "id": item_id}),
     )
+}
+
+// === credential lifecycle serve endpoints ===
+//
+// The canonical Skarbiec is the only remote hop of a credential lifecycle, so
+// submit, resume, and status all arrive here. They accept exactly one
+// capability action, `lifecycle`, which authorizes no read of a credential
+// value: these handlers never call a read path.
+
+/// One exact `lifecycle` capability on one exact item.
+fn lifecycle_authorized(headers: &HashMap<String, String>, item: &str) -> Result<bool> {
+    let (consumer, bearer) = http::presented_identity(headers);
+    if consumer.is_empty() {
+        return Ok(false);
+    }
+    let vault = http::load()?;
+    tokens::token_allows_action(&vault, &consumer, &bearer, "lifecycle", item)
+}
+
+/// `POST /v1/credential/operations` — submit or resume one credential
+/// operation. The body carries no directory identity: that is a sealed item
+/// contract Skarbiec reads for itself.
+pub(crate) fn handle_credential_operations(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    body: &str,
+) -> Result<()> {
+    let parsed = http::request_json(body);
+    let item = match crate::credential::endpoint_item(&parsed) {
+        Ok(item) => item,
+        Err(error) => {
+            return http::write_response(
+                stream,
+                "HTTP/1.1 400 Bad Request",
+                &json!({"error": bounded_detail(&error.to_string())}),
+            );
+        }
+    };
+    if !lifecycle_authorized(headers, &item)? {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": format!("lifecycle:{item} grant required")}),
+        );
+    }
+    let (consumer, _) = http::presented_identity(headers);
+    match crate::credential::submit_from_endpoint(&crate::core::vault_path(), &parsed) {
+        Ok(value) => {
+            crate::runtime::audit::append(
+                "http-credential-operation",
+                &json!({
+                    "item": item,
+                    "consumer": consumer,
+                    "status": value.get("status"),
+                    "operation": value.get("operation"),
+                }),
+            )?;
+            http::write_response(stream, "HTTP/1.1 200 OK", &value)
+        }
+        Err(error) => http::write_response(
+            stream,
+            "HTTP/1.1 409 Conflict",
+            &json!({"ok": false, "error": bounded_detail(&error.to_string())}),
+        ),
+    }
+}
+
+/// `GET /v1/credential/operations/<item>` — the persisted state of that item's
+/// credential operation, with its receipt and quarantine block.
+pub(crate) fn handle_credential_operation_status(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    item: &str,
+) -> Result<()> {
+    let item = match crate::credential::exact_credential_item(item) {
+        Ok(item) => item,
+        Err(error) => {
+            return http::write_response(
+                stream,
+                "HTTP/1.1 400 Bad Request",
+                &json!({"error": bounded_detail(&error.to_string())}),
+            );
+        }
+    };
+    if !lifecycle_authorized(headers, &item)? {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": format!("lifecycle:{item} grant required")}),
+        );
+    }
+    match crate::credential::status_from_endpoint(&crate::core::vault_path(), &item) {
+        Ok(value) => http::write_response(stream, "HTTP/1.1 200 OK", &value),
+        Err(error) => http::write_response(
+            stream,
+            "HTTP/1.1 409 Conflict",
+            &json!({"ok": false, "error": bounded_detail(&error.to_string())}),
+        ),
+    }
 }
 
 pub fn dispatch(

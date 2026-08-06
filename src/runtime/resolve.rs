@@ -97,6 +97,9 @@ pub fn handle_http_resolve(
             field.is_some_and(|field| {
                 tokens::token_allows_field_action(&vault, &consumer, &bearer, "read", &id, field)
                     .unwrap_or(false)
+                    // An adopt candidate the provider has not confirmed is
+                    // never resolved into a consumer's environment.
+                    && !crate::credential::candidate_hidden(&vault, &id, field, &consumer)
             })
         })
         .collect();
@@ -165,6 +168,11 @@ pub fn dispatch(
                             field,
                         )
                         .unwrap_or(false)
+                            // An unconfirmed adopt candidate stays invisible to
+                            // every consumer read.
+                            && !crate::credential::candidate_hidden(
+                                &vault, &id, field, consumer,
+                            )
                     })
                 })
                 .collect();
