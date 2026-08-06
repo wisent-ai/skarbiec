@@ -161,7 +161,7 @@ An item carries its directory identity as a sealed block written once:
   "provider": "microsoft_entra",
   "tenant_id": "23572277-0021-42ac-b2b9-10bd86c7d2af",
   "principal_object_id": "4c888895-03cf-4ab1-a11e-46942c568217",
-  "account_upn": "jakub@wisent.com",
+  "account_upn": "jakub@wisent.ai",
   "sealed_at": "2026-08-05T09:14:02Z"
 }
 ```
@@ -318,7 +318,7 @@ rotated" without reading a mailbox or a log:
   "receipt": {
     "tenant_id": "23572277-0021-42ac-b2b9-10bd86c7d2af",
     "principal_object_id": "4c888895-03cf-4ab1-a11e-46942c568217",
-    "account_upn": "jakub@wisent.com",
+    "account_upn": "jakub@wisent.ai",
     "operation": "rotate",
     "request_id": "<64 hex>",
     "evidence_digest": "<64 hex>",
@@ -394,26 +394,26 @@ export WISENT_ORGANIZATION_ID=<organization-uuid>
 export WELES_TOKEN=<organization-scoped-token>
 export SKARBIEC_WELES_CREDENTIAL_COMMAND="$(npm root --global)/@wisent-ai/weles-client/bin/weles-skarbiec-acquire.mjs"
 
-skarbiec credential seal-directory weles-microsoft-jakub-wisent-com-password \
+skarbiec credential seal-directory weles-microsoft-jakub-wisent-ai-password \
   --provider microsoft_entra \
   --tenant 23572277-0021-42ac-b2b9-10bd86c7d2af \
   --object-id 4c888895-03cf-4ab1-a11e-46942c568217 \
-  --account-upn jakub@wisent.com \
+  --account-upn jakub@wisent.ai \
   --local
 
 printf '%s' "$CURRENT_PASSWORD" | skarbiec credential adopt \
-  weles-microsoft-jakub-wisent-com-password \
+  weles-microsoft-jakub-wisent-ai-password \
   --provider microsoft_entra \
-  --consumer weles-microsoft-jakub-wisent-com-password-writer \
+  --consumer weles-microsoft-jakub-wisent-ai-password-writer \
   --local --password-stdin
 
-skarbiec credential rotate weles-microsoft-jakub-wisent-com-password \
-  --consumer weles-microsoft-jakub-wisent-com-password-writer \
-  --expect-upn jakub@wisent.com \
+skarbiec credential rotate weles-microsoft-jakub-wisent-ai-password \
+  --consumer weles-microsoft-jakub-wisent-ai-password-writer \
+  --expect-upn jakub@wisent.ai \
   --purpose incident-remediation \
   --as skarbiec-operator --token-file /etc/skarbiec/lifecycle.token
 
-skarbiec credential status weles-microsoft-jakub-wisent-com-password --follow --local
+skarbiec credential status weles-microsoft-jakub-wisent-ai-password --follow --local
 ```
 
 The Snapchat contract writes canonical field `api_key` to
@@ -425,7 +425,7 @@ bearer is accepted.
 Entra password adoption, rotation, reset, and verification use item IDs matching
 `weles-microsoft-<account-alias>-password`, and the exact account is bound by the
 sealed directory contract of that item. The two accounts this exists for today
-are `weles-microsoft-jakub-wisent-com-password` (`jakub@wisent.com`, object ID
+are `weles-microsoft-jakub-wisent-ai-password` (`jakub@wisent.ai`, object ID
 `4c888895-03cf-4ab1-a11e-46942c568217`) and
 `weles-microsoft-lukasz-wisent-com-password` (`lukasz@wisent.com`, object ID
 `1f636f97-b07f-4e9b-952a-5d069ccc5b20`), both in tenant
