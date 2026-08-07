@@ -166,6 +166,10 @@ fn exact_token(value: &str, max: usize) -> bool {
         && !value.contains('\r')
 }
 
+// Each bound is refused separately and the error names the pair, so `x < low || x >
+// high` mirrors the sentence the caller reads back. A `contains` on a range says the
+// same thing about a set, which is not what is being explained here.
+#[allow(clippy::manual_range_contains)]
 fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
     let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
@@ -259,6 +263,10 @@ fn item_field(vault: &Vault, item: &str, field: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+// `len() % 4` is the base64 padding rule as the format itself states it, and the
+// loop reads as "pad until the quantum is whole". `is_multiple_of` would say the
+// same thing about a number without saying it about base64.
+#[allow(clippy::manual_is_multiple_of)]
 fn decode_base64url(value: &str) -> Option<Vec<u8>> {
     let mut normalised = value.replace('-', "+").replace('_', "/");
     while normalised.len() % 4 != 0 {
