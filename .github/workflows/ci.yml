@@ -30,6 +30,48 @@ jobs:
       - name: Build source candidate
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: cargo build --release
+      - name: Refuse a tag that disagrees with the manifest
+        # Every coordinate the tagged steps below write is spelled from
+        # GITHUB_REF_NAME and from nothing else: the release, the archive
+        # skarbiec-<tag>-<platform>.tar.gz, its .sha256, SKARBIEC_RELEASE_URI
+        # stamped into the binary, and the extension update channel, whose
+        # <updatecheck version> is the tag with its v removed. The binary inside
+        # that archive reports CARGO_PKG_VERSION instead -- src/main.rs,
+        # src/net/mcp.rs and src/onboarding.rs all publish it -- so when the two
+        # disagree the release serves a build whose own answer contradicts the
+        # name it was fetched by, and a Chrome client is offered an update whose
+        # advertised version is not the one it installs.
+        #
+        # This is not hypothetical: in brama v0.2.9 through v0.2.13 were cut
+        # from trees already declaring 0.3.0, so five releases published a
+        # breaking change under patch-looking names. A published coordinate is
+        # immutable, so the only repair left afterwards was prose. This refuses
+        # before the first tagged artifact is built, which is the last point
+        # where the mistake is still free.
+        #
+        # It refuses and never repairs: it does not bump Cargo.toml and does not
+        # move the tag. Naming the number is mechanical; deciding to release is
+        # not.
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          declared="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ -z "$declared" ]; then
+            printf '%s\n' "Cargo.toml declares no version, so there is nothing for" \
+              "$GITHUB_REF_NAME to agree with. Unchecked is not the same as agreeing."
+            false
+          fi
+          if [ "$GITHUB_REF_NAME" != "v$declared" ]; then
+            printf '%s\n' "tag $GITHUB_REF_NAME must equal v$declared, the version" \
+              "Cargo.toml declares and the binary reports as its own." \
+              "Publishing would permanently name release $GITHUB_REF_NAME, the" \
+              "asset skarbiec-$GITHUB_REF_NAME-${{ matrix.platform }}.tar.gz and" \
+              "its checksum after a version the archive does not contain, and" \
+              "would advertise ${GITHUB_REF_NAME#v} on the extension update" \
+              "channel. Either the tag names a version this tree does not carry," \
+              "or the version change was never committed."
+            false
+          fi
+          printf '%s\n' "tag $GITHUB_REF_NAME matches the declared version $declared"
       - name: Build provenance-stamped tagged artifact
         if: startsWith(github.ref, 'refs/tags/v')
         env:
