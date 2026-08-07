@@ -16,3 +16,6 @@ vault.enc.json
 .env
 .env.*
 !.env.example
+
+# Git worktrees checked out inside the repository; never repository content.
+.worktrees/
