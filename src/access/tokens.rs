@@ -88,6 +88,48 @@ pub fn token_allows_field_action(
     )
 }
 
+/// What a presented bearer is, asked without being told whose it is.
+///
+/// Every other lookup here starts from a consumer name and checks the secret
+/// against that one entry. A gateway holding an inbound request has the secret
+/// and nothing else, and the alternative to answering this question is what
+/// Brama does today: keep its own copy of every bearer in the fleet, built at
+/// boot, which cannot expire, cannot be revoked, and drifts from this vault the
+/// moment anything changes here.
+///
+/// An unknown bearer and an expired one answer the same way, so the caller
+/// learns whether this credential is usable and nothing else about the vault.
+pub fn introspect(vault: &Vault, presented: &str) -> Result<Value> {
+    let inactive = json!({"active": false});
+    if presented.is_empty() {
+        return Ok(inactive);
+    }
+    let hash = presented_hash(presented)?;
+    let Some(tokens) = vault.doc().get("tokens").and_then(Value::as_object) else {
+        return Ok(inactive);
+    };
+    for (consumer, entry) in tokens {
+        let matches = entry
+            .get("hash")
+            .and_then(Value::as_str)
+            .is_some_and(|stored| stored == hash);
+        if !matches {
+            continue;
+        }
+        if !active(entry) {
+            return Ok(inactive);
+        }
+        return Ok(json!({
+            "active": true,
+            "consumer": consumer,
+            "audience": entry.get("audience").cloned().unwrap_or(Value::Null),
+            "capabilities": entry.get("capabilities").cloned().unwrap_or(json!([])),
+            "expires_at": entry.get("expires_at").cloned().unwrap_or(Value::Null),
+        }));
+    }
+    Ok(inactive)
+}
+
 pub fn token_allows_action(
     vault: &Vault,
     consumer: &str,
@@ -205,7 +247,28 @@ fn allowed_action(action: &str) -> bool {
             // reseal its directory contract. Neither reads a value.
             | "lifecycle"
             | "reseal"
+            // Ask what an inbound bearer is. Held by a gateway that has to
+            // decide whether to serve a request, so that deciding does not
+            // require keeping a copy of every credential in the fleet. Reads no
+            // value: the answer is an identity and its capabilities.
+            | "introspect"
+            // Be called. The right to reach a service, and with `#field` the
+            // exact route within it, so a client's reach is a grant here rather
+            // than a list compiled into the service it calls.
+            | "call"
     )
+}
+
+/// A route within a service: components joined by `/`, each one exact.
+///
+/// Separators are allowed because a route has them; nothing else is. No empty
+/// component, so neither a leading nor a trailing slash nor `//`, and no `..`,
+/// which is how a path pattern would otherwise reach outside what was granted.
+fn exact_route(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= "128".parse().unwrap_or(usize::MAX)
+        && value.split('/').all(exact_component)
+        && !value.split('/').any(|component| component == "..")
 }
 
 fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
@@ -224,7 +287,15 @@ fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
             Some((item, field)) => (item, Some(field)),
             None => (target, None),
         };
-        if !exact_resource(item) || field.is_some_and(|field| !exact_component(field)) {
+        // A `call` field names a route inside a service, and routes have
+        // separators: `wisent-backend/chat/primary` is one name, not a pattern.
+        // Everywhere else a field is a single component of an item.
+        let field_ok = match field {
+            None => true,
+            Some(field) if action == "call" => exact_route(field),
+            Some(field) => exact_component(field),
+        };
+        if !exact_resource(item) || !field_ok {
             bail!("capabilities require exact resource and field names without globs");
         }
         if matches!(action, "acquire" | "stage" | "rotate" | "verify") && field.is_none() {
@@ -232,6 +303,14 @@ fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
         }
         if matches!(action, "lifecycle" | "reseal") && field.is_some() {
             bail!("{action} capability is item-scoped and must not name a field");
+        }
+        // A `call` capability names a service and a route inside it, not a vault
+        // item and one of its fields, so there is nothing here to exist yet.
+        // Checking would tie the right to reach a service to that service
+        // happening to keep a secret.
+        if action == "call" {
+            capabilities.push(json!({"action": action, "item": item, "field": field}));
+            continue;
         }
         if let Some(field) = field {
             if field == "context" && action != "read" {

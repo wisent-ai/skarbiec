@@ -43,6 +43,49 @@ pub(crate) fn request_field(body: &Value) -> Option<&str> {
         .filter(|field| !field.is_empty())
 }
 
+/// Answer what an inbound bearer is, for a gateway that has to decide whether
+/// to serve the request holding it.
+///
+/// The caller proves its own identity and must carry `introspect` on `tokens`;
+/// asking about someone else's credential is a capability, not a side effect of
+/// being able to reach this port. The subject bearer travels in the body and is
+/// never logged, and an unknown bearer answers exactly like an expired one.
+pub(crate) fn handle_tokens_introspect(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    body: &str,
+) -> Result<()> {
+    let parsed = http::request_json(body);
+    let Some(subject) = parsed.get("token").and_then(Value::as_str) else {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "token required"}),
+        );
+    };
+    let (consumer, bearer) = http::presented_identity(headers);
+    let vault = http::load()?;
+    if consumer.is_empty()
+        || !tokens::token_allows_action(&vault, &consumer, &bearer, "introspect", "tokens")?
+    {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": "consumer not authorized to introspect tokens"}),
+        );
+    }
+    let answer = tokens::introspect(&vault, subject)?;
+    crate::runtime::audit::append(
+        "http-token-introspected",
+        &json!({
+            "consumer": consumer,
+            "subject": answer.get("consumer").cloned().unwrap_or(Value::Null),
+            "active": answer.get("active").cloned().unwrap_or(Value::Null),
+        }),
+    )?;
+    http::write_response(stream, "HTTP/1.1 200 OK", &answer)
+}
+
 pub(crate) fn handle_items_read(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,

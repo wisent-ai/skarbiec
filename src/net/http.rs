@@ -224,6 +224,9 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     if method == "POST" && path == "/v1/items/list" {
         return crate::net::mcp::handle_items_list(&mut stream, &headers);
     }
+    if method == "POST" && path == "/v1/tokens/introspect" {
+        return crate::net::handle_tokens_introspect(&mut stream, &headers, &body);
+    }
     if method == "POST" && path == "/v1/items/read" {
         return crate::net::handle_items_read(&mut stream, &headers, &body);
     }
