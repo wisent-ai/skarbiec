@@ -31,9 +31,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::core::{crypto, vault::Vault, vault_path};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
-use crate::core::{crypto, vault::Vault, vault_path};
 
 const PROOF_DOMAIN: &[u8] = b"SKARBIEC-WORKLOAD-PROOF\0v1\0";
 const WIRE_VERSION: &str = "skarbiec.redeem.v1";
@@ -115,7 +115,11 @@ fn load_state() -> Result<Value> {
     }
     let raw = fs::read_to_string(&path).context("read capability state")?;
     let parsed: Value = serde_json::from_str(&raw).context("parse capability state")?;
-    if parsed.get("capabilities").and_then(Value::as_object).is_none() {
+    if parsed
+        .get("capabilities")
+        .and_then(Value::as_object)
+        .is_none()
+    {
         bail!("capability state is malformed");
     }
     Ok(parsed)
@@ -165,7 +169,10 @@ fn exact_token(value: &str, max: usize) -> bool {
 fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
     let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
-    let resource = flags.get("resource").map(String::as_str).unwrap_or_default();
+    let resource = flags
+        .get("resource")
+        .map(String::as_str)
+        .unwrap_or_default();
     let target = flags.get("target").map(String::as_str).unwrap_or_default();
     if !exact_token(agent, 128) || !exact_token(purpose, 128) || !exact_token(resource, 512) {
         bail!("capability-issue requires exact --agent, --purpose, and --resource");
@@ -225,7 +232,10 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
 // expiry. Checking for a "state" the vault never writes would deny every redemption
 // while looking like a working guard.
 fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {
-    let entry = vault.doc().get("tokens").and_then(|tokens| tokens.get(agent))?;
+    let entry = vault
+        .doc()
+        .get("tokens")
+        .and_then(|tokens| tokens.get(agent))?;
     let live = entry
         .get("expires_at")
         .and_then(Value::as_u64)
@@ -261,7 +271,11 @@ fn decode_base64url(value: &str) -> Option<Vec<u8>> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.as_mut()?.write_all(normalised.as_bytes()).ok()?;
+    child
+        .stdin
+        .as_mut()?
+        .write_all(normalised.as_bytes())
+        .ok()?;
     let done = child.wait_with_output().ok()?;
     if !done.status.success() || done.stdout.is_empty() {
         return None;
@@ -317,7 +331,11 @@ fn reply(stream: &mut UnixStream, control: Value, body: &[u8]) -> Result<()> {
 }
 
 fn denied(stream: &mut UnixStream) -> Result<()> {
-    reply(stream, json!({"version": WIRE_VERSION, "status": "denied"}), &[])
+    reply(
+        stream,
+        json!({"version": WIRE_VERSION, "status": "denied"}),
+        &[],
+    )
 }
 
 /// The same opaque refusal on the wire, and a reason in the operator's log.
@@ -333,7 +351,11 @@ fn denied_because(stream: &mut UnixStream, reason: &str) -> Result<()> {
 }
 
 fn pending(stream: &mut UnixStream) -> Result<()> {
-    reply(stream, json!({"version": WIRE_VERSION, "status": "pending"}), &[])
+    reply(
+        stream,
+        json!({"version": WIRE_VERSION, "status": "pending"}),
+        &[],
+    )
 }
 
 fn challenge_item(resource: &str) -> String {
@@ -455,7 +477,10 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
     let Some(record) = state["capabilities"].get(&capability_id).cloned() else {
         return denied_because(stream, "no such capability");
     };
-    let remaining = record.get("remaining_uses").and_then(Value::as_u64).unwrap_or(0);
+    let remaining = record
+        .get("remaining_uses")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let agent = record
         .get("agent")
         .and_then(Value::as_str)
@@ -467,9 +492,17 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
         .unwrap_or_default()
         .to_string();
     if record.get("state").and_then(Value::as_str) != Some("issued")
-        || record.get("expires_at").and_then(Value::as_u64).unwrap_or(0) <= now
+        || record
+            .get("expires_at")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            <= now
         || remaining == 0
-        || record.get("authorization_id").and_then(Value::as_str).unwrap_or("") != authorization_id
+        || record
+            .get("authorization_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            != authorization_id
     {
         return denied_because(stream, "capability is not issued, has expired, has no uses left, or its authorization id does not match");
     }
@@ -500,7 +533,10 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
     }
     payload.extend_from_slice(authorization_id.as_bytes());
     if !verify_proof(&public_key, &payload, &proof)? {
-        return denied_because(stream, "the proof does not verify against the registered workload key");
+        return denied_because(
+            stream,
+            "the proof does not verify against the registered workload key",
+        );
     }
 
     state["nonces"][&nonce_key] = json!(now);
