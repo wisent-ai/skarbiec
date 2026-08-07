@@ -447,10 +447,11 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
         );
     }
 
-    let secret = match resolve_route(&resource)? {
-        Some((item, field)) => item_field(&vault, &item, &field),
-        None => item_field(&vault, &challenge_item(&resource), "value"),
+    let coordinate = match resolve_route(&resource)? {
+        Some((item, field)) => (item, field),
+        None => (challenge_item(&resource), "value".to_string()),
     };
+    let secret = item_field(&vault, &coordinate.0, &coordinate.1);
     let Some(secret) = secret else {
         // The route exists but nothing has written the value yet. For a challenge that
         // is the normal state between issuing and the relay storing.
@@ -458,7 +459,18 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
             save_state(&state)?;
             return pending(stream);
         }
-        return denied(stream);
+        // A bare refusal here sends the caller a redemption that "was denied"
+        // for a resource whose route is present and whose item opens by hand,
+        // and it leaves out the only fact that separates a wrong coordinate
+        // from an item this process cannot open: which coordinate was read.
+        // The coordinate is configuration, not a secret.
+        return denied_because(
+            stream,
+            &format!(
+                "no value at {}#{} for resource {resource}",
+                coordinate.0, coordinate.1
+            ),
+        );
     };
 
     state["capabilities"][&capability_id]["remaining_uses"] = json!(remaining - 1);
