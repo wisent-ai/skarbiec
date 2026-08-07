@@ -313,6 +313,50 @@ else
     fail 'consumer env file' "no consumer env file at $ENV_FILE"
 fi
 
+# 6. Whether a password lifecycle would find anything to work on.
+#
+#    Every Microsoft lifecycle here, consumer and Entra alike, reads the current
+#    value as readWelesManagedCredential(<id>, 'password'), so an item is usable
+#    only when its acquisition scope declares the field named `password`. An item
+#    scoped to some other field is a login credential, not a managed one: the read
+#    throws, the trajectory sees no candidate, and the operation reports
+#    ADOPT_CANDIDATE_UNAVAILABLE or stops for human approval without ever saying
+#    which item was missing. Name them here instead.
+# The path is the one scoped-service.ts resolves, not a guess: an explicit
+# SKARBIEC_WELES_ACQUISITION_SCOPES_FILE first, otherwise the copy that ships
+# inside the deployed checkout. Reading ~/.stado/weles-credential-acquisition-scopes.conf
+# instead reported the always-on host as having no scopes at all, when its
+# authoritative file was sitting in the release the whole time.
+SCOPES="${SKARBIEC_WELES_ACQUISITION_SCOPES_FILE:-$HOME/weles/scripts/worker/deploy/skarbiec-acquisition-scopes.conf}"
+if [ -f "$SCOPES" ]; then
+    # The grammar comment at the head of the file is itself pipe-separated, so a
+    # bare field split reported a scope called "item" with field "field".
+    MANAGED_IDS=$(awk -F'|' '/^#/ || NF < 3 { next } $3 == "password" { printf "%s ", $2 }' "$SCOPES")
+    LOGIN_ONLY=$(awk -F'|' '/^#/ || NF < 3 { next } $3 != "password" { printf "%s(%s) ", $2, $3 }' "$SCOPES")
+    if [ -n "$MANAGED_IDS" ]; then
+        note 'password-scoped items' "$MANAGED_IDS"
+    else
+        fail 'password-scoped items' "no item in $SCOPES declares the password field"
+    fi
+    if [ -n "$LOGIN_ONLY" ]; then
+        note 'other-field items' "$LOGIN_ONLY -- not readable by a password lifecycle"
+    fi
+
+    # A scope is a promise; the vault has to carry the item behind it. Only key
+    # presence is inspected, never a value.
+    if [ -n "$VAULT" ] && [ -f "$VAULT" ]; then
+        for ID in $MANAGED_IDS; do
+            if awk -v needle="\"$ID\":" 'index($0, needle) { found = "yes"; exit } END { exit(found == "yes" ? 0 : 1) }' "$VAULT"; then
+                note "staged candidate" "$ID is present in the vault"
+            else
+                fail "staged candidate" "$ID is scoped but absent from the vault; stage it with: skarbiec credential adopt $ID --local --password-stdin"
+            fi
+        done
+    fi
+else
+    fail 'acquisition scopes' "no scopes file at $SCOPES"
+fi
+
 printf '\n'
 if [ -z "$BROKEN" ]; then
     printf '%s\n' "$SERVICE: the serving path is whole"
