@@ -319,6 +319,18 @@ fn denied(stream: &mut UnixStream) -> Result<()> {
     reply(stream, json!({"version": WIRE_VERSION, "status": "denied"}), &[])
 }
 
+/// The same opaque refusal on the wire, and a reason in the operator's log.
+///
+/// A caller must not learn which check it failed -- that is how a probe maps
+/// the authority. The operator running the broker has the opposite need, and
+/// giving them nothing has cost real days: a gateway whose every redemption
+/// was denied looked healthy, answered /health, listed models, and reported
+/// only that some credential was "unavailable".
+fn denied_because(stream: &mut UnixStream, reason: &str) -> Result<()> {
+    eprintln!("skarbiec: redemption denied: {reason}");
+    denied(stream)
+}
+
 fn pending(stream: &mut UnixStream) -> Result<()> {
     reply(stream, json!({"version": WIRE_VERSION, "status": "pending"}), &[])
 }
@@ -359,13 +371,13 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
         || !exact_token(&workload_id, 128)
         || proof.len() != 86
     {
-        return denied(stream);
+        return denied_because(stream, "malformed request: version, operation, capability id, nonce, workload id or proof is not the shape this wire requires");
     }
 
     let now = now_epoch()?;
     let mut state = load_state()?;
     let Some(record) = state["capabilities"].get(&capability_id).cloned() else {
-        return denied(stream);
+        return denied_because(stream, "no such capability");
     };
     let remaining = record.get("remaining_uses").and_then(Value::as_u64).unwrap_or(0);
     let agent = record
@@ -383,19 +395,22 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
         || remaining == 0
         || record.get("authorization_id").and_then(Value::as_str).unwrap_or("") != authorization_id
     {
-        return denied(stream);
+        return denied_because(stream, "capability is not issued, has expired, has no uses left, or its authorization id does not match");
     }
 
     // The nonce is refused the moment it is seen twice, before any use is spent, so a
     // captured request cannot be replayed even inside its own validity window.
     let nonce_key = format!("{capability_id}:{nonce}");
     if state["nonces"].get(&nonce_key).is_some() {
-        return denied(stream);
+        return denied_because(stream, "nonce already seen for this capability");
     }
 
     let vault = Vault::open(vault_path())?;
     let Some(public_key) = workload_public_key(&vault, &agent) else {
-        return denied(stream);
+        return denied_because(
+            stream,
+            &format!("no live vault token registers a workload public key for agent {agent:?}"),
+        );
     };
     let mut payload = Vec::from(PROOF_DOMAIN);
     for part in [
@@ -409,7 +424,7 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
     }
     payload.extend_from_slice(authorization_id.as_bytes());
     if !verify_proof(&public_key, &payload, &proof)? {
-        return denied(stream);
+        return denied_because(stream, "the proof does not verify against the registered workload key");
     }
 
     state["nonces"][&nonce_key] = json!(now);
