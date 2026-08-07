@@ -41,6 +41,28 @@ const MAX_REQUEST_BYTES: u64 = 8 * 1024;
 const MAX_TTL_SECONDS: u64 = 3600;
 const NONCE_RETENTION_SECONDS: u64 = 2 * MAX_TTL_SECONDS;
 
+/// Apple ships LibreSSL as `openssl`, and LibreSSL has no Ed25519 in `pkeyutl`, so on
+/// a stock Mac every proof would fail verification for a reason that looks like a bad
+/// signature. Prefer an OpenSSL 3 build when one is installed, and let
+/// SKARBIEC_OPENSSL name it when it lives somewhere else.
+fn openssl_bin() -> String {
+    if let Ok(configured) = std::env::var("SKARBIEC_OPENSSL") {
+        if !configured.is_empty() {
+            return configured;
+        }
+    }
+    for candidate in [
+        "/opt/homebrew/opt/openssl@3/bin/openssl",
+        "/opt/homebrew/bin/openssl",
+        "/usr/local/opt/openssl@3/bin/openssl",
+    ] {
+        if Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    "openssl".to_string()
+}
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -231,7 +253,7 @@ fn decode_base64url(value: &str) -> Option<Vec<u8>> {
     while normalised.len() % 4 != 0 {
         normalised.push('=');
     }
-    let mut child = Command::new("openssl")
+    let mut child = Command::new(openssl_bin())
         .args(["base64", "-d", "-A"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -263,7 +285,7 @@ fn verify_proof(public_key: &str, payload: &[u8], signature_b64url: &str) -> Res
         write_private_file(&key_path, public_key.as_bytes())?;
         write_private_file(&signature_path, &signature)?;
         write_private_file(&payload_path, payload)?;
-        let status = Command::new("openssl")
+        let status = Command::new(openssl_bin())
             .args(["pkeyutl", "-verify", "-pubin", "-inkey"])
             .arg(&key_path)
             .args(["-rawin", "-sigfile"])
