@@ -31,9 +31,9 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::core::{crypto, vault::Vault, vault_path};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
-use crate::core::{crypto, vault::Vault, vault_path};
 
 const PROOF_DOMAIN: &[u8] = b"SKARBIEC-WORKLOAD-PROOF\0v1\0";
 const WIRE_VERSION: &str = "skarbiec.redeem.v1";
@@ -71,6 +71,7 @@ pub fn dispatch(
     match command {
         "capability-issue" => Ok(Some(issue(flags)?)),
         "capability-serve" => Ok(Some(serve(flags)?)),
+        "apple-challenge-put" => Ok(Some(challenge_put(_positionals)?)),
         _ => Ok(None),
     }
 }
@@ -114,7 +115,11 @@ fn load_state() -> Result<Value> {
     }
     let raw = fs::read_to_string(&path).context("read capability state")?;
     let parsed: Value = serde_json::from_str(&raw).context("parse capability state")?;
-    if parsed.get("capabilities").and_then(Value::as_object).is_none() {
+    if parsed
+        .get("capabilities")
+        .and_then(Value::as_object)
+        .is_none()
+    {
         bail!("capability state is malformed");
     }
     Ok(parsed)
@@ -161,10 +166,17 @@ fn exact_token(value: &str, max: usize) -> bool {
         && !value.contains('\r')
 }
 
+// Each bound is refused separately and the error names the pair, so `x < low || x >
+// high` mirrors the sentence the caller reads back. A `contains` on a range says the
+// same thing about a set, which is not what is being explained here.
+#[allow(clippy::manual_range_contains)]
 fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
     let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
-    let resource = flags.get("resource").map(String::as_str).unwrap_or_default();
+    let resource = flags
+        .get("resource")
+        .map(String::as_str)
+        .unwrap_or_default();
     let target = flags.get("target").map(String::as_str).unwrap_or_default();
     if !exact_token(agent, 128) || !exact_token(purpose, 128) || !exact_token(resource, 512) {
         bail!("capability-issue requires exact --agent, --purpose, and --resource");
@@ -224,7 +236,10 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
 // expiry. Checking for a "state" the vault never writes would deny every redemption
 // while looking like a working guard.
 fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {
-    let entry = vault.doc().get("tokens").and_then(|tokens| tokens.get(agent))?;
+    let entry = vault
+        .doc()
+        .get("tokens")
+        .and_then(|tokens| tokens.get(agent))?;
     let live = entry
         .get("expires_at")
         .and_then(Value::as_u64)
@@ -248,6 +263,10 @@ fn item_field(vault: &Vault, item: &str, field: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+// `len() % 4` is the base64 padding rule as the format itself states it, and the
+// loop reads as "pad until the quantum is whole". `is_multiple_of` would say the
+// same thing about a number without saying it about base64.
+#[allow(clippy::manual_is_multiple_of)]
 fn decode_base64url(value: &str) -> Option<Vec<u8>> {
     let mut normalised = value.replace('-', "+").replace('_', "/");
     while normalised.len() % 4 != 0 {
@@ -260,7 +279,11 @@ fn decode_base64url(value: &str) -> Option<Vec<u8>> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    child.stdin.as_mut()?.write_all(normalised.as_bytes()).ok()?;
+    child
+        .stdin
+        .as_mut()?
+        .write_all(normalised.as_bytes())
+        .ok()?;
     let done = child.wait_with_output().ok()?;
     if !done.status.success() || done.stdout.is_empty() {
         return None;
@@ -316,7 +339,11 @@ fn reply(stream: &mut UnixStream, control: Value, body: &[u8]) -> Result<()> {
 }
 
 fn denied(stream: &mut UnixStream) -> Result<()> {
-    reply(stream, json!({"version": WIRE_VERSION, "status": "denied"}), &[])
+    reply(
+        stream,
+        json!({"version": WIRE_VERSION, "status": "denied"}),
+        &[],
+    )
 }
 
 /// The same opaque refusal on the wire, and a reason in the operator's log.
@@ -332,11 +359,90 @@ fn denied_because(stream: &mut UnixStream, reason: &str) -> Result<()> {
 }
 
 fn pending(stream: &mut UnixStream) -> Result<()> {
-    reply(stream, json!({"version": WIRE_VERSION, "status": "pending"}), &[])
+    reply(
+        stream,
+        json!({"version": WIRE_VERSION, "status": "pending"}),
+        &[],
+    )
 }
 
 fn challenge_item(resource: &str) -> String {
     format!("capability-challenge-{}", resource.replace(['/', ':'], "-"))
+}
+
+/// `apple-challenge-put <resource>` -- store the six digits a trusted device just
+/// showed, under the resource an authorization already named.
+///
+/// This is the write half of the `challenge:` exception above. Issuing a capability
+/// for a code that does not exist yet is deliberate: the login that will need it is
+/// what causes Apple to send it, so the redeeming side polls and gets `pending`
+/// until this runs. Without this command the poll never stops being pending, and the
+/// deployment scripts that reach for it -- `skarbiec-remote-command.sh` allows
+/// exactly this verb -- were calling something the binary did not implement.
+///
+/// The code arrives on stdin, never in argv: a remote command line is readable by
+/// every process on the host through `ps`, which is the whole reason the secret
+/// commands exist. The resource is not length-checked here on purpose -- the
+/// authoritative check is that a live capability already names it, and duplicating
+/// the grammar would be a second opinion that can only drift from the issuing one.
+fn challenge_put(positionals: &[String]) -> Result<Value> {
+    let mut named = positionals.iter();
+    let Some(resource) = named.next() else {
+        bail!("apple-challenge-put requires exactly one resource");
+    };
+    if named.next().is_some() {
+        bail!("apple-challenge-put requires exactly one resource");
+    }
+    if !resource.starts_with("challenge:") {
+        bail!("apple-challenge-put only stores a challenge: resource");
+    }
+
+    // Only an authorized challenge may be written. The capability is issued by the
+    // authorization step before the login runs, so its absence means nobody asked
+    // for this code and nothing would ever read it.
+    let state = load_state()?;
+    let authorized = state["capabilities"]
+        .as_object()
+        .map(|entries| {
+            entries
+                .values()
+                .any(|entry| entry["resource"].as_str() == Some(resource.as_str()))
+        })
+        .unwrap_or(false);
+    if !authorized {
+        bail!("no capability names {resource}; nothing authorized this challenge");
+    }
+
+    let mut code = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut code)
+        .context("reading the challenge code from stdin")?;
+    let code = code.trim().to_string();
+    if code.is_empty() {
+        bail!("apple-challenge-put reads the code from stdin and received nothing");
+    }
+    if !code.chars().all(|character| character.is_ascii_digit()) {
+        bail!("an Apple challenge code is digits only");
+    }
+
+    let item = challenge_item(resource);
+    let mut vault = Vault::open(vault_path())?;
+    vault.set_item(
+        &item,
+        "note",
+        &json!({
+            "schema": "skarbiec.item.v2",
+            "kind": "note",
+            "fields": { "value": code },
+        }),
+        &[],
+        &["challenge".to_string()],
+    )?;
+    vault.save()?;
+    crate::runtime::audit::append_sync(
+        "apple-challenge-stored",
+        &json!({"resource": resource, "item": item}),
+    )?;
+    Ok(json!({"status": "stored", "resource": resource}))
 }
 
 fn handle(stream: &mut UnixStream) -> Result<()> {
@@ -379,7 +485,10 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
     let Some(record) = state["capabilities"].get(&capability_id).cloned() else {
         return denied_because(stream, "no such capability");
     };
-    let remaining = record.get("remaining_uses").and_then(Value::as_u64).unwrap_or(0);
+    let remaining = record
+        .get("remaining_uses")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let agent = record
         .get("agent")
         .and_then(Value::as_str)
@@ -391,9 +500,17 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
         .unwrap_or_default()
         .to_string();
     if record.get("state").and_then(Value::as_str) != Some("issued")
-        || record.get("expires_at").and_then(Value::as_u64).unwrap_or(0) <= now
+        || record
+            .get("expires_at")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            <= now
         || remaining == 0
-        || record.get("authorization_id").and_then(Value::as_str).unwrap_or("") != authorization_id
+        || record
+            .get("authorization_id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            != authorization_id
     {
         return denied_because(stream, "capability is not issued, has expired, has no uses left, or its authorization id does not match");
     }
@@ -424,7 +541,10 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
     }
     payload.extend_from_slice(authorization_id.as_bytes());
     if !verify_proof(&public_key, &payload, &proof)? {
-        return denied_because(stream, "the proof does not verify against the registered workload key");
+        return denied_because(
+            stream,
+            "the proof does not verify against the registered workload key",
+        );
     }
 
     state["nonces"][&nonce_key] = json!(now);
