@@ -198,9 +198,16 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!({"capability_id": capability_id, "status": "issued"}))
 }
 
+// Liveness matches tokens::active: a consumer entry carries no state field, only an
+// expiry. Checking for a "state" the vault never writes would deny every redemption
+// while looking like a working guard.
 fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {
     let entry = vault.doc().get("tokens").and_then(|tokens| tokens.get(agent))?;
-    if entry.get("state").and_then(Value::as_str) != Some("active") {
+    let live = entry
+        .get("expires_at")
+        .and_then(Value::as_u64)
+        .is_some_and(|expires_at| now_epoch().is_ok_and(|now| now < expires_at));
+    if !live {
         return None;
     }
     entry
