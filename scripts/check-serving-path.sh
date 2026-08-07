@@ -25,6 +25,12 @@ set -eu
 
 SERVICE="${1:-skarbiec-weles}"
 ENV_FILE="${2:-$HOME/.config/weles/worker.env}"
+# Optional: one credential id to look for explicitly, whatever the scopes say.
+# A directory binding sealed on an operator workstation lives in that machine's
+# vault, not in the one the fleet reads, and nothing else in this report would
+# reveal the difference -- the scope-driven loop below can only see ids the
+# deployed scopes file already declares.
+PROBE_CREDENTIAL="${3:-}"
 REGISTRY="$HOME/.stado/local-storage/registry.json"
 PROBE_TIMEOUT='5'
 
@@ -355,6 +361,42 @@ if [ -f "$SCOPES" ]; then
     fi
 else
     fail 'acquisition scopes' "no scopes file at $SCOPES"
+fi
+
+# 6b. Every directory binding this host's vault actually holds.
+#
+#     `skarbiec credential seal-directory` writes into whichever vault the calling
+#     machine serves. Sealing on an operator workstation and expecting the fleet to
+#     see it is a mistake nothing else here would catch: the scope-driven loop above
+#     can only ask about ids the deployed scopes already declare, so a binding that
+#     exists on the wrong machine is invisible in every other line of this report.
+#     Key names only; no value is read or printed.
+if [ -z "$VAULT" ] || [ ! -f "$VAULT" ]; then
+    note 'directory bindings' 'no vault on this host to read them from'
+else
+    BINDINGS=$(awk '
+        {
+            rest = $0
+            while (match(rest, /"directory:credential\/[^"]+"/)) {
+                token = substr(rest, RSTART, RLENGTH)
+                gsub(/"|directory:credential\//, "", token)
+                print token
+                rest = substr(rest, RSTART + RLENGTH)
+            }
+        }
+    ' "$VAULT" | sort -u | tr '\n' ' ')
+    if [ -n "$BINDINGS" ]; then
+        note 'directory bindings' "$BINDINGS"
+    else
+        note 'directory bindings' 'this vault holds none'
+    fi
+    if [ -n "$PROBE_CREDENTIAL" ]; then
+        if awk -v needle="\"$PROBE_CREDENTIAL\":" 'index($0, needle) { found = "yes"; exit } END { exit(found == "yes" ? 0 : 1) }' "$VAULT"; then
+            note 'named secret item' "$PROBE_CREDENTIAL carries a value here"
+        else
+            fail 'named secret item' "$PROBE_CREDENTIAL has no value staged here"
+        fi
+    fi
 fi
 
 # 7. Which release the allowlist and the scopes above actually came from.
