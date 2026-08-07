@@ -25,10 +25,68 @@ set -eu
 
 SERVICE="${1:-skarbiec-weles}"
 ENV_FILE="${2:-$HOME/.config/weles/worker.env}"
-LABEL="com.wisent.compute.service.com.wisent.$SERVICE"
-PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
-FORWARD_FILE="$HOME/.stado/forwards/$SERVICE.local"
+REGISTRY="$HOME/.stado/local-storage/registry.json"
 PROBE_TIMEOUT='5'
+
+# Stado places a logical service on exactly one host. Checking the wrong machine
+# is the failure this script exists to prevent and once caused itself: run on a
+# laptop, it reported a disabled launchd service and a dead stable port as broken
+# links, when both were correct there because the service lives on the always-on
+# host. Read the placement first and say so before reporting anything else.
+ACTIVE_HOST=$(awk -v service="\"$SERVICE\":" '
+    index($0, service) { inside = "yes"; next }
+    inside == "yes" && /"active_host"/ {
+        line = $0
+        sub(/^[^:]*:[[:space:]]*"/, "", line)
+        sub(/".*$/, "", line)
+        print line
+        exit
+    }
+    inside == "yes" && /^      }/ { exit }
+' "$REGISTRY")
+# hostname -s answers with the shell's own capitalisation, which is not the
+# registry's: charless-mac-mini and Charless-Mac-mini are one machine, and
+# comparing them literally made this script announce it was on the wrong host
+# while standing on the right one.
+THIS_HOST=$(hostname -s | tr '[:upper:]' '[:lower:]')
+ACTIVE_HOST_KEY=$(printf '%s' "$ACTIVE_HOST" | tr '[:upper:]' '[:lower:]')
+
+if [ -z "$ACTIVE_HOST" ]; then
+    printf '%-26s %s\n' 'placement' "$REGISTRY declares no active_host for $SERVICE"
+elif [ "$ACTIVE_HOST_KEY" = "$THIS_HOST" ]; then
+    printf '%-26s %s\n' 'placement' "$SERVICE belongs here ($ACTIVE_HOST)"
+else
+    printf '%-26s %s\n' 'placement' "$SERVICE belongs on $ACTIVE_HOST, and this is $THIS_HOST"
+    printf '%s\n' "Every check below describes $THIS_HOST, where this service is not"
+    printf '%s\n' "supposed to run, so a disabled unit and a dead port are correct here."
+    printf '%s\n' "Install this script on $ACTIVE_HOST and run it there:"
+    printf '%s\n' "  stado host install-helper $ACTIVE_HOST $0 check-serving-path"
+    printf '%s\n' "  stado host run-helper $ACTIVE_HOST check-serving-path"
+    printf '\n'
+fi
+
+# The unit label comes from the registry, never from the service name. An
+# always-on host runs /Library/LaunchDaemons/com.wisent.always-on.<service> and a
+# workstation runs a user agent named com.wisent.compute.service.com.wisent.<service>,
+# so guessing one shape reported a healthy system daemon as an absent agent.
+MANAGED=$(awk -v service="\"$SERVICE\":" '
+    index($0, service) { inside = "yes"; next }
+    inside == "yes" && /"managed_service"/ {
+        line = $0
+        sub(/^[^:]*:[[:space:]]*"/, "", line)
+        sub(/".*$/, "", line)
+        print line
+        exit
+    }
+    inside == "yes" && /^      }/ { exit }
+' "$REGISTRY")
+LABEL="${MANAGED:-com.wisent.compute.service.com.wisent.$SERVICE}"
+if [ -f "/Library/LaunchDaemons/$LABEL.plist" ]; then
+    PLIST="/Library/LaunchDaemons/$LABEL.plist"
+else
+    PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+fi
+FORWARD_FILE="$HOME/.stado/forwards/$SERVICE.local"
 UNREACHABLE='000'
 # Shell truth as named values, so the numeric-literal rule is satisfied without
 # hiding what a bare return status means.
@@ -63,27 +121,41 @@ reachable() {
     esac
 }
 
-# 1. launchd enablement. A disabled service is an operator decision, not drift,
-#    so the remedy is named rather than performed.
-DISABLED_STATE=$(launchctl print-disabled "gui/$(id -u)" |
-    awk -v label="\"$LABEL\"" '$1 == label { print $3 }')
-if [ "${DISABLED_STATE:-absent}" = 'enabled' ]; then
-    note 'launchd enablement' 'enabled'
-elif [ "${DISABLED_STATE:-absent}" = 'disabled' ]; then
-    fail 'launchd enablement' "disabled by an operator; undo with: launchctl enable gui/$(id -u)/$LABEL"
-else
-    fail 'launchd enablement' "no launchd record for $LABEL"
-fi
+# 1 and 2. Whether launchd has the unit enabled, and whether it runs.
+#
+#    Only a user agent can be answered here. A unit under /Library/LaunchDaemons
+#    lives in launchd's system domain, which a user session may not query --
+#    `launchctl print-disabled gui/501` simply omits it and `launchctl list` never
+#    shows it, which this script first reported as "no launchd record" and "not
+#    loaded" for a daemon that was serving requests the whole time. A daemon whose
+#    endpoint answers is running, and that is checked below on evidence rather than
+#    on a query this process cannot make.
+case "$PLIST" in
+    /Library/LaunchDaemons/*)
+        note 'launchd domain' "system daemon; user sessions cannot read its state"
+        note 'launchd state' "ask the owner: stado service status $LABEL --host $ACTIVE_HOST"
+        ;;
+    *)
+        DISABLED_STATE=$(launchctl print-disabled "gui/$(id -u)" |
+            awk -v label="\"$LABEL\"" '$1 == label { print $3 }')
+        if [ "${DISABLED_STATE:-absent}" = 'enabled' ]; then
+            note 'launchd enablement' 'enabled'
+        elif [ "${DISABLED_STATE:-absent}" = 'disabled' ]; then
+            fail 'launchd enablement' "disabled by an operator; undo with: launchctl enable gui/$(id -u)/$LABEL"
+        else
+            fail 'launchd enablement' "no launchd record for $LABEL"
+        fi
 
-# 2. Is it actually running? Enabled and loaded are different questions.
-SERVICE_PID=$(launchctl list | awk -v label="$LABEL" '$3 == label { print $1 }')
-if [ -z "$SERVICE_PID" ]; then
-    fail 'launchd process' "not loaded; bootstrap with: launchctl bootstrap gui/$(id -u) $PLIST"
-elif [ "$SERVICE_PID" = '-' ]; then
-    fail 'launchd process' 'loaded but not running; read the service log for its exit reason'
-else
-    note 'launchd process' "running, pid $SERVICE_PID"
-fi
+        SERVICE_PID=$(launchctl list | awk -v label="$LABEL" '$3 == label { print $1 }')
+        if [ -z "$SERVICE_PID" ]; then
+            fail 'launchd process' "not loaded; bootstrap with: launchctl bootstrap gui/$(id -u) $PLIST"
+        elif [ "$SERVICE_PID" = '-' ]; then
+            fail 'launchd process' 'loaded but not running; read the service log for its exit reason'
+        else
+            note 'launchd process' "running, pid $SERVICE_PID"
+        fi
+        ;;
+esac
 
 # 3. Which vault it was told to serve, read from the plist and then the launcher
 #    it names, never guessed. Two instances serving two vaults is the case that
@@ -133,17 +205,39 @@ else
     fail 'vault served' "declared $VAULT, which does not exist"
 fi
 
-# 4. The local bind port the launcher reads, and whether anything answers there.
+# 4. Where the service actually binds. A workstation keeps that in a forwards
+#    entry the launcher reads; an always-on host has none, and the registry's own
+#    endpoint for this host is the declaration. Treating a missing forwards file
+#    as a broken link reported the always-on host as broken when it was serving.
+ENDPOINT=''
+ENDPOINT_SOURCE=''
 if [ -f "$FORWARD_FILE" ]; then
     ENDPOINT=$(cat "$FORWARD_FILE")
+    ENDPOINT_SOURCE="$FORWARD_FILE"
+else
+    ENDPOINT=$(awk -v service="\"$SERVICE\":" -v host="\"$ACTIVE_HOST\":" '
+        index($0, service) { inside = "yes"; next }
+        inside == "yes" && index($0, host) { athost = "yes"; next }
+        athost == "yes" && /"url"/ {
+            line = $0
+            sub(/^[^:]*:[[:space:]]*"/, "", line)
+            sub(/".*$/, "", line)
+            print line
+            exit
+        }
+        inside == "yes" && /^      }/ { exit }
+    ' "$REGISTRY")
+    ENDPOINT_SOURCE="registry endpoint for $ACTIVE_HOST"
+fi
+if [ -z "$ENDPOINT" ]; then
+    fail 'service endpoint' "neither $FORWARD_FILE nor the registry names an endpoint"
+else
     LOCAL_CODE=$(probe "$ENDPOINT/")
     if ! reachable "$LOCAL_CODE"; then
-        fail 'local bind endpoint' "$ENDPOINT from $FORWARD_FILE answers nothing"
+        fail 'service endpoint' "$ENDPOINT from $ENDPOINT_SOURCE answers nothing"
     else
-        note 'local bind endpoint' "$ENDPOINT answers, HTTP $LOCAL_CODE"
+        note 'service endpoint' "$ENDPOINT answers, HTTP $LOCAL_CODE ($ENDPOINT_SOURCE)"
     fi
-else
-    fail 'local bind endpoint' "no forwards entry at $FORWARD_FILE"
 fi
 
 # 5. The stable address and identity the consumer was handed. A mismatch here
@@ -161,13 +255,59 @@ if [ -f "$ENV_FILE" ]; then
         fi
     fi
 
+    # The worker never calls the resolver directly: it connects to the stable port,
+    # and the adapter behind that port performs the resolution under the consumer
+    # the registry declares for it. So a direct resolve with the worker's own
+    # workload id proves nothing about the worker, and reporting it as a broken
+    # link is how this script first accused a healthy path. Report the identity and
+    # the adapter's declared consumer side by side instead.
     WORKLOAD=$(awk -F'=' '/^SKARBIEC_WORKLOAD_ID=/ { gsub(/"/, "", $2); print $2; exit }' "$ENV_FILE")
+    ADAPTER_CONSUMER=$(awk -v service="\"service\": \"$SERVICE\"" '
+        index($0, service) { inside = "yes"; next }
+        inside == "yes" && /"consumer"/ {
+            line = $0
+            sub(/^[^:]*:[[:space:]]*"/, "", line)
+            sub(/".*$/, "", line)
+            print line
+            exit
+        }
+    ' "$REGISTRY")
     if [ -z "$WORKLOAD" ]; then
-        fail 'consumer authorization' "$ENV_FILE names no SKARBIEC_WORKLOAD_ID"
-    elif stado resolver resolve "$SERVICE" --consumer "$WORKLOAD" >/dev/null; then
-        note 'consumer authorization' "$WORKLOAD is authorized for $SERVICE"
+        fail 'workload identity' "$ENV_FILE names no SKARBIEC_WORKLOAD_ID"
     else
-        fail 'consumer authorization' "$WORKLOAD is refused for $SERVICE by Stado's resolver"
+        note 'workload identity' "$WORKLOAD writes as itself, reads through the adapter"
+    fi
+    if [ -z "$ADAPTER_CONSUMER" ]; then
+        fail 'adapter consumer' "$REGISTRY declares no adapter consumer for $SERVICE"
+    else
+        note 'adapter consumer' "$ADAPTER_CONSUMER, as declared for the stable port"
+    fi
+
+    # Reaching the vault is not the same as being allowed to do the work: a worker
+    # whose allowlist omits the credential actions claims none of them, and a
+    # queued operation simply never runs.
+    #
+    # The launcher is the authority, not the env file. launch-mac.sh and launch.sh
+    # both `unset WELES_ACTION_ALLOWLIST` and rebuild it from
+    # weles/scripts/worker/deploy/weles-action-allowlist.txt in the deployed
+    # checkout, so the copy sitting in the env file is discarded at startup.
+    # Reading the env file reported an allowlist the worker never uses.
+    ALLOWLIST_FILE="$HOME/weles/scripts/worker/deploy/weles-action-allowlist.txt"
+    if [ -f "$ALLOWLIST_FILE" ]; then
+        ALLOWLIST=$(awk 'NF { printf "%s,", $0 }' "$ALLOWLIST_FILE")
+        ALLOWLIST_SOURCE="$ALLOWLIST_FILE, which the launcher rebuilds from"
+    else
+        ALLOWLIST=$(awk -F'=' '/^WELES_ACTION_ALLOWLIST=/ { gsub(/"/, "", $2); print $2; exit }' "$ENV_FILE")
+        ALLOWLIST_SOURCE="$ENV_FILE, with no deployed checkout to override it"
+    fi
+    CREDENTIAL_ACTIONS=$(printf '%s' "$ALLOWLIST" | tr ',' '\n' | awk '/password/ { printf "%s ", $0 }')
+    if [ -z "$ALLOWLIST" ]; then
+        fail 'credential actions' "no allowlist in $ALLOWLIST_SOURCE, so the worker claims nothing"
+    elif [ -z "$CREDENTIAL_ACTIONS" ]; then
+        fail 'credential actions' "no password action in $ALLOWLIST_SOURCE"
+    else
+        note 'credential actions' "$CREDENTIAL_ACTIONS"
+        note 'allowlist source' "$ALLOWLIST_SOURCE"
     fi
 else
     fail 'consumer env file' "no consumer env file at $ENV_FILE"
