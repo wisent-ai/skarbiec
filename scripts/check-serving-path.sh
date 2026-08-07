@@ -357,6 +357,28 @@ else
     fail 'acquisition scopes' "no scopes file at $SCOPES"
 fi
 
+# 7. Which release the allowlist and the scopes above actually came from.
+#
+#    Both files live inside the deployed release tree, so every finding above is a
+#    statement about one immutable version and not about the source. Printing the
+#    version turns "no Entra action" from a mystery into "this host runs an older
+#    release", which is the single line this check most needed and did not have:
+#    the same staleness had to be inferred twice, from two different files, before
+#    anyone thought to ask which release they belonged to.
+DEPLOYED_LINK="${WELES_CURRENT_LINK:-$HOME/weles}"
+if [ -L "$DEPLOYED_LINK" ]; then
+    DEPLOYED_TARGET=$(readlink "$DEPLOYED_LINK")
+    note 'deployed release' "$DEPLOYED_TARGET"
+    RECEIPT="$DEPLOYED_LINK/.weles-release"
+    if [ -f "$RECEIPT" ]; then
+        note 'release receipt' "$(awk -F'=' '/^release_uri=/ { print $2; exit }' "$RECEIPT")"
+    fi
+elif [ -d "$DEPLOYED_LINK" ]; then
+    note 'deployed release' "$DEPLOYED_LINK is a directory, not a release symlink"
+else
+    note 'deployed release' "nothing deployed at $DEPLOYED_LINK"
+fi
+
 printf '\n'
 if [ -z "$BROKEN" ]; then
     printf '%s\n' "$SERVICE: the serving path is whole"
