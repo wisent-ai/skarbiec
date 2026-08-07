@@ -359,6 +359,45 @@ if [ -f "$SCOPES" ]; then
             fi
         done
     fi
+
+    # The mirror image of the loop above, and the more surprising half: an item
+    # that exists in the vault while no consumer is scoped to read it. Nothing can
+    # reach such a value, and every failure it causes surfaces as a missing
+    # credential rather than a missing scope, which sends the reader into the wrong
+    # file. Names only, never values.
+    #
+    # Read this list as a superset, not a verdict. A vault stores consumer grants
+    # beside secrets, and a grant is never scoped to be read, so every one of them
+    # appears here too. That noise is still informative: the grant names carry the
+    # field they were minted for, which is how the disagreement between
+    # weles-microsoft-primary-password-reader-login_password in the fleet vault and
+    # the reader-password consumer the shipped scopes declare became visible at all.
+    if [ -n "$VAULT" ] && [ -f "$VAULT" ]; then
+        UNSCOPED=$(awk -F'|' '
+            NR == FNR {
+                if ($0 !~ /^#/ && $3 != "") scoped[$2] = "yes"
+                next
+            }
+            {
+                rest = $0
+                while (match(rest, /"[A-Za-z][A-Za-z0-9_.-]*"[[:space:]]*:[[:space:]]*\{/)) {
+                    token = substr(rest, RSTART, RLENGTH)
+                    sub(/"[[:space:]]*:[[:space:]]*\{$/, "", token)
+                    sub(/^"/, "", token)
+                    if (!(token in scoped)) seen[token] = "yes"
+                    rest = substr(rest, RSTART + RLENGTH)
+                }
+            }
+            END {
+                for (name in seen) printf "%s ", name
+            }
+        ' "$SCOPES" "$VAULT")
+        if [ -n "$UNSCOPED" ]; then
+            note 'items nobody may read' "$UNSCOPED"
+        else
+            note 'items nobody may read' 'none; every stored item has a reader'
+        fi
+    fi
 else
     fail 'acquisition scopes' "no scopes file at $SCOPES"
 fi
