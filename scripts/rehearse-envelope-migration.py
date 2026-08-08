@@ -22,7 +22,14 @@ import tempfile
 from pathlib import Path
 
 HOME = Path(os.environ.get("HOME", "."))
-SKARBIEC = Path(os.environ.get("SKARBIEC_BIN", str(HOME / ".stado" / "bin" / "skarbiec")))
+# `stado host run-helper` carries no caller environment, so a rehearsal that
+# needs a build newer than the host's must find it by convention: a binary
+# delivered to the operator's files directory wins when it is there.
+DELIVERED = HOME / ".stado" / "files" / "skarbiec-migrate-fix"
+SKARBIEC = Path(
+    os.environ.get("SKARBIEC_BIN")
+    or (str(DELIVERED) if DELIVERED.exists() else str(HOME / ".stado" / "bin" / "skarbiec"))
+)
 SOURCE = Path(
     os.environ.get("SKARBIEC_VAULT_FILE", str(HOME / ".stado" / "skarbiec.vault.json"))
 )
