@@ -21,7 +21,7 @@ filing scope should cover:
   and custodied recovery.
 
 Evidence of use and intended use is preserved by the public source repository,
-the immutable `0.1.2` release coordinate recorded in `released-surface.json`,
+the immutable release coordinate recorded in `released-surface.json`,
 and the product page at `https://skarbiec.wisent.com/`. The Apache-2.0 licence
 does not grant branding rights, and the hosted offering is presented as a
 separate commercial service.
