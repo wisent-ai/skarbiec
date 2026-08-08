@@ -329,16 +329,33 @@ fn expand_capability(
             output.insert(format!("{action}\u{0}{canonical_pattern}\u{0}"));
             return Ok(());
         }
-        bail!("legacy capability matches no canonical item: {target}");
+        // Same reasoning as a grant to a field that no longer exists: a grant
+        // naming an item the vault no longer holds has nothing on the other
+        // side of it, and aborting here made one stale entry enough to keep
+        // every legacy item in the store unreadable permanently. Dropping is
+        // faithful and can only narrow access; the line names what went so it
+        // can be re-granted deliberately.
+        eprintln!("dropping legacy capability {action} {target}: no canonical item of that name");
+        return Ok(());
     }
     for (item, fields) in matches {
         if let Some(requested_field) = requested_field {
-            let field = canonical_field(requested_field, fields).with_context(|| {
-                format!(
-                    "legacy capability names {item}#{requested_field}; canonical fields: {}",
+            // A grant naming a field the item no longer carries cannot be
+            // carried forward: there is nothing on the other side of it. It used
+            // to abort the whole migration, so one dangling grant left every
+            // legacy item in the store unreadable for good -- `key_type` on an
+            // ssh item whose canonical fields are the two keys did exactly that
+            // here. Dropping the grant is the faithful move and the safe
+            // direction: it can only narrow access, never widen it, and the
+            // line names what was dropped so the operator can re-grant it.
+            let Ok(field) = canonical_field(requested_field, fields) else {
+                eprintln!(
+                    "dropping legacy capability {action} {item}#{requested_field}: \
+                     no canonical field of that name (item carries {})",
                     fields.join(",")
-                )
-            })?;
+                );
+                continue;
+            };
             if field == "context" && action != "read" {
                 bail!("context metadata may only be named by read capabilities");
             }
