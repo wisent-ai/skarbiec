@@ -121,22 +121,41 @@ if [ -f "$WORKLOAD_PUB" ]; then
     chmod go-rwx "$WORKLOAD_PUB"
 fi
 
-if [ ! -f "$WORKLOAD_PUB" ]; then
-    note 'reader grant' "no workload key material at $WORKLOAD_KEY or $WORKLOAD_PUB"
-else
-    MINT=$("$BIN" token-mint "$READER_CONSUMER" \
-        --capabilities "acquire:$CREDENTIAL#$FIELD" \
+# Minting is the same work for every credential the shipped scopes declare with
+# the password field, so it is written once and applied to each. The consumer
+# Microsoft account needs it as much as the directory identity: the fleet vault
+# carries a grant minted for the field login_password, while the scopes shipped
+# inside the release name a consumer for the field password. Those are two
+# different consumer names, so the scope line points at a grant that is not there,
+# and the read throws before any password is involved.
+mint_reader() {
+    item="$1"
+    consumer="$item-reader-$FIELD"
+    if [ ! -f "$WORKLOAD_PUB" ]; then
+        note 'reader grant' "no workload key material at $WORKLOAD_KEY or $WORKLOAD_PUB"
+        return
+    fi
+    minted=$("$BIN" token-mint "$consumer" \
+        --capabilities "acquire:$item#$FIELD" \
         --workload-public-key-file "$WORKLOAD_PUB" \
         --local || true)
-    case "$MINT" in
+    case "$minted" in
         '')
-            note 'reader grant' 'token-mint produced no output; read the error above'
+            # Two causes seen in practice, and the message names neither on its
+            # own: an item still in the v1 envelope, which token-mint refuses with
+            # "run migrate-v2", and a capability whose field the item does not
+            # allow. A whole-vault envelope migration on an always-on host is not
+            # something this helper performs.
+            note "grant $item" 'refused; the error above names the cause, often a legacy v1 envelope'
             ;;
         *)
-            note 'reader grant' "$MINT"
+            note "grant $item" 'minted or already current'
             ;;
     esac
-fi
+}
+
+mint_reader "$CREDENTIAL"
+mint_reader 'weles-microsoft-primary-password'
 
 printf '\n'
 "$BIN" credential status "$CREDENTIAL" --local
