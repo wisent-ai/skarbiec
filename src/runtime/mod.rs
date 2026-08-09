@@ -3,6 +3,7 @@
 // its own commands and returns None otherwise; a real error propagates via `?`.
 
 pub mod audit;
+pub mod doctor;
 pub mod breach;
 pub mod resolve;
 pub mod totp;

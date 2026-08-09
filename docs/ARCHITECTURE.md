@@ -22,7 +22,14 @@ hand-rolled here.
 - Admin policy. Minimum generated length and per-item rules, checked before the
   relevant operation.
 - Tamper-evident audit. An append-only journal where each line carries the prior
-  line hash; verify-chain detects any retroactive edit.
+  line hash; verify-chain detects any retroactive edit. Appends take a lock
+  file beside the journal and re-read the predecessor from disk inside it,
+  because the chain is read-modify-write and every CLI invocation is a
+  separate process: two writers that each cached the same tail once produced
+  two lines claiming one predecessor. Verification reports linkage and digests
+  apart — linkage is free and covers everything, digests cost one `shasum` per
+  line — and always names the journal it read, since the default path and
+  `$SKARBIEC_AUDIT_FILE` are different files.
 - Runtime injection. resolve writes an owner-only shell file of canonical login
   variables and returns its path — values land in the file, never on stdout;
   expand fills skarbiec reference lines in a template.

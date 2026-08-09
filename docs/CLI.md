@@ -36,6 +36,7 @@ Recovery:    key-doctor recovery-status recovery-drill emergency-grant
              emergency-cancel emergency-list emergency-activate
 Policy:      policy-set policy-get policy-check-length
 Audit:       audit audit-query verify-chain
+Diagnosis:   doctor
 Runtime:     resolve expand totp breach-check
 Sync:        sync-init sync-push sync-pull pull donate donations
              donation-accept donation-reject enroll sync-daemon sync-status
@@ -191,10 +192,32 @@ as `DIRECTORY_EXPECTATION_MISMATCH` before anything reaches the bridge.
 | `credential resume <item-id> --approval <id> --resume-token <token>` | Resume the operation that stopped as `needs_human_approval`. `--resume-token-file <path>` reads the token from an owner-only file instead of argv. Resubmitting the operation is not a way to resume it. |
 | `credential resolve-quarantine <item-id> --confirm '<phrase>' [--staged keep\|activate\|discard] --as <consumer> --token-file <path> --local` | Settle a quarantined item. Requires an `admin` capability on that exact item (on its operation record when the item does not exist) and the exact confirmation phrase `I know which password this provider account accepts`. Writes an audit entry and returns the item to `unmanaged`, so knowing the password again is always an explicit act. |
 | `credential status <item-id> [--follow]` | Poll the exact Weles action-log ID, persist queued/failure/review/completed state, commit or roll back the staged revision, and report the item's lifecycle state, receipt, quarantine block, and whether it is eligible for a lifecycle at all. `--follow` repeats that same persisted poll every 5 seconds for at most 30 minutes. |
+| `credential declare-endpoint [<url>]` | Write the owner-only forward file every remote `credential` call resolves. Defaults to `http://127.0.0.1:8787`, the port `serve` binds. Validated through the same reader the calls use, so a file this writes is never one they refuse, and the report says whether anything answers. |
 
 `--dry-run` is a local-mode flag: it plans one operation without taking the
 operation lock or writing a request record. `adopt` has no dry run because it
 would have to read the operator's password for nothing.
+
+A fresh installation has no forward file, so every remote `credential` call
+refuses with `SKARBIEC_ENDPOINT_UNRESOLVED` until one exists. Until
+`declare-endpoint`, nothing in this product created it: the reader enforced a
+precise contract — owner-owned, no group or world write, exactly one bounded
+URL naming host and port and no path — that an operator had to satisfy by
+hand, from the error message alone.
+
+```console
+$ skarbiec credential declare-endpoint
+{
+  "forward": "/Users/you/.stado/forwards/skarbiec.local",
+  "endpoint": "http://127.0.0.1:8787",
+  "authority": "127.0.0.1:8787",
+  "answering": true
+}
+```
+
+`answering` is reported separately from the write on purpose: whether the
+declaration is well formed and whether a service is up are different
+questions, and a bare connection error answers neither.
 
 ### The item's field is a contract, not a mapping
 
@@ -512,9 +535,54 @@ consumes the returned field once, repeats the same read to demonstrate
 
 | Command | What it does |
 | --- | --- |
-| `audit` | Print the complete append-only journal. |
+| `audit [--limit N]` | Print the append-only journal, oldest first. `--limit` returns only the final N, read from the file's tail instead of parsing the whole journal. |
 | `audit-query [--op OP] [--consumer ID] [--item ID] [--since ISO] [--until ISO] [--limit N]` | Query local provenance by operation, workload consumer, item, and time window. Returns the newest matching bounded slice in chronological order. |
-| `verify-chain` | Verify the hash chain; report any retroactive edit. |
+| `verify-chain [--tail N]` | Verify the hash chain and name the journal verified. |
+
+`verify-chain` reports two properties apart, because they fail for different
+reasons and cost different amounts:
+
+- **Linkage** — each line's recorded predecessor is the line before it. Two
+  string comparisons, so it always covers the whole journal. This is what a
+  second process breaks when it appends against a tail another process has
+  already moved.
+- **Digests** — the line's own fields still hash to the hash it carries. This
+  is what a retroactive edit breaks, and it costs one `shasum` process per
+  line: a 75,000-entry journal takes about fifteen minutes. `--tail N` bounds
+  it to the newest N lines.
+
+Neither scan stops at the first fault, and the report names the file it read.
+That matters more than it sounds: this binary's default journal
+(`~/.local/state/skarbiec/audit.jsonl`) and the journal Stado gives its
+callers (`$SKARBIEC_AUDIT_FILE`) are different files, so an unqualified
+`intact: true` over an empty default reads exactly like a clean bill of health
+for the vault actually in service.
+
+```json
+{
+  "journal": "/Users/you/.stado/skarbiec.audit.jsonl",
+  "entries": 74982,
+  "linkage_checked": 74982,
+  "linkage_verified": 74981,
+  "digests_checked": 200,
+  "digests_verified": 200,
+  "intact": false,
+  "broken_at": "2026-07-30T23:16:21Z",
+  "faults": [{"line": 2311, "at": "2026-07-30T23:16:21Z", "op": "http-item-read", "fault": "linkage"}]
+}
+```
+
+## Diagnosis
+
+| Command | What it does |
+| --- | --- |
+| `doctor` | Report the vault, the audit chain, the canonical endpoint, and WORM receipts, each as `pass`, `fail`, or `not_configured`, with a tally. |
+
+`doctor` reads the vault file, the journal, the forward marker and a socket
+directly — never through the HTTP API it is diagnosing — so it still answers
+when that API does not. `not_configured` is deliberately not a failure: a
+fresh install has switched on no WORM receipts, and calling that an outage
+teaches an operator that red means nothing.
 
 ## Runtime injection
 

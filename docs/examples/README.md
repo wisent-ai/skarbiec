@@ -30,6 +30,7 @@ to overwrite existing vault files.
 10. [`bond/invite-person.sh`](bond/invite-person.sh) — register one workload-bound, one-field acquisition contract.
 11. [`sharing/share-credential-with-user.sh`](sharing/share-credential-with-user.sh) — GIVE to another user's vault.
 12. [`sharing/donate-item-to-host.sh`](sharing/donate-item-to-host.sh) — donate + duplicate rejection.
+13. [`operations/diagnose-a-vault.sh`](operations/diagnose-a-vault.sh) — `doctor`, bounded chain verification, endpoint declaration, tail of the journal.
 
 ## Run the acquisition proof
 
