@@ -267,7 +267,7 @@ jobs:
   promote-release:
     if: needs.prepare-release.outputs.publish == 'true'
     needs: [prepare-release, publish-release]
-    uses: wisent-ai/stado/.github/workflows/promote-managed-release.yml@f35bd30f2fe0a79c96aa85b7ea9a49d3aad418b4
+    uses: wisent-ai/stado/.github/workflows/promote-managed-release.yml@56b429480bc0d6855dd7729880535a07e12f69f3
     with:
       binary: skarbiec
       version: ${{ needs.prepare-release.outputs.version }}
