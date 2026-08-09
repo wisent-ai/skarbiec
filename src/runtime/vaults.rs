@@ -86,19 +86,22 @@ pub fn inventory() -> Result<Value> {
         }
     }
     found.sort_by(|left, right| {
-        let items = |value: &Value| value.get("items").and_then(Value::as_u64).unwrap_or_default();
-        items(right)
-            .cmp(&items(left))
-            .then_with(|| {
-                let path = |value: &Value| {
-                    value
-                        .get("path")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string()
-                };
-                path(left).cmp(&path(right))
-            })
+        let items = |value: &Value| {
+            value
+                .get("items")
+                .and_then(Value::as_u64)
+                .unwrap_or_default()
+        };
+        items(right).cmp(&items(left)).then_with(|| {
+            let path = |value: &Value| {
+                value
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string()
+            };
+            path(left).cmp(&path(right))
+        })
     });
     Ok(json!({
         "host": hostname(),

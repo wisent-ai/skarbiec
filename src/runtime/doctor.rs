@@ -103,7 +103,10 @@ fn audit_check() -> Value {
                     .map(|fault| {
                         format!(
                             "line {} ({})",
-                            fault.get("line").and_then(Value::as_u64).unwrap_or_default(),
+                            fault
+                                .get("line")
+                                .and_then(Value::as_u64)
+                                .unwrap_or_default(),
                             fault.get("at").and_then(Value::as_str).unwrap_or_default()
                         )
                     })
@@ -136,7 +139,11 @@ fn endpoint_check() -> Value {
                 .and_then(Value::as_bool)
                 .unwrap_or_default();
             if answering {
-                check("endpoint", PASS, format!("{endpoint}, declared by {forward}"))
+                check(
+                    "endpoint",
+                    PASS,
+                    format!("{endpoint}, declared by {forward}"),
+                )
             } else {
                 check(
                     "endpoint",
@@ -167,7 +174,11 @@ fn worm_check() -> Value {
     if missing.is_empty() {
         check("worm", PASS, format!("receipts in {directory}"))
     } else {
-        check("worm", FAIL, format!("configured but absent: {}", missing.join(", ")))
+        check(
+            "worm",
+            FAIL,
+            format!("configured but absent: {}", missing.join(", ")),
+        )
     }
 }
 

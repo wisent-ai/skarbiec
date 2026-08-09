@@ -124,8 +124,7 @@ pub(super) fn declare_canonical_endpoint(endpoint: &str) -> Result<Value> {
         .with_context(|| format!("write {}", staging.display()))?;
     fs::set_permissions(&staging, fs::Permissions::from_mode(owner_only_file))
         .with_context(|| format!("protect {}", staging.display()))?;
-    fs::rename(&staging, &path)
-        .with_context(|| format!("publish {}", path.display()))?;
+    fs::rename(&staging, &path).with_context(|| format!("publish {}", path.display()))?;
     let declared = canonical_endpoint()?;
     let authority = endpoint_authority(&declared)?;
     // Whether anything answers is a separate question from whether the
