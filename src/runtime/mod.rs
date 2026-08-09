@@ -3,11 +3,11 @@
 // its own commands and returns None otherwise; a real error propagates via `?`.
 
 pub mod audit;
-pub mod doctor;
-pub mod vaults;
 pub mod breach;
+pub mod doctor;
 pub mod resolve;
 pub mod totp;
+pub mod vaults;
 
 use anyhow::Result;
 use serde_json::Value;
