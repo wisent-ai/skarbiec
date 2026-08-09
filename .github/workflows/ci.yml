@@ -263,3 +263,11 @@ jobs:
               publish_stado "$file" "$platform"
             done
           done
+
+  promote-release:
+    if: needs.prepare-release.outputs.publish == 'true'
+    needs: [prepare-release, publish-release]
+    uses: wisent-ai/stado/.github/workflows/promote-managed-release.yml@991a2ad889f7be510105008d03800d1f9f130a8b
+    with:
+      binary: skarbiec
+      version: ${{ needs.prepare-release.outputs.version }}
