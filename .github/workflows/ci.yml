@@ -13,6 +13,17 @@ jobs:
   gates:
     uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
 
+  # A merged version bump becomes its tag here, rather than waiting for
+  # someone to remember. The number is read from Cargo.toml, never invented,
+  # and an existing tag is never moved - so the decision stays where the
+  # refusal below says it belongs: in the commit that changed the version.
+  tag:
+    if: github.ref == 'refs/heads/main'
+    needs: gates
+    uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@897485548846d7dfe38832b6b9a38212cdd1685a
+    permissions:
+      contents: write
+
   build:
     # Everything below is about publishing a tag, and none of it runs
     # otherwise. The untagged build lives in the shared gates now, so an
