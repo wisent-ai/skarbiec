@@ -55,7 +55,14 @@ owner-private host registration and its narrow `read:login-*` grant.
 The following remain distinct applications on different toolchains:
 
 - Desktop and mobile clients. Native apps (their own toolchains) for unlock,
-  browse, and biometric gating.
+  browse, and biometric gating. The macOS client also finds the vaults a
+  machine already holds and creates one, because a vault is a file rather
+  than a registry entry: it reads the conventional locations, parses each
+  candidate's plaintext envelope for owner and counts without decrypting
+  anything, and shows no item name — those names are the sensitive map. It
+  runs `init` for creation and holds the chosen vault itself, overriding
+  `SKARBIEC_VAULT_FILE`, so which vault is on screen is not a property of
+  whichever shell launched the app.
 - Administrative web console. A web interface over the admin endpoints for user,
   policy, and audit management.
 
