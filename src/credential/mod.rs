@@ -38,7 +38,9 @@ pub(crate) use serve::{
 };
 pub(crate) use state::{authorize_managed_write, lifecycle_owned_item};
 
-use client::{remote_operation, remote_resume, remote_status};
+use client::{declare_canonical_endpoint, remote_operation, remote_resume, remote_status};
+
+pub(crate) use client::canonical_endpoint_report;
 use directory::seal_directory;
 use lifecycle::{resume, start_operation};
 use quarantine::resolve_quarantine;
@@ -57,6 +59,11 @@ const IDENTITY_PROVIDER: &str = "microsoft_entra";
 // Provider bound to one exact consumer account address only.
 const ACCOUNT_PROVIDER: &str = "microsoft";
 const IDENTITY_OPERATIONS: &[&str] = &["adopt", "rotate", "verify", "reset"];
+
+/// Where a Skarbiec serves when nobody said otherwise: `serve` binds this port
+/// by default, so it is the only address a fresh machine can be told to use
+/// without guessing.
+const LOCAL_CANONICAL_ENDPOINT: &str = "http://127.0.0.1:8787";
 
 // Operations the canonical endpoint accepts. adopt is missing on purpose: the
 // current password is read from operator stdin and never travels.
@@ -188,6 +195,17 @@ pub fn dispatch(
                 remote_status(&client_flags, args)?
             }
         }
+        // Not gated on `--local`: this declares where the canonical Skarbiec
+        // is, so requiring a working canonical Skarbiec to run it would be a
+        // lock whose key is inside the box.
+        "declare-endpoint" => {
+            let endpoint = args
+                .first()
+                .map(String::as_str)
+                .or_else(|| flags.get("url").map(String::as_str))
+                .unwrap_or(LOCAL_CANONICAL_ENDPOINT);
+            declare_canonical_endpoint(endpoint)?
+        }
         "help" => json!({
             "commands": [
                 "credential seal-directory",
@@ -200,9 +218,10 @@ pub fn dispatch(
                 "credential remove",
                 "credential resume",
                 "credential resolve-quarantine",
-                "credential status"
+                "credential status",
+                "credential declare-endpoint"
             ],
-            "usage": "credential <acquire|rotate|reset|verify|remove> <item-id> --consumer <consumer> [--purpose <purpose>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id> [--follow]",
+            "usage": "credential <acquire|rotate|reset|verify|remove> <item-id> --consumer <consumer> [--purpose <purpose>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id> [--follow]; credential declare-endpoint [<url>] (default http://127.0.0.1:8787)",
             "wire": WIRE_VERSION,
             "item_states": ITEM_STATES,
             "provider_effects": PROVIDER_EFFECTS,
