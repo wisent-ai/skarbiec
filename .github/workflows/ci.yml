@@ -7,7 +7,18 @@ on:
   pull_request:
 
 jobs:
+  # The gates are not spelled here any more. Four Rust repositories in this
+  # pack had four different gate sets, and a fix applied to one of them
+  # protected one repository; the shared workflow is one place to fix.
+  gates:
+    uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
+
   build:
+    # Everything below is about publishing a tag, and none of it runs
+    # otherwise. The untagged build lives in the shared gates now, so an
+    # ordinary push builds once instead of twice.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: gates
     permissions:
       contents: write
     strategy:
@@ -25,11 +36,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - name: Build source candidate
-        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-        run: cargo build --release
       - name: Refuse a tag that disagrees with the manifest
         # Every coordinate the tagged steps below write is spelled from
         # GITHUB_REF_NAME and from nothing else: the release, the archive
