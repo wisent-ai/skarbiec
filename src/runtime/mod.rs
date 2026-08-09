@@ -4,6 +4,7 @@
 
 pub mod audit;
 pub mod doctor;
+pub mod vaults;
 pub mod breach;
 pub mod resolve;
 pub mod totp;
