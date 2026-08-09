@@ -63,7 +63,7 @@ jobs:
           stage="$RUNNER_TEMP/stage-$PLATFORM"
           mkdir -p "$out" "$stage"
           cp target/release/skarbiec LICENSE NOTICE TRADEMARKS.md "$stage/"
-          tar -czf "$out/$archive" -C "$stage" .
+          tar -czf "$out/$archive" -C "$stage" skarbiec LICENSE NOTICE TRADEMARKS.md
           digest="$(openssl dgst -sha256 -r "$out/$archive" | cut -d ' ' -f 1)"
           printf '%s  %s\n' "$digest" "$archive" > "$out/$archive.sha256"
           jq -n \
@@ -113,6 +113,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       TAG: ${{ needs.prepare-release.outputs.tag }}
       VERSION: ${{ needs.prepare-release.outputs.version }}
       SOURCE_SHA: ${{ needs.prepare-release.outputs.sha }}
