@@ -1,0 +1,273 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  gates:
+    uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@2de57851b29b57da01fff370817a45ad121c93bc
+
+  version-contract:
+    uses: wisent-ai/quality-control/.github/workflows/rust-autoversion.yml@2de57851b29b57da01fff370817a45ad121c93bc
+
+  prepare-release:
+    if: github.event_name != 'pull_request'
+    needs: [gates, version-contract]
+    uses: wisent-ai/quality-control/.github/workflows/prepare-rust-release.yml@2de57851b29b57da01fff370817a45ad121c93bc
+    permissions:
+      contents: write
+
+  build-release:
+    if: needs.prepare-release.outputs.publish == 'true'
+    needs: [gates, version-contract, prepare-release]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+            architecture: x86_64
+          - os: macos-latest
+            platform: darwin-arm64
+            architecture: arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.sha }}
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build the provenance-stamped release bytes once
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          SOURCE_SHA: ${{ needs.prepare-release.outputs.sha }}
+          PLATFORM: ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_architecture="$(uname -m)"
+          if [ "$actual_architecture" != "${{ matrix.architecture }}" ]; then
+            echo "::error::runner architecture $actual_architecture does not match $PLATFORM"
+            false
+          fi
+          archive="skarbiec-v${VERSION}-${PLATFORM}.tar.gz"
+          export SKARBIEC_RELEASE_URI="stado://releases/skarbiec/${VERSION}/${PLATFORM}/${archive}"
+          export SKARBIEC_RELEASE_COMMIT="$SOURCE_SHA"
+          cargo build --locked --release
+
+          out="$RUNNER_TEMP/release-$PLATFORM"
+          stage="$RUNNER_TEMP/stage-$PLATFORM"
+          mkdir -p "$out" "$stage"
+          cp target/release/skarbiec LICENSE NOTICE TRADEMARKS.md "$stage/"
+          tar -czf "$out/$archive" -C "$stage" skarbiec LICENSE NOTICE TRADEMARKS.md
+          digest="$(openssl dgst -sha256 -r "$out/$archive" | cut -d ' ' -f 1)"
+          printf '%s  %s\n' "$digest" "$archive" > "$out/$archive.sha256"
+          jq -n \
+            --arg product skarbiec \
+            --arg version "$VERSION" \
+            --arg platform "$PLATFORM" \
+            --arg source_commit "$SOURCE_SHA" \
+            --arg sha256 "$digest" \
+            '{product:$product,version:$version,platform:$platform,source_commit:$source_commit,sha256:$sha256}' \
+            > "$out/release-manifest-$PLATFORM.json"
+
+      - name: Build the signed browser channel once
+        if: matrix.platform == 'linux-amd64'
+        env:
+          VERSION: ${{ needs.prepare-release.outputs.version }}
+          SKARBIEC_EXTENSION_PRIVATE_KEY_B64: ${{ secrets.SKARBIEC_EXTENSION_PRIVATE_KEY_B64 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" ]; then
+            echo "::error::SKARBIEC_EXTENSION_PRIVATE_KEY_B64 is required for a release"
+            false
+          fi
+          private_key="$(mktemp)"
+          trap 'rm -f "$private_key"' EXIT
+          printf '%s' "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" | base64 --decode > "$private_key"
+          out="$RUNNER_TEMP/release-linux-amd64"
+          crx="$out/skarbiec-autofill.crx"
+          update="$out/skarbiec-autofill.xml"
+          codebase="https://github.com/wisent-ai/skarbiec/releases/latest/download/skarbiec-autofill.crx"
+          extension_id="$(cat deploy/chrome-extension-id)"
+          python3 tools/package-crx3.py browser "$private_key" "$crx" "$update" \
+            "$codebase" "$VERSION" "$extension_id"
+          openssl dgst -sha256 -r "$crx" > "$crx.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: ${{ runner.temp }}/release-${{ matrix.platform }}/
+          if-no-files-found: error
+
+  publish-release:
+    if: needs.prepare-release.outputs.publish == 'true'
+    needs: [prepare-release, build-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare-release.outputs.tag }}
+      VERSION: ${{ needs.prepare-release.outputs.version }}
+      SOURCE_SHA: ${{ needs.prepare-release.outputs.sha }}
+      STADO_RELEASE_API_URL: ${{ vars.STADO_RELEASE_API_URL }}
+      STADO_RELEASE_PUBLISHER_TOKEN: ${{ secrets.STADO_RELEASE_PUBLISHER_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/release
+
+      - name: Publish the same files to GitHub and the canonical Stado channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$STADO_RELEASE_API_URL" ] || [ -z "$STADO_RELEASE_PUBLISHER_TOKEN" ]; then
+            echo "::error::STADO_RELEASE_API_URL and STADO_RELEASE_PUBLISHER_TOKEN are required"
+            false
+          fi
+          case "$STADO_RELEASE_API_URL" in
+            https://*) ;;
+            *) echo "::error::STADO_RELEASE_API_URL must use HTTPS"; false ;;
+          esac
+
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --target "$SOURCE_SHA" --title "$TAG" --generate-notes
+
+          publish_github() {
+            file="$1"
+            mode="$2"
+            name="${file##*/}"
+            existing="$RUNNER_TEMP/github-$name"
+            mkdir -p "$existing"
+            if gh release download "$TAG" --pattern "$name" --dir "$existing" >/dev/null 2>&1; then
+              if ! cmp --silent "$file" "$existing/$name"; then
+                if [ "$mode" = source ]; then
+                  echo "GitHub Release already owns $name for $SOURCE_SHA; reusing those immutable bytes to resume publication."
+                  cp "$existing/$name" "$file"
+                else
+                  echo "::error::GitHub Release metadata $name disagrees with the immutable source bytes."
+                  false
+                fi
+              fi
+            else
+              gh release upload "$TAG" "$file"
+            fi
+          }
+
+          resolve_stado() {
+            file="$1"
+            platform="$2"
+            mode="$3"
+            name="${file##*/}"
+            uri="stado://releases/skarbiec/$VERSION/$platform/$name"
+            existing="$RUNNER_TEMP/stado-$platform-$name"
+            status="$(curl --silent --show-error --output "$existing" --write-out '%{http_code}' \
+              --get --data-urlencode "uri=$uri" \
+              "${STADO_RELEASE_API_URL%/}/api/release/object")"
+            case "$status" in
+              200)
+                if ! cmp --silent "$file" "$existing"; then
+                  if [ "$mode" = source ]; then
+                    echo "Stado already owns $uri for $SOURCE_SHA; reusing those immutable bytes."
+                    cp "$existing" "$file"
+                  else
+                    echo "::error::Stado metadata $uri disagrees with the immutable source bytes."
+                    false
+                  fi
+                fi
+                ;;
+              404) ;;
+              *)
+                echo "::error::Stado release GET for $uri returned HTTP $status"
+                false
+                ;;
+            esac
+          }
+
+          publish_stado() {
+            file="$1"
+            platform="$2"
+            name="${file##*/}"
+            uri="stado://releases/skarbiec/$VERSION/$platform/$name"
+            encoded_uri="$(jq -rn --arg value "$uri" '$value|@uri')"
+            response="$(mktemp)"
+            status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
+              --request PUT \
+              --header "Authorization: Bearer $STADO_RELEASE_PUBLISHER_TOKEN" \
+              --header "Content-Type: application/octet-stream" \
+              --data-binary "@$file" \
+              "${STADO_RELEASE_API_URL%/}/api/object?uri=$encoded_uri&if_absent=true")"
+            case "$status" in
+              200|201) return ;;
+              409)
+                existing="$(mktemp)"
+                curl --fail --silent --show-error --get \
+                  --data-urlencode "uri=$uri" \
+                  "${STADO_RELEASE_API_URL%/}/api/release/object" > "$existing"
+                cmp --silent "$file" "$existing" || {
+                  echo "::error::immutable Stado release collision at $uri"
+                  false
+                }
+                ;;
+              *)
+                cat "$response"
+                echo "::error::Stado release PUT for $uri returned HTTP $status"
+                false
+                ;;
+            esac
+          }
+
+          for directory in "$RUNNER_TEMP"/release/release-*; do
+            platform="${directory##*/release-}"
+            archive="$directory/skarbiec-v$VERSION-$platform.tar.gz"
+            resolve_stado "$archive" "$platform" source
+            publish_github "$archive" source
+            if [ "$platform" = linux-amd64 ]; then
+              resolve_stado "$directory/skarbiec-autofill.crx" "$platform" source
+              resolve_stado "$directory/skarbiec-autofill.xml" "$platform" source
+              publish_github "$directory/skarbiec-autofill.crx" source
+              publish_github "$directory/skarbiec-autofill.xml" source
+              openssl dgst -sha256 -r "$directory/skarbiec-autofill.crx" \
+                > "$directory/skarbiec-autofill.crx.sha256"
+            fi
+
+            digest="$(openssl dgst -sha256 -r "$archive" | cut -d ' ' -f 1)"
+            printf '%s  %s\n' "$digest" "${archive##*/}" > "$archive.sha256"
+            jq -n \
+              --arg product skarbiec \
+              --arg version "$VERSION" \
+              --arg platform "$platform" \
+              --arg source_commit "$SOURCE_SHA" \
+              --arg sha256 "$digest" \
+              '{product:$product,version:$version,platform:$platform,source_commit:$source_commit,sha256:$sha256}' \
+              > "$directory/release-manifest-$platform.json"
+
+            for file in "$directory"/*; do
+              case "${file##*/}" in
+                "${archive##*/}"|skarbiec-autofill.crx|skarbiec-autofill.xml) ;;
+                *)
+                  resolve_stado "$file" "$platform" metadata
+                  publish_github "$file" metadata
+                  ;;
+              esac
+            done
+            for file in "$directory"/*; do
+              publish_stado "$file" "$platform"
+            done
+          done
+
+  promote-release:
+    if: needs.prepare-release.outputs.publish == 'true'
+    needs: [prepare-release, publish-release]
+    uses: wisent-ai/stado/.github/workflows/promote-managed-release.yml@56b429480bc0d6855dd7729880535a07e12f69f3
+    with:
+      binary: skarbiec
+      version: ${{ needs.prepare-release.outputs.version }}
