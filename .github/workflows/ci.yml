@@ -142,17 +142,53 @@ jobs:
 
           publish_github() {
             file="$1"
+            mode="$2"
             name="${file##*/}"
             existing="$RUNNER_TEMP/github-$name"
             mkdir -p "$existing"
             if gh release download "$TAG" --pattern "$name" --dir "$existing" >/dev/null 2>&1; then
-              cmp --silent "$file" "$existing/$name" || {
-                echo "::error::GitHub Release asset $name already exists with different bytes"
-                false
-              }
+              if ! cmp --silent "$file" "$existing/$name"; then
+                if [ "$mode" = source ]; then
+                  echo "GitHub Release already owns $name for $SOURCE_SHA; reusing those immutable bytes to resume publication."
+                  cp "$existing/$name" "$file"
+                else
+                  echo "::error::GitHub Release metadata $name disagrees with the immutable source bytes."
+                  false
+                fi
+              fi
             else
               gh release upload "$TAG" "$file"
             fi
+          }
+
+          resolve_stado() {
+            file="$1"
+            platform="$2"
+            mode="$3"
+            name="${file##*/}"
+            uri="stado://releases/skarbiec/$VERSION/$platform/$name"
+            existing="$RUNNER_TEMP/stado-$platform-$name"
+            status="$(curl --silent --show-error --output "$existing" --write-out '%{http_code}' \
+              --get --data-urlencode "uri=$uri" \
+              "${STADO_RELEASE_API_URL%/}/api/release/object")"
+            case "$status" in
+              200)
+                if ! cmp --silent "$file" "$existing"; then
+                  if [ "$mode" = source ]; then
+                    echo "Stado already owns $uri for $SOURCE_SHA; reusing those immutable bytes."
+                    cp "$existing" "$file"
+                  else
+                    echo "::error::Stado metadata $uri disagrees with the immutable source bytes."
+                    false
+                  fi
+                fi
+                ;;
+              404) ;;
+              *)
+                echo "::error::Stado release GET for $uri returned HTTP $status"
+                false
+                ;;
+            esac
           }
 
           publish_stado() {
@@ -190,8 +226,39 @@ jobs:
 
           for directory in "$RUNNER_TEMP"/release/release-*; do
             platform="${directory##*/release-}"
+            archive="$directory/skarbiec-v$VERSION-$platform.tar.gz"
+            resolve_stado "$archive" "$platform" source
+            publish_github "$archive" source
+            if [ "$platform" = linux-amd64 ]; then
+              resolve_stado "$directory/skarbiec-autofill.crx" "$platform" source
+              resolve_stado "$directory/skarbiec-autofill.xml" "$platform" source
+              publish_github "$directory/skarbiec-autofill.crx" source
+              publish_github "$directory/skarbiec-autofill.xml" source
+              openssl dgst -sha256 -r "$directory/skarbiec-autofill.crx" \
+                > "$directory/skarbiec-autofill.crx.sha256"
+            fi
+
+            digest="$(openssl dgst -sha256 -r "$archive" | cut -d ' ' -f 1)"
+            printf '%s  %s\n' "$digest" "${archive##*/}" > "$archive.sha256"
+            jq -n \
+              --arg product skarbiec \
+              --arg version "$VERSION" \
+              --arg platform "$platform" \
+              --arg source_commit "$SOURCE_SHA" \
+              --arg sha256 "$digest" \
+              '{product:$product,version:$version,platform:$platform,source_commit:$source_commit,sha256:$sha256}' \
+              > "$directory/release-manifest-$platform.json"
+
             for file in "$directory"/*; do
-              publish_github "$file"
+              case "${file##*/}" in
+                "${archive##*/}"|skarbiec-autofill.crx|skarbiec-autofill.xml) ;;
+                *)
+                  resolve_stado "$file" "$platform" metadata
+                  publish_github "$file" metadata
+                  ;;
+              esac
+            done
+            for file in "$directory"/*; do
               publish_stado "$file" "$platform"
             done
           done
