@@ -292,7 +292,11 @@ pub(super) fn start_operation(
                 "consumer": consumer,
             }),
         ) {
-            update_request(vault_path, &request_item, &request, "failed", None)?;
+            // A submit that never reached Weles is an operation failure, not a
+            // distinct vocabulary: only "operation_failed" lets a later
+            // `credential status` settle the staged revision, and plain
+            // "failed" wedges the item with no path back.
+            update_request(vault_path, &request_item, &request, "operation_failed", None)?;
             return Err(error);
         }
     }
@@ -301,7 +305,7 @@ pub(super) fn start_operation(
     let response = match run_weles(&submit_request) {
         Ok(response) => response,
         Err(error) if !dry_run => {
-            update_request(vault_path, &request_item, &request, "failed", None)?;
+            update_request(vault_path, &request_item, &request, "operation_failed", None)?;
             return Err(error);
         }
         Err(error) => return Err(error),
@@ -491,7 +495,9 @@ pub(super) fn resume(
     let response = match run_weles(&wire) {
         Ok(response) => response,
         Err(error) => {
-            update_request(vault_path, &request_item, &request, "failed", None)?;
+            // Same settlement contract as the submit path: "operation_failed"
+            // is the only failure status a later `credential status` settles.
+            update_request(vault_path, &request_item, &request, "operation_failed", None)?;
             return Err(error);
         }
     };

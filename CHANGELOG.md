@@ -29,6 +29,16 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
   `onboarding_completed` and `onboarding_first_success_observed`.
 - Added `docs/examples/acquire-one-field.sh`.
 
+### Fixed
+
+- A credential operation whose submit or resume never reached Weles (bridge
+  invocation error) was recorded with the plain status `failed`, which no
+  settlement path matched: the item kept its staged revision and stayed
+  `adopting`/`pending` forever, refusing every later lifecycle command. Those
+  paths now record `operation_failed`, and `credential status` settles records
+  carrying either spelling through the existing rollback
+  (`src/credential/lifecycle.rs`, `src/credential/status.rs`).
+
 ### Changed
 
 - The default vault location moved from `$HOME/.stado/skarbiec.vault.json` to

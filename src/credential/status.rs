@@ -337,7 +337,10 @@ pub(super) fn status_once(vault_path: &Path, args: &[String]) -> Result<Value> {
                 current_status = "inconsistent".to_string();
             }
         }
-    } else if current_status == "operation_failed" {
+    } else if matches!(current_status.as_str(), "operation_failed" | "failed") {
+        // "failed" is the legacy spelling recorded by submit/resume paths that
+        // never reached Weles; records carrying it predate the unified
+        // "operation_failed" vocabulary and settle through the same rollback.
         let staged = pending_matches_request(&vault, credential_id, &request_id, &field, &writer);
         if staged {
             vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
