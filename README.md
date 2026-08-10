@@ -10,9 +10,21 @@
 
 # Skarbiec: Secrets and Authentication Management for the AI Agent Era
 
-**Skarbiec is a local credential broker for giving workloads one short-lived,
-field-bound capability at a time while retaining encrypted vault state,
-recovery, and a non-secret audit chain under operator control.**
+Credential and Authentication Management for the AI Era.
+
+Your devices hold your SSH keys, 2FA, API keys and card details. You don’t want
+your AI to send them to an external provider, right? Skarbiec holds your
+information in one accessible place — and makes sure only authorised AI have
+access to it.
+
+Since it is in one place, it also becomes easy to go full yolo — and give your
+agent access to every secret you have so that it has nothing stopping it. But
+this is not all! With embedded browser use integration through Weles, every
+secret can be rotated and, if you are missing something, the agent can get a
+secret independently and save it for future use. Think of this as 1Password and
+Bitwarden reimagined for the AI Agent Era.
+
+All Your Auth Needs Sorted with One Install of Skarbiec.
 
 [Install](docs/INSTALL.md) · [Quick start](#quick-start) ·
 [CLI](docs/CLI.md) · [Examples](docs/examples/README.md) ·
