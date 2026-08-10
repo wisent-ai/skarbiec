@@ -108,15 +108,18 @@ JSON values; `credential-operation` additionally requires `value`.
 `login_method`, `name`, `login_url`, and `domains` are the recognized keys, and
 `migrate-v2` maps legacy metadata onto them.
 
-Example — a Brama Desktop provider subscription is a `bundle` whose id follows
-`provider:<provider>:brama-sub-<owner>-<name>`:
+Example — a Brama Desktop provider subscription is a `bundle` discovered by
+tags, not by its id: `brama:subscription` marks the role, `brama:agent:<agent>`
+scopes it to an agent, and `brama:provider:` / `brama:id:` carry the provider
+and subscription id. The item id itself is opaque; renaming it breaks nothing.
 
 ```sh
 printf '%s' '{"schema":"skarbiec.item.v2","kind":"bundle",
   "fields":{"value":"..."},
   "context":{"source_kind":"ai-cli","provider":"codex"}}' |
   skarbiec set-json provider:codex:brama-sub-wisent-app-codex-primary \
-    --recipients 'skarbiec-owner-20260728 <lukaszbartoszcze@wisent.ai>'
+    --recipients 'skarbiec-owner-20260728 <lukaszbartoszcze@wisent.ai>' \
+    --tags 'brama:subscription,brama:agent:wisent-app,brama:provider:codex,brama:id:brama-sub-wisent-app-codex-primary'
 ```
 
 ## Import and migration
