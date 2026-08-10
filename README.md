@@ -1,5 +1,3 @@
-# Skarbiec
-
 <p align="center">
   <img src="assets/banner.png" alt="Skarbiec — one field, one use, no standing secret" width="100%">
 </p>
@@ -9,6 +7,8 @@
 <!-- wisent-readme-signals:end -->
 
 [![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
+
+# Skarbiec: Secrets and Authentication Management for the AI Agent Era
 
 **Skarbiec is a local credential broker for giving workloads one short-lived,
 field-bound capability at a time while retaining encrypted vault state,
