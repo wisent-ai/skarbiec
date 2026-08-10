@@ -1,18 +1,14 @@
-# Skarbiec
-
 <p align="center">
   <img src="assets/banner.png" alt="Skarbiec — one field, one use, no standing secret" width="100%">
 </p>
 
 <!-- wisent-readme-signals:start -->
-[![ci](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wisent-ai/skarbiec/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/wisent-ai/skarbiec?display_name=tag&sort=semver)](https://github.com/wisent-ai/skarbiec/releases)
-[![Downloads](https://img.shields.io/github/downloads/wisent-ai/skarbiec/total)](https://github.com/wisent-ai/skarbiec/releases)
-[![License](https://img.shields.io/github/license/wisent-ai/skarbiec)](https://github.com/wisent-ai/skarbiec)
-[![Discord](https://img.shields.io/badge/Discord-Join%20Wisent-5865F2?logo=discord&logoColor=white)](https://discord.gg/qRjpkthq54)
+[![Source](https://img.shields.io/badge/GitHub-Source-181717?logo=github)](https://github.com/wisent-ai/skarbiec) [![Issues](https://img.shields.io/badge/GitHub-Issues-181717?logo=github)](https://github.com/wisent-ai/skarbiec/issues) [![Wisent](https://img.shields.io/badge/Wisent-Website-0B0B0B)](https://wisent.ai) [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qRjpkthq54) [![LinkedIn](https://img.shields.io/badge/LinkedIn-Follow-0A66C2?logo=linkedin&logoColor=white)](https://www.linkedin.com/company/wisent-ai/) [![X](https://img.shields.io/badge/X-Follow-000000?logo=x&logoColor=white)](https://x.com/wisentai) [![Enterprise](https://img.shields.io/badge/Enterprise-Book%20a%20call-0B0B0B?logo=calendly)](https://calendly.com/lbartoszcze)
 <!-- wisent-readme-signals:end -->
 
 [![Community](https://img.shields.io/badge/community-GitHub%20Discussions-8250df.svg)](https://github.com/wisent-ai/skarbiec/discussions)
+
+# Skarbiec: Secrets and Authentication Management for the AI Agent Era
 
 **Skarbiec is a local credential broker for giving workloads one short-lived,
 field-bound capability at a time while retaining encrypted vault state,
@@ -311,7 +307,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Network | Local CLI, MCP, native messaging, or the HTTP broker; no hosted control plane is required |
 | Availability | No cloud fallback by design; if the local broker cannot decrypt, the integration is unavailable |
 | Versioning | Additions require an additive bump; removals or changed command contracts require a compatibility-breaking bump |
-| Distribution | GitHub Releases only: `skarbiec-<tag>-<platform>.tar.gz` with a sibling `.sha256`, plus the signed `skarbiec-autofill.crx` and its update manifest. Contributors can build and install from source with `sh scripts/install.sh`. There is no package-registry distribution |
+| Distribution | Canonical Stado releases for both supported platforms, plus the signed `skarbiec-autofill.crx` and its update manifest on the Linux recipe. Contributors can build and install from source with `sh scripts/install.sh`. There is no package-registry distribution |
 | License | [Apache License, Version 2.0](LICENSE); copies previously received under MIT remain under that grant. The license grants no trademark rights — see [TRADEMARKS.md](TRADEMARKS.md) |
 
 Not supported or promised:
@@ -333,17 +329,16 @@ current core.
 
 ### Compatibility, releases, and support
 
-`Cargo.toml` is the package-version source. Before tagging,
-`released-surface.json` is compared with the built command surface so removed or
-changed contracts cannot ship as an additive release. A release is complete
-only when both supported platform archives and sibling SHA-256 files exist.
-The publication workflow refuses to replace an existing asset; changed bytes
-require a new tag. This is a workflow guarantee, not protection from a GitHub
-administrator deleting or recreating a tag or release. Protect those
-administrative actions separately and verify the pinned checksum at deployment.
+`Cargo.toml` is the package-version source. Stado resolves
+`.wisent-release.json`, runs the repository-owned quality and build entrypoints,
+and stores immutable signed receipts for both supported platforms. The Linux
+recipe receives the browser signing key only as the file-backed
+`browser-extension-key#private_key` Skarbiec grant; the key is never stored in
+source or a release asset. Promotion reconciles the same immutable receipts from
+`candidate` to `stable`.
 
-- Review release notes and downloadable assets in
-  [GitHub Releases](https://github.com/wisent-ai/skarbiec/releases).
+- Review release notes in `CHANGELOG.md` and resolve downloadable assets from
+  the canonical Stado release receipt.
 - Commercial or account support is not applicable to the local core; Hosted Hub
   is planned and has no published paid contract.
 - Ask design and usage questions in

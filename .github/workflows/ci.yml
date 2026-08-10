@@ -2,27 +2,36 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
+    tags: [ "v*" ]
   pull_request:
-  workflow_dispatch: {}
 
 jobs:
+  # The gates are not spelled here any more. Four Rust repositories in this
+  # pack had four different gate sets, and a fix applied to one of them
+  # protected one repository; the shared workflow is one place to fix.
   gates:
-    uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@2de57851b29b57da01fff370817a45ad121c93bc
+    uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
 
-  version-contract:
-    uses: wisent-ai/quality-control/.github/workflows/rust-autoversion.yml@2de57851b29b57da01fff370817a45ad121c93bc
-
-  prepare-release:
-    if: github.event_name != 'pull_request'
-    needs: [gates, version-contract]
-    uses: wisent-ai/quality-control/.github/workflows/prepare-rust-release.yml@2de57851b29b57da01fff370817a45ad121c93bc
+  # A merged version bump becomes its tag here, rather than waiting for
+  # someone to remember. The number is read from Cargo.toml, never invented,
+  # and an existing tag is never moved - so the decision stays where the
+  # refusal below says it belongs: in the commit that changed the version.
+  tag:
+    if: github.ref == 'refs/heads/main'
+    needs: gates
+    uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@897485548846d7dfe38832b6b9a38212cdd1685a
     permissions:
       contents: write
 
-  build-release:
-    if: needs.prepare-release.outputs.publish == 'true'
-    needs: [gates, version-contract, prepare-release]
+  build:
+    # Everything below is about publishing a tag, and none of it runs
+    # otherwise. The untagged build lives in the shared gates now, so an
+    # ordinary push builds once instead of twice.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: gates
+    permissions:
+      contents: write
     strategy:
       matrix:
         include:
@@ -35,239 +44,95 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.prepare-release.outputs.sha }}
-          persist-credentials: false
-
       - uses: dtolnay/rust-toolchain@stable
-
-      - name: Build the provenance-stamped release bytes once
-        env:
-          VERSION: ${{ needs.prepare-release.outputs.version }}
-          SOURCE_SHA: ${{ needs.prepare-release.outputs.sha }}
-          PLATFORM: ${{ matrix.platform }}
-        shell: bash
+        with:
+          components: rustfmt, clippy
+      - name: Refuse a tag that disagrees with the manifest
+        # Every coordinate the tagged steps below write is spelled from
+        # GITHUB_REF_NAME and from nothing else: the release, the archive
+        # skarbiec-<tag>-<platform>.tar.gz, its .sha256, SKARBIEC_RELEASE_URI
+        # stamped into the binary, and the extension update channel, whose
+        # <updatecheck version> is the tag with its v removed. The binary inside
+        # that archive reports CARGO_PKG_VERSION instead -- src/main.rs,
+        # src/net/mcp.rs and src/onboarding.rs all publish it -- so when the two
+        # disagree the release serves a build whose own answer contradicts the
+        # name it was fetched by, and a Chrome client is offered an update whose
+        # advertised version is not the one it installs.
+        #
+        # This is not hypothetical: in brama v0.2.9 through v0.2.13 were cut
+        # from trees already declaring 0.3.0, so five releases published a
+        # breaking change under patch-looking names. A published coordinate is
+        # immutable, so the only repair left afterwards was prose. This refuses
+        # before the first tagged artifact is built, which is the last point
+        # where the mistake is still free.
+        #
+        # It refuses and never repairs: it does not bump Cargo.toml and does not
+        # move the tag. Naming the number is mechanical; deciding to release is
+        # not.
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          set -euo pipefail
-          actual_architecture="$(uname -m)"
-          if [ "$actual_architecture" != "${{ matrix.architecture }}" ]; then
-            echo "::error::runner architecture $actual_architecture does not match $PLATFORM"
+          declared="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ -z "$declared" ]; then
+            printf '%s\n' "Cargo.toml declares no version, so there is nothing for" \
+              "$GITHUB_REF_NAME to agree with. Unchecked is not the same as agreeing."
             false
           fi
-          archive="skarbiec-v${VERSION}-${PLATFORM}.tar.gz"
-          export SKARBIEC_RELEASE_URI="stado://releases/skarbiec/${VERSION}/${PLATFORM}/${archive}"
-          export SKARBIEC_RELEASE_COMMIT="$SOURCE_SHA"
-          cargo build --locked --release
-
-          out="$RUNNER_TEMP/release-$PLATFORM"
-          stage="$RUNNER_TEMP/stage-$PLATFORM"
-          mkdir -p "$out" "$stage"
-          cp target/release/skarbiec LICENSE NOTICE TRADEMARKS.md "$stage/"
-          tar -czf "$out/$archive" -C "$stage" skarbiec LICENSE NOTICE TRADEMARKS.md
-          digest="$(openssl dgst -sha256 -r "$out/$archive" | cut -d ' ' -f 1)"
-          printf '%s  %s\n' "$digest" "$archive" > "$out/$archive.sha256"
-          jq -n \
-            --arg product skarbiec \
-            --arg version "$VERSION" \
-            --arg platform "$PLATFORM" \
-            --arg source_commit "$SOURCE_SHA" \
-            --arg sha256 "$digest" \
-            '{product:$product,version:$version,platform:$platform,source_commit:$source_commit,sha256:$sha256}' \
-            > "$out/release-manifest-$PLATFORM.json"
-
-      - name: Build the signed browser channel once
-        if: matrix.platform == 'linux-amd64'
+          if [ "$GITHUB_REF_NAME" != "v$declared" ]; then
+            printf '%s\n' "tag $GITHUB_REF_NAME must equal v$declared, the version" \
+              "Cargo.toml declares and the binary reports as its own." \
+              "Publishing would permanently name release $GITHUB_REF_NAME, the" \
+              "asset skarbiec-$GITHUB_REF_NAME-${{ matrix.platform }}.tar.gz and" \
+              "its checksum after a version the archive does not contain, and" \
+              "would advertise ${GITHUB_REF_NAME#v} on the extension update" \
+              "channel. Either the tag names a version this tree does not carry," \
+              "or the version change was never committed."
+            false
+          fi
+          printf '%s\n' "tag $GITHUB_REF_NAME matches the declared version $declared"
+      - name: Build provenance-stamped tagged artifact
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
-          VERSION: ${{ needs.prepare-release.outputs.version }}
-          SKARBIEC_EXTENSION_PRIVATE_KEY_B64: ${{ secrets.SKARBIEC_EXTENSION_PRIVATE_KEY_B64 }}
-        shell: bash
+          SKARBIEC_RELEASE_URI: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/skarbiec-${{ github.ref_name }}-${{ matrix.platform }}.tar.gz
+          SKARBIEC_RELEASE_COMMIT: ${{ github.sha }}
+        run: cargo build --release
+      - name: Publish versioned tagged artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
+          actual_architecture="$(uname -m)"
+          if [ "$actual_architecture" != "${{ matrix.architecture }}" ]; then
+            printf '%s\n' "release runner architecture $actual_architecture does not match ${{ matrix.architecture }}"
+            false
+          fi
+          archive="skarbiec-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz"
+          checksum="${archive}.sha256"
+          stage="$(mktemp -d)"
+          cp target/release/skarbiec LICENSE NOTICE TRADEMARKS.md "$stage/"
+          tar -czf "$archive" -C "$stage" .
+          openssl dgst -sha256 -r "$archive" > "$checksum"
+          gh release view "$GITHUB_REF_NAME" >/dev/null \
+            || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release view "$GITHUB_REF_NAME" >/dev/null
+          gh release upload "$GITHUB_REF_NAME" "$archive" "$checksum"
+      - name: Publish signed browser extension channel
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'linux-amd64'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKARBIEC_EXTENSION_PRIVATE_KEY_B64: ${{ secrets.SKARBIEC_EXTENSION_PRIVATE_KEY_B64 }}
+        run: |
           if [ -z "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" ]; then
-            echo "::error::SKARBIEC_EXTENSION_PRIVATE_KEY_B64 is required for a release"
+            printf '%s\n' "SKARBIEC_EXTENSION_PRIVATE_KEY_B64 is required for tagged releases"
             false
           fi
           private_key="$(mktemp)"
           trap 'rm -f "$private_key"' EXIT
           printf '%s' "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" | base64 --decode > "$private_key"
-          out="$RUNNER_TEMP/release-linux-amd64"
-          crx="$out/skarbiec-autofill.crx"
-          update="$out/skarbiec-autofill.xml"
-          codebase="https://github.com/wisent-ai/skarbiec/releases/latest/download/skarbiec-autofill.crx"
+          crx="skarbiec-autofill.crx"
+          update="skarbiec-autofill.xml"
+          codebase="https://github.com/wisent-ai/skarbiec/releases/latest/download/$crx"
+          version="${GITHUB_REF_NAME#v}"
           extension_id="$(cat deploy/chrome-extension-id)"
-          python3 tools/package-crx3.py browser "$private_key" "$crx" "$update" \
-            "$codebase" "$VERSION" "$extension_id"
-          openssl dgst -sha256 -r "$crx" > "$crx.sha256"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-${{ matrix.platform }}
-          path: ${{ runner.temp }}/release-${{ matrix.platform }}/
-          if-no-files-found: error
-
-  publish-release:
-    if: needs.prepare-release.outputs.publish == 'true'
-    needs: [prepare-release, build-release]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
-      TAG: ${{ needs.prepare-release.outputs.tag }}
-      VERSION: ${{ needs.prepare-release.outputs.version }}
-      SOURCE_SHA: ${{ needs.prepare-release.outputs.sha }}
-      STADO_RELEASE_API_URL: ${{ vars.STADO_RELEASE_API_URL }}
-      STADO_RELEASE_PUBLISHER_TOKEN: ${{ secrets.STADO_RELEASE_PUBLISHER_TOKEN }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: release-*
-          path: ${{ runner.temp }}/release
-
-      - name: Publish the same files to GitHub and the canonical Stado channel
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "$STADO_RELEASE_API_URL" ] || [ -z "$STADO_RELEASE_PUBLISHER_TOKEN" ]; then
-            echo "::error::STADO_RELEASE_API_URL and STADO_RELEASE_PUBLISHER_TOKEN are required"
-            false
-          fi
-          case "$STADO_RELEASE_API_URL" in
-            https://*) ;;
-            *) echo "::error::STADO_RELEASE_API_URL must use HTTPS"; false ;;
-          esac
-
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --target "$SOURCE_SHA" --title "$TAG" --generate-notes
-
-          publish_github() {
-            file="$1"
-            mode="$2"
-            name="${file##*/}"
-            existing="$RUNNER_TEMP/github-$name"
-            mkdir -p "$existing"
-            if gh release download "$TAG" --pattern "$name" --dir "$existing" >/dev/null 2>&1; then
-              if ! cmp --silent "$file" "$existing/$name"; then
-                if [ "$mode" = source ]; then
-                  echo "GitHub Release already owns $name for $SOURCE_SHA; reusing those immutable bytes to resume publication."
-                  cp "$existing/$name" "$file"
-                else
-                  echo "::error::GitHub Release metadata $name disagrees with the immutable source bytes."
-                  false
-                fi
-              fi
-            else
-              gh release upload "$TAG" "$file"
-            fi
-          }
-
-          resolve_stado() {
-            file="$1"
-            platform="$2"
-            mode="$3"
-            name="${file##*/}"
-            uri="stado://releases/skarbiec/$VERSION/$platform/$name"
-            existing="$RUNNER_TEMP/stado-$platform-$name"
-            status="$(curl --silent --show-error --output "$existing" --write-out '%{http_code}' \
-              --get --data-urlencode "uri=$uri" \
-              "${STADO_RELEASE_API_URL%/}/api/release/object")"
-            case "$status" in
-              200)
-                if ! cmp --silent "$file" "$existing"; then
-                  if [ "$mode" = source ]; then
-                    echo "Stado already owns $uri for $SOURCE_SHA; reusing those immutable bytes."
-                    cp "$existing" "$file"
-                  else
-                    echo "::error::Stado metadata $uri disagrees with the immutable source bytes."
-                    false
-                  fi
-                fi
-                ;;
-              404) ;;
-              *)
-                echo "::error::Stado release GET for $uri returned HTTP $status"
-                false
-                ;;
-            esac
-          }
-
-          publish_stado() {
-            file="$1"
-            platform="$2"
-            name="${file##*/}"
-            uri="stado://releases/skarbiec/$VERSION/$platform/$name"
-            encoded_uri="$(jq -rn --arg value "$uri" '$value|@uri')"
-            response="$(mktemp)"
-            status="$(curl --silent --show-error --output "$response" --write-out '%{http_code}' \
-              --request PUT \
-              --header "Authorization: Bearer $STADO_RELEASE_PUBLISHER_TOKEN" \
-              --header "Content-Type: application/octet-stream" \
-              --data-binary "@$file" \
-              "${STADO_RELEASE_API_URL%/}/api/object?uri=$encoded_uri&if_absent=true")"
-            case "$status" in
-              200|201) return ;;
-              409)
-                existing="$(mktemp)"
-                curl --fail --silent --show-error --get \
-                  --data-urlencode "uri=$uri" \
-                  "${STADO_RELEASE_API_URL%/}/api/release/object" > "$existing"
-                cmp --silent "$file" "$existing" || {
-                  echo "::error::immutable Stado release collision at $uri"
-                  false
-                }
-                ;;
-              *)
-                cat "$response"
-                echo "::error::Stado release PUT for $uri returned HTTP $status"
-                false
-                ;;
-            esac
-          }
-
-          for directory in "$RUNNER_TEMP"/release/release-*; do
-            platform="${directory##*/release-}"
-            archive="$directory/skarbiec-v$VERSION-$platform.tar.gz"
-            resolve_stado "$archive" "$platform" source
-            publish_github "$archive" source
-            if [ "$platform" = linux-amd64 ]; then
-              resolve_stado "$directory/skarbiec-autofill.crx" "$platform" source
-              resolve_stado "$directory/skarbiec-autofill.xml" "$platform" source
-              publish_github "$directory/skarbiec-autofill.crx" source
-              publish_github "$directory/skarbiec-autofill.xml" source
-              openssl dgst -sha256 -r "$directory/skarbiec-autofill.crx" \
-                > "$directory/skarbiec-autofill.crx.sha256"
-            fi
-
-            digest="$(openssl dgst -sha256 -r "$archive" | cut -d ' ' -f 1)"
-            printf '%s  %s\n' "$digest" "${archive##*/}" > "$archive.sha256"
-            jq -n \
-              --arg product skarbiec \
-              --arg version "$VERSION" \
-              --arg platform "$platform" \
-              --arg source_commit "$SOURCE_SHA" \
-              --arg sha256 "$digest" \
-              '{product:$product,version:$version,platform:$platform,source_commit:$source_commit,sha256:$sha256}' \
-              > "$directory/release-manifest-$platform.json"
-
-            for file in "$directory"/*; do
-              case "${file##*/}" in
-                "${archive##*/}"|skarbiec-autofill.crx|skarbiec-autofill.xml) ;;
-                *)
-                  resolve_stado "$file" "$platform" metadata
-                  publish_github "$file" metadata
-                  ;;
-              esac
-            done
-            for file in "$directory"/*; do
-              publish_stado "$file" "$platform"
-            done
-          done
-
-  promote-release:
-    if: needs.prepare-release.outputs.publish == 'true'
-    needs: [prepare-release, publish-release]
-    uses: wisent-ai/stado/.github/workflows/promote-managed-release.yml@56b429480bc0d6855dd7729880535a07e12f69f3
-    with:
-      binary: skarbiec
-      version: ${{ needs.prepare-release.outputs.version }}
+          python3 tools/package-crx3.py browser "$private_key" "$crx" "$update" "$codebase" "$version" "$extension_id"
+          sha256sum "$crx" > "$crx.sha256"
+          gh release upload "$GITHUB_REF_NAME" "$crx" "$crx.sha256" "$update"

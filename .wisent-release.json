@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "product": "skarbiec",
+  "releases": true,
+  "version_source": {
+    "kind": "regex",
+    "path": "Cargo.toml",
+    "pattern": "(?m)^version\\s*=\\s*\"(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)\"\\s*$"
+  },
+  "platforms": {
+    "darwin-arm64": {
+      "quality": [
+        {
+          "name": "skarbiec-release-quality",
+          "argv": [
+            "scripts/release/quality.sh"
+          ]
+        }
+      ],
+      "build": {
+        "argv": [
+          "scripts/release/build.sh"
+        ]
+      },
+      "stage": {
+        "stage/bin/skarbiec": "bin/skarbiec",
+        "stage/bin/start": "bin/start",
+        "stage/LICENSE": "LICENSE",
+        "stage/NOTICE": "NOTICE",
+        "stage/TRADEMARKS.md": "TRADEMARKS.md"
+      },
+      "runner_platform": "darwin-arm64"
+    },
+    "linux-amd64": {
+      "quality": [
+        {
+          "name": "skarbiec-release-quality",
+          "argv": [
+            "scripts/release/quality.sh"
+          ]
+        }
+      ],
+      "build": {
+        "argv": [
+          "scripts/release/build.sh"
+        ]
+      },
+      "secret_env": {
+        "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-key#private_key"
+      },
+      "stage": {
+        "stage/bin/skarbiec": "bin/skarbiec",
+        "stage/bin/start": "bin/start",
+        "stage/share/skarbiec/browser/skarbiec-autofill.crx": "share/skarbiec/browser/skarbiec-autofill.crx",
+        "stage/share/skarbiec/browser/skarbiec-autofill.xml": "share/skarbiec/browser/skarbiec-autofill.xml",
+        "stage/LICENSE": "LICENSE",
+        "stage/NOTICE": "NOTICE",
+        "stage/TRADEMARKS.md": "TRADEMARKS.md"
+      },
+      "runner_platform": "linux-amd64"
+    }
+  },
+  "runtime": {
+    "binary": "bin/skarbiec",
+    "launcher": "bin/start",
+    "config_schema": 1,
+    "state_schema": 1,
+    "minimum_stado_version": "0.6.1",
+    "rollback_compatible_with": []
+  },
+  "promotion": {
+    "channels": [
+      "candidate",
+      "stable"
+    ],
+    "reconcile": true
+  }
+}
