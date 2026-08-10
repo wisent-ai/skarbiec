@@ -122,6 +122,38 @@ printf '%s' '{"schema":"skarbiec.item.v2","kind":"bundle",
     --tags 'brama:subscription,brama:agent:wisent-app,brama:provider:codex,brama:id:brama-sub-wisent-app-codex-primary'
 ```
 
+### Tag namespaces: role, not shape
+
+`kind` states what shape a secret has. What an item is *for* belongs in `tags`,
+and a consumer that needs to find its own items MUST filter on them. Parsing an
+item id is not a discovery mechanism: a rename then silently removes the item
+from a listing, while a wrong tag is visible in `list`.
+
+Two properties make tags the only candidate. They are plaintext in the envelope,
+so `list` and a `sync:pull` document expose them without a recipient key, while
+`fields` and `context` are inside the ciphertext and unreadable to a consumer
+holding only field grants. And they are a set, so one item can carry several
+independent roles where an id can encode one hierarchy.
+
+| Namespace | Owner | Meaning |
+|---|---|---|
+| `managed:weles` | Weles | Externally managed credential; owner mutation is refused in favour of the `credential` lifecycle. Reserved — `set`, `set-json` and `import` refuse it. |
+| `brama:subscription` | Brama | The item is a provider subscription. |
+| `brama:agent:<agent>` | Brama | Which agent owns that subscription; repeated per agent. |
+| `brama:provider:<provider>` | Brama | Provider family the credential belongs to. |
+| `brama:id:<id>` | Brama | Subscription id the control plane and its clients exchange. |
+
+Rules for a new namespace:
+
+1. Shape it `<product>:<role>[:<value>]`, lowercase, and register it in this
+   table in the same commit that starts writing it.
+2. Never put a secret, a token, or a personal identifier in a tag — anything
+   holding a list or pull grant reads them.
+3. Never make a tag the only record of a credential's meaning that a human
+   needs; `context` remains the provenance of record inside the ciphertext.
+4. A consumer reading a namespace it does not own is doing discovery on someone
+   else's contract; give it its own tag instead.
+
 ## Import and migration
 
 | Command | What it does |
