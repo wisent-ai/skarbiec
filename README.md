@@ -311,7 +311,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Network | Local CLI, MCP, native messaging, or the HTTP broker; no hosted control plane is required |
 | Availability | No cloud fallback by design; if the local broker cannot decrypt, the integration is unavailable |
 | Versioning | Additions require an additive bump; removals or changed command contracts require a compatibility-breaking bump |
-| Distribution | GitHub Releases only: `skarbiec-<tag>-<platform>.tar.gz` with a sibling `.sha256`, plus the signed `skarbiec-autofill.crx` and its update manifest. Contributors can build and install from source with `sh scripts/install.sh`. There is no package-registry distribution |
+| Distribution | Canonical Stado releases for both supported platforms, plus the signed `skarbiec-autofill.crx` and its update manifest on the Linux recipe. Contributors can build and install from source with `sh scripts/install.sh`. There is no package-registry distribution |
 | License | [Apache License, Version 2.0](LICENSE); copies previously received under MIT remain under that grant. The license grants no trademark rights — see [TRADEMARKS.md](TRADEMARKS.md) |
 
 Not supported or promised:
@@ -333,17 +333,16 @@ current core.
 
 ### Compatibility, releases, and support
 
-`Cargo.toml` is the package-version source. Before tagging,
-`released-surface.json` is compared with the built command surface so removed or
-changed contracts cannot ship as an additive release. A release is complete
-only when both supported platform archives and sibling SHA-256 files exist.
-The publication workflow refuses to replace an existing asset; changed bytes
-require a new tag. This is a workflow guarantee, not protection from a GitHub
-administrator deleting or recreating a tag or release. Protect those
-administrative actions separately and verify the pinned checksum at deployment.
+`Cargo.toml` is the package-version source. Stado resolves
+`.wisent-release.json`, runs the repository-owned quality and build entrypoints,
+and stores immutable signed receipts for both supported platforms. The Linux
+recipe receives the browser signing key only as the file-backed
+`browser-extension-key#private_key` Skarbiec grant; the key is never stored in
+source or a release asset. Promotion reconciles the same immutable receipts from
+`candidate` to `stable`.
 
-- Review release notes and downloadable assets in
-  [GitHub Releases](https://github.com/wisent-ai/skarbiec/releases).
+- Review release notes in `CHANGELOG.md` and resolve downloadable assets from
+  the canonical Stado release receipt.
 - Commercial or account support is not applicable to the local core; Hosted Hub
   is planned and has no published paid contract.
 - Ask design and usage questions in

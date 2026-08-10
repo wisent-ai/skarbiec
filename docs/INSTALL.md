@@ -2,41 +2,24 @@
 
 ## The release channel
 
-The source is public at <https://github.com/wisent-ai/skarbiec>. For every
-completed tagged release, GitHub Actions builds on independent Linux and macOS
-runners and publishes bearer-free GitHub Release assets. The supported
-coordinates are `linux-amd64` and `darwin-arm64`; each archive has a sibling
-`.sha256` file. A version in `Cargo.toml`, or a tag without all of those assets,
-is not a published release. The publication workflow refuses to replace an
-existing asset; changed bytes require a new tag. This does not prevent a GitHub
-administrator from deleting or recreating a tag or release, so repository
-administration remains a separate trust boundary.
+The source may be mirrored publicly at
+<https://github.com/wisent-ai/skarbiec>, but the canonical release is built,
+stored, signed, promoted, and delivered by Stado. Supported coordinates are
+`linux-amd64` and `darwin-arm64`. A version in `Cargo.toml` or a source tag does
+not by itself constitute a release; the canonical signed Stado receipt must name
+every expected platform artifact.
 
-There is no mutable `latest` binary artifact. A deployment pins an exact tag,
-platform, archive URL, and checksum. GitHub Releases is the sole durable public
-distribution channel.
+There is no mutable `latest` binary artifact. A deployment pins an exact
+version, platform, Stado archive URI, and SHA-256, while the `candidate` and
+`stable` labels only select immutable receipts.
 
 ## Install
 
-From a public tagged release, set the exact version and platform:
-
-```sh
-version=vX.Y.Z
-platform=darwin-arm64
-archive="skarbiec-${version}-${platform}.tar.gz"
-origin="https://github.com/wisent-ai/skarbiec/releases/download/${version}"
-
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$archive" "$origin/$archive"
-curl --fail --location --proto '=https' --tlsv1.2 \
-  --output "$archive.sha256" "$origin/$archive.sha256"
-openssl dgst -sha256 -r "$archive"
-cat "$archive.sha256"
-```
-
-The two digest lines must match before extraction. Install into a staging
-directory, then rename the binary into `$HOME/.local/bin`; never overwrite the
-running broker in place.
+Resolve the exact version and platform from the canonical Stado release receipt.
+The receipt supplies the immutable `release.tar.gz` URI and SHA-256. Stado
+verifies the digest, stages the archive under an immutable versioned directory,
+and reconciles the selected channel; do not overwrite the running broker in
+place.
 
 Contributors may build from source:
 
@@ -66,45 +49,41 @@ names the exact private-key files a restore needs.
 
 ## Artifact contract
 
-Every tag matching `v*` runs the release matrix in
-`.github/workflows/ci.yml`. Each runner formats, lints, and builds the exact
-source revision before packaging:
+Stado reads `.wisent-release.json` and invokes the checked-in
+`scripts/release/quality.sh` and `scripts/release/build.sh` entrypoints on native
+builders. Each platform receipt contains the staged binary, runtime launcher,
+Apache License, Unicode notice, and trademark policy. The Linux recipe also
+stages:
 
 ```text
-skarbiec-<tag>-linux-amd64.tar.gz
-skarbiec-<tag>-linux-amd64.tar.gz.sha256
-skarbiec-<tag>-darwin-arm64.tar.gz
-skarbiec-<tag>-darwin-arm64.tar.gz.sha256
-skarbiec-autofill.crx
-skarbiec-autofill.crx.sha256
-skarbiec-autofill.xml
+share/skarbiec/browser/skarbiec-autofill.crx
+share/skarbiec/browser/skarbiec-autofill.xml
 ```
 
-Archives contain the binary, Apache License, Unicode notice, and trademark
-policy. The workflow checks the runner architecture, so a mislabeled native
-artifact fails instead of being published under the wrong coordinate. GitHub
-Release assets are publicly downloadable without a token.
+The recipe checks the builder architecture, so a mislabeled native artifact is
+refused before Stado archives it.
 
 ## Managed browser installation and updates
 
-Tagged releases also publish a signed Chrome extension and its Omaha update
-manifest. The signing key is supplied only to the release job through the
-`SKARBIEC_EXTENSION_PRIVATE_KEY_B64` repository secret; the key is never stored
-in this repository or a release asset. The pinned key determines the extension
-id, so every update remains authorized for the native-messaging host.
-The release job derives the id from the public key and refuses publication if
-it differs from `deploy/chrome-extension-id`, which the native host embeds.
+The Linux release recipe publishes a signed Chrome extension and its Omaha
+update manifest. Stado materializes the Skarbiec-owned
+`browser-extension-key#private_key` grant as the
+`SKARBIEC_EXTENSION_PRIVATE_KEY_FILE` path only for that build. The key is never
+stored in this repository, its manifest, or a release asset. The pinned key
+determines the extension id, so every update remains authorized for the
+native-messaging host. Packaging refuses an id that differs from
+`deploy/chrome-extension-id`, which the native host embeds.
 
 `deploy/chrome-managed-policy.json` is the Chrome managed-policy payload for
 MDM or the fleet configuration system. Its `ExtensionInstallForcelist` entry
 installs the signed extension without developer mode, CUA, or per-machine
 unpacked-extension steps. Chrome consumes it through normal managed-policy
 refresh; this mechanism never closes or restarts the browser. Chrome follows
-the stable `skarbiec-autofill.xml` URL and fetches the CRX published by the
-newest signed tag.
+the stable `skarbiec-autofill.xml` URL and fetches the CRX selected by the
+canonical Stado `stable` receipt.
 
-The build derives both embedded-manifest and Omaha versions from the release
-tag; a tag that is not a valid Chrome version fails before publication.
+The build derives both embedded-manifest and Omaha versions from
+`WISENT_VERSION`; an invalid Chrome version is refused before staging.
 
 After the vault exists, the product activation path runs:
 
@@ -130,26 +109,15 @@ operator's rollout decision and the rollback coordinate remains explicit.
 
 ## Publish
 
-Publishing is tag-driven. Update the version in `Cargo.toml`, regenerate
-`Cargo.lock`, and commit both manifests. The version must be strictly newer than
-the latest published release and must describe the reviewed command-surface
-change.
-
-After the branch CI succeeds, tag that exact pushed commit:
-
-```sh
-version="v$(awk -F '\"' '/^version = / { print $2; exit }' Cargo.toml)"
-git tag -s "$version" -m "Skarbiec $version"
-git push origin "$version"
-```
-
-The tag must match the version reported by `Cargo.toml`. GitHub Actions creates
-the versioned release and uploads both platform archives plus checksums without
-replacement. A tag is never moved or reused; changed bytes require a new version.
+Publishing is source-submit driven. Update the version in `Cargo.toml`,
+regenerate `Cargo.lock`, and commit both manifests. Submit that exact immutable
+source snapshot to Stado. Stado extracts the version with
+`.wisent-release.json`, runs both platform recipes, stores signed receipts, and
+promotes those receipts through `candidate` and `stable` without rebuilding.
 
 `released-surface.json` records the command surface recovered from the last
-GitHub Release asset. Update it only from the published archive, never from a
-mutable checkout.
+canonical release. Update it only from the published Stado archive, never from
+a mutable checkout.
 
 ## Versioning
 
