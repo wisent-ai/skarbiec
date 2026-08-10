@@ -75,6 +75,50 @@ skarbiec restore-version github 2026-07-01T12:00:00Z
 provenance, direct owner mutation is refused; use the `credential` lifecycle
 described below.
 
+## Canonical item schema (`skarbiec.item.v2`)
+
+Every item payload is one JSON object validated against the schema in
+`src/core/schema.rs`. Allowed top-level properties are `schema` (must equal
+`skarbiec.item.v2`), `kind`, `fields` (a non-empty object), `context` (an
+object, required), and `extensions` (an optional object).
+
+| Kind | Fields (`*` = required) |
+| --- | --- |
+| `login` | `username*`, plus at least one of `password`, `totp_secret`, `recovery_codes` |
+| `note` | `value*` |
+| `api-key` | `api_key*`, `api_user`, `username`, `client_ip` |
+| `access-key` | `access_key_id*`, `secret_access_key*`, `session_token` |
+| `token` | `token*` |
+| `oauth-client` | `client_id*`, `client_secret*` |
+| `proxy` | `username*`, `password*`, `host`, `ports`, `zone` |
+| `key-pair` | `private_key*`, `public_key`, `passphrase`, `key_id`, `issuer_id`, `team_id` |
+| `certificate` | `certificate*`, `private_key*`, `chain`, `passphrase` |
+| `service-account` | `credential_json*` |
+| `credential-operation` | `value*` |
+| `bundle` | free-form fields (see below) |
+| `stado-secret` | free-form fields (see below) |
+| `internal-authority` | free-form fields (see below) |
+
+Typed kinds reject fields outside their list. The free-form kinds accept any
+field whose name is 1–128 ASCII alphanumerics plus `.`, `_`, `-`, with arbitrary
+JSON values; `credential-operation` additionally requires `value`.
+
+`context` carries provenance rather than secrets: `source_kind`, `provider`,
+`account_ref`, `tenant_ref`, `request_id`, `operation`, `session_label`,
+`login_method`, `name`, `login_url`, and `domains` are the recognized keys, and
+`migrate-v2` maps legacy metadata onto them.
+
+Example — a Brama Desktop provider subscription is a `bundle` whose id follows
+`provider:<provider>:brama-sub-<owner>-<name>`:
+
+```sh
+printf '%s' '{"schema":"skarbiec.item.v2","kind":"bundle",
+  "fields":{"value":"..."},
+  "context":{"source_kind":"ai-cli","provider":"codex"}}' |
+  skarbiec set-json provider:codex:brama-sub-wisent-app-codex-primary \
+    --recipients 'skarbiec-owner-20260728 <lukaszbartoszcze@wisent.ai>'
+```
+
 ## Import and migration
 
 | Command | What it does |
