@@ -176,6 +176,13 @@ fn cmd_delete(positionals: &[String]) -> Result<()> {
     emit(&json!({"ok": true}))
 }
 
+fn cmd_reclaim(positionals: &[String]) -> Result<()> {
+    let id = positionals.first().context("usage: reclaim <id>")?;
+    let mut vault = Vault::open(vault_path())?;
+    vault.reclaim_item(id)?;
+    emit(&json!({"ok": true, "id": id, "mode": "owner"}))
+}
+
 fn cmd_restore(positionals: &[String]) -> Result<()> {
     let id = positionals.first().context("usage: restore <id>")?;
     let mut vault = Vault::open(vault_path())?;
@@ -314,6 +321,7 @@ fn main() -> Result<()> {
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => cmd_list(&flags),
         "delete" => cmd_delete(&positionals),
+        "reclaim" => cmd_reclaim(&positionals),
         "restore" => cmd_restore(&positionals),
         "purge" => cmd_purge(&positionals),
         "restore-version" => cmd_restore_version(&positionals),
@@ -327,7 +335,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","delete","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","onboarding","version"]}),
+            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","delete","reclaim","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","onboarding","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),

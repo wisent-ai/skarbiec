@@ -57,6 +57,7 @@ Build:       version
 | `get <id>` | Return one item's decrypted fields as JSON. |
 | `list [--all]` | List item metadata (id, type, revision count, recipient UIDs, tags)—never values. `--all` includes trashed items. |
 | `delete <id>` | Move an item to the trash (recoverable). |
+| `reclaim <id>` | Return one item to owner control when its recorded controller can no longer write it. Refuses anything under the Weles credential lifecycle. Changes control only: no field, tag, recipient or revision moves. |
 | `restore <id>` | Bring a trashed item back. |
 | `purge <id>` | Permanently remove a trashed item. |
 | `restore-version <id> <at>` | Roll an item back to an earlier version by its timestamp. |
@@ -74,6 +75,28 @@ skarbiec restore-version github 2026-07-01T12:00:00Z
 `managed:weles` is a reserved tag. Once an item has authenticated Weles
 provenance, direct owner mutation is refused; use the `credential` lifecycle
 described below.
+
+### When an item has no writer left
+
+`management` records who may write an item, and it is written from the identity
+of whoever created it: the owner gets `{"mode":"owner"}`, any other writer gets
+`{"mode":"external","controller":"<consumer>"}`. Afterwards only that same
+authority may change it, which is what stops two systems from fighting over one
+credential.
+
+That invariant has a failure mode. A consumer that wrote through an API this
+broker no longer serves leaves the item with **no writer at all**: the owner is
+refused as "not owner-controlled", and the consumer's own path is gone. `set`,
+`set-json`, `delete` and `import` all decline, the last one silently accepting
+only writes that change nothing. Three fleet SSH host keys reached that state,
+and a key that cannot be rotated cannot be revoked either.
+
+`reclaim <id>` is the repair. It moves control back to the owner and touches
+nothing else, so the material stays exactly as the previous controller left it
+and the next ordinary owner write is what changes anything. It refuses items
+under the Weles credential lifecycle — mode `managed` or the `managed:weles`
+tag — because their local state must not diverge from the provider's, and it
+records the previous controller in the audit journal as `item-reclaimed`.
 
 ## Canonical item schema (`skarbiec.item.v2`)
 
