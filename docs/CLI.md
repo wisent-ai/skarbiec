@@ -154,6 +154,39 @@ Rules for a new namespace:
 4. A consumer reading a namespace it does not own is doing discovery on someone
    else's contract; give it its own tag instead.
 
+### Finding an item
+
+There are two searchable surfaces, and they are not equally visible.
+
+The **envelope** — id, `kind`, `tags`, recipients — is plaintext. `list` returns
+it, a `sync:pull` document carries it, and any holder of either can index it.
+The **context** — which account, service or session a credential belongs to —
+lives inside the ciphertext. No grant holder can search it, and no listing can
+index it, which is deliberate: the map of what this vault holds is itself
+sensitive.
+
+So an owner holding the key is the only party that can answer "which items
+belong to this service", and `scripts/search-items.py` is that query. It opens
+each item locally and matches the pattern against the id, tags, field names and
+context, printing coordinates and never a value:
+
+```sh
+python3 scripts/search-items.py gmail          # id, tags and context
+python3 scripts/search-items.py --fast google   # envelope only, opens nothing
+python3 scripts/search-items.py --json drive    # machine-readable
+```
+
+Two consequences worth stating, because both have already cost time:
+
+- **An id is not an index.** Adding a searchable dimension to a name makes every
+  consumer parse names, and a rename then silently changes results. Put the
+  dimension in a tag when grant holders must see it, in `context` when only the
+  owner should.
+- **A context match is not a credential for that service.** `account_ref` records
+  which account a login was registered with, so a query for a mail domain returns
+  every account that used an address there. Read `source_kind` to separate the
+  credential of a service from an account merely named after one.
+
 ## Import and migration
 
 | Command | What it does |
