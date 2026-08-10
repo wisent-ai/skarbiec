@@ -3,7 +3,7 @@
   "name": "Skarbiec Autofill",
   "version": "0.1",
   "description": "Fill logins from your local Skarbiec vault. Credentials travel only between your vault and the page, never through any server.",
-  "update_url": "https://github.com/wisent-ai/skarbiec/releases/latest/download/skarbiec-autofill.xml",
+  "update_url": "https://stado.wisent.com/releases/skarbiec/stable/skarbiec-autofill.xml",
   "permissions": [
     "nativeMessaging",
     "activeTab",
