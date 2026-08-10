@@ -12,11 +12,15 @@
       "quality": [
         {
           "name": "skarbiec-release-quality",
-          "argv": ["scripts/release/quality.sh"]
+          "argv": [
+            "scripts/release/quality.sh"
+          ]
         }
       ],
       "build": {
-        "argv": ["scripts/release/build.sh"]
+        "argv": [
+          "scripts/release/build.sh"
+        ]
       },
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
@@ -24,17 +28,22 @@
         "stage/LICENSE": "LICENSE",
         "stage/NOTICE": "NOTICE",
         "stage/TRADEMARKS.md": "TRADEMARKS.md"
-      }
+      },
+      "runner_platform": "darwin-arm64"
     },
     "linux-amd64": {
       "quality": [
         {
           "name": "skarbiec-release-quality",
-          "argv": ["scripts/release/quality.sh"]
+          "argv": [
+            "scripts/release/quality.sh"
+          ]
         }
       ],
       "build": {
-        "argv": ["scripts/release/build.sh"]
+        "argv": [
+          "scripts/release/build.sh"
+        ]
       },
       "secret_env": {
         "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-key#private_key"
@@ -47,7 +56,8 @@
         "stage/LICENSE": "LICENSE",
         "stage/NOTICE": "NOTICE",
         "stage/TRADEMARKS.md": "TRADEMARKS.md"
-      }
+      },
+      "runner_platform": "linux-amd64"
     }
   },
   "runtime": {
@@ -59,7 +69,10 @@
     "rollback_compatible_with": []
   },
   "promotion": {
-    "channels": ["candidate", "stable"],
+    "channels": [
+      "candidate",
+      "stable"
+    ],
     "reconcile": true
   }
 }
