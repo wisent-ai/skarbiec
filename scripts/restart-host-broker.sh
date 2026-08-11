@@ -7,7 +7,8 @@ set -eu
 }
 
 label=com.wisent.always-on.skarbiec
-/bin/launchctl kickstart -k "system/$label"
+exec_as_root="/usr/bin/sudo"
+$exec_as_root /bin/launchctl kickstart -k "system/$label"
 /bin/sleep 1
-/bin/launchctl print "system/$label" >/dev/null
+$exec_as_root /bin/launchctl print "system/$label" >/dev/null
 printf '%s\n' active
