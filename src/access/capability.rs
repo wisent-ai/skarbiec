@@ -41,6 +41,48 @@ const MAX_REQUEST_BYTES: u64 = 8 * 1024;
 const MAX_TTL_SECONDS: u64 = 3600;
 const NONCE_RETENTION_SECONDS: u64 = 2 * MAX_TTL_SECONDS;
 
+const STATE_LOCK_STALE_SECONDS: u64 = 120;
+const STATE_LOCK_RETRY_MILLIS: u64 = 5;
+const STATE_LOCK_ATTEMPTS: usize = 6_000;
+
+struct StateLock {
+    path: PathBuf,
+}
+
+impl Drop for StateLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir(&self.path);
+    }
+}
+
+fn acquire_state_lock() -> Result<StateLock> {
+    let path = state_path().with_extension("json.lock");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    for _ in 0..STATE_LOCK_ATTEMPTS {
+        match fs::create_dir(&path) {
+            Ok(()) => return Ok(StateLock { path }),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                let stale = fs::metadata(&path)
+                    .and_then(|metadata| metadata.modified())
+                    .ok()
+                    .and_then(|modified| modified.elapsed().ok())
+                    .is_some_and(|age| age.as_secs() > STATE_LOCK_STALE_SECONDS);
+                if stale {
+                    let _ = fs::remove_dir(&path);
+                    continue;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(
+                    STATE_LOCK_RETRY_MILLIS,
+                ));
+            }
+            Err(error) => return Err(error).context("create capability state lock"),
+        }
+    }
+    bail!("timed out acquiring capability state lock")
+}
+
 /// Apple ships LibreSSL as `openssl`, and LibreSSL has no Ed25519 in `pkeyutl`, so on
 /// a stock Mac every proof would fail verification for a reason that looks like a bad
 /// signature. Prefer an OpenSSL 3 build when one is installed, and let
@@ -216,6 +258,7 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
 
     let capability_id = crypto::sha256_hex(&crypto::random_token()?)?;
     let now = now_epoch()?;
+    let _state_lock = acquire_state_lock()?;
     let mut state = load_state()?;
     state["capabilities"][&capability_id] = json!({
         "agent": agent,
@@ -481,6 +524,7 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
     }
 
     let now = now_epoch()?;
+    let _state_lock = acquire_state_lock()?;
     let mut state = load_state()?;
     let Some(record) = state["capabilities"].get(&capability_id).cloned() else {
         return denied_because(stream, "no such capability");
