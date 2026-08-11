@@ -116,11 +116,28 @@ fn tail_hash() -> Result<String> {
 /// one append - milliseconds - and released on drop, including on the error
 /// paths, because a lock leaked by a failed append would stall every later
 /// writer until it aged out.
-struct AppendLock(PathBuf);
+///
+/// The holder carries a stamp and releases only the lock still bearing it. An
+/// unconditional remove is what let two writers share one critical section: a
+/// lock aged past the abandonment window is deleted and recreated by the next
+/// writer, so the slow original's drop deleted *that* writer's lock and a third
+/// writer walked in beside it. Both then read one tail and appended two lines
+/// claiming a single predecessor. The journal on this workstation carries that
+/// shape twice, at 2026-08-10T03:55:23Z and 2026-08-10T17:08:42Z, each time an
+/// `mcp-serve` line and an `http-item-read` line sharing a `prev`.
+struct AppendLock {
+    path: PathBuf,
+    stamp: String,
+}
 
 impl Drop for AppendLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        let ours = fs::read_to_string(&self.path)
+            .map(|held| held.trim() == self.stamp)
+            .unwrap_or(false);
+        if ours {
+            let _ = fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -148,9 +165,18 @@ fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
             .open(&lock_path)
         {
             Ok(mut file) => {
-                let guard = AppendLock(lock_path);
-                writeln!(file, "{}", std::process::id())?;
-                return Ok(guard);
+                // The stamp is written and flushed before the guard exists, so a
+                // holder never claims a lock whose contents it failed to record.
+                // A write that fails leaves an unstamped file, which no drop will
+                // remove and which the abandonment window clears - slower than a
+                // leak-free release, and safe, which the alternative was not.
+                let stamp = format!("{}:{}", std::process::id(), crypto::random_token()?);
+                writeln!(file, "{stamp}")?;
+                file.sync_all()?;
+                return Ok(AppendLock {
+                    path: lock_path,
+                    stamp,
+                });
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 if lock_is_abandoned(&lock_path) {
