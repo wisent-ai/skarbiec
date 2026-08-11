@@ -4,11 +4,8 @@ set -eu
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export SKARBIEC_VAULT_FILE="${SKARBIEC_VAULT_FILE:-$HOME/.stado/skarbiec.vault.json}"
 
-action="${1:-pull}"
-case "$action" in
-  pull|push) ;;
-  *) printf 'usage: %s [pull|push] [--force]\n' "$0" >&2; exit 2 ;;
+case "${0##*/}" in
+  push-*) exec "$HOME/.stado/bin/skarbiec" sync-push ;;
+  force-pull-*) exec "$HOME/.stado/bin/skarbiec" sync-pull --force ;;
+  *) exec "$HOME/.stado/bin/skarbiec" sync-pull ;;
 esac
-
-shift || true
-exec "$HOME/.stado/bin/skarbiec" "sync-$action" "$@"
