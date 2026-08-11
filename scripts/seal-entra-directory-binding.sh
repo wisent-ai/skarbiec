@@ -30,18 +30,26 @@ set -eu
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export GNUPGHOME="${GNUPGHOME:-$HOME/.gnupg}"
 
-CREDENTIAL='weles-microsoft-jakub-wisent-ai-password'
 PROVIDER='microsoft_entra'
 TENANT='23572277-0021-42ac-b2b9-10bd86c7d2af'
-OBJECT_ID='4c888895-03cf-4ab1-a11e-46942c568217'
-ACCOUNT_UPN='jakub@wisent.ai'
-READER_CONSUMER='weles-microsoft-jakub-wisent-ai-password-reader-password'
 FIELD='password'
+
+# Every Entra binding this fleet has, taken from the Skarbiec audit journal on the
+# operator workstation, where each was recorded as credential-directory-sealed on
+# 2026-08-06. Reading the address and the object id out of the journal is the
+# point: an item id only looks like an address, and a database row that happens to
+# sit beside a credential is not an identity. The journal is what Skarbiec itself
+# wrote down when a person sealed the binding.
+#
+# weles-microsoft-jakub-wisent-com-password is recorded there too, with the same
+# object id as the wisent.ai row below, but the deployed release does not declare
+# it, so nothing here would consume a binding for it.
+BINDINGS='weles-microsoft-lukasz-wisent-com-password 1f636f97-b07f-4e9b-952a-5d069ccc5b20 lukasz@wisent.com
+weles-microsoft-jakub-wisent-ai-password 4c888895-03cf-4ab1-a11e-46942c568217 jakub@wisent.ai'
 
 BIN="$HOME/.stado/bin/skarbiec"
 VAULT="$HOME/.stado/weles-skarbiec.vault.json"
 UNLOCK="$HOME/.stado/weles-skarbiec-unlock"
-TOKEN_OUT="$HOME/.stado/$READER_CONSUMER-skarbiec-token"
 
 note() {
     printf '%-22s %s\n' "$1" "$2"
@@ -79,22 +87,30 @@ else
     note 'recovery recipient' "no key file at $RECOVERY_PUB; a write may fail as No public key"
 fi
 
-# 1. The directory binding.
-BEFORE=$("$BIN" credential status "$CREDENTIAL" --local || true)
-case "$BEFORE" in
-    *"$OBJECT_ID"*)
-        note 'directory binding' 'already sealed with this object id; left alone'
-        ;;
-    *)
-        "$BIN" credential seal-directory "$CREDENTIAL" \
-            --provider "$PROVIDER" \
-            --tenant "$TENANT" \
-            --object-id "$OBJECT_ID" \
-            --account-upn "$ACCOUNT_UPN" \
-            --local
-        note 'directory binding' 'sealed'
-        ;;
-esac
+# 1. The directory bindings. One pass per row, so an account added to the table is
+#    sealed without touching the logic, and a row already sealed with the same
+#    object id is reported and left alone rather than rewritten.
+echo "$BINDINGS" | while read -r credential object_id account_upn; do
+    [ -n "$credential" ] || continue
+    before=$("$BIN" credential status "$credential" --local || true)
+    case "$before" in
+        *"$object_id"*)
+            note "binding $account_upn" 'already sealed with this object id; left alone'
+            ;;
+        *)
+            if "$BIN" credential seal-directory "$credential" \
+                --provider "$PROVIDER" \
+                --tenant "$TENANT" \
+                --object-id "$object_id" \
+                --account-upn "$account_upn" \
+                --local; then
+                note "binding $account_upn" 'sealed'
+            else
+                note "binding $account_upn" 'refused; the error above names the cause'
+            fi
+            ;;
+    esac
+done
 
 # 2. The reader grant the deployed scopes name. Without it the scope line points
 #    at a consumer that does not exist here and every read throws.
@@ -154,8 +170,16 @@ mint_reader() {
     esac
 }
 
-mint_reader "$CREDENTIAL"
+echo "$BINDINGS" | while read -r credential _ _; do
+    [ -n "$credential" ] || continue
+    mint_reader "$credential"
+done
 mint_reader 'weles-microsoft-primary-password'
 
-printf '\n'
-"$BIN" credential status "$CREDENTIAL" --local
+# The status of every account the release declares, so the report shows which ones
+# carry an identity and which are still a name with nothing behind it.
+echo "$BINDINGS" | while read -r credential _ account_upn; do
+    [ -n "$credential" ] || continue
+    printf '\n== %s ==\n' "$account_upn"
+    "$BIN" credential status "$credential" --local || true
+done
