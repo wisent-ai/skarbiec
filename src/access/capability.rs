@@ -73,9 +73,7 @@ fn acquire_state_lock() -> Result<StateLock> {
                     let _ = fs::remove_dir(&path);
                     continue;
                 }
-                std::thread::sleep(std::time::Duration::from_millis(
-                    STATE_LOCK_RETRY_MILLIS,
-                ));
+                std::thread::sleep(std::time::Duration::from_millis(STATE_LOCK_RETRY_MILLIS));
             }
             Err(error) => return Err(error).context("create capability state lock"),
         }
