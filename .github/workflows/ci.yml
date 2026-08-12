@@ -13,13 +13,37 @@ jobs:
   gates:
     uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
 
+  evidence:
+    needs: gates
+    uses: wisent-ai/quality-control/.github/workflows/probierz-kronika.yml@48a4cd3d7a48a15bf71673e87156307f459952fd
+    with:
+      app-id: skarbiec
+      target: tui
+      spec: skarbiec-*.spec.mjs
+      journeys: onboarding-first-use,initialize-vault,manage-secrets,delete-and-restore-secret,manage-users-and-sharing,recover-vault-access,use-json-output
+      mode: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'pull-request' }}
+      base-sha: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      head-sha: ${{ github.sha }}
+      cargo-manifest: Cargo.toml
+      binary-path: target/release/skarbiec
+      receipt-public-key-fingerprint: a4da24776c6d8f5432bbd082a7bda27f6b97091d523afc371b1575073789e6e7
+      kronika-sources: |-
+        README.md
+        docs
+        src
+        Cargo.toml
+        .github
+    secrets:
+      PROBIERZ_RECEIPT_PRIVATE_KEY: ${{ secrets.PROBIERZ_RECEIPT_PRIVATE_KEY }}
+      BRAMA_API_KEY: ${{ secrets.KRONIKA_BRAMA_API_KEY }}
+
   # A merged version bump becomes its tag here, rather than waiting for
   # someone to remember. The number is read from Cargo.toml, never invented,
   # and an existing tag is never moved - so the decision stays where the
   # refusal below says it belongs: in the commit that changed the version.
   tag:
     if: github.ref == 'refs/heads/main'
-    needs: gates
+    needs: evidence
     uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@897485548846d7dfe38832b6b9a38212cdd1685a
     permissions:
       contents: write
@@ -29,7 +53,7 @@ jobs:
     # otherwise. The untagged build lives in the shared gates now, so an
     # ordinary push builds once instead of twice.
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: gates
+    needs: evidence
     permissions:
       contents: write
     strategy:
