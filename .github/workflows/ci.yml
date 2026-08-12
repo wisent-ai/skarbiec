@@ -26,7 +26,7 @@ jobs:
       head-sha: ${{ github.sha }}
       cargo-manifest: Cargo.toml
       binary-path: target/release/skarbiec
-      receipt-public-key-fingerprint: a4da24776c6d8f5432bbd082a7bda27f6b97091d523afc371b1575073789e6e7
+      receipt-public-key-fingerprint: a4da24776cebed924c126cd8f171a2e84299836e4daf7fb979d1523aff371b15
       kronika-sources: |-
         README.md
         docs
