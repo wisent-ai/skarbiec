@@ -223,6 +223,26 @@ fn write_private_file(path: &Path, value: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Apple ships LibreSSL as `openssl`, but its `pkeyutl` cannot verify Ed25519
+/// signatures. Prefer an installed OpenSSL 3 build and allow an explicit path.
+fn openssl_bin() -> String {
+    if let Ok(configured) = std::env::var("SKARBIEC_OPENSSL") {
+        if !configured.is_empty() {
+            return configured;
+        }
+    }
+    for candidate in [
+        "/opt/homebrew/opt/openssl@3/bin/openssl",
+        "/opt/homebrew/bin/openssl",
+        "/usr/local/opt/openssl@3/bin/openssl",
+    ] {
+        if Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    "openssl".to_string()
+}
+
 fn verify_workload_proof(public_key: &str, payload: &[u8], signature: &str) -> Result<bool> {
     let Some(signature) = decode_signature(signature) else {
         return Ok(false);
@@ -240,7 +260,7 @@ fn verify_workload_proof(public_key: &str, payload: &[u8], signature: &str) -> R
         write_private_file(&key_path, public_key.as_bytes())?;
         write_private_file(&signature_path, &signature)?;
         write_private_file(&payload_path, payload)?;
-        let status = Command::new("openssl")
+        let status = Command::new(openssl_bin())
             .args(["pkeyutl", "-verify", "-pubin", "-inkey"])
             .arg(&key_path)
             .args(["-rawin", "-sigfile"])
