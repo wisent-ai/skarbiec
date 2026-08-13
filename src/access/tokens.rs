@@ -213,6 +213,23 @@ fn read_workload_public_key(path: &Path) -> Result<String> {
     Ok(key)
 }
 
+fn read_fixed_token(path: &Path) -> Result<String> {
+    let metadata = fs::symlink_metadata(path)?;
+    let unsafe_bits = u32::from_str_radix("077", "8".parse()?)?;
+    if !metadata.file_type().is_file()
+        || metadata.uid() != effective_uid()?
+        || metadata.mode() & unsafe_bits != u32::MIN
+    {
+        bail!("token file must be an owner-controlled regular file");
+    }
+    let contents = fs::read_to_string(path)?;
+    let token = contents.trim_end_matches(['\r', '\n']);
+    if token.is_empty() || token.len() > "4096".parse()? || token.chars().any(char::is_whitespace) {
+        bail!("token file must contain one bounded non-whitespace token");
+    }
+    Ok(token.to_string())
+}
+
 fn exact_component(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -604,12 +621,20 @@ pub fn dispatch(
             let expires_at = now_epoch()?
                 .checked_add(ttl_seconds)
                 .context("grant expiry overflow")?;
-            let minted = if has_acquire {
+            let supplied_token = flags
+                .get("token-file")
+                .map(|path| read_fixed_token(Path::new(path)))
+                .transpose()?;
+            if has_acquire && supplied_token.is_some() {
+                bail!("acquire capabilities cannot use --token-file");
+            }
+            let generated_token = if has_acquire || supplied_token.is_some() {
                 None
             } else {
                 Some(crypto::random_token()?)
             };
-            let hash = match minted.as_deref() {
+            let stored_token = supplied_token.as_deref().or(generated_token.as_deref());
+            let hash = match stored_token {
                 Some(token) => json!(crypto::sha256_hex(token)?),
                 None => Value::Null,
             };
@@ -650,7 +675,7 @@ pub fn dispatch(
                 "workload_bound": workload_public_key.is_some(),
                 "audience": audience,
                 "expires_at": expires_at,
-                "token": minted,
+                "token": generated_token,
             })))
         }
         "token-revoke" => {

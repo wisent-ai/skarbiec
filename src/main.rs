@@ -111,7 +111,7 @@ fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
 fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: set <id> --type <canonical-kind> --field k=v ...")?;
+        .context("usage: set <id> [--type <canonical-kind>] k=v ...")?;
     let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_set_allowed(&vault, id)?;

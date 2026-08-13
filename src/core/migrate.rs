@@ -86,7 +86,7 @@ fn canonical_revision(
 }
 
 fn migrate_item(vault: &Vault, id: &str, entry: &Value) -> Result<(Value, Vec<String>, usize)> {
-    if entry.get("format").and_then(Value::as_u64) == Some("2".parse()?) {
+    if entry.get("format").and_then(Value::as_u64) == Some(crate::core::vault::current_envelope()) {
         let payload = entry
             .get("current")
             .context("v2 item has no current revision")
@@ -183,7 +183,7 @@ fn migrate_item(vault: &Vault, id: &str, entry: &Value) -> Result<(Value, Vec<St
         "active"
     };
     let canonical = json!({
-        "format": "2".parse::<u64>()?,
+        "format": crate::core::vault::current_envelope(),
         "kind": kind,
         "state": state,
         "revision": revision,
@@ -486,7 +486,9 @@ fn validate_v2(vault: &Vault) -> Result<()> {
         .and_then(Value::as_object)
         .context("vault items section is not an object")?;
     for (id, item) in items {
-        if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+        if item.get("format").and_then(Value::as_u64)
+            != Some(crate::core::vault::current_envelope())
+        {
             bail!("{id} is not a v2 envelope");
         }
         let kind = item

@@ -41,7 +41,7 @@ fn legacy_envelope(vault: &Vault, credential_id: &str) -> bool {
     else {
         return false;
     };
-    item.get("format").and_then(Value::as_u64) != "2".parse().ok()
+    item.get("format").and_then(Value::as_u64) != Some(crate::core::vault::current_envelope())
 }
 
 // The fields the item actually carries, sorted, or None when the payload

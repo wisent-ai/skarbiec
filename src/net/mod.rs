@@ -131,16 +131,46 @@ pub(crate) fn handle_items_read(
             &json!({"error": "credential adoption is in flight; the staged candidate is not readable"}),
         );
     }
-    let known = vault
+    let stored = vault
         .doc()
         .get("items")
         .and_then(Value::as_object)
-        .is_some_and(|items| items.contains_key(id));
-    if !known {
+        .and_then(|items| items.get(id));
+    let Some(stored) = stored else {
         return http::write_response(
             stream,
             "HTTP/1.1 404 Not Found",
             &json!({"error": "item not found"}),
+        );
+    };
+    // A state the operator must change is not an outage, and every one of
+    // these used to leave here as `503 infra_down`, which the Stado contract
+    // reads as retryable: callers retried a trashed item forever and the
+    // sentence blamed unreachable infrastructure. `410 Gone` is the one status
+    // that already classifies as `not_found` for that client -- warning,
+    // never retryable -- and, unlike `404`, it is not silently read as an
+    // absent optional value.
+    if stored.get("state").and_then(Value::as_str) == Some("trashed") {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 410 Gone",
+            &json!({
+                "error": "item is in trash",
+                "error_code": "not_found",
+                "detail": format!("restore it first: skarbiec restore {id}"),
+            }),
+        );
+    }
+    if stored.get("format").and_then(Value::as_u64) != Some(crate::core::vault::current_envelope())
+    {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 409 Conflict",
+            &json!({
+                "error": "item uses the legacy envelope",
+                "error_code": "config",
+                "detail": format!("run migrate-v2 before reading {id}"),
+            }),
         );
     }
     let payload = match vault.get_item(id) {

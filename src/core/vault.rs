@@ -80,6 +80,12 @@ fn private_file_mode() -> Result<u32> {
     u32::from_str_radix("600", "8".parse()?).context("private vault file mode")
 }
 
+/// The only item envelope revision this build reads. It was written inline at
+/// each comparison, so a reader could not tell which number was load-bearing.
+pub fn current_envelope() -> u64 {
+    "2".parse().expect("envelope revision is a number")
+}
+
 fn document_generation(doc: &Value) -> u64 {
     doc.get("generation")
         .and_then(Value::as_u64)
@@ -352,7 +358,7 @@ impl Vault {
                 .get("items")
                 .and_then(|items| items.get(id))
                 .with_context(|| format!("no item: {id}"))?;
-            if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+            if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
                 bail!("{id} uses a legacy envelope; run migrate-v2 before rotating the owner");
             }
             let mut current = item
@@ -512,7 +518,7 @@ impl Vault {
             .and_then(|items| items.get(id))
             .cloned();
         if previous.as_ref().is_some_and(|entry| {
-            entry.get("format").and_then(Value::as_u64) != Some("2".parse().unwrap_or_default())
+            entry.get("format").and_then(Value::as_u64) != Some(current_envelope())
         }) {
             bail!("{id} still uses the legacy envelope; run migrate-v2 before updating it");
         }
@@ -618,7 +624,7 @@ impl Vault {
             .unwrap_or_else(|| json!(stamp));
         let written_by = writer.unwrap_or_else(|| self.owner_uid()).to_string();
         let entry = json!({
-            "format": "2".parse::<u64>()?,
+            "format": current_envelope(),
             "kind": item_kind,
             "state": "active",
             "revision": revision,
@@ -654,7 +660,7 @@ impl Vault {
             .get("items")
             .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
-        if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+        if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
             bail!("item uses the legacy envelope: {id} (run migrate-v2)");
         }
         if item.get("state").and_then(Value::as_str) != Some("active") {
@@ -848,7 +854,7 @@ impl Vault {
             .get("items")
             .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
-        if item.get("format").and_then(Value::as_u64) != Some("2".parse()?) {
+        if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
             bail!("item uses the legacy envelope: {id} (run migrate-v2)");
         }
         if item.get("state").and_then(Value::as_str) == Some("trashed") {
