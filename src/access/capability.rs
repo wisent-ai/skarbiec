@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::net::Shutdown;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -376,6 +377,7 @@ fn reply(stream: &mut UnixStream, control: Value, body: &[u8]) -> Result<()> {
         stream.write_all(body)?;
     }
     stream.flush()?;
+    stream.shutdown(Shutdown::Write)?;
     Ok(())
 }
 
