@@ -216,6 +216,18 @@ Holding the account licenses nothing further about the host. Automatic login,
 refused: the credential exists so a repair can authenticate, not so a machine can
 be left unlocked.
 
+Where it must **not** be is part of the convention. A `host-account` exists so
+something else can authenticate *to* that host, so it belongs in the vault of
+whoever does the authenticating and never in the vault of the machine it opens:
+a host holding its own admin account means taking the host also hands over the
+account. `read-host-account.py` encodes exactly that — run on the host a target
+names, an absent item is reported as correct posture, and a present one is a
+fault. Note that `$HOME/.stado/skarbiec.vault.json` is a path rather than an
+identity: several fleet hosts have one, with the same owner key and different
+item sets, so `wisent-compute/scripts/audit-vault-identity.py` prints a
+comparable owner/count/id-digest line per host and names any two credential
+paths that a reader would treat as one and that disagree.
+
 ### Finding an item
 
 There are two searchable surfaces, and they are not equally visible.
