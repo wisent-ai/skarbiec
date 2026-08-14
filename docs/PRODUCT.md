@@ -76,7 +76,10 @@ allowed" from "I am broken", or every outage looks like an authorization bug in
 someone else's code. Reads that cannot decrypt answer with a status and an
 `infra_down` code, never a dropped connection. The health probe opens real key
 material rather than reporting that a process is alive. Both were added after the
-July incident and both are product requirements, not niceties.
+July incident and both are product requirements, not niceties. The code itself
+is the fleet's word, not skarbiec's: the vocabulary and its meanings come from
+the shared `wisent-errors` package, so "I am broken" means the same thing here
+as wherever the consumer saw it last.
 
 **Availability is the fleet's availability.** There is no fallback by design —
 the cross-cloud fallback was deliberately removed after an earlier outage — so

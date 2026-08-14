@@ -14,3 +14,10 @@ path = "src/main.rs"
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"
+
+# The fleet's failure vocabulary, and the trim rule that goes with it. Pinned to
+# a commit rather than a branch: a vault's `error_code` is what a caller reads to
+# decide whether to retry a refused redemption, so that word changing under this
+# crate with no commit here recording it is not acceptable. The lock file is the
+# second guard; this revision is the first.
+wisent-errors = { git = "https://github.com/wisent-ai/wisent-errors", rev = "d2d1ba8478a6dfd4e744b6f6c6c6fc3e21d9e0a3" }

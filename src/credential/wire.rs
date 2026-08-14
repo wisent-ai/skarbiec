@@ -9,6 +9,7 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use wisent_errors::trim_detail;
 
 use crate::core::schema;
 
@@ -125,10 +126,11 @@ pub(super) fn sanitized_response(value: &Value) -> Result<Value> {
 
 // Bridge stderr is operator-facing diagnostics, never secret material: strip
 // control characters, collapse whitespace, and bound it before it reaches an
-// error message.
+// error message. Collapsing is skarbiec's own rule -- a bridge writes progress
+// lines -- but the bound is the fleet's, from `wisent-errors`.
 pub(super) fn sanitized_diagnostics(raw: &[u8]) -> String {
     let max: usize = "512".parse().unwrap_or_default();
-    String::from_utf8_lossy(raw)
+    let collapsed = String::from_utf8_lossy(raw)
         .chars()
         .map(|character| {
             if character.is_control() {
@@ -140,10 +142,8 @@ pub(super) fn sanitized_diagnostics(raw: &[u8]) -> String {
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<&str>>()
-        .join(" ")
-        .chars()
-        .take(max)
-        .collect()
+        .join(" ");
+    trim_detail(&collapsed, max)
 }
 
 pub(super) fn run_weles(request: &Value) -> Result<Value> {

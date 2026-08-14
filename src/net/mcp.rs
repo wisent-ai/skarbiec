@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Write};
 use std::net::TcpStream;
 use std::path::Path;
+use wisent_errors::Code;
 
 use crate::access::tokens;
 use crate::core::{vault::Vault, vault_path};
@@ -267,7 +268,7 @@ pub(crate) fn handle_acquisitions_issue(
         ) {
             Ok(value) => value,
             Err(_) => {
-                let e = &json!({"error": "infra_down"});
+                let e = &json!({"error": Code::InfraDown.as_str()});
                 return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
             }
         }

@@ -145,6 +145,13 @@ An item that exists but cannot be decrypted returns `infra_down` rather than
 masquerading as missing or dropping the connection. `key-doctor` reads the
 vault and keyring directly, so diagnosis does not depend on a healthy broker.
 
+The `error_code` in those replies is not skarbiec's own word. The vocabulary,
+and what each code means -- its severity, whether it is retryable, whether it
+names an outage -- come from
+[`wisent-errors`](https://github.com/wisent-ai/wisent-errors), pinned by commit
+in `Cargo.toml`. A caller deciding whether to retry a refused read is reading
+the fleet's definition, not this repository's.
+
 ## Install
 
 Use an exact, checksum-verified tagged archive for deployment. The complete

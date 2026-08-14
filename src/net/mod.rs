@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::TcpStream;
+use wisent_errors::{trim_detail, Code};
 
 use crate::access::tokens;
 use crate::core::{crypto, inbox, schema};
@@ -22,9 +23,13 @@ use crate::core::{crypto, inbox, schema};
 // Shared request helpers, re-exported by net::http so handler call sites read
 // the same in every module. Moved here to keep net::http under its line
 // budget after the listener went thread-per-connection.
+//
+// The width is skarbiec's own decision; how to cut is not. `trim_detail` is the
+// fleet's rule, from `wisent-errors`, so an operator reading a truncated gpg
+// message here sees it cut exactly as every other product cuts one.
 pub(crate) fn bounded_detail(detail: &str) -> String {
     let limit: usize = "400".parse().unwrap_or_default();
-    detail.chars().take(limit).collect()
+    trim_detail(detail, limit)
 }
 
 pub(crate) fn request_json(body: &str) -> Value {
@@ -147,16 +152,18 @@ pub(crate) fn handle_items_read(
     // these used to leave here as `503 infra_down`, which the Stado contract
     // reads as retryable: callers retried a trashed item forever and the
     // sentence blamed unreachable infrastructure. `410 Gone` is the one status
-    // that already classifies as `not_found` for that client -- warning,
-    // never retryable -- and, unlike `404`, it is not silently read as an
-    // absent optional value.
+    // that already classifies as `not_found` for that client -- and
+    // `wisent-errors` is where what that code means (its severity, and that it
+    // is never retryable) is decided, for this vault and for its callers
+    // alike. Unlike `404`, `410` is not silently read as an absent optional
+    // value.
     if stored.get("state").and_then(Value::as_str) == Some("trashed") {
         return http::write_response(
             stream,
             "HTTP/1.1 410 Gone",
             &json!({
                 "error": "item is in trash",
-                "error_code": "not_found",
+                "error_code": Code::NotFound.as_str(),
                 "detail": format!("restore it first: skarbiec restore {id}"),
             }),
         );
@@ -168,7 +175,7 @@ pub(crate) fn handle_items_read(
             "HTTP/1.1 409 Conflict",
             &json!({
                 "error": "item uses the legacy envelope",
-                "error_code": "config",
+                "error_code": Code::Config.as_str(),
                 "detail": format!("run migrate-v2 before reading {id}"),
             }),
         );
@@ -187,7 +194,7 @@ pub(crate) fn handle_items_read(
                 "HTTP/1.1 503 Service Unavailable",
                 &json!({
                     "error": "item is stored but could not be decrypted",
-                    "error_code": "infra_down",
+                    "error_code": Code::InfraDown.as_str(),
                     "detail": http::bounded_detail(&detail),
                 }),
             );

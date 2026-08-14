@@ -107,6 +107,18 @@ same ciphertext; the decrypted value is discarded and never returned or
 logged. Reads of an item that exists but will not decrypt answer `503` with
 the same code instead of dropping the connection.
 
+Every `error_code` this API emits is one of the seven the fleet's failure
+package defines -- `config`, `auth`, `not_found`, `rate_limit`, `timeout`,
+`infra_down`, `unknown` -- and skarbiec takes them from
+[`wisent-errors`](https://github.com/wisent-ai/wisent-errors) rather than
+declaring them. That package, not this document, is where a code's severity,
+its retryability and whether it counts as an outage are decided; restating
+them here would make this file a second copy of a table that must have one.
+The statuses are skarbiec's own: `410 Gone` for a trashed item, `409 Conflict`
+for a legacy envelope, `503` for ciphertext that will not open. So is the
+400-character bound on `detail`; the rule for how a long message is cut comes
+from the package.
+
 ## MCP server (agent surface)
 
 A stdio Model Context Protocol server, started with the mcp command, exposes the

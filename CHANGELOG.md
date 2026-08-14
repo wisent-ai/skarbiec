@@ -48,6 +48,17 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
   `operation:credential/…` as part of the v2 migration.
 - `src/access/tokens.rs`, `src/core/vault.rs`, `src/credential.rs` and
   `src/net/mod.rs` were substantially rewritten.
+- The `error_code` values the local HTTP API emits, and the rule that bounds a
+  `detail`, now come from the shared `wisent-errors` package (pinned by commit
+  in `Cargo.toml`) instead of being spelled out in `src/net/`. No emitted code,
+  status, message or bound changed: the same four codes go out on the same five
+  replies, and the seven codes' severity, retryability and outage flags are
+  identical to the table skarbiec's callers already applied. The one behavioural
+  difference is that a `detail` with leading or trailing whitespace now has it
+  stripped before the 400-character cut, which no message skarbiec composes can
+  produce except a bridge diagnostic whose own 512-character cut lands on a word
+  boundary (`src/net/mod.rs`, `src/net/http.rs`, `src/net/mcp.rs`,
+  `src/credential/wire.rs`).
 
 ### Removed
 

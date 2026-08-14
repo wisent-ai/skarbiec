@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use wisent_errors::Code;
 
 use crate::access::tokens;
 use crate::core::{vault::Vault, vault_path};
@@ -162,7 +163,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
                 &json!({
                     "ok": false,
                     "service": "skarbiec",
-                    "error_code": "infra_down",
+                    "error_code": Code::InfraDown.as_str(),
                     "detail": bounded_detail(&detail),
                 }),
             );
