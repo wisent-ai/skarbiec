@@ -170,6 +170,7 @@ independent roles where an id can encode one hierarchy.
 | `brama:id:<id>` | Brama | Subscription id the control plane and its clients exchange. |
 | `fleet:host-account` | Stado | The item is one fleet host's operating-system account. |
 | `fleet:target:<name>` | Stado | The registry target that account belongs to; a reader with a host name filters on this. |
+| `fleet:tailnet-tls` | Stado | The item is a private certificate authority the fleet's tailnet endpoints are anchored on; its `private_key` is the only copy. |
 
 Rules for a new namespace:
 
@@ -227,6 +228,28 @@ identity: several fleet hosts have one, with the same owner key and different
 item sets, so `wisent-compute/scripts/audit-vault-identity.py` prints a
 comparable owner/count/id-digest line per host and names any two credential
 paths that a reader would treat as one and that disagree.
+
+### Fleet certificate authorities
+
+A private certificate authority the fleet anchors on is a `certificate` item here,
+carrying both `certificate` and `private_key`, tagged `fleet:tailnet-tls`, in the
+vault of the host that serves under it. The item id is named from the unit and the
+installers that reference the certificate paths, so an operator reads an id rather
+than searching a filesystem.
+
+That is written down because of what it cost when it was not. The fleet's tailnet
+authority was minted by hand on one host and its private key was never kept:
+establishing that took an exact search of 845 candidate files across three hosts,
+comparing each candidate's derived public half against the certificate's, and the
+conclusion turned a re-issue into a replacement that re-anchored every consumer.
+An authority whose key exists only in a shell's history is a fleet-wide outage with
+a delay on it.
+
+Two properties of the certificate matter as much as the key. `basicConstraints`
+must be `critical,CA:TRUE` and `keyUsage` must be `critical,keyCertSign,cRLSign`:
+an anchor missing the latter is accepted by macOS and refused by OpenSSL as `CA
+cert does not include key usage extension`, so a fleet can appear to work for
+months while every Linux host is quietly excluded from the store.
 
 ### Finding an item
 
