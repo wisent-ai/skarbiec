@@ -192,7 +192,12 @@ wisent-compute follows the pointer and reports the username, the password's
 length and digest, and which consumers hold a capability on the item — never the
 value. When the value is genuinely needed,
 `stado host install-credential <host> <item> password <basename>` delivers that
-one field to that one host as an owner-only file and prints nothing.
+one field to that one host as an owner-only file and prints nothing. That command
+authenticates as a Skarbiec consumer, so the consumer it uses must hold
+`read:<item>#password` and the `serve` process answering it must have that grant
+loaded: a capability minted after a long-running service started is not in effect
+until the service reads the vault again, and an unloaded grant is indistinguishable
+from a missing one at the HTTP boundary.
 
 A chat transcript is not a credential store. An operator who hands over a machine
 account in a session has told exactly one agent, once: the next agent cannot read
