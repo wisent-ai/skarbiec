@@ -108,6 +108,7 @@ object, required), and `extensions` (an optional object).
 | Kind | Fields (`*` = required) |
 | --- | --- |
 | `login` | `username*`, plus at least one of `password`, `totp_secret`, `recovery_codes` |
+| `host-account` | `username*`, `password*`, and `context.account_ref` naming `<user>@<host>` |
 | `note` | `value*` |
 | `api-key` | `api_key*`, `api_user`, `username`, `client_ip` |
 | `access-key` | `access_key_id*`, `secret_access_key*`, `session_token` |
@@ -124,7 +125,9 @@ object, required), and `extensions` (an optional object).
 
 Typed kinds reject fields outside their list. The free-form kinds accept any
 field whose name is 1–128 ASCII alphanumerics plus `.`, `_`, `-`, with arbitrary
-JSON values; `credential-operation` additionally requires `value`.
+JSON values; `credential-operation` additionally requires `value`. `host-account`
+is the one kind that also constrains its context, because an account credential
+that does not name its host cannot be matched to the host it opens.
 
 `context` carries provenance rather than secrets: `source_kind`, `provider`,
 `account_ref`, `tenant_ref`, `request_id`, `operation`, `session_label`,
@@ -165,6 +168,8 @@ independent roles where an id can encode one hierarchy.
 | `brama:agent:<agent>` | Brama | Which agent owns that subscription; repeated per agent. |
 | `brama:provider:<provider>` | Brama | Provider family the credential belongs to. |
 | `brama:id:<id>` | Brama | Subscription id the control plane and its clients exchange. |
+| `fleet:host-account` | Stado | The item is one fleet host's operating-system account. |
+| `fleet:target:<name>` | Stado | The registry target that account belongs to; a reader with a host name filters on this. |
 
 Rules for a new namespace:
 
@@ -176,6 +181,35 @@ Rules for a new namespace:
    needs; `context` remains the provenance of record inside the ciphertext.
 4. A consumer reading a namespace it does not own is doing discovery on someone
    else's contract; give it its own tag instead.
+
+### Fleet host accounts
+
+The operating-system account of a fleet host is a credential, so it lives here as
+a `host-account` item and nowhere else. The registry carries only the pointer:
+the target gains `account_ref` holding the item id, which is the fleet's one way
+from a host name to that host's account. `read-host-account.py <target>` in
+wisent-compute follows the pointer and reports the username, the password's
+length and digest, and which consumers hold a capability on the item — never the
+value. When the value is genuinely needed,
+`stado host install-credential <host> <item> password <basename>` delivers that
+one field to that one host as an owner-only file and prints nothing.
+
+A chat transcript is not a credential store. An operator who hands over a machine
+account in a session has told exactly one agent, once: the next agent cannot read
+it, no consumer can read it, and nothing rotates it. Store it during the session
+it arrives, through an owner-only delivery file that `put-host-account.py` reads,
+pipes into `set-json` on stdin, and deletes — so the value never reaches argv, a
+shell history, or a log.
+
+A `host-account` is deliberately not a `login`. Login trajectories enumerate
+`login` items to drive browsers, and a host account inside that set would be
+typed into a web form. The two kinds stay disjoint, which is why this one exists
+rather than a `login` with a tag on it.
+
+Holding the account licenses nothing further about the host. Automatic login,
+`/etc/kcpassword`, and any other change to a host's security posture remain
+refused: the credential exists so a repair can authenticate, not so a machine can
+be left unlocked.
 
 ### Finding an item
 

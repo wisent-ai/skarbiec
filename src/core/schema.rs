@@ -4,6 +4,11 @@ use serde_json::{json, Map, Value};
 pub const ITEM_SCHEMA: &str = "skarbiec.item.v2";
 
 const LOGIN_FIELDS: &[&str] = &["username", "password", "totp_secret", "recovery_codes"];
+// A fleet host's operating-system account is not a web login: it is consumed by
+// the host-placement and host-repair readers, never by a login trajectory. Those
+// readers iterate `login` items, so overloading `login` would hand a machine
+// root account to a browser flow; `host-account` keeps the two sets disjoint.
+const HOST_ACCOUNT_FIELDS: &[&str] = &["username", "password"];
 const API_KEY_FIELDS: &[&str] = &["api_key", "api_user", "username", "client_ip"];
 const ACCESS_KEY_FIELDS: &[&str] = &["access_key_id", "secret_access_key", "session_token"];
 const TOKEN_FIELDS: &[&str] = &["token"];
@@ -26,6 +31,7 @@ pub fn supported_kind(kind: &str) -> bool {
     matches!(
         kind,
         "login"
+            | "host-account"
             | "note"
             | "api-key"
             | "access-key"
@@ -54,6 +60,7 @@ fn allowed_fields(kind: &str) -> Option<&'static [&'static str]> {
     match kind {
         "note" => Some(NOTE_FIELDS),
         "login" => Some(LOGIN_FIELDS),
+        "host-account" => Some(HOST_ACCOUNT_FIELDS),
         "api-key" => Some(API_KEY_FIELDS),
         "access-key" => Some(ACCESS_KEY_FIELDS),
         "token" => Some(TOKEN_FIELDS),
@@ -145,6 +152,9 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
                 bail!("login payload requires at least one authentication factor");
             }
         }
+        // Both fields are required because a host account with only a username is
+        // not a credential, and one with only a password cannot say who it is.
+        "host-account" => required(fields, &["username", "password"], expected_kind)?,
         "api-key" => required(fields, &["api_key"], expected_kind)?,
         "access-key" => required(
             fields,
@@ -163,6 +173,18 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
     }
     if object.get("context").and_then(Value::as_object).is_none() {
         bail!("canonical item context must be an object");
+    }
+    // A machine account that does not name its host and its user cannot be matched
+    // back to a registry target, and an unmatchable credential is precisely the
+    // sort of declaration nothing ever reads. Demand the naming at write time.
+    if expected_kind == "host-account"
+        && !object
+            .get("context")
+            .and_then(|context| context.get("account_ref"))
+            .and_then(Value::as_str)
+            .is_some_and(|reference| reference.contains('@'))
+    {
+        bail!("host-account payload requires context.account_ref naming <user>@<host>");
     }
     if object
         .get("extensions")
@@ -535,5 +557,44 @@ mod tests {
             "context": {},
         });
         assert!(validate_payload(&non_string, "note").is_err());
+    }
+
+    #[test]
+    fn host_account_requires_both_fields_and_a_named_account() {
+        let valid = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles", "password": "not-the-real-one"},
+            "context": {"account_ref": "charles@charless-mac-mini", "source_kind": "fleet-host"},
+        });
+        validate_payload(&valid, "host-account").expect("valid host account");
+
+        let no_password = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles"},
+            "context": {"account_ref": "charles@charless-mac-mini"},
+        });
+        assert!(validate_payload(&no_password, "host-account").is_err());
+
+        // Without account_ref nothing can decide which registry target the
+        // credential belongs to, so the write must not be accepted at all.
+        let unnamed = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles", "password": "not-the-real-one"},
+            "context": {"source_kind": "fleet-host"},
+        });
+        assert!(validate_payload(&unnamed, "host-account").is_err());
+
+        // A machine account is not a web login: the login factors have no reader
+        // here and must not be smuggled in under this kind.
+        let login_shaped = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles", "totp_secret": "ABCD"},
+            "context": {"account_ref": "charles@charless-mac-mini"},
+        });
+        assert!(validate_payload(&login_shaped, "host-account").is_err());
     }
 }

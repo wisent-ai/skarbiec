@@ -19,6 +19,14 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
 
 ### Added
 
+- Added the canonical item kind `host-account` (`src/core/schema.rs`) for the
+  operating-system account of a fleet host: `username` and `password` are both
+  required, and `context.account_ref` must name `<user>@<host>` so the credential
+  can be matched to the registry target that points at it. It is a separate kind
+  from `login` because login trajectories enumerate `login` items to drive
+  browsers and must never find a machine account among them. The convention —
+  registry `account_ref` names the item, transcripts are not a credential store —
+  is documented under "Fleet host accounts" in `docs/CLI.md`.
 - Added an explicit vault-format migration, `skarbiec migrate-v2`
   (`src/core/migrate.rs`, `src/core/schema.rs`), which rewrites the vault
   document to `"version": "v2"`.
