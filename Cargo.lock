@@ -109,7 +109,7 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 [[package]]
 name = "wisent-errors"
 version = "1.0.0"
-source = "git+https://github.com/wisent-ai/wisent-errors?rev=d2d1ba8478a6dfd4e744b6f6c6c6fc3e21d9e0a3#d2d1ba8478a6dfd4e744b6f6c6c6fc3e21d9e0a3"
+source = "git+https://github.com/wisent-ai/wisent-errors?rev=92da74a839b5d3202183f0a850745f6fc205ed12#92da74a839b5d3202183f0a850745f6fc205ed12"
 
 [[package]]
 name = "zmij"

@@ -20,4 +20,11 @@ serde_json = "1.0"
 # decide whether to retry a refused redemption, so that word changing under this
 # crate with no commit here recording it is not acceptable. The lock file is the
 # second guard; this revision is the first.
-wisent-errors = { git = "https://github.com/wisent-ai/wisent-errors", rev = "d2d1ba8478a6dfd4e744b6f6c6c6fc3e21d9e0a3" }
+#
+# 92da74a corrects the catalogue's classification of 501 and 505 from
+# `infra_down` to `config`. For skarbiec that revision is inert and was measured
+# to be: the Rust diff against the previous pin is two match arms in
+# `from_upstream_status`, a function this crate never calls, and skarbiec answers
+# only 200, 400, 401, 403, 404, 409, 410 and 503, so no caller classifying its
+# replies can meet a 501 or a 505 either.
+wisent-errors = { git = "https://github.com/wisent-ai/wisent-errors", rev = "92da74a839b5d3202183f0a850745f6fc205ed12" }
