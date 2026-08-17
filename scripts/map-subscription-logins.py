@@ -220,23 +220,38 @@ def main() -> int:
     print(f"vault:  {vault}")
     items = vault_items(binary, environment)
 
-    missing = {
-        name
-        for name in (*SUBSCRIPTION_LOGINS, *SUBSCRIPTION_LOGINS.values(), *AMBIGUOUS_SUBSCRIPTIONS)
-        if name not in items
-    }
-    if missing:
+    # A trashed bundle is still in the vault and still needs no login: it mints
+    # nothing. `skarbiec list` omits it, so demanding every name be visible read
+    # a retired subscription as "wrong vault" and refused to map the six live
+    # ones. Recognise the vault by the logins plus at least one live bundle, and
+    # treat an unlisted bundle as nothing to map.
+    missing_logins = {name for name in SUBSCRIPTION_LOGINS.values() if name not in items}
+    if missing_logins:
         fail(
             "this vault does not hold "
-            + ", ".join(sorted(missing))
+            + ", ".join(sorted(missing_logins))
             + "; it is not the fleet vault these mappings were established against"
         )
+    if not any(name in items for name in SUBSCRIPTION_LOGINS):
+        fail(
+            "this vault holds none of the subscription bundles these mappings "
+            "name; it is not the fleet vault they were established against"
+        )
+    retired = sorted(
+        name
+        for name in (*SUBSCRIPTION_LOGINS, *AMBIGUOUS_SUBSCRIPTIONS)
+        if name not in items
+    )
+    for name in retired:
+        print(f"  {name}: not listed by this vault (retired or purged); nothing to map")
 
     conflicts: list[str] = []
     written: list[str] = []
     for bundle in sorted(SUBSCRIPTION_LOGINS):
         login = SUBSCRIPTION_LOGINS[bundle]
-        existing = items[bundle]
+        existing = items.get(bundle)
+        if existing is None:
+            continue
         clash = conflicting_login(existing, login)
         if clash:
             conflicts.append(
