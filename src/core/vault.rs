@@ -647,6 +647,32 @@ impl Vault {
         self.save()
     }
 
+    /// Replace one item's tags without touching its payload.
+    ///
+    /// Tags sit beside the envelope, not inside it: they are how consumers
+    /// enumerate what an item is, and nothing about the ciphertext, the
+    /// recipient list or the revision depends on them. Setting them through
+    /// `set_item_with_writer` would re-encrypt the payload to whatever
+    /// recipients the entry carries now, which for an item written with an
+    /// empty recipient list narrows access to a credential that is in use, and
+    /// requires decrypting it first. This writes the metadata alone.
+    pub fn set_item_tags(&mut self, id: &str, tags: &[String]) -> Result<()> {
+        let mut entry = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .and_then(|items| items.get(id))
+            .cloned()
+            .with_context(|| format!("no item: {id}"))?;
+        if entry.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
+            bail!("{id} still uses the legacy envelope; run migrate-v2 before updating it");
+        }
+        entry["tags"] = tags.iter().cloned().map(Value::String).collect();
+        entry["updated_at"] = json!(now());
+        obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        self.save()
+    }
+
     pub fn stage_managed_field(
         &mut self,
         id: &str,

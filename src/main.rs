@@ -108,6 +108,49 @@ fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
     Ok(())
 }
 
+/// Resolve one metadata list: what the caller asked for, or what the item
+/// already carries when the caller said nothing about it.
+///
+/// An absent flag used to become an empty list, and the vault wrote that empty
+/// list over whatever was there. Brama's credential refresh calls `set-json`
+/// with neither `--tags` nor `--recipients`, so every OAuth rotation stripped a
+/// subscription's `brama:subscription` and `brama:agent:` tags and narrowed its
+/// recipients to the owner alone. The item kept serving traffic while vanishing
+/// from every consumer that enumerates by tag — the gateway's own listing and
+/// its desktop console both do — which is how a subscription at revision 258
+/// came to be invisible everywhere it should have appeared. An absent flag now
+/// means "leave this as it is"; `--tags=` still clears.
+fn requested_or_existing(
+    flags: &HashMap<String, String>,
+    vault: &Vault,
+    id: &str,
+    key: &str,
+) -> Vec<String> {
+    if let Some(value) = flags.get(key) {
+        return value
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    vault
+        .doc()
+        .get("items")
+        .and_then(Value::as_object)
+        .and_then(|items| items.get(id))
+        .and_then(|item| item.get(key))
+        .and_then(Value::as_array)
+        .map(|values| {
+            values
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
@@ -121,14 +164,8 @@ fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()
         .cloned()
         .collect();
     let payload = items::build_item(item_kind, &fields)?;
-    let recipients: Vec<String> = flags
-        .get("recipients")
-        .map(|value| value.split(',').map(str::to_string).collect())
-        .unwrap_or_default();
-    let tags: Vec<String> = flags
-        .get("tags")
-        .map(|value| value.split(',').map(str::to_string).collect())
-        .unwrap_or_default();
+    let recipients = requested_or_existing(flags, &vault, id, "recipients");
+    let tags = requested_or_existing(flags, &vault, id, "tags");
     ensure_no_reserved_tags(&tags)?;
     let writer = vault.owner_uid().to_string();
     vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
@@ -154,18 +191,43 @@ fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Resu
         .map(String::as_str)
         .unwrap_or(payload_kind);
     schema::validate_payload(&payload, item_kind)?;
-    let recipients: Vec<String> = flags
-        .get("recipients")
-        .map(|value| value.split(',').map(str::to_string).collect())
-        .unwrap_or_default();
-    let tags: Vec<String> = flags
-        .get("tags")
-        .map(|value| value.split(',').map(str::to_string).collect())
-        .unwrap_or_default();
+    let recipients = requested_or_existing(flags, &vault, id, "recipients");
+    let tags = requested_or_existing(flags, &vault, id, "tags");
     ensure_no_reserved_tags(&tags)?;
     let writer = vault.owner_uid().to_string();
     vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
     emit(&json!({"ok": true, "id": id, "kind": item_kind}))
+}
+
+/// Replace one item's tags, leaving its payload untouched.
+///
+/// Consumers enumerate by tag: Brama's gateway and its desktop console both
+/// treat an item as a subscription only when it carries `brama:subscription`
+/// and `brama:agent:<agent>`, so an item that lost those tags is invisible to
+/// every reader while still serving traffic. Until now the only way to restore
+/// them was `set-json`, which rewrites the payload and re-encrypts it to the
+/// current recipient list — a write that can narrow access to a live
+/// credential, and one that needs the secret in hand to perform at all.
+fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
+    let id = positionals
+        .first()
+        .context("usage: retag <id> --tags tag[,tag...]")?;
+    let tags: Vec<String> = flags
+        .get("tags")
+        .map(|value| {
+            value
+                .split(',')
+                .map(str::trim)
+                .filter(|tag| !tag.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    ensure_no_reserved_tags(&tags)?;
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, id, "retag")?;
+    vault.set_item_tags(id, &tags)?;
+    emit(&json!({"ok": true, "id": id, "tags": tags}))
 }
 
 fn cmd_delete(positionals: &[String]) -> Result<()> {
@@ -320,6 +382,7 @@ fn main() -> Result<()> {
         "get" => cmd_get(&positionals),
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => cmd_list(&flags),
+        "retag" => cmd_retag(&flags, &positionals),
         "delete" => cmd_delete(&positionals),
         "reclaim" => cmd_reclaim(&positionals),
         "restore" => cmd_restore(&positionals),
@@ -335,7 +398,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","delete","reclaim","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","onboarding","version"]}),
+            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","retag","delete","reclaim","restore","purge","restore-version","generate","import","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","bonds","credential","serve","mcp","native-host","browser-host-install","onboarding","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
