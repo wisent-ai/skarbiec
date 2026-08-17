@@ -9,14 +9,17 @@ more tag on the bundle, `brama:login:<login-item-id>`, beside the tags the
 gateway and its console already enumerate by (`brama:subscription`,
 `brama:agent:<agent>`, `brama:provider:<provider>`, `brama:id:<id>`).
 
-Only the mappings the fleet's own naming settles are written. Four logins serve
-seven subscriptions, and three claude subscriptions share the one remaining
-login: which of `claude-1`, `claude-2` and `claude-primary` was minted from
-`claude-wisent-google-sso` is not recorded anywhere on this vault, and the two
-that were not would be renewed by signing into an account they do not belong
-to. Those are printed as unresolved and left untagged, because an untagged
-subscription is reported as unmapped by the renewal loop and never attempted,
-while a wrong tag is a login into the wrong account.
+Two sources of truth are written, and neither is a guess. The first is the
+mappings the fleet's own naming settles: `claude_controlyourai` names its account
+in both ids, and codex and kimi have exactly one login each. The second is a
+mapping an observed sign-in proved: three claude subscriptions share the one
+remaining login `claude-wisent-google-sso`, and nothing on this vault says which
+of them it mints - but a sign-in does. Whichever bundle's revision advances after
+a login for that account is a bundle that account mints, and the renewal loop
+hands those pairs here to be written. Anything still unproven is printed as
+unresolved and left untagged, because an untagged subscription is reported as
+unmapped by the renewal loop and never attempted, while a wrong tag is a login
+into the wrong account.
 
 Tags are metadata beside the envelope: this uses `retag`, which never touches a
 payload, never re-encrypts to a narrowed recipient list and never advances the
@@ -25,6 +28,16 @@ was written, so running this twice is the same as running it once.
 
 Usage: map-subscription-logins.py [--dry-run]
        SKARBIEC_BIN=<path> SKARBIEC_VAULT_FILE=<path> map-subscription-logins.py
+
+Proven pairs arrive as `bundle=login[,bundle=login...]`, either in
+BRAMA_PROVEN_LOGINS or pinned into the `@PROVEN@` placeholder below when this
+file is installed as a helper - `stado host run-helper` carries no arguments and
+no caller environment, so a caller that has something to say has to say it in the
+file it installs. An unrendered placeholder means "nothing was proven", which is
+the honest default: the settled mappings are still written.
+
+The last line of output is one JSON object, so a caller reads an answer rather
+than scraping the report above it.
 
 Runs where the vault is. On the always-on host that means through Stado:
   stado host install-helper <host> scripts/map-subscription-logins.py map-subscription-logins
@@ -84,6 +97,23 @@ AMBIGUOUS_REASON = (
     "one it minted; tagging any of them would point a renewal loop at an "
     "account the subscription does not belong to"
 )
+
+# Every login this fleet holds. A proven pair naming anything else is refused:
+# whatever wrote it was not reading this vault.
+KNOWN_LOGINS = (
+    "claude-wisent-google-sso",
+    "claude_controlyourai",
+    "codex-wisent-google-sso",
+    "kimi-lukasz-google-sso",
+)
+
+# Pairs an observed sign-in proved, pinned here when this file is installed as a
+# helper by replacing every `@PROVEN@` in it. An installer replaces the token
+# everywhere it appears, so "was this rendered" is answered by the value's shape
+# rather than by comparing it to a literal that would have been replaced too: a
+# real pair names a bundle, and no bundle id begins with an at sign.
+PROVEN_TOKEN_MARK = "@"
+PROVEN_LOGINS = os.environ.get("BRAMA_PROVEN_LOGINS") or "@PROVEN@"
 
 
 def fail(message: str) -> None:
@@ -198,6 +228,39 @@ def reserved_tag(existing: list[str]) -> str | None:
     return None
 
 
+def proven_pairs() -> dict[str, str]:
+    """The pairs a sign-in proved, parsed strictly or refused.
+
+    A pair that names a bundle this script does not recognise as a subscription,
+    a login this vault does not hold, or a mapping the settled table already
+    contradicts is refused rather than written: a proven pair is evidence, and
+    evidence that disagrees with the vault is a caller bug, not a new fact.
+    """
+    if PROVEN_LOGINS.startswith(PROVEN_TOKEN_MARK):
+        return {}
+    pairs: dict[str, str] = {}
+    for entry in PROVEN_LOGINS.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        bundle, separator, login = entry.partition("=")
+        bundle, login = bundle.strip(), login.strip()
+        if not separator or not bundle.startswith("provider:") or login not in KNOWN_LOGINS:
+            fail(
+                f"proven mapping {entry!r} is not <provider:...bundle>=<login this "
+                f"vault holds>; known logins are {', '.join(KNOWN_LOGINS)}"
+            )
+        settled = SUBSCRIPTION_LOGINS.get(bundle)
+        if settled and settled != login:
+            fail(
+                f"proven mapping {bundle}={login} contradicts the settled mapping "
+                f"{bundle}={settled}; one of the two is wrong and neither is a guess "
+                "this script may make"
+            )
+        pairs[bundle] = login
+    return pairs
+
+
 def main() -> int:
     arguments = sys.argv[FIRST:]
     dry_run = arguments == ["--dry-run"]
@@ -237,18 +300,21 @@ def main() -> int:
             "this vault holds none of the subscription bundles these mappings "
             "name; it is not the fleet vault they were established against"
         )
+    proven = proven_pairs()
+    mappings = {**SUBSCRIPTION_LOGINS, **proven}
+    for bundle, login in sorted(proven.items()):
+        print(f"  {bundle}: proven by an observed sign-in for {login}")
     retired = sorted(
-        name
-        for name in (*SUBSCRIPTION_LOGINS, *AMBIGUOUS_SUBSCRIPTIONS)
-        if name not in items
+        name for name in (*mappings, *AMBIGUOUS_SUBSCRIPTIONS) if name not in items
     )
     for name in retired:
         print(f"  {name}: not listed by this vault (retired or purged); nothing to map")
 
     conflicts: list[str] = []
     written: list[str] = []
-    for bundle in sorted(SUBSCRIPTION_LOGINS):
-        login = SUBSCRIPTION_LOGINS[bundle]
+    already: list[str] = []
+    for bundle in sorted(mappings):
+        login = mappings[bundle]
         existing = items.get(bundle)
         if existing is None:
             continue
@@ -270,6 +336,7 @@ def main() -> int:
         wanted = planned_tags(existing, login)
         if wanted is None:
             print(f"--- {bundle}\n    already records {LOGIN_TAG_PREFIX}{login}")
+            already.append(bundle)
             continue
         print(f"--- {bundle}\n    add {LOGIN_TAG_PREFIX}{login} to {','.join(existing) or '<none>'}")
         if dry_run:
@@ -280,21 +347,37 @@ def main() -> int:
             continue
         written.append(bundle)
 
+    unresolved = [bundle for bundle in AMBIGUOUS_SUBSCRIPTIONS if bundle not in mappings]
     print("--- unresolved")
-    for bundle in AMBIGUOUS_SUBSCRIPTIONS:
+    for bundle in unresolved:
         print(f"    {bundle}: no brama:login: tag written")
-    print(f"    reason: {AMBIGUOUS_REASON}")
+    if unresolved:
+        print(f"    reason: {AMBIGUOUS_REASON}")
 
     print("--- resulting tags")
     after = vault_items(binary, environment) if written else items
-    for bundle in sorted((*SUBSCRIPTION_LOGINS, *AMBIGUOUS_SUBSCRIPTIONS)):
+    for bundle in sorted((*mappings, *AMBIGUOUS_SUBSCRIPTIONS)):
         print(f"    {bundle} -> {','.join(after.get(bundle) or []) or '<none>'}")
 
-    if conflicts:
-        for conflict in conflicts:
-            print(conflict, file=sys.stderr)
-        return len(["conflicts"])
-    return NONE
+    for conflict in conflicts:
+        print(conflict, file=sys.stderr)
+    # One JSON object as the last line, so a caller reads an answer rather than
+    # the report above it.
+    print(
+        json.dumps(
+            {
+                "vault": str(vault),
+                "dry_run": dry_run,
+                "written": written,
+                "already": already,
+                "proven": proven,
+                "retired": retired,
+                "unresolved": unresolved,
+                "conflicts": conflicts,
+            }
+        )
+    )
+    return len(["conflicts"]) if conflicts else NONE
 
 
 if __name__ == "__main__":
