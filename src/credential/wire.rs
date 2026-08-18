@@ -327,6 +327,18 @@ pub(super) fn contract_field(provider: &str) -> &'static str {
     }
 }
 
+// The field one operation's contract writes for one provider. Subscription
+// reauth signs a human login in, so the item it names carries that account's
+// password; every other operation keeps the provider's own mapping. Eligibility
+// and the operation read this one answer, so a report can never contradict the
+// operation it describes.
+pub(super) fn operation_contract_field(operation: &str, provider: &str) -> &'static str {
+    if operation == "reauth" {
+        return "password";
+    }
+    contract_field(provider)
+}
+
 // A provider Skarbiec holds no named contract for. There is no list of them:
 // acquire registers the account through Weles and the credential lands in the
 // canonical vault like any other, so the only thing decided here is the shape

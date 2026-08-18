@@ -17,7 +17,7 @@ use crate::core::schema;
 use crate::core::vault::Vault;
 
 use super::state::{live_item_exists, quarantine_active};
-use super::wire::contract_field;
+use super::wire::operation_contract_field;
 use super::FIELD_CONTRACT_MISMATCH;
 
 // Why an item is not eligible. Each reason is a stable code; the detail beside
@@ -90,6 +90,7 @@ pub(super) fn lifecycle_blockers(
     credential_id: &str,
     provider: Option<&str>,
     directory: Option<&Value>,
+    operation: Option<&str>,
 ) -> Vec<Value> {
     let mut blockers = Vec::new();
     let sealed_provider = directory
@@ -106,7 +107,10 @@ pub(super) fn lifecycle_blockers(
         // A legacy envelope hides the payload, so the field cannot be judged
         // until that envelope is gone. It is the blocker to clear first, not a
         // reason to stop listing the others.
-        } else if let Some(required) = provider.or(sealed_provider).map(contract_field) {
+        } else if let Some(required) = provider
+            .or(sealed_provider)
+            .map(|provider| operation_contract_field(operation.unwrap_or_default(), provider))
+        {
             if let Some(fields) = item_fields(vault, credential_id) {
                 if !fields.iter().any(|name| name == required) {
                     let carried = fields.join(", ");
@@ -122,7 +126,10 @@ pub(super) fn lifecycle_blockers(
     }
     // A contract that cannot be resolved to one block — absent, or two copies
     // that disagree — is no contract to run a directory lifecycle against.
-    if directory.is_none() {
+    // Subscription reauth names a login item, which no directory holds and no
+    // seal describes; demanding one would report a blocker the operation does
+    // not have.
+    if directory.is_none() && operation != Some("reauth") {
         blockers.push(blocker(
             BLOCKER_NO_DIRECTORY_CONTRACT,
             format!(

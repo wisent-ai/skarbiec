@@ -87,7 +87,8 @@ pub(super) fn status_once(vault_path: &Path, args: &[String]) -> Result<Value> {
         Err(_) if live_item_exists(&vault, credential_id) => {
             let state = lifecycle_state(&vault, credential_id)?;
             let directory = resolved_directory(&vault, credential_id)?;
-            let blockers = lifecycle_blockers(&vault, credential_id, None, directory.as_ref());
+            let blockers =
+                lifecycle_blockers(&vault, credential_id, None, directory.as_ref(), None);
             return Ok(json!({
                 "ok": state == STATE_MANAGED,
                 "status": state,
@@ -106,7 +107,8 @@ pub(super) fn status_once(vault_path: &Path, args: &[String]) -> Result<Value> {
         // first adopt or acquire, and it is worth reporting as such.
         Err(_) if sealed_only => {
             let directory = resolved_directory(&vault, credential_id)?;
-            let blockers = lifecycle_blockers(&vault, credential_id, None, directory.as_ref());
+            let blockers =
+                lifecycle_blockers(&vault, credential_id, None, directory.as_ref(), None);
             return Ok(json!({
                 "ok": false,
                 "status": STATE_UNMANAGED,
@@ -443,6 +445,7 @@ pub(super) fn status_once(vault_path: &Path, args: &[String]) -> Result<Value> {
         credential_id,
         Some(provider.as_str()).filter(|provider| !provider.is_empty()),
         sealed.as_ref(),
+        Some(operation.as_str()).filter(|operation| !operation.is_empty()),
     );
     let mut emitted = json!({
         "ok": confirmed,
