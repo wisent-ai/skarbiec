@@ -49,7 +49,17 @@ trap 'rm -rf "$work"' EXIT HUP INT TERM
 # The seed is read once here and handed to the vault through a file only this
 # user can open, because an authenticator secret on a command line is a secret in
 # every process table on the host.
-/bin/cat > "$work/seed.txt"
+# `stado host run-helper` gives a helper no standard input, so the seed reaches
+# this host as an owner-only file installed with `stado host install-secret` and
+# named here. Reading standard input still works when the script is run by hand.
+SOURCE_SEED=${SEED_SOURCE_FILE:-"$HOME/.stado/${ACCOUNT}-totp"}
+if [ -r "$SOURCE_SEED" ]; then
+  printf -- '--- reading the seed from %s\n' "$SOURCE_SEED"
+  /bin/cat "$SOURCE_SEED" > "$work/seed.txt"
+else
+  printf -- '--- reading the seed from standard input\n'
+  /bin/cat > "$work/seed.txt"
+fi
 SEED_FILE="$work/seed.txt" /usr/bin/python3 - <<'PY'
 import os
 import pathlib
