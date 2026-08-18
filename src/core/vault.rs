@@ -495,6 +495,23 @@ impl Vault {
         )
     }
 
+/// The command that spawned this process, for the journal only.
+///
+/// A vault write records the owner key that signed it, which on one host is the
+/// same string for every write and therefore names nobody. The parent command is
+/// what tells an operator whether a rotation came from the gateway, a helper or a
+/// scheduled job. Best effort by design: an unavailable parent yields an empty
+/// string rather than failing a credential write.
+fn parent_process_id() -> String {
+    let parent = std::process::Command::new("/bin/ps")
+        .args(["-o", "ppid=,command=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .unwrap_or_default();
+    parent.split_whitespace().take(1).collect::<String>()
+}
+
     fn set_item_with_writer(
         &mut self,
         id: &str,
@@ -644,6 +661,26 @@ impl Vault {
             "history": history,
         });
         obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        // Who wrote this, in the journal, not only which owner key signed it.
+        // Two subscription items lost their enumeration tags repeatedly while
+        // every writer anyone could name preserved them, and the vault recorded
+        // only `written_by`, which is the owner uid for every owner-mode write on
+        // the host. Without the process behind the write there is nothing to ask,
+        // so a tag that disappears again names its own cause.
+        let tag_count = tags.len();
+        crate::runtime::audit::append(
+            "item-write",
+            &json!({
+                "item": id,
+                "kind": item_kind,
+                "revision": revision,
+                "tags": tag_count,
+                "pid": std::process::id(),
+                "process": std::env::args().next().unwrap_or_default(),
+                "parent_pid": Self::parent_process_id(),
+            }),
+        )
+        .ok();
         self.save()
     }
 
