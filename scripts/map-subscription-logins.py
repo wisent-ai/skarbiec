@@ -74,8 +74,9 @@ BINARY_CANDIDATES = (
 DEFAULT_VAULT = "$HOME/.stado/skarbiec.vault.json"
 
 # The mappings the vault's own names settle. `claude_controlyourai` names its
-# account in both the bundle id and the login id; codex has exactly one login,
-# so both codex subscriptions can only have come from it; kimi likewise.
+# account in both the bundle id and the login id; when both codex subscriptions
+# were minted the vault held exactly one codex login, so they can only have come
+# from it; kimi likewise.
 SUBSCRIPTION_LOGINS = {
     "provider:claude-code:brama-sub-wisent-app-claude-controlyourai": "claude_controlyourai",
     "provider:codex:brama-sub-wisent-app-codex-primary": "codex-wisent-google-sso",
@@ -99,10 +100,14 @@ AMBIGUOUS_REASON = (
 )
 
 # Every login this fleet holds. A proven pair naming anything else is refused:
-# whatever wrote it was not reading this vault.
+# whatever wrote it was not reading this vault. The 2026-08-18 codex logins are
+# the ChatGPT Business seats invited that day; no subscription bundle names them
+# until a sign-in mints one.
 KNOWN_LOGINS = (
     "claude-wisent-google-sso",
     "claude_controlyourai",
+    "codex-controlyourai-google-sso",
+    "codex-lukasz-google-sso",
     "codex-wisent-google-sso",
     "kimi-lukasz-google-sso",
 )
