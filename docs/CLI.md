@@ -289,7 +289,24 @@ Two consequences worth stating, because both have already cost time:
 | Command | What it does |
 | --- | --- |
 | `import <file.json>` | Import a JSON array of canonical rows. Each row requires `id` and `payload`; `recipients` and `tags` are optional arrays. Rows without `id` are counted as skipped. Schema-invalid rows, reserved Weles state, and attempts to overwrite a Weles-managed item fail closed. |
+| `migrate --from <vault-file> --to <vault-file> [--force]` | Copy every live (non-trashed) item from one vault file into another — the supported way to merge a private vault, such as one held by a private Weles instance, into the fleet vault. An id already present in the target is kept and reported as skipped unless `--force` overwrites it. The run stops at the first unreadable or unwritable item, exits non-zero, and names the item id. |
 | `migrate-v2 [--snapshot PATH]` | Copy the current vault to a new mode-0600 snapshot and migrate the live document to v2. The default snapshot is `<vault>.pre-v2.<epoch>`. An existing snapshot path is never overwritten. |
+
+`migrate` decrypts each source item locally and re-encrypts it to the target
+vault's own recipients — the target owner and its recovery key. The source's
+recipient list is not carried over: its uids are not registered in the target,
+so the migrated item is sealed to the target's owner alone until it is shared
+there. Each item keeps its id, `kind`, `skarbiec.item.v2` schema, `context`,
+`fields`, and `tags` verbatim. Management metadata is stamped by the target
+writer as owner-controlled by the target owner, the same as any other owner
+write. Even under `--force`, an item owned by the credential lifecycle or
+managed by Weles in the target is refused. The report lists each item's id,
+kind, and sorted field names — never a field value.
+
+```sh
+skarbiec migrate --from ~/.local/share/weles/skarbiec.vault.json \
+  --to ~/.local/share/skarbiec/skarbiec.vault.json
+```
 
 Canonical import shape:
 

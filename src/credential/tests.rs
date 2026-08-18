@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use crate::access::tokens;
 use crate::core::vault::{ManagedWrite, Vault};
-use crate::core::{crypto, schema};
+use crate::core::{crypto, items, schema};
 
 use super::adopt::{
     candidate_hidden, managed_read, stage_adopted_candidate, trash_adopted_item, AdoptShape,
@@ -2734,5 +2734,136 @@ fn every_lifecycle_blocker_is_reported_not_only_the_first() {
     assert!(
         field_blocker.contains(NONCANONICAL_FIELD) && field_blocker.contains(CANONICAL_FIELD),
         "the field blocker does not name both fields: {field_blocker}"
+    );
+}
+
+// A second vault in the same lab keyring, for migrate's source -> target copy.
+fn second_vault(lab: &Lab, name: &str) -> (PathBuf, Vault) {
+    let fingerprint = lab
+        .vault()
+        .recipient_fpr(OWNER_UID)
+        .expect("the lab owner fingerprint");
+    let path = lab.root.join(name);
+    Vault::create(path.clone(), OWNER_UID, &fingerprint, &fingerprint)
+        .expect("create the target vault");
+    let vault = Vault::open(path.clone()).expect("open the target vault");
+    (path, vault)
+}
+
+fn owner_note(vault: &mut Vault, id: &str, value: &str, tags: &[&str]) -> Value {
+    let mut fields = Map::new();
+    fields.insert("value".to_string(), json!(value));
+    let payload = schema::payload("note", fields, Map::new()).expect("build a note payload");
+    let tags: Vec<String> = tags.iter().map(|tag| (*tag).to_string()).collect();
+    vault
+        .set_item(id, "note", &payload, &[], &tags)
+        .expect("write the owner item");
+    payload
+}
+
+#[test]
+fn migrate_copies_live_items_and_preserves_existing_target_items_without_force() {
+    let lab = Lab::new();
+    let mut source = lab.vault();
+    let mut login_fields = Map::new();
+    login_fields.insert("username".to_string(), json!(ACCOUNT_UPN));
+    login_fields.insert("password".to_string(), json!("source-login-secret"));
+    let login = schema::payload("login", login_fields, Map::new()).expect("build a login payload");
+    source
+        .set_item(
+            "fleet-login",
+            "login",
+            &login,
+            &[],
+            &["fleet".to_string(), "source".to_string()],
+        )
+        .expect("write the source login");
+    owner_note(&mut source, "shared-note", "source-note-secret", &["source"]);
+
+    let (target_path, mut target) = second_vault(&lab, "target.vault.json");
+    let kept = owner_note(&mut target, "shared-note", "target-note-secret", &["target"]);
+
+    let report = accepted(items::migrate_vault(&flag_map(&[
+        ("from", &lab.vault_path.display().to_string()),
+        ("to", &target_path.display().to_string()),
+    ])));
+
+    assert_eq!(report.get("ok"), Some(&json!(true)));
+    assert_eq!(
+        report.get("skipped").and_then(Value::as_array),
+        Some(&vec![json!("shared-note")])
+    );
+    let migrated = report
+        .get("migrated")
+        .and_then(Value::as_array)
+        .expect("the report lists migrated items");
+    assert_eq!(
+        migrated.len(),
+        std::iter::once(()).count(),
+        "only the new item migrates: {migrated:?}"
+    );
+    let entry = &migrated[0];
+    assert_eq!(text_of(entry, "id"), "fleet-login");
+    assert_eq!(text_of(entry, "kind"), "login");
+    assert_eq!(
+        entry.get("fields").and_then(Value::as_array),
+        Some(&vec![json!("password"), json!("username")]),
+        "field names are reported sorted"
+    );
+
+    // The report must never carry a secret value.
+    let printed = serde_json::to_string(&report).expect("serialize the report");
+    assert!(
+        !printed.contains("source-login-secret") && !printed.contains("source-note-secret"),
+        "the migrate report leaks a field value: {printed}"
+    );
+
+    // The pre-existing target item is preserved byte for byte.
+    let target = Vault::open(target_path.clone()).expect("reopen the target vault");
+    assert_eq!(
+        accepted(target.get_item("shared-note")),
+        kept,
+        "an existing target item must survive migrate without --force"
+    );
+    let migrated_login = accepted(target.get_item("fleet-login"));
+    assert_eq!(migrated_login, login, "id, kind, schema, context and fields carry over");
+    let listed = target
+        .list(false)
+        .into_iter()
+        .find(|entry| text_of(entry, "id") == "fleet-login")
+        .expect("the migrated item is listed");
+    assert_eq!(
+        listed.get("tags").and_then(Value::as_array),
+        Some(&vec![json!("fleet"), json!("source")]),
+        "tags carry over verbatim"
+    );
+}
+
+#[test]
+fn migrate_force_overwrites_an_existing_target_item() {
+    let lab = Lab::new();
+    let mut source = lab.vault();
+    owner_note(&mut source, "overlap", "source-value", &[]);
+
+    let (target_path, mut target) = second_vault(&lab, "target.vault.json");
+    owner_note(&mut target, "overlap", "target-value", &[]);
+
+    let report = accepted(items::migrate_vault(&flag_map(&[
+        ("from", &lab.vault_path.display().to_string()),
+        ("to", &target_path.display().to_string()),
+        ("force", "true"),
+    ])));
+
+    assert_eq!(
+        report.get("skipped").and_then(Value::as_array),
+        Some(&Vec::<Value>::new())
+    );
+    let target = Vault::open(target_path).expect("reopen the target vault");
+    assert_eq!(
+        accepted(target.get_item("overlap"))
+            .get("fields")
+            .and_then(|fields| fields.get("value")),
+        Some(&json!("source-value")),
+        "--force replaces the target item with the source payload"
     );
 }
