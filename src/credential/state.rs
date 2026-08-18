@@ -295,6 +295,7 @@ pub(crate) fn authorize_managed_write(
     operation_id: &str,
     allowed_operations: &[&str],
     expected_revision: u64,
+    capture_origin: Option<&str>,
 ) -> Result<()> {
     let request_item = request_item_id(credential_id);
     let request = vault
@@ -318,6 +319,15 @@ pub(crate) fn authorize_managed_write(
         )
     {
         bail!("managed write does not match the active credential operation");
+    }
+    // A generic provider's acquisition is bound to the exact origin the caller
+    // declared: Weles echoes back the origin it actually captured at, so a
+    // write from anywhere else -- or one that presents an origin for an
+    // operation that declared none -- is not this operation's write.
+    if request.get("signup_origin").and_then(Value::as_str) != capture_origin {
+        bail!(
+            "managed write capture origin is not the signup origin this credential operation declared"
+        );
     }
     if quarantine_active(vault, credential_id) {
         bail!("{credential_id} is quarantined; refusing every managed write until it is resolved");

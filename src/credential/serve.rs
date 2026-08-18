@@ -14,7 +14,7 @@ use super::directory::resolved_directory;
 use super::lifecycle::{resume, start_operation};
 use super::state::{context_string, request_item_id};
 use super::status::status_once;
-use super::wire::request_payload;
+use super::wire::{generic_provider_slug, request_payload, GENERIC_PROVIDER_SHAPE};
 use super::{ACCOUNT_PROVIDER, REMOTE_OPERATIONS};
 
 pub(crate) fn endpoint_item(body: &Value) -> Result<String> {
@@ -39,6 +39,7 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
         "operation",
         "consumer",
         "purpose",
+        "signup_origin",
         "expect",
         "approval",
         "resume_token",
@@ -91,9 +92,19 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
                     .and_then(Value::as_str)
                     .map(str::to_string)
             })
+            // A credential nobody holds yet carries no provider, and a sealed
+            // directory contract is only meaningful for the identity provider,
+            // so a first acquire would have had nothing to name. An item named
+            // after a generic provider slug is that provider's: the provider is
+            // still item contract, read from the item's own name, never from
+            // the request body.
+            .or_else(|| {
+                (operation == "acquire" && generic_provider_slug(&credential_id))
+                    .then(|| credential_id.clone())
+            })
             .with_context(|| {
                 format!(
-                    "{credential_id} has no sealed directory contract and no earlier credential operation, so its provider is unknown; seal the directory first"
+                    "{credential_id} has no sealed directory contract and no earlier credential operation, so its provider is unknown; seal the directory first, or name the item after a generic provider slug ({GENERIC_PROVIDER_SHAPE}) to acquire one"
                 )
             })?;
         let account = record
@@ -108,6 +119,9 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
     flags.insert("consumer".to_string(), consumer);
     if let Some(purpose) = safe_string(body, "purpose") {
         flags.insert("purpose".to_string(), purpose);
+    }
+    if let Some(origin) = safe_string(body, "signup_origin") {
+        flags.insert("signup-origin".to_string(), origin);
     }
     if provider == ACCOUNT_PROVIDER {
         flags.insert(

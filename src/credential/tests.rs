@@ -37,13 +37,15 @@ use super::eligibility::{
 };
 use super::quarantine::{enforce_provider_effect, enforce_retry_barrier};
 use super::receipt::{approval_expired, checked_approval, checked_receipt, receipt_matches};
+use super::serve::submit_from_endpoint;
 use super::state::{
     authorize_managed_write, context_block, item_revision, lifecycle_state,
     pending_matches_request, request_item_id, save_request,
 };
 use super::status::status_once;
 use super::wire::{
-    contract_field, provider_contract, request_payload, sanitized_response, BRIDGE_ENV,
+    contract_field, declared_signup_origin, generic_credential_id, provider_contract,
+    request_payload, sanitized_response, BRIDGE_ENV, GENERIC_PROVIDER_SHAPE, SIGNUP_ORIGIN_SHAPE,
 };
 use super::{
     dispatch, ACCOUNT_PROVIDER, EXPECTATION_MISMATCH, FIELD_CONTRACT_MISMATCH, IDENTITY_PROVIDER,
@@ -739,6 +741,9 @@ fn managed_write_authority_refuses_an_older_wire_version_record() {
             EVIDENCE_DIGEST,
             &["rotate"],
             baseline,
+            // A named provider's rotate declares no signup origin, so the
+            // write presents none.
+            None,
         );
         if version == WIRE_V3 {
             accepted(authorized);
@@ -1804,6 +1809,7 @@ fn a_valid_receipt_is_persisted_in_context_and_returned_by_status() {
         &request_id,
         &["rotate"],
         baseline,
+        None,
     ));
     accepted(lab.vault().stage_managed_field(
         CREDENTIAL,
@@ -2298,6 +2304,267 @@ fn reset_requires_a_directory_provider() {
         "has no credential reset contract",
     );
     assert!(lab.bridge_calls().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// 10b. A provider nobody enumerated here
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_generic_provider_slug_names_its_own_item_and_a_malformed_slug_is_refused() {
+    // No list admits this provider: acquire is decided by the slug's shape and
+    // the one field a generic credential carries, and by nothing else.
+    let unknown = "openrouter";
+    assert_eq!(accepted(generic_credential_id(unknown)), unknown);
+    assert_eq!(contract_field(unknown), "api_key");
+    accepted(provider_contract("acquire", unknown, unknown, None, None));
+
+    let overlong = "o".repeat("41".parse().unwrap_or_default());
+    for malformed in [
+        "OpenRouter",
+        "open_router",
+        "open router",
+        "openrouter.ai",
+        "-openrouter",
+        "openrouter-",
+        "op",
+        overlong.as_str(),
+    ] {
+        refusal(generic_credential_id(malformed), GENERIC_PROVIDER_SHAPE);
+        refusal(
+            provider_contract("acquire", malformed, malformed, None, None),
+            GENERIC_PROVIDER_SHAPE,
+        );
+    }
+
+    // An item the caller named itself keeps exactly today's contract: the
+    // provider is a label beside that name, not the identifier the credential
+    // lands under, so an established contract cannot be broken by the slug
+    // rule that admits new ones.
+    accepted(provider_contract(
+        "acquire",
+        "semantic_scholar",
+        "weles-semantic-scholar-api",
+        None,
+        None,
+    ));
+
+    // The named providers keep their own contracts, unchanged.
+    accepted(provider_contract(
+        "reset",
+        IDENTITY_PROVIDER,
+        CREDENTIAL,
+        None,
+        Some(&sealed_wire_block()),
+    ));
+    refusal(
+        provider_contract("acquire", ACCOUNT_PROVIDER, CREDENTIAL, None, None),
+        "require --account",
+    );
+}
+
+#[test]
+fn acquire_without_an_item_id_registers_a_generic_provider_under_its_slug() {
+    let slug = "openrouter";
+    let lab = Lab::new();
+    lab.install_bridge(&[(
+        "submit",
+        bridge_reply("operation_plan", "acquire", slug, slug, &[]),
+    )]);
+    let planned = accepted(lab.credential(
+        &["acquire"],
+        &[
+            ("provider", slug),
+            ("consumer", CONSUMER),
+            ("dry-run", "true"),
+            ("local", "true"),
+        ],
+    ));
+    assert_eq!(planned.get("ok"), Some(&json!(true)));
+    let request = lab.bridge_request();
+    assert_eq!(text_of(&request, "credential_id"), slug);
+    assert_eq!(text_of(&request, "provider"), slug);
+    assert_eq!(text_of(&request, "field"), "api_key");
+    assert_eq!(text_of(&request, "version"), WIRE_V3);
+
+    // A malformed slug never reaches the bridge, and the refusal names the
+    // shape an operator has to satisfy.
+    refusal(
+        lab.credential(
+            &["acquire"],
+            &[
+                ("provider", "Open_Router"),
+                ("consumer", CONSUMER),
+                ("dry-run", "true"),
+                ("local", "true"),
+            ],
+        ),
+        GENERIC_PROVIDER_SHAPE,
+    );
+
+    // Only acquire can name a credential nobody holds yet; every other
+    // operation still demands the item it acts on.
+    for operation in ["rotate", "verify", "remove"] {
+        refusal(
+            lab.credential(
+                &[operation],
+                &[
+                    ("provider", slug),
+                    ("consumer", CONSUMER),
+                    ("local", "true"),
+                ],
+            ),
+            &format!("usage: credential {operation} <item-id>"),
+        );
+    }
+    assert_eq!(lab.bridge_calls(), vec!["submit".to_string()]);
+}
+
+#[test]
+fn a_declared_signup_origin_binds_the_managed_write_to_that_exact_origin() {
+    let slug = "openrouter";
+    let origin = "https://openrouter.ai";
+    let lab = Lab::new();
+    lab.install_bridge(&[(
+        "submit",
+        bridge_reply(
+            "operation_queued",
+            "acquire",
+            slug,
+            slug,
+            &[("actionLogId", json!(ACTION_LOG_ID))],
+        ),
+    )]);
+    let submitted = accepted(lab.credential(
+        &["acquire"],
+        &[
+            ("provider", slug),
+            ("consumer", CONSUMER),
+            ("signup-origin", origin),
+            ("local", "true"),
+        ],
+    ));
+    let request_id = text_of(&submitted, "request_id");
+    assert_eq!(text_of(&lab.record(slug), "signup_origin"), origin);
+    assert_eq!(text_of(&lab.bridge_request(), "signup_origin"), origin);
+
+    // The write Weles performs carries the origin it captured at. Only that
+    // one string authorizes it.
+    let write = |capture: Option<&str>| {
+        authorize_managed_write(
+            &lab.vault(),
+            slug,
+            "api_key",
+            CONSUMER,
+            &request_id,
+            &["acquire"],
+            u64::MIN,
+            capture,
+        )
+    };
+    accepted(write(Some(origin)));
+    for wrong in [None, Some("https://openrouter.ai.evil.example"), Some("https://openrouter.ai:443")] {
+        refusal(
+            write(wrong),
+            "capture origin is not the signup origin this credential operation declared",
+        );
+    }
+}
+
+#[test]
+fn a_signup_origin_is_refused_unless_it_is_an_https_origin_a_generic_acquire_declares() {
+    let slug = "openrouter".to_string();
+    let origin = "https://openrouter.ai".to_string();
+    assert_eq!(
+        accepted(declared_signup_origin("acquire", &slug, Some(&origin))),
+        Some(origin.clone())
+    );
+    accepted(declared_signup_origin("acquire", &slug, None));
+
+    for malformed in [
+        "http://openrouter.ai",
+        "https://",
+        "https://openrouter.ai/signup",
+        "https://openrouter.ai?next=1",
+        "https://openrouter.ai#top",
+        "https://user@openrouter.ai",
+        "https://OpenRouter.ai",
+        "https://openrouter..ai",
+        "https://openrouter.ai:https",
+        "openrouter.ai",
+    ] {
+        refusal(
+            declared_signup_origin("acquire", &slug, Some(&malformed.to_string())),
+            SIGNUP_ORIGIN_SHAPE,
+        );
+    }
+
+    // A named provider registers no new account here, and no other operation
+    // registers one at all.
+    refusal(
+        declared_signup_origin("acquire", &IDENTITY_PROVIDER.to_string(), Some(&origin)),
+        "accepted only by credential acquire for a generic provider",
+    );
+    refusal(
+        declared_signup_origin("acquire", &ACCOUNT_PROVIDER.to_string(), Some(&origin)),
+        "accepted only by credential acquire for a generic provider",
+    );
+    for operation in ["rotate", "reset", "verify", "remove", "adopt"] {
+        refusal(
+            declared_signup_origin(operation, &slug, Some(&origin)),
+            "accepted only by credential acquire for a generic provider",
+        );
+    }
+}
+
+#[test]
+fn the_endpoint_reads_a_generic_provider_from_the_item_name_it_was_given() {
+    // A credential nobody holds yet has no sealed contract and no earlier
+    // operation, and a sealed directory contract is meaningless for a generic
+    // provider, so the item's own name is the only place its provider can come
+    // from. It is still item contract: the request body never names one.
+    let slug = "openrouter";
+    let origin = "https://openrouter.ai";
+    let lab = Lab::new();
+    lab.install_bridge(&[(
+        "submit",
+        bridge_reply(
+            "operation_queued",
+            "acquire",
+            slug,
+            slug,
+            &[("actionLogId", json!(ACTION_LOG_ID))],
+        ),
+    )]);
+    accepted(submit_from_endpoint(
+        &lab.vault_path,
+        &json!({
+            "item": slug,
+            "operation": "acquire",
+            "consumer": CONSUMER,
+            "signup_origin": origin,
+        }),
+    ));
+    let request = lab.bridge_request();
+    assert_eq!(text_of(&request, "provider"), slug);
+    assert_eq!(text_of(&request, "credential_id"), slug);
+    assert_eq!(text_of(&request, "field"), "api_key");
+    assert_eq!(text_of(&lab.record(slug), "signup_origin"), origin);
+
+    // An item named anything else keeps today's contract: no provider, no
+    // operation.
+    refusal(
+        submit_from_endpoint(
+            &lab.vault_path,
+            &json!({
+                "item": "acquired_secret",
+                "operation": "acquire",
+                "consumer": CONSUMER,
+            }),
+        ),
+        "has no sealed directory contract and no earlier credential operation",
+    );
+    assert_eq!(lab.bridge_calls(), vec!["submit".to_string()]);
 }
 
 // ---------------------------------------------------------------------------

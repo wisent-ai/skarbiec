@@ -25,7 +25,10 @@ use super::state::{
     item_revision, lifecycle_state, live_item_exists, pending_matches_request, refuse_quarantined,
     request_item_id, save_request, update_request,
 };
-use super::wire::{provider_contract, request_payload, run_weles, wire_request, WIRE_VERSION};
+use super::wire::{
+    declared_signup_origin, generic_credential_id, generic_provider, provider_contract,
+    request_payload, run_weles, wire_request, WIRE_VERSION,
+};
 use super::{STATE_MANAGED, STATE_QUARANTINED};
 
 pub(super) fn start_operation(
@@ -44,10 +47,19 @@ pub(super) fn start_operation(
         "expect-upn",
         "password-stdin",
         "dry-run",
+        "signup-origin",
         "local",
     ];
+    // Only acquire may leave the item id out: it is the one operation that can
+    // name a credential nobody holds yet, and a generic provider already names
+    // it.
+    let item_argument = if operation == "acquire" {
+        "[<item-id>]"
+    } else {
+        "<item-id>"
+    };
     let usage = format!(
-        "usage: credential {operation} <item-id> --provider <provider> --consumer <consumer> [--account <email>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] [--purpose <purpose>] [--dry-run]"
+        "usage: credential {operation} {item_argument} --provider <provider> --consumer <consumer> [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] [--purpose <purpose>] [--dry-run]; a generic provider's item id defaults to its slug"
     );
     if flags.keys().any(|key| !allowed.contains(&key.as_str())) {
         bail!("{usage}");
@@ -63,14 +75,24 @@ pub(super) fn start_operation(
     if operation != "adopt" && password_stdin {
         bail!("--password-stdin is accepted only by credential adopt");
     }
-    let credential_id = args.first().context(usage.clone())?;
     let provider = flags.get("provider").context("--provider is required")?;
+    exact_name("provider", provider, "128".parse()?)?;
+    let credential_id = match args.first() {
+        Some(named) => named.as_str(),
+        None if operation == "acquire" && generic_provider(provider) => {
+            generic_credential_id(provider)?
+        }
+        None => bail!("{usage}"),
+    };
     let consumer = flags.get("consumer").context("--consumer is required")?;
     exact_name("credential item id", credential_id, "200".parse()?)?;
-    exact_name("provider", provider, "128".parse()?)?;
     exact_name("consumer", consumer, "200".parse()?)?;
     let purpose = purpose(flags.get("purpose"), consumer)?;
     let account = email_address("--account", flags.get("account"))?;
+    // Where the account this acquisition registers is signed up. Weles echoes
+    // the origin it captured at, and the managed write is refused unless the
+    // two agree, so the declaration is recorded before anything is submitted.
+    let signup_origin = declared_signup_origin(operation, provider, flags.get("signup-origin"))?;
     let dry_run = flags.get("dry-run").is_some_and(|value| value == "true");
     if operation == "adopt" && dry_run {
         bail!("credential adopt stages an operator-supplied password and has no dry run");
@@ -270,6 +292,7 @@ pub(super) fn start_operation(
             "consumer": consumer,
             "purpose": purpose,
             "account_email": account,
+            "signup_origin": signup_origin,
             "directory": wire_block,
             "baseline_revision": baseline_revision,
             "field": field,

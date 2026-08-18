@@ -311,6 +311,7 @@ pub(crate) fn handle_items_put(
                 operation_id,
                 &["acquire"],
                 u64::MIN,
+                parsed.get("capture_origin").and_then(Value::as_str),
             )?;
             vault.set_managed_item(
                 id,
@@ -372,6 +373,7 @@ pub(crate) fn handle_items_put(
                 operation_id,
                 &["rotate", "reset", "verify"],
                 base_revision,
+                parsed.get("capture_origin").and_then(Value::as_str),
             )?;
             vault.stage_managed_field(
                 id,

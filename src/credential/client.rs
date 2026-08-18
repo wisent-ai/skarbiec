@@ -254,11 +254,12 @@ pub(super) fn remote_operation(
         "expect-tenant",
         "expect-object-id",
         "expect-upn",
+        "signup-origin",
         "as",
         "token-file",
     ];
     let usage = format!(
-        "usage: credential {operation} <item-id> --consumer <consumer> [--purpose <purpose>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>"
+        "usage: credential {operation} <item-id> --consumer <consumer> [--purpose <purpose>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>"
     );
     if flags.keys().any(|key| !allowed.contains(&key.as_str())) {
         bail!("{usage}");
@@ -276,6 +277,12 @@ pub(super) fn remote_operation(
             "purpose".to_string(),
             json!(purpose(flags.get("purpose"), consumer)?),
         );
+    }
+    // The signup origin is the caller's declaration of where the account this
+    // acquisition registers is signed up; the canonical Skarbiec checks its
+    // shape and records it.
+    if let Some(origin) = flags.get("signup-origin") {
+        body.insert("signup_origin".to_string(), json!(origin));
     }
     if let Some(expect) = expectation_body(flags)? {
         body.insert("expect".to_string(), expect);
