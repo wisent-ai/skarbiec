@@ -364,6 +364,8 @@ pub(super) fn start_operation(
     let accepted = !frozen && matches!(response_status, "operation_queued" | "operation_completed");
     let recorded = if frozen {
         STATE_QUARANTINED
+    } else if response_status == "operation_completed" {
+        "operation_completed"
     } else if accepted {
         "pending"
     } else {

@@ -174,7 +174,7 @@ pub fn dispatch(
         "reseal" => seal_directory(vault_path, &client_flags, args, true)?,
         "resolve-quarantine" => resolve_quarantine(vault_path, &client_flags, args)?,
         "adopt" => start_operation("adopt", vault_path, &client_flags, args)?,
-        operation @ ("acquire" | "rotate" | "reset" | "verify" | "remove") => {
+        operation @ ("acquire" | "rotate" | "reset" | "verify" | "remove" | "reauth") => {
             if local {
                 start_operation(operation, vault_path, &client_flags, args)?
             } else {
@@ -216,12 +216,13 @@ pub fn dispatch(
                 "credential reset",
                 "credential verify",
                 "credential remove",
+                "credential reauth",
                 "credential resume",
                 "credential resolve-quarantine",
                 "credential status",
                 "credential declare-endpoint"
             ],
-            "usage": "credential <acquire|rotate|reset|verify|remove> <item-id> --consumer <consumer> [--purpose <purpose>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; an item named after a generic provider slug acquires that provider's api_key with no sealed contract; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id> [--follow]; credential declare-endpoint [<url>] (default http://127.0.0.1:8787)",
+            "usage": "credential <acquire|rotate|reset|verify|remove|reauth> <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; reauth accepts a named login item and delegates browser authentication to Weles while Skarbiec remains the operation owner; an item named after a generic provider slug acquires that provider's api_key with no sealed contract; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id> [--follow]; credential declare-endpoint …",
             "wire": WIRE_VERSION,
             "item_states": ITEM_STATES,
             "provider_effects": PROVIDER_EFFECTS,

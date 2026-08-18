@@ -430,6 +430,15 @@ pub(super) fn provider_contract(
     account: Option<&str>,
     directory: Option<&Value>,
 ) -> Result<&'static str> {
+    if operation == "reauth" {
+        if provider != "codex" {
+            bail!("subscription reauth currently supports only provider codex");
+        }
+        if directory.is_some() || account.is_some() {
+            bail!("codex subscription reauth takes its account identity from the named login item");
+        }
+        return Ok("password");
+    }
     if let Some(sealed) = directory
         .and_then(|block| block.get("provider"))
         .and_then(Value::as_str)
