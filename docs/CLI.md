@@ -23,25 +23,26 @@ In particular, fields passed to `set` are positional `name=value` arguments,
 not repeated `--field` flags.
 
 Run `skarbiec help` for the machine-readable public command inventory. The
-current contract contains the following 64 command names:
+current contract contains the following 71 command names:
 
 ```text
-Vault:       status init set set-json get list delete restore purge
-             restore-version
-Data:        generate import migrate-v2
+Vault:       status init set set-json get list retag delete reclaim restore
+             purge restore-version
+Data:        generate import migrate migrate-v2
 Recipients:  add-user rotate-owner share revoke users export-key
 Access:      token-mint token-revoke token-verify tokens
-             acquisition-request acquisition-read
+             acquisition-request acquisition-read routes
 Recovery:    key-doctor recovery-status recovery-drill emergency-grant
              emergency-cancel emergency-list emergency-activate
 Policy:      policy-set policy-get policy-check-length
 Audit:       audit audit-query verify-chain
-Diagnosis:   doctor
+Diagnosis:   doctor vaults
 Runtime:     resolve expand totp breach-check
 Sync:        sync-init sync-push sync-pull pull donate donations
              donation-accept donation-reject enroll sync-daemon sync-status
              invite bond-add bond-list bond-remove bonds
 Credentials: credential
+Onboarding:  onboarding
 Servers:     serve mcp native-host browser-host-install
 Build:       version
 ```
@@ -736,6 +737,81 @@ The complete executable proof is
 an isolated Ed25519 workload key, signs the exact domain-separated payload,
 consumes the returned field once, repeats the same read to demonstrate
 `unauthorized`, and prints the corresponding audit records.
+
+## Capability routes
+
+A workload never names a vault item. It asks the capability broker for a
+resource — `origin:https://dash.cloudflare.com/password` for a browser fill,
+`provider:openai`, `agent:wisent-app` — and the broker turns that name into one
+item and one field by looking it up in the capability routes table. The table is
+the only place the two vocabularies meet, so a resource it does not carry is
+refused rather than guessed, and an operator, not a workload, decides what a
+resource stands for.
+
+| Command | What it does |
+| --- | --- |
+| `routes list [<consumer>]` | Every route with its item and field, and whether the vault actually holds that item and that field. |
+| `routes add --resource <resource> --item <item> --field <field> --reason <text>` | Map one resource onto one vault field. Idempotent, leaves every existing route untouched, keeps the previous table beside the new one, and requires `--reason`. |
+| `routes verify [<consumer>]` | Resolve every route against the vault and exit non-zero when any of them cannot deliver, naming the resource and the problem. |
+
+The table is `SKARBIEC_CAPABILITY_ROUTES_FILE` when it is set, and otherwise
+`capability-routes.json` beside the capability state file. `routes help` prints
+the path that resolves to, because a table written where nothing reads it
+resolves nothing and says nothing about why.
+
+`routes list` and `routes verify` answer the question the refusal does not.
+The Weles browser client reached the Cloudflare dashboard login, asked for the
+credential, and was told `Authentication credentials not available or invalid`:
+the table carried the Apple equivalents and nothing for
+`origin:https://dash.cloudflare.com/email`, while the vault item
+`platform-admin-cloudflare` had held `username` and `password` the whole time.
+A route that names a field its item does not carry fails identically and just as
+silently, so both commands resolve every route the way redemption does — an item
+in the trash, an item that does not open, and a field holding an object rather
+than text are each named separately.
+
+Adding the two Cloudflare dashboard routes, and proving them:
+
+```sh
+skarbiec routes add --resource origin:https://dash.cloudflare.com/email \
+  --item platform-admin-cloudflare --field username \
+  --reason 'weles was refused at the cloudflare dashboard login: no route for this origin'
+# -> { "added": true, "resource": "origin:https://dash.cloudflare.com/email",
+#      "item": "platform-admin-cloudflare", "field": "username", "backup": null }
+
+skarbiec routes add --resource origin:https://dash.cloudflare.com/password \
+  --item platform-admin-cloudflare --field password \
+  --reason 'same login form, password field'
+# -> { "added": true, ..., "backup": ".../capability-routes.json.before-20260819T000536Z" }
+
+skarbiec routes verify dash.cloudflare.com
+# -> { "checked": 2, "broken": [] }
+```
+
+Running either `add` again changes nothing and reports `"added": false` with a
+null `backup`, which is what makes them safe to leave in a provisioning
+sequence. A resource already mapped to a *different* coordinate is refused
+instead: repointing the Apple login every trajectory redeems is a deliberate
+act, not an add.
+
+Every `add` keeps the table it replaced as `<table>.json.before-<stamp>`, writes
+the new one through a `0600` temporary file that is re-read and re-parsed before
+it is installed, and records the reason twice: one JSON line in
+`<table>.audit.jsonl` beside the table, and one entry in the hash-chained audit
+journal. The line beside the table is there because the table and the journal
+live in different directories, and an operator who finds a route they do not
+recognise is looking at the table.
+
+`routes verify` prints its report on stdout whether or not the table is sound,
+and exits non-zero when anything is broken, so a console can render the rows and
+a provisioning sequence can read the status. Both read-only commands are safe
+against a live broker: they open items, print booleans, and change nothing.
+
+The optional `<consumer>` argument matches text in the resource name and is
+**presentation only**. It narrows what is printed and authorises nothing:
+whether a workload may redeem a resource is decided at redemption by the live
+vault token that registers its Ed25519 workload key, never by this table and
+never by a name matched here.
 
 ## Recovery and emergency access
 

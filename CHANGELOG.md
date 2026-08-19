@@ -19,6 +19,23 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
 
 ### Added
 
+- Added `skarbiec routes list|add|verify` (`src/access/routes.rs`), the first
+  command surface over the capability routes table the broker resolves every
+  resource through. An operator can now ask which resources are mapped, whether
+  each mapping's item and field actually exist in the vault, and add a mapping
+  without an editor: `routes add` is idempotent, refuses to repoint a resource
+  already mapped elsewhere, requires `--reason`, keeps the previous table as
+  `<table>.json.before-<stamp>`, re-reads and re-parses the `0600` temporary file
+  before installing it, and records the reason both beside the table in
+  `<table>.audit.jsonl` and in the hash-chained audit journal. `routes verify`
+  prints its report and exits non-zero when a route cannot deliver. Until now the
+  table was only editable by hand and only readable by opening the file: the
+  Weles browser client reached the Cloudflare dashboard login and was answered
+  `Authentication credentials not available or invalid` because the table had no
+  route for `origin:https://dash.cloudflare.com/email`, while the vault item
+  `platform-admin-cloudflare` held `username` and `password` the whole time. The
+  optional `<consumer>` argument filters resource text for presentation only and
+  authorises nothing. Documented under "Capability routes" in `docs/CLI.md`.
 - Added the canonical item kind `host-account` (`src/core/schema.rs`) for the
   operating-system account of a fleet host: `username` and `password` are both
   required, and `context.account_ref` must name `<user>@<host>` so the credential

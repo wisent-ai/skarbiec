@@ -130,7 +130,11 @@ fn state_path() -> PathBuf {
     vault.with_file_name(name)
 }
 
-fn routes_path() -> PathBuf {
+/// The one path the broker resolves resources through. `routes` reads and writes
+/// exactly this file, so an operator's table is never written where nothing looks
+/// for it -- a table beside the vault while the broker reads beside its state
+/// file resolves nothing and says nothing about why.
+pub(super) fn routes_path() -> PathBuf {
     if let Ok(path) = std::env::var("SKARBIEC_CAPABILITY_ROUTES_FILE") {
         return PathBuf::from(path);
     }
@@ -143,7 +147,7 @@ fn now_epoch() -> Result<u64> {
         .as_secs())
 }
 
-fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(super) fn write_private_file(path: &Path, bytes: &[u8]) -> Result<()> {
     fs::write(path, bytes)?;
     fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
     Ok(())
@@ -199,7 +203,7 @@ fn resolve_route(resource: &str) -> Result<Option<(String, String)>> {
     }
 }
 
-fn exact_token(value: &str, max: usize) -> bool {
+pub(super) fn exact_token(value: &str, max: usize) -> bool {
     !value.is_empty()
         && value.len() <= max
         && !value.contains('\0')
