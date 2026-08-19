@@ -287,6 +287,15 @@ pub(super) fn pending_matches_request(
         })
 }
 
+// One authorization decision over eight independent coordinates, none of which
+// this function can derive from the others: who is writing, as which operation,
+// against which field of which credential, at which revision, from which
+// capture origin, and which operations the caller is allowed to perform at all.
+// Grouping them into a struct would only move the same eight names one line up
+// while adding a type whose sole purpose is to satisfy a counter, so the lint is
+// answered here rather than obeyed. `-D warnings` in the release quality gate
+// means an unanswered lint is not a style note: it stops the product shipping.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn authorize_managed_write(
     vault: &Vault,
     credential_id: &str,

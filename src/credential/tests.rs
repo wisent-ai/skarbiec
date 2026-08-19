@@ -2463,7 +2463,11 @@ fn a_declared_signup_origin_binds_the_managed_write_to_that_exact_origin() {
         )
     };
     accepted(write(Some(origin)));
-    for wrong in [None, Some("https://openrouter.ai.evil.example"), Some("https://openrouter.ai:443")] {
+    for wrong in [
+        None,
+        Some("https://openrouter.ai.evil.example"),
+        Some("https://openrouter.ai:443"),
+    ] {
         refusal(
             write(wrong),
             "capture origin is not the signup origin this credential operation declared",
@@ -2502,11 +2506,11 @@ fn a_signup_origin_is_refused_unless_it_is_an_https_origin_a_generic_acquire_dec
     // A named provider registers no new account here, and no other operation
     // registers one at all.
     refusal(
-        declared_signup_origin("acquire", &IDENTITY_PROVIDER.to_string(), Some(&origin)),
+        declared_signup_origin("acquire", IDENTITY_PROVIDER, Some(&origin)),
         "accepted only by credential acquire for a generic provider",
     );
     refusal(
-        declared_signup_origin("acquire", &ACCOUNT_PROVIDER.to_string(), Some(&origin)),
+        declared_signup_origin("acquire", ACCOUNT_PROVIDER, Some(&origin)),
         "accepted only by credential acquire for a generic provider",
     );
     for operation in ["rotate", "reset", "verify", "remove", "adopt"] {
@@ -2778,10 +2782,20 @@ fn migrate_copies_live_items_and_preserves_existing_target_items_without_force()
             &["fleet".to_string(), "source".to_string()],
         )
         .expect("write the source login");
-    owner_note(&mut source, "shared-note", "source-note-secret", &["source"]);
+    owner_note(
+        &mut source,
+        "shared-note",
+        "source-note-secret",
+        &["source"],
+    );
 
     let (target_path, mut target) = second_vault(&lab, "target.vault.json");
-    let kept = owner_note(&mut target, "shared-note", "target-note-secret", &["target"]);
+    let kept = owner_note(
+        &mut target,
+        "shared-note",
+        "target-note-secret",
+        &["target"],
+    );
 
     let report = accepted(items::migrate_vault(&flag_map(&[
         ("from", &lab.vault_path.display().to_string()),
@@ -2826,7 +2840,10 @@ fn migrate_copies_live_items_and_preserves_existing_target_items_without_force()
         "an existing target item must survive migrate without --force"
     );
     let migrated_login = accepted(target.get_item("fleet-login"));
-    assert_eq!(migrated_login, login, "id, kind, schema, context and fields carry over");
+    assert_eq!(
+        migrated_login, login,
+        "id, kind, schema, context and fields carry over"
+    );
     let listed = target
         .list(false)
         .into_iter()

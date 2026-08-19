@@ -272,8 +272,8 @@ pub fn migrate_vault(flags: &std::collections::HashMap<String, String>) -> Resul
         bail!("--from and --to must be different vault files");
     }
     let force = flags.get("force").map(|v| v == "true").unwrap_or(false);
-    let source = Vault::open(PathBuf::from(from))
-        .with_context(|| format!("open source vault {from}"))?;
+    let source =
+        Vault::open(PathBuf::from(from)).with_context(|| format!("open source vault {from}"))?;
     let mut target =
         Vault::open(PathBuf::from(to)).with_context(|| format!("open target vault {to}"))?;
     let mut migrated = Vec::new();

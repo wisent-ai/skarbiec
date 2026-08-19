@@ -63,6 +63,32 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
   paths now record `operation_failed`, and `credential status` settles records
   carrying either spelling through the existing rollback
   (`src/credential/lifecycle.rs`, `src/credential/status.rs`).
+- A published binary reported `commit: null`, so nothing could tell a build that
+  came through the release channel from one somebody compiled by hand. The
+  builder compiles an extracted `git archive HEAD` snapshot, which carries no
+  `.git` directory, and Stado's build environment names no revision, so
+  `SKARBIEC_RELEASE_COMMIT` was never set and `option_env!` resolved to nothing.
+  `.release-commit` now carries `$Format:%H$` and is marked `export-subst` in
+  `.gitattributes`, so git substitutes the revision into the archive itself, and
+  `scripts/release/build.sh` stamps it (falling back to `git rev-parse` in a
+  checkout, and refusing to build a release that cannot name its source). This is
+  what let a side-loaded 0.2.1 pass for a managed binary on the operator laptop
+  for four days while every credential rotation it performed dropped the
+  `brama:agent:<id>` tags that bind a subscription to its agent.
+- `skarbiec version` reported `provenance: "published"` for a released build.
+  Every surface that classifies host software uses `release` against `unmanaged`,
+  so the reporting side had to match a word no other surface used; a released
+  build now reports `provenance: "release"`. An unpublished build still reports
+  `source build` rather than guessing.
+- `scripts/release/quality.sh` could not pass, so the product could not be
+  released at all: `cargo fmt --check` reported five files and
+  `cargo clippy -- -D warnings` three errors, none of them in code being changed
+  here (`src/access/capability.rs`, `src/core/items.rs`, `src/core/vault.rs`,
+  `src/credential/status.rs`, `src/credential/state.rs`,
+  `src/credential/tests.rs`). Formatting is now canonical, the two
+  `unnecessary_to_owned` call sites pass the `&str` constants directly, and
+  `authorize_managed_write` answers `too_many_arguments` with a documented
+  `#[allow]` rather than a struct that would rename the same eight coordinates.
 
 ### Changed
 

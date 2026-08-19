@@ -358,8 +358,14 @@ fn cmd_version() -> Result<()> {
         "version": env!("CARGO_PKG_VERSION"),
         "release": release,
         "commit": option_env!("SKARBIEC_RELEASE_COMMIT"),
+        // `release` is the word a supervisor compares against, not a synonym it
+        // has to learn: a host software report classifies each file it finds as
+        // `release` or `unmanaged`, and this field is how a Skarbiec binary
+        // answers that question about itself. The earlier value, `published`,
+        // described the same state in a second vocabulary, which left the
+        // reporting side matching on a string no other surface used.
         "provenance": match release {
-            Some(_) => "published",
+            Some(_) => "release",
             None => "source build",
         },
     }))

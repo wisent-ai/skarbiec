@@ -33,7 +33,10 @@ fn named_subscription_present(vault: &Vault, login_item: &str) -> bool {
         return false;
     };
     items.iter().any(|(item_id, record)| {
-        if record.get("deleted_at").is_some_and(|value| !value.is_null()) {
+        if record
+            .get("deleted_at")
+            .is_some_and(|value| !value.is_null())
+        {
             return false;
         }
         let tags = record
@@ -64,12 +67,14 @@ fn named_subscription_present(vault: &Vault, login_item: &str) -> bool {
         let Some(tokens) = auth.get("tokens") else {
             return false;
         };
-        ["access_token", "id_token", "account_id"].iter().all(|field| {
-            tokens
-                .get(field)
-                .and_then(Value::as_str)
-                .is_some_and(|value| !value.is_empty())
-        })
+        ["access_token", "id_token", "account_id"]
+            .iter()
+            .all(|field| {
+                tokens
+                    .get(field)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.is_empty())
+            })
     })
 }
 

@@ -495,22 +495,27 @@ impl Vault {
         )
     }
 
-/// The command that spawned this process, for the journal only.
-///
-/// A vault write records the owner key that signed it, which on one host is the
-/// same string for every write and therefore names nobody. The parent command is
-/// what tells an operator whether a rotation came from the gateway, a helper or a
-/// scheduled job. Best effort by design: an unavailable parent yields an empty
-/// string rather than failing a credential write.
-fn parent_process_id() -> String {
-    let parent = std::process::Command::new("/bin/ps")
-        .args(["-o", "ppid=,command=", "-p", &std::process::id().to_string()])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .unwrap_or_default();
-    parent.split_whitespace().take(1).collect::<String>()
-}
+    /// The command that spawned this process, for the journal only.
+    ///
+    /// A vault write records the owner key that signed it, which on one host is the
+    /// same string for every write and therefore names nobody. The parent command is
+    /// what tells an operator whether a rotation came from the gateway, a helper or a
+    /// scheduled job. Best effort by design: an unavailable parent yields an empty
+    /// string rather than failing a credential write.
+    fn parent_process_id() -> String {
+        let parent = std::process::Command::new("/bin/ps")
+            .args([
+                "-o",
+                "ppid=,command=",
+                "-p",
+                &std::process::id().to_string(),
+            ])
+            .output()
+            .ok()
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .unwrap_or_default();
+        parent.split_whitespace().take(1).collect::<String>()
+    }
 
     fn set_item_with_writer(
         &mut self,

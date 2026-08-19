@@ -1,0 +1,11 @@
+# A release snapshot is `git archive HEAD`, and the builder compiles inside that
+# extracted tarball: no `.git` directory, and Stado's build environment carries
+# no revision (WISENT_SOURCE_DIR, WISENT_OUTPUT_DIR, WISENT_INPUTS_DIR,
+# WISENT_PRODUCT, WISENT_VERSION, WISENT_PLATFORM is the whole list). So the
+# revision has to travel inside the archive, and `export-subst` is git's own way
+# to put it there: `.release-commit` holds `$Format:%H$` in the working tree and
+# the 40-hex commit in every archive taken of it.
+#
+# Without this the published binary reported `commit: null`, which is why a host
+# could not tell a managed binary from one somebody built by hand.
+.release-commit export-subst

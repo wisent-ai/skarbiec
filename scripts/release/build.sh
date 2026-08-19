@@ -33,12 +33,39 @@ if [[ "$declared" != "$version" ]]; then
   exit 65
 fi
 
+# Which revision is being published. The builder compiles an extracted
+# `git archive HEAD` snapshot, so there is no `.git` here and Stado passes no
+# revision in the environment; `.release-commit` is marked `export-subst`, so the
+# archive carries the commit even though the working tree carries a placeholder.
+#
+# A checkout still holds that placeholder, so ask git directly there. If neither
+# answers, refuse: a binary that claims release provenance but cannot name the
+# source it came from is exactly the artifact this whole path exists to abolish,
+# and a null commit is how a side-loaded build passed for a managed one.
+commit=""
+commit_file="$source_dir/.release-commit"
+if [[ -r "$commit_file" ]]; then
+  substituted=$(tr -d '[:space:]' <"$commit_file")
+  if [[ "$substituted" =~ ^[0-9a-f]{40}$ ]]; then
+    commit="$substituted"
+  fi
+fi
+if [[ -z "$commit" && -d "$source_dir/.git" ]]; then
+  commit=$(git -C "$source_dir" rev-parse HEAD 2>/dev/null || true)
+fi
+if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'cannot name the source revision for %s: %s carries no substituted commit and %s is not a Git checkout\n' \
+    "$version" "$commit_file" "$source_dir" >&2
+  exit 67
+fi
+
 build_root="$output_dir/.build"
 stage="$output_dir/stage"
 rm -rf "$build_root" "$stage"
 mkdir -p "$build_root" "$stage/bin"
 
 SKARBIEC_RELEASE_URI="stado://releases/skarbiec/$version/$platform/release.tar.gz" \
+SKARBIEC_RELEASE_COMMIT="$commit" \
 CARGO_TARGET_DIR="$build_root" \
   cargo build --locked --release --bin skarbiec \
     --manifest-path "$source_dir/Cargo.toml"
