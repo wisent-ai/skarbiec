@@ -33,9 +33,14 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
   Weles browser client reached the Cloudflare dashboard login and was answered
   `Authentication credentials not available or invalid` because the table had no
   route for `origin:https://dash.cloudflare.com/email`, while the vault item
-  `platform-admin-cloudflare` held `username` and `password` the whole time. The
-  optional `<consumer>` argument filters resource text for presentation only and
-  authorises nothing. Documented under "Capability routes" in `docs/CLI.md`.
+  `platform-admin-cloudflare` held `username` and `password` the whole time. In
+  `routes list`, `item_present` means this host can read that item — present, not
+  trashed, and it opened — so `item_present: true` with `field_present: false`
+  means exactly one repair (the item opened and lacks that field), and a host that
+  cannot spawn `gpg` reports its routes as unreadable instead of accusing every
+  field in the table. The optional `<consumer>` argument filters resource text for
+  presentation only and authorises nothing. Documented under "Capability routes"
+  in `docs/CLI.md`.
 - Added the canonical item kind `host-account` (`src/core/schema.rs`) for the
   operating-system account of a fleet host: `username` and `password` are both
   required, and `context.account_ref` must name `<user>@<host>` so the credential

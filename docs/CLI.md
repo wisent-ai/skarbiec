@@ -770,6 +770,16 @@ silently, so both commands resolve every route the way redemption does — an it
 in the trash, an item that does not open, and a field holding an object rather
 than text are each named separately.
 
+The two booleans divide the work between two people. `item_present` means this
+host can read that item at all — it is in the vault, not in the trash, and it
+opened — and `field_present` answers only the field question, which cannot be
+answered for an item that did not open. So `item_present: true` with
+`field_present: false` means one thing and one repair: the item opened and does
+not carry that field, add it. `item_present: false` means the item is not
+readable here, and `routes verify` says which of absent, trashed, or unopenable
+it is. A host whose `gpg` cannot be spawned therefore reports every route as
+unreadable rather than accusing every field in the table of being missing.
+
 Adding the two Cloudflare dashboard routes, and proving them:
 
 ```sh

@@ -128,6 +128,17 @@ fn selected<'a>(
 
 /// Resolve one route the way redemption would, and say what stopped it.
 ///
+/// `item_present` answers "can this host read this item at all" -- present in the
+/// document, not in the trash, and it opened -- and `field_present` answers only
+/// the field question, which it can never answer for an item that did not open.
+/// Reporting an unopenable item as present used to leave both readers with one
+/// sentence for two remedies: a desktop console rendering the live table saw ten
+/// rows saying `item_present: true, field_present: false` on a host whose `gpg`
+/// could not be spawned, which reads as ten items each missing the field named
+/// beside it. It is now `item_present: false` for all ten, `verify` names the
+/// cause once per item, and a false `field_present` under a true `item_present`
+/// means exactly one thing: the item opened and does not carry that field.
+///
 /// Items are opened at most once per listing: a table maps several resources onto
 /// one login item, and each open is a gpg process.
 fn resolve<'a>(
@@ -158,14 +169,17 @@ fn resolve<'a>(
         }
         Some(_) => None,
     };
-    let item_present = problem.is_none();
+    let mut item_present = problem.is_none();
     let mut field_present = false;
     if item_present {
         let payload = opened
             .entry(item.to_string())
             .or_insert_with(|| vault.get_item(item).map_err(|error| error.to_string()));
         match payload {
-            Err(detail) => problem = Some(format!("vault item {item} does not open: {detail}")),
+            Err(detail) => {
+                item_present = false;
+                problem = Some(format!("vault item {item} does not open: {detail}"));
+            }
             // Redemption hands out a text value and nothing else, so a field
             // holding an object -- `context`, say -- is as broken as a missing
             // one and is named separately rather than reported as absent.
