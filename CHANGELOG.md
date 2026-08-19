@@ -56,6 +56,23 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
 
 ### Fixed
 
+- The `item-write` journal entry added to name the process behind a vault write
+  named nobody, so the two subscription items whose enumeration tags kept
+  disappearing could not be attributed after all. Three faults, all in
+  `src/core/vault.rs`: the entry was queued with `append` rather than
+  `append_sync`, and a one-shot CLI write -- which is what every rotation on this
+  fleet is, `set-json` invoked once per credential refresh -- exits before the
+  worker thread journals it, so a subscription item at revision 318 had produced
+  no journal line at all; `parent_process_id` read `ps -o ppid=,command= -p
+  <self>`, whose single row describes this process, and then kept only its first
+  whitespace-separated token, so the record carried a bare parent pid and never
+  the parent command its own documentation promised; and the recorded tag count
+  was the count the caller passed rather than the count the revision stored, so a
+  tag-preserving write looked like a write that had dropped every tag. The entry
+  now journals synchronously and carries `parent_pid`, `parent_process` (the
+  parent's program only -- never the rest of its argument vector, which may carry
+  a secret), `tags` as stored and `tags_requested` as asked for, so the next
+  disappearance names its own writer instead of costing another night of guessing.
 - A credential operation whose submit or resume never reached Weles (bridge
   invocation error) was recorded with the plain status `failed`, which no
   settlement path matched: the item kept its staged revision and stayed

@@ -495,26 +495,44 @@ impl Vault {
         )
     }
 
-    /// The command that spawned this process, for the journal only.
+    /// The parent process behind this write: its pid and the program it runs.
     ///
     /// A vault write records the owner key that signed it, which on one host is the
     /// same string for every write and therefore names nobody. The parent command is
     /// what tells an operator whether a rotation came from the gateway, a helper or a
-    /// scheduled job. Best effort by design: an unavailable parent yields an empty
-    /// string rather than failing a credential write.
-    fn parent_process_id() -> String {
-        let parent = std::process::Command::new("/bin/ps")
-            .args([
-                "-o",
-                "ppid=,command=",
-                "-p",
-                &std::process::id().to_string(),
-            ])
-            .output()
-            .ok()
-            .and_then(|output| String::from_utf8(output.stdout).ok())
-            .unwrap_or_default();
-        parent.split_whitespace().take(1).collect::<String>()
+    /// scheduled job, and it is the question this journal was added to answer: a
+    /// bare parent pid is a number that has already exited by the time anyone reads
+    /// the line.
+    ///
+    /// Two `ps` reads, because one cannot answer it. `ps -p <self>` prints this
+    /// process's own ppid and its own command, so the command in that row names the
+    /// writer again rather than whoever invoked it; the parent's program comes from
+    /// a second read of the ppid it just produced.
+    ///
+    /// Only the program is kept, never the rest of the argument vector: this line
+    /// lands in a journal an operator reads, and a parent that was handed a secret
+    /// on its command line must not have it copied here. Best effort by design: an
+    /// unavailable parent yields empty strings rather than failing a credential
+    /// write.
+    fn parent_process() -> (String, String) {
+        let read = |format: &str, pid: &str| -> String {
+            std::process::Command::new("/bin/ps")
+                .args(["-o", format, "-p", pid])
+                .output()
+                .ok()
+                .and_then(|output| String::from_utf8(output.stdout).ok())
+                .unwrap_or_default()
+                .split_whitespace()
+                .next()
+                .unwrap_or_default()
+                .to_string()
+        };
+        let parent_pid = read("ppid=", &std::process::id().to_string());
+        if parent_pid.is_empty() {
+            return (parent_pid, String::new());
+        }
+        let program = read("command=", &parent_pid);
+        (parent_pid, program)
     }
 
     fn set_item_with_writer(
@@ -645,6 +663,7 @@ impl Vault {
             .cloned()
             .unwrap_or_else(|| json!(stamp));
         let written_by = writer.unwrap_or_else(|| self.owner_uid()).to_string();
+        let stored_tags = effective_tags.len();
         let entry = json!({
             "format": current_envelope(),
             "kind": item_kind,
@@ -672,17 +691,33 @@ impl Vault {
         // only `written_by`, which is the owner uid for every owner-mode write on
         // the host. Without the process behind the write there is nothing to ask,
         // so a tag that disappears again names its own cause.
-        let tag_count = tags.len();
-        crate::runtime::audit::append(
+        //
+        // Both counts, because the difference is the whole signal: `tags` is what
+        // this revision now carries and `tags_requested` is what the writer passed.
+        // A rotation that passes none and stores the previous four is the
+        // tag-preserving write working; a stored count that falls to zero names the
+        // writer that emptied it.
+        //
+        // `append_sync`, not `append`: the queued form hands the line to a worker
+        // thread, and a one-shot CLI write -- which is what every rotation on this
+        // fleet is, `set-json` invoked per refresh -- exits before that thread runs.
+        // The 318 rewrites of one subscription item left no journal line at all, so
+        // the record built to name the writer named nobody. A vault write is a
+        // mutating operation, and this file's own rule is that those journal
+        // synchronously.
+        let (parent_pid, parent_process) = Self::parent_process();
+        crate::runtime::audit::append_sync(
             "item-write",
             &json!({
                 "item": id,
                 "kind": item_kind,
                 "revision": revision,
-                "tags": tag_count,
+                "tags": stored_tags,
+                "tags_requested": tags.len(),
                 "pid": std::process::id(),
                 "process": std::env::args().next().unwrap_or_default(),
-                "parent_pid": Self::parent_process_id(),
+                "parent_pid": parent_pid,
+                "parent_process": parent_process,
             }),
         )
         .ok();
