@@ -1,0 +1,208 @@
+{
+  "schemaVersion": 1,
+  "hero": {
+    "eyebrow": "Secrets for agent workloads",
+    "headline": "One field. One use. No standing secret.",
+    "lede": "Skarbiec stores your keys, logins, sessions and tokens as per-recipient ciphertext, then hands a workload exactly the one field it signed for — once, within thirty seconds, and never again on replay.",
+    "metaDescription": "Skarbiec hands an agent workload exactly one credential field, once, against a signed request — and refuses the replay.",
+    "proofStrip": [
+      "Ed25519 workload proofs",
+      "30-second one-use tokens",
+      "Hash-chained local journal",
+      "Loopback broker only",
+      "Apache-2.0 local core"
+    ]
+  },
+  "sections": [
+    {
+      "kind": "recognition",
+      "id": "standing-credentials",
+      "heading": "A read token you issued once is a token that never expires",
+      "lede": "Long-lived environment variables and copied credential files give every process that can read them the whole secret, for an indefinite period. An agent workload makes that boundary harder to review, not easier.",
+      "claimRefs": [
+        0,
+        1
+      ],
+      "items": [
+        {
+          "title": "Everything reads everything",
+          "text": "One exported variable is readable by every process in the environment, and nothing records which of them actually used it."
+        },
+        {
+          "title": "Nobody can answer who asked",
+          "text": "Operators need to know which identity requested which field, reject replay, revoke access, and rotate recipients. A file on disk answers none of that."
+        },
+        {
+          "title": "Plaintext leaks into the trail",
+          "text": "The moment a secret is used to debug a workload, it tends to end up in a prompt, a log line, or an audit record that outlives the incident."
+        }
+      ]
+    },
+    {
+      "kind": "mechanism",
+      "id": "one-use-acquisition",
+      "heading": "How a workload borrows one field",
+      "lede": "The operator grants an exact capability, the workload proves who it is, and the capability is destroyed by its own first use. There is no step in which a standing bearer exists.",
+      "claimRefs": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "items": [
+        {
+          "step": "01",
+          "title": "Grant one exact field",
+          "text": "The operator registers a single `acquire:item#field` capability and an Ed25519 workload public key. Wildcards and direct capabilities cannot be mixed into that identity."
+        },
+        {
+          "step": "02",
+          "title": "Sign the request",
+          "text": "The workload signs the consumer, item, field, workload id, timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and replayed proof hashes."
+        },
+        {
+          "step": "03",
+          "title": "Spend it once",
+          "text": "Skarbiec issues an opaque bearer with a default 30-second TTL. The first successful matching read deletes its stored hash before returning the field."
+        },
+        {
+          "step": "04",
+          "title": "Leave a reviewable trail",
+          "text": "Issuance and consumption append non-sensitive identifiers to a hash-chained local journal. Secret values, one-use tokens, signatures, and public keys are excluded from it."
+        }
+      ]
+    },
+    {
+      "kind": "proof",
+      "id": "the-decisive-read",
+      "heading": "The first read succeeds. The identical retry does not.",
+      "lede": "This is the product's defining path, and it is executable rather than a transcript that can drift: a disposable vault, an isolated GPG keyring, and the literal non-secret value `not-a-secret`.",
+      "claimRefs": [
+        3,
+        5,
+        6
+      ],
+      "artifact": {
+        "type": "terminal",
+        "caption": "docs/examples/acquire-one-field.sh — the decisive first read followed by the replay, as printed by the product.",
+        "lines": [
+          "$ SKARBIEC_EXAMPLE_DIR=\"${TMPDIR:-/tmp}/skarbiec-acquisition-quickstart\" \\",
+          "    sh docs/examples/acquire-one-field.sh",
+          "",
+          "# register demo-workload for exactly demo-note#value",
+          "{ \"workload_bound\": true, \"token\": null, \"capabilities\": [\"acquire:demo-note#value\"] }",
+          "",
+          "# first read, against a signed and nonced proof",
+          "{",
+          "  \"consumer\": \"demo-workload\",",
+          "  \"field\": \"value\",",
+          "  \"item\": \"demo-note\",",
+          "  \"ok\": true,",
+          "  \"value\": \"not-a-secret\"",
+          "}",
+          "",
+          "# same capability, replayed",
+          "{",
+          "  \"error\": \"unauthorized\",",
+          "  \"ok\": false",
+          "}",
+          "",
+          "# audit query: identifiers only",
+          "acquisition-issued   demo-workload  demo-note#value",
+          "acquisition-consumed demo-workload  demo-note#value"
+        ]
+      }
+    },
+    {
+      "kind": "proof",
+      "id": "what-leaves-the-host",
+      "heading": "What leaves the host, in full",
+      "lede": "A secrets broker is worth exactly as much as its egress list. Skarbiec's is short enough to print, and the MCP surface deliberately withholds the operations that would make it longer.",
+      "claimRefs": [
+        7,
+        8,
+        9
+      ],
+      "artifact": {
+        "type": "table",
+        "caption": "Every outward connection Skarbiec itself initiates, and the surfaces that deliberately cannot.",
+        "columns": [
+          "Surface",
+          "Binding or scope",
+          "Leaves the host"
+        ],
+        "rows": [
+          [
+            "HTTP broker",
+            "127.0.0.1 only, port 8787 unless --port says otherwise",
+            "No"
+          ],
+          [
+            "breach-check",
+            "First five characters of a SHA-1 to api.pwnedpasswords.com",
+            "Prefix only; suffixes matched locally"
+          ],
+          [
+            "MCP surface",
+            "Raw item reads, minting, rotation and export excluded",
+            "No"
+          ],
+          [
+            "Browser extension",
+            "Never receives a vault bearer or private key",
+            "No"
+          ],
+          [
+            "Vault file",
+            "Per-recipient ciphertext; no plaintext values",
+            "No"
+          ]
+        ]
+      }
+    },
+    {
+      "kind": "objection",
+      "id": "before-you-trust-it",
+      "heading": "What Skarbiec does not protect you from",
+      "claimRefs": [
+        10,
+        11,
+        12,
+        13
+      ],
+      "items": [
+        {
+          "question": "Is this production-ready?",
+          "answer": "Skarbiec is an early public `0.1.x` release, not a hosted secrets service. Deploy an exact release tag and checksum rather than inferring readiness from `Cargo.toml` or a mutable `latest` pointer."
+        },
+        {
+          "question": "Does it survive a compromised machine?",
+          "answer": "No. Skarbiec does not protect secrets from a host already compromised while the matching owner key is usable, and it does not encrypt item names or other vault metadata."
+        },
+        {
+          "question": "What happens if the local broker cannot decrypt?",
+          "answer": "The integration is unavailable. There is no automatic cloud fallback, because a fallback that reaches for a hosted copy would defeat the boundary the product exists to hold."
+        },
+        {
+          "question": "What does it cost, and what does it phone home to?",
+          "answer": "The Apache-2.0 local core has no licence fee and no hosted dependency. No hosted control plane is required to run the CLI, MCP server, native messaging, or the HTTP broker."
+        },
+        {
+          "question": "Can I change the owner key later?",
+          "answer": "`rotate-owner` rewraps every current and historical ciphertext onto the new recipient set, and the recovery recipient is preserved through owner rotation."
+        }
+      ]
+    },
+    {
+      "kind": "decision",
+      "id": "install-it",
+      "heading": "Install it and run the acquisition proof yourself",
+      "lede": "The quick start builds a disposable vault, spends one capability, and shows you the replay being refused. It stores nothing but the literal value `not-a-secret`, and it deletes cleanly when you are done.",
+      "claimRefs": [
+        5,
+        11
+      ]
+    }
+  ]
+}
