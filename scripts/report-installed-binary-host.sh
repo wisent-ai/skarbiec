@@ -37,13 +37,19 @@ else
   printf '    NO: predates the tag-preserving writer; every rotation drops tags\n'
 fi
 
-# One host runs several Skarbiec builds under different names, and the one that
-# performs rotations is not always `$HOME/.stado/bin/skarbiec`: the operator
-# laptop serves the configured agent endpoint (127.0.0.1:19096) from
+# One host carries several Skarbiec builds under different names, and the one
+# that performs rotations is not always `$HOME/.stado/bin/skarbiec`: the operator
+# laptop serves the configured agent endpoint (127.0.0.1:19096) through
 # `~/.local/bin/skarbiec`, and brama on the mini ships its own
 # `skarbiec-entitlements-router` inside a service directory. Reporting only the
-# canonical path answered "the installed binary is fixed" while a different
-# build kept stripping tags, so ask every candidate the same two questions.
+# canonical path answered "the installed binary is fixed" while a different build
+# kept stripping tags, so ask every candidate the same two questions.
+#
+# Resolve each one and say so when two names are one file. `~/.local/bin/skarbiec`
+# is a symlink to the managed path, so it appears twice with identical answers;
+# read as two independent builds it invites either replacing a file that needs no
+# replacing, or believing a second binary is still stale after one install fixed
+# both.
 printf '\n=== every skarbiec build on this host, and whether each carries the fix\n'
 for candidate in "$HOME/.stado/bin/skarbiec" \
                  "$HOME/.local/bin/skarbiec" \
@@ -58,8 +64,14 @@ for candidate in "$HOME/.stado/bin/skarbiec" \
   else
     verdict=STRIPS-TAGS
   fi
-  printf '    %-12s %-8s %s  %s\n' "${reported:-unknown}" "$verdict" \
-    "$(ls -l "$candidate" | /usr/bin/awk '{print $6, $7, $8}')" "$candidate"
+  resolved=$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$candidate" 2>/dev/null)
+  if [ "$resolved" = "$candidate" ]; then
+    where="$candidate"
+  else
+    where="$candidate -> $resolved"
+  fi
+  printf '    %-12s %-12s %s  %s\n' "${reported:-unknown}" "$verdict" \
+    "$(ls -l "$candidate" | /usr/bin/awk '{print $6, $7, $8}')" "$where"
 done
 
 # Replacing the file on disk does not replace a process already running the old
