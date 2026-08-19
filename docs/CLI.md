@@ -780,6 +780,16 @@ readable here, and `routes verify` says which of absent, trashed, or unopenable
 it is. A host whose `gpg` cannot be spawned therefore reports every route as
 unreadable rather than accusing every field in the table of being missing.
 
+That rule for `item_present` arrives with the next Skarbiec delivery, and an
+installed binary older than commit `e345b04` answers the earlier shape: it
+reported an item it could not open as `item_present: true` with
+`field_present: false`, which on a host that cannot spawn `gpg` reads as every
+item missing the field named beside it. A caller that depends on the sharpened
+rule must check which binary it invoked — `skarbiec version` prints the exact
+`commit` — because the canonical broker binary is replaced only through a Stado
+release, never overwritten in place while processes are running on it. A
+consumer reading the old shape is reading an older binary, not a defect.
+
 Adding the two Cloudflare dashboard routes, and proving them:
 
 ```sh
