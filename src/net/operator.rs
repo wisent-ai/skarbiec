@@ -62,12 +62,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
 
 /// Route one operator request; `false` when the path is not an operator
 /// route, so the listener falls through to its own table.
-pub(crate) fn handle(
-    stream: &mut TcpStream,
-    method: &str,
-    path: &str,
-    body: &str,
-) -> Result<bool> {
+pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &str) -> Result<bool> {
     if !path.starts_with(ROUTE_PREFIX) {
         return Ok(false);
     }
@@ -109,7 +104,10 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/audit" => runtime("audit", &flags(parsed, &["limit"]), &none),
         "/v1/operator/audit-query" => runtime(
             "audit-query",
-            &flags(parsed, &["op", "consumer", "item", "since", "until", "limit"]),
+            &flags(
+                parsed,
+                &["op", "consumer", "item", "since", "until", "limit"],
+            ),
             &none,
         ),
         "/v1/operator/chain" => runtime("verify-chain", &flags(parsed, &["tail"]), &none),
@@ -137,12 +135,16 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             crate::access::routes::verify_report(optional(parsed, "consumer").as_deref())
         }
         // Mutations, one route per verb, bodies naming exact targets.
-        "/v1/operator/vaults/create" => crate::cmd_init(&no_flags, &positionals(parsed, &["owner"])?),
+        "/v1/operator/vaults/create" => {
+            crate::cmd_init(&no_flags, &positionals(parsed, &["owner"])?)
+        }
         "/v1/operator/items/trash" => crate::cmd_delete(&positionals(parsed, &["id"])?),
         "/v1/operator/items/reclaim" => crate::cmd_reclaim(&positionals(parsed, &["id"])?),
         "/v1/operator/items/restore" => crate::cmd_restore(&positionals(parsed, &["id"])?),
         "/v1/operator/items/purge" => crate::cmd_purge(&positionals(parsed, &["id"])?),
-        "/v1/operator/items/share" => access("share", &no_flags, &positionals(parsed, &["id", "uid"])?),
+        "/v1/operator/items/share" => {
+            access("share", &no_flags, &positionals(parsed, &["id", "uid"])?)
+        }
         "/v1/operator/items/revoke" => {
             access("revoke", &no_flags, &positionals(parsed, &["id", "uid"])?)
         }
@@ -174,9 +176,11 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             }
             Ok(report)
         }
-        "/v1/operator/grants/revoke" => {
-            access("token-revoke", &no_flags, &positionals(parsed, &["consumer"])?)
-        }
+        "/v1/operator/grants/revoke" => access(
+            "token-revoke",
+            &no_flags,
+            &positionals(parsed, &["consumer"])?,
+        ),
         "/v1/operator/donations/accept" => {
             inbox("donation-accept", &no_flags, &positionals(parsed, &["id"])?)
         }
@@ -186,7 +190,9 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/credential" => {
             let operation = text(parsed, "operation")?;
             if !["status", "acquire", "rotate", "resume"].contains(&operation.as_str()) {
-                bail!("operator credential operation must be one of status, acquire, rotate, resume");
+                bail!(
+                    "operator credential operation must be one of status, acquire, rotate, resume"
+                );
             }
             // Always this vault file: the console reports on and drives the
             // vault in view, never a canonical Skarbiec somewhere else.
@@ -199,18 +205,26 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["activate-after"]),
             &positionals(parsed, &["grantee"])?,
         ),
-        "/v1/operator/emergency/cancel" => {
-            access("emergency-cancel", &no_flags, &positionals(parsed, &["grantee"])?)
-        }
-        "/v1/operator/emergency/activate" => {
-            access("emergency-activate", &no_flags, &positionals(parsed, &["grantee"])?)
-        }
-        "/v1/operator/recovery/drill" => {
-            access("recovery-drill", &no_flags, &positionals(parsed, &["subject"])?)
-        }
-        "/v1/operator/policy/set" => {
-            access("policy-set", &no_flags, &positionals(parsed, &["key", "value"])?)
-        }
+        "/v1/operator/emergency/cancel" => access(
+            "emergency-cancel",
+            &no_flags,
+            &positionals(parsed, &["grantee"])?,
+        ),
+        "/v1/operator/emergency/activate" => access(
+            "emergency-activate",
+            &no_flags,
+            &positionals(parsed, &["grantee"])?,
+        ),
+        "/v1/operator/recovery/drill" => access(
+            "recovery-drill",
+            &no_flags,
+            &positionals(parsed, &["subject"])?,
+        ),
+        "/v1/operator/policy/set" => access(
+            "policy-set",
+            &no_flags,
+            &positionals(parsed, &["key", "value"])?,
+        ),
         "/v1/operator/sync/init" => {
             net("sync-init", &no_flags, &positionals(parsed, &["endpoint"])?)
         }
@@ -221,9 +235,7 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["resource", "item", "field", "reason"]),
             &["add".to_string()],
         ),
-        "/v1/operator/routes/reconcile" => {
-            access("routes", &no_flags, &["reconcile".to_string()])
-        },
+        "/v1/operator/routes/reconcile" => access("routes", &no_flags, &["reconcile".to_string()]),
         _ => bail!("unknown operator route: {path}"),
     }
 }
@@ -238,7 +250,11 @@ fn access(command: &str, flags: &HashMap<String, String>, positionals: &[String]
     answered(crate::access::dispatch(command, flags, positionals))
 }
 
-fn runtime(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+fn runtime(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     answered(crate::runtime::dispatch(command, flags, positionals))
 }
 
