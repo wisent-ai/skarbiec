@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# The release worker starts workloads with a bare PATH; the toolchain this
+# build needs is the script's own concern, exactly like the launcher's.
+export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 source_dir=${WISENT_SOURCE_DIR:?WISENT_SOURCE_DIR is required}
 output_dir=${WISENT_OUTPUT_DIR:?WISENT_OUTPUT_DIR is required}
 platform=${WISENT_PLATFORM:?WISENT_PLATFORM is required}
