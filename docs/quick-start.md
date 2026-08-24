@@ -102,5 +102,7 @@ skarbiec recovery-drill recovery
 That is the whole path. The mental model is
 [what-is-skarbiec](what-is-skarbiec.md); the full command surface is
 [the CLI reference](CLI.md); machine access is
-[grants and consumers](grants-and-consumers.md); the loopback broker is
-[the HTTP API](http-api.md).
+[grants and consumers](grants-and-consumers.md) and, as an executed
+transcript, [the acquisition walkthrough](walkthrough-acquisition-broker.md);
+the loopback broker is [the HTTP API](http-api.md); when something refuses,
+[the runbook](runbook.md) indexes the exact sentences.

@@ -88,4 +88,9 @@ the HTTP API it is diagnosing, so it still answers when that API does not.
 
 The end-to-end path is [quick-start](quick-start.md); the full command
 surface is [the CLI reference](CLI.md); the trust boundaries are in
-[SECURITY.md](SECURITY.md).
+[SECURITY.md](SECURITY.md). Each core noun has an exact page under
+[concepts/](concepts/item.md); executed transcripts are
+[the item lifecycle](walkthrough-item-lifecycle.md) and
+[the acquisition broker](walkthrough-acquisition-broker.md); giving a
+machine access is [delegate to a consumer](delegate-to-a-consumer.md);
+triage is [the runbook](runbook.md).
