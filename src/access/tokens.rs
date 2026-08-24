@@ -603,12 +603,7 @@ fn mint_once(
     }))
 }
 
-fn ensure_read_once(
-    consumer: &str,
-    item: &str,
-    field: &str,
-    token_file: &Path,
-) -> Result<Value> {
+fn ensure_read_once(consumer: &str, item: &str, field: &str, token_file: &Path) -> Result<Value> {
     if !exact_component(consumer) || !exact_resource(item) || !exact_component(field) {
         bail!("token-ensure-read requires exact consumer, item, and field names");
     }
