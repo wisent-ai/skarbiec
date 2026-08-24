@@ -1,13 +1,59 @@
 {
   "schemaVersion": 1,
-  "documents": {
-    "docs/what-is-skarbiec.md": {},
-    "docs/quick-start.md": {},
-    "docs/item-model.md": {},
-    "docs/grants-and-consumers.md": {},
-    "docs/http-api.md": {},
-    "docs/configuration.md": {}
-  },
-  "sources": ["src/", "README.md", "docs/CLI.md"],
-  "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+  "documents": [
+    {
+      "output": "docs/what-is-skarbiec.md",
+      "sources": [
+        "src",
+        "README.md",
+        "docs/CLI.md"
+      ],
+      "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+    },
+    {
+      "output": "docs/quick-start.md",
+      "sources": [
+        "src",
+        "README.md",
+        "docs/CLI.md"
+      ],
+      "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+    },
+    {
+      "output": "docs/item-model.md",
+      "sources": [
+        "src",
+        "README.md",
+        "docs/CLI.md"
+      ],
+      "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+    },
+    {
+      "output": "docs/grants-and-consumers.md",
+      "sources": [
+        "src",
+        "README.md",
+        "docs/CLI.md"
+      ],
+      "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+    },
+    {
+      "output": "docs/http-api.md",
+      "sources": [
+        "src",
+        "README.md",
+        "docs/CLI.md"
+      ],
+      "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+    },
+    {
+      "output": "docs/configuration.md",
+      "sources": [
+        "src",
+        "README.md",
+        "docs/CLI.md"
+      ],
+      "instruction": "The docs must stay true to the vault, grant, acquisition, HTTP, and configuration contracts as implemented in src/ and enumerated in docs/CLI.md."
+    }
+  ]
 }
