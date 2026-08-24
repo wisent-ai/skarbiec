@@ -9,6 +9,7 @@
 pub mod bond;
 pub mod http;
 pub mod mcp;
+pub mod operator;
 pub mod sync;
 
 use anyhow::{Context, Result};

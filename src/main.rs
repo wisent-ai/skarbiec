@@ -22,14 +22,11 @@ use std::path::PathBuf;
 
 use core::{crypto, items, schema, vault::Vault};
 
+/// One definition of "which vault": the core layer owns it (including the
+/// request-scoped override the loopback operator API sets), and this crate
+/// root keeps only the re-export its own commands already call.
 fn vault_path() -> PathBuf {
-    if let Ok(p) = std::env::var("SKARBIEC_VAULT_FILE") {
-        return PathBuf::from(p);
-    }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".local/share/skarbiec/skarbiec.vault.json")
+    core::vault_path()
 }
 
 // key=value or bare --flag (present -> "true"); everything else is positional.
@@ -62,7 +59,7 @@ fn emit(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
+pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let owner = positionals
         .first()
         .or_else(|| flags.get("owner"))
@@ -78,8 +75,8 @@ fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) -> Result<(
         None => crypto::generate_key(&recovery_uid)?,
     };
     let vault = Vault::create(vault_path(), owner, &owner_fpr, &recovery_fpr)?;
-    emit(
-        &json!({"ok": true, "vault": vault.path.display().to_string(), "owner_fpr": owner_fpr, "recovery_fpr": recovery_fpr}),
+    Ok(
+        json!({"ok": true, "vault": vault.path.display().to_string(), "owner_fpr": owner_fpr, "recovery_fpr": recovery_fpr}),
     )
 }
 
@@ -230,35 +227,35 @@ fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<
     emit(&json!({"ok": true, "id": id, "tags": tags}))
 }
 
-fn cmd_delete(positionals: &[String]) -> Result<()> {
+pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().context("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
     vault.delete_item(id)?;
-    emit(&json!({"ok": true}))
+    Ok(json!({"ok": true}))
 }
 
-fn cmd_reclaim(positionals: &[String]) -> Result<()> {
+pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().context("usage: reclaim <id>")?;
     let mut vault = Vault::open(vault_path())?;
     vault.reclaim_item(id)?;
-    emit(&json!({"ok": true, "id": id, "mode": "owner"}))
+    Ok(json!({"ok": true, "id": id, "mode": "owner"}))
 }
 
-fn cmd_restore(positionals: &[String]) -> Result<()> {
+pub(crate) fn cmd_restore(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().context("usage: restore <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "acquire")?;
     vault.restore_item(id)?;
-    emit(&json!({"ok": true}))
+    Ok(json!({"ok": true}))
 }
 
-fn cmd_purge(positionals: &[String]) -> Result<()> {
+pub(crate) fn cmd_purge(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().context("usage: purge <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
     vault.purge_item(id)?;
-    emit(&json!({"ok": true}))
+    Ok(json!({"ok": true}))
 }
 
 fn cmd_restore_version(positionals: &[String]) -> Result<()> {
@@ -279,8 +276,8 @@ fn cmd_get(positionals: &[String]) -> Result<()> {
     emit(&Vault::open(vault_path())?.get_item(id)?)
 }
 
-fn cmd_list(flags: &HashMap<String, String>) -> Result<()> {
-    emit(&json!(
+pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
+    Ok(json!(
         Vault::open(vault_path())?.list(flag_set(flags, "all"))
     ))
 }
@@ -352,9 +349,9 @@ fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]) -> Result
 /// uncommitted changes, so a released coordinate resolves to a revision anyone can
 /// check out and rebuild — which is the difference between an artifact that is a
 /// source of truth and one that is merely unique.
-fn cmd_version() -> Result<()> {
+pub(crate) fn cmd_version() -> Result<Value> {
     let release = option_env!("SKARBIEC_RELEASE_URI");
-    emit(&json!({
+    Ok(json!({
         "version": env!("CARGO_PKG_VERSION"),
         "release": release,
         "commit": option_env!("SKARBIEC_RELEASE_COMMIT"),
@@ -379,20 +376,20 @@ fn main() -> Result<()> {
     let (flags, positionals) = parse_args(&rest);
 
     match command.as_str() {
-        "version" | "--version" | "-V" => cmd_version(),
+        "version" | "--version" | "-V" => emit(&cmd_version()?),
         "status" => emit(&core::items::status_json()?),
         "doctor" => emit(&runtime::doctor::report()?),
         "vaults" => emit(&runtime::vaults::inventory()?),
-        "init" => cmd_init(&flags, &positionals),
+        "init" => emit(&cmd_init(&flags, &positionals)?),
         "set" => cmd_set(&flags, &positionals),
         "get" => cmd_get(&positionals),
         "set-json" => cmd_set_json(&flags, &positionals),
-        "list" => cmd_list(&flags),
+        "list" => emit(&cmd_list(&flags)?),
         "retag" => cmd_retag(&flags, &positionals),
-        "delete" => cmd_delete(&positionals),
-        "reclaim" => cmd_reclaim(&positionals),
-        "restore" => cmd_restore(&positionals),
-        "purge" => cmd_purge(&positionals),
+        "delete" => emit(&cmd_delete(&positionals)?),
+        "reclaim" => emit(&cmd_reclaim(&positionals)?),
+        "restore" => emit(&cmd_restore(&positionals)?),
+        "purge" => emit(&cmd_purge(&positionals)?),
         "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
         "import" => emit(&items::import_json(&positionals)?),

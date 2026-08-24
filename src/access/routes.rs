@@ -60,7 +60,38 @@ pub fn dispatch(
     let value = match subcommand {
         "list" => list(consumer)?,
         "add" => add(flags)?,
-        "verify" => verify(consumer)?,
+        "verify" => {
+            let report = verify_report(consumer)?;
+            let broken = report
+                .get("broken")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            let checked = report
+                .get("checked")
+                .and_then(Value::as_u64)
+                .unwrap_or_default();
+            if !broken.is_empty() {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+                let named: Vec<String> = broken
+                    .iter()
+                    .map(|entry| {
+                        format!(
+                            "{}: {}",
+                            entry.get("resource").and_then(Value::as_str).unwrap_or_default(),
+                            entry.get("problem").and_then(Value::as_str).unwrap_or_default()
+                        )
+                    })
+                    .collect();
+                bail!(
+                    "{} of {} capability routes do not resolve: {}",
+                    broken.len(),
+                    checked,
+                    named.join("; ")
+                );
+            }
+            report
+        }
         "help" => json!({
             "commands": [
                 "routes list [<consumer>]",
@@ -383,7 +414,12 @@ fn add(flags: &HashMap<String, String>) -> Result<Value> {
 /// matter: a console shows the rows, a provisioning sequence reads the exit
 /// status. Nothing here restarts, deletes, or cycles anything -- it is safe
 /// against a live broker.
-fn verify(consumer: Option<&str>) -> Result<Value> {
+/// The verification report, always returned: which routes were checked and
+/// which refuse, in the backend's own words. The command path turns a
+/// non-empty `broken` into a non-zero exit after printing this document;
+/// the loopback operator API answers with it, because the console reading it
+/// over HTTP came for exactly the rows a bare exit status would throw away.
+pub(crate) fn verify_report(consumer: Option<&str>) -> Result<Value> {
     let table = load()?;
     let vault = Vault::open(vault_path())?;
     let mut opened = HashMap::new();
@@ -399,25 +435,11 @@ fn verify(consumer: Option<&str>) -> Result<Value> {
         .iter()
         .filter_map(|(resource, problem)| problem.as_ref().map(|problem| (*resource, problem)))
         .collect();
-    let report = json!({
+    Ok(json!({
         "checked": rows.len(),
         "broken": broken
             .iter()
             .map(|(resource, problem)| json!({"resource": resource, "problem": problem}))
             .collect::<Vec<Value>>(),
-    });
-    if !broken.is_empty() {
-        println!("{}", serde_json::to_string_pretty(&report)?);
-        let named: Vec<String> = broken
-            .iter()
-            .map(|(resource, problem)| format!("{resource}: {problem}"))
-            .collect();
-        bail!(
-            "{} of {} capability routes do not resolve: {}",
-            broken.len(),
-            rows.len(),
-            named.join("; ")
-        );
-    }
-    Ok(report)
+    }))
 }
