@@ -483,6 +483,46 @@ fn reconcile() -> Result<Value> {
         table.insert(id.clone(), json!({"item": id, "field": field}));
         added.push(json!({"resource": id, "item": id, "field": field}));
     }
+    // A provider family resource names its unique primary credential. The
+    // provider is the second colon-delimited component; subscription item ids
+    // keep that prefix and mark the operator-selected default with `-primary`.
+    // Multiple primaries are ambiguous and remain unmapped.
+    let mut primaries: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (resource, entry) in &table {
+        let mut parts = resource.splitn(3, ':');
+        if parts.next() != Some("provider") {
+            continue;
+        }
+        let Some(provider) = parts.next() else {
+            continue;
+        };
+        if parts.next().is_none() || !resource.ends_with("-primary") {
+            continue;
+        }
+        if let (Some(item), Some(field)) = (
+            entry.get("item").and_then(Value::as_str),
+            entry.get("field").and_then(Value::as_str),
+        ) {
+            primaries
+                .entry(format!("provider:{provider}"))
+                .or_default()
+                .push((item.to_string(), field.to_string()));
+        }
+    }
+    for (resource, candidates) in primaries {
+        if table.contains_key(&resource) {
+            continue;
+        }
+        let [(item, field)] = candidates.as_slice() else {
+            skipped.push(json!({
+                "resource": resource,
+                "problem": format!("provider has {} primary credentials", candidates.len()),
+            }));
+            continue;
+        };
+        table.insert(resource.clone(), json!({"item": item, "field": field}));
+        added.push(json!({"resource": resource, "item": item, "field": field}));
+    }
 
     let backup = if added.is_empty() {
         None

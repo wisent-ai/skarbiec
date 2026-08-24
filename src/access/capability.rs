@@ -159,7 +159,29 @@ fn load_state() -> Result<Value> {
         return Ok(json!({"version": 1, "capabilities": {}, "nonces": {}}));
     }
     let raw = fs::read_to_string(&path).context("read capability state")?;
-    let parsed: Value = serde_json::from_str(&raw).context("parse capability state")?;
+    let parsed: Value = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(original) => {
+            // Older writers could leave two complete snapshots concatenated
+            // after an interrupted replacement. Capabilities are short-lived,
+            // so the newest complete snapshot is safer than disabling every
+            // provider indefinitely. Preserve the bytes before repairing them.
+            let complete: Vec<Value> = serde_json::Deserializer::from_str(&raw)
+                .into_iter::<Value>()
+                .map_while(Result::ok)
+                .collect();
+            let Some(recovered) = complete.last().cloned() else {
+                return Err(original).context("parse capability state");
+            };
+            let backup = path.with_extension(format!("json.corrupt-{}", std::process::id()));
+            fs::copy(&path, &backup).with_context(|| {
+                format!("back up corrupt capability state to {}", backup.display())
+            })?;
+            save_state(&recovered)
+                .context("repair capability state from newest complete snapshot")?;
+            recovered
+        }
+    };
     if parsed
         .get("capabilities")
         .and_then(Value::as_object)
