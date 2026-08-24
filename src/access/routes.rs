@@ -425,13 +425,14 @@ fn add(flags: &HashMap<String, String>) -> Result<Value> {
         "backup": backup,
     }))
 }
-/// Derive the mappings whose resource and item are the same vault-owned name.
+/// Derive identity mappings from vault-owned item schemas.
 ///
-/// Provider and agent resources are minted from item ids, so these mappings
-/// contain no operator choice: `provider:x` means the item named `provider:x`.
-/// Skarbiec also owns the item schema and can select its credential field. An
-/// item with no single credential field is reported and left untouched. Existing
-/// routes are never repointed.
+/// Exact `provider:*` and `agent:*` items map to themselves when they carry one
+/// credential field. Product request-signing items use the established
+/// `<product>-agent-auth` or `<product>-model-agent-auth` names; their own `id`
+/// field names the agent and `agent_auth_secret` is the credential. Skarbiec
+/// validates both fields and refuses duplicate agent identities rather than
+/// making a caller choose a credential. Existing routes are never repointed.
 fn reconcile() -> Result<Value> {
     let path = routes_path();
     let mut table = if path.exists() { load()? } else { Map::new() };
@@ -483,6 +484,76 @@ fn reconcile() -> Result<Value> {
         table.insert(id.clone(), json!({"item": id, "field": field}));
         added.push(json!({"resource": id, "item": id, "field": field}));
     }
+    // Request-signing items predate the `agent:*` resource vocabulary, so their
+    // item name and resource are intentionally different. Their schema carries
+    // the missing join: `id` is the Brama identity and `agent_auth_secret` is
+    // its signing credential. Only the two established item-name families are
+    // considered; scanning arbitrary secrets for coincidentally named fields
+    // would make a new mapping appear without an operator choosing that schema.
+    let mut agent_credentials: HashMap<String, Vec<String>> = HashMap::new();
+    for (item, record) in items {
+        if record.get("state").and_then(Value::as_str) == Some("trashed")
+            || !(item.ends_with("-agent-auth") || item.ends_with("-model-agent-auth"))
+        {
+            continue;
+        }
+        let payload = match vault.get_item(item) {
+            Ok(payload) => payload,
+            Err(error) => {
+                skipped.push(json!({"item": item, "problem": error.to_string()}));
+                continue;
+            }
+        };
+        let Some(fields) = payload.get("fields").and_then(Value::as_object) else {
+            skipped.push(
+                json!({"item": item, "problem": "agent identity item carries no fields object"}),
+            );
+            continue;
+        };
+        let Some(agent_id) = fields
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| exact_token(value, MAX_NAME_CHARS))
+        else {
+            skipped.push(
+                json!({"item": item, "problem": "agent identity item has no exact id field"}),
+            );
+            continue;
+        };
+        if !fields
+            .get("agent_auth_secret")
+            .is_some_and(Value::is_string)
+        {
+            skipped.push(json!({"item": item, "problem": "agent identity item has no text agent_auth_secret field"}));
+            continue;
+        }
+        agent_credentials
+            .entry(format!("agent:{agent_id}"))
+            .or_default()
+            .push(item.clone());
+    }
+    for (resource, candidates) in agent_credentials {
+        if table.contains_key(&resource) {
+            continue;
+        }
+        let [item] = candidates.as_slice() else {
+            skipped.push(json!({
+                "resource": resource,
+                "problem": format!("agent has {} signing credentials", candidates.len()),
+            }));
+            continue;
+        };
+        table.insert(
+            resource.clone(),
+            json!({"item": item, "field": "agent_auth_secret"}),
+        );
+        added.push(json!({
+            "resource": resource,
+            "item": item,
+            "field": "agent_auth_secret",
+        }));
+    }
+
     // A provider family resource names its unique primary credential. The
     // provider is the second colon-delimited component; subscription item ids
     // keep that prefix and mark the operator-selected default with `-primary`.

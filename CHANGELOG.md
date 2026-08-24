@@ -22,15 +22,21 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
 - Added `skarbiec routes list|add|reconcile|verify` (`src/access/routes.rs`),
   the command and operator-API surface over the capability routes table the
   broker resolves every resource through. `routes reconcile` derives missing
-  `provider:*` and `agent:*` identity routes from the live vault and maps each
-  provider family to its unique `-primary` credential; it never repoints an
-  existing route or guesses between ambiguous candidates. `routes add` remains
+  `provider:*` and exact `agent:*` identity routes from the live vault, maps
+  established request-signing items through their validated `id` and
+  `agent_auth_secret` schema fields, and maps each provider family to its unique
+  `-primary` credential; it never repoints an existing route or guesses between
+  ambiguous candidates. `routes add` remains
   the deliberate path for non-derived mappings: it is idempotent, requires
   `--reason`, keeps the previous table, and records the reason beside the table
   and in the hash-chained audit journal. `routes list` and `routes verify`
   resolve every coordinate without returning values, distinguish unreadable
   items from missing fields, and expose the same answers to the desktop app.
   Documented under "Capability routes" in `docs/CLI.md`.
+- `skarbiec get <id> --field <field>` now prints only that exact text field.
+  The option was already documented and used by service tooling but the command
+  ignored it and returned the whole decrypted item, forcing callers to receive
+  unrelated fields and making a field-only credential handoff impossible.
 - Capability state now recovers from concatenated complete JSON snapshots left
   by an older interrupted writer. Skarbiec preserves the corrupt bytes, restores
   the newest complete snapshot atomically, and resumes short-lived capability

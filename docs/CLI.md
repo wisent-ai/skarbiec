@@ -55,7 +55,7 @@ Build:       version
 | `init <owner-uid>` | Create the vault, sealed to a fresh `gpg` owner key and a `skarbiec-recovery <owner>` key. |
 | `set <id> [--type <t>] name=value ... [--recipients a,b] [--tags x,y]` | Create or update a schema-validated typed item. `--type` defaults to `login`; canonical field names depend on the type. |
 | `set-json <id> [--type <t>] [--recipients a,b] [--tags x,y]` | Read one canonical item payload from stdin, validate its `kind` and fields, and create or update the item. `--type` overrides the payload's `kind` only when both describe the same valid schema. |
-| `get <id>` | Return one item's decrypted fields as JSON. |
+| `get <id> [--field <field>]` | Return one item's decrypted fields as JSON, or print only one exact text field when `--field` is present. |
 | `list [--all]` | List item metadata (id, type, revision count, recipient UIDs, tags)—never values. `--all` includes trashed items. |
 | `delete <id>` | Move an item to the trash (recoverable). |
 | `reclaim <id>` | Return one item to owner control when its recorded controller can no longer write it. Refuses anything under the Weles credential lifecycle. Changes control only: no field, tag, recipient or revision moves. |
@@ -753,7 +753,7 @@ resource stands for.
 | --- | --- |
 | `routes list [<consumer>]` | Every route with its item and field, and whether the vault actually holds that item and that field. |
 | `routes add --resource <resource> --item <item> --field <field> --reason <text>` | Map one resource onto one vault field. Idempotent, leaves every existing route untouched, keeps the previous table beside the new one, and requires `--reason`. |
-| `routes reconcile` | Derive missing `provider:*` and `agent:*` identity routes from the live vault, plus each provider family's unique `-primary` credential. Existing routes are never moved; ambiguous items are reported and skipped. |
+| `routes reconcile` | Derive missing `provider:*` and `agent:*` identity routes from the live vault, including request-signing items whose validated `id` and `agent_auth_secret` fields define an agent route, plus each provider family's unique `-primary` credential. Existing routes are never moved; ambiguous items are reported and skipped. |
 | `routes verify [<consumer>]` | Resolve every route against the vault and exit non-zero when any of them cannot deliver, naming the resource and the problem. |
 
 The table is `SKARBIEC_CAPABILITY_ROUTES_FILE` when it is set, and otherwise
@@ -764,11 +764,14 @@ resolves nothing and says nothing about why.
 `routes reconcile` is the normal provisioning path. Skarbiec owns both the vault
 schema and this mapping, so Brama and other workloads do not open or rewrite the
 table. For an exact `provider:*` or `agent:*` item, the resource maps to the item
-with the same id when it carries exactly one text credential field. A generic
-resource such as `provider:codex` maps to the unique routed Codex item whose id
-ends in `-primary`. No primary or several primaries is reported under `skipped`;
-Skarbiec does not guess. Existing mappings always win, and every changed table is
-backed up and audited.
+with the same id when it carries exactly one text credential field. Established
+`<product>-agent-auth` and `<product>-model-agent-auth` request-signing items map
+their validated `id` field to `agent:<id>` and their `agent_auth_secret` field
+to the credential; two items claiming one agent id are ambiguous and remain
+unmapped. A generic resource such as `provider:codex` maps to the unique routed
+Codex item whose id ends in `-primary`. No primary or several primaries is
+reported under `skipped`; Skarbiec does not guess. Existing mappings always win,
+and every changed table is backed up and audited.
 
 `routes list` and `routes verify` answer the question the refusal does not.
 The Weles browser client reached the Cloudflare dashboard login, asked for the

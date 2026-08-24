@@ -271,9 +271,26 @@ fn cmd_restore_version(positionals: &[String]) -> Result<()> {
     emit(&json!({"ok": true}))
 }
 
-fn cmd_get(positionals: &[String]) -> Result<()> {
-    let id = positionals.first().context("usage: get <id>")?;
-    emit(&Vault::open(vault_path())?.get_item(id)?)
+fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
+    let id = positionals
+        .first()
+        .context("usage: get <id> [--field <field>]")?;
+    let item = Vault::open(vault_path())?.get_item(id)?;
+    let Some(field) = flags.get("field") else {
+        return emit(&item);
+    };
+    if field.is_empty() || field.chars().any(char::is_control) {
+        bail!("get --field requires one exact field name");
+    }
+    let value = item
+        .get("fields")
+        .and_then(Value::as_object)
+        .and_then(|fields| fields.get(field))
+        .with_context(|| format!("item {id} has no field {field}"))?
+        .as_str()
+        .with_context(|| format!("item {id} field {field} is not text"))?;
+    println!("{value}");
+    Ok(())
 }
 
 pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
@@ -382,7 +399,7 @@ fn main() -> Result<()> {
         "vaults" => emit(&runtime::vaults::inventory()?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
         "set" => cmd_set(&flags, &positionals),
-        "get" => cmd_get(&positionals),
+        "get" => cmd_get(&flags, &positionals),
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
         "retag" => cmd_retag(&flags, &positionals),
