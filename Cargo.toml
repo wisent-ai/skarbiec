@@ -1,6 +1,6 @@
 [package]
 name = "skarbiec"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 description = "Self-contained vault for sensitive values: at-rest encryption, multi-recipient sharing, scoped access grants, tamper-evident audit, and runtime injection. Cryptography delegated to gpg, openssl, and shasum; no hosted dependency."
 license-file = "LICENSE"
