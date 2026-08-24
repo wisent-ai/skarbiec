@@ -17,7 +17,7 @@ thread_local! {
     /// handles each connection on its own thread from parse to response, so
     /// an operator console naming a vault per request can no more race another
     /// request than two backend processes can share one thread.
-    static REQUEST_VAULT: RefCell<Option<PathBuf>> = RefCell::new(None);
+    static REQUEST_VAULT: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
 /// Location of the encrypted vault. A request-scoped override wins first,
