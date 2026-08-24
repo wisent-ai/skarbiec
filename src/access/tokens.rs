@@ -288,7 +288,11 @@ fn exact_route(value: &str) -> bool {
         && !value.split('/').any(|component| component == "..")
 }
 
-fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
+fn parse_capabilities(
+    vault: &Vault,
+    raw: &str,
+    preserved_capabilities: &[Value],
+) -> Result<Vec<Value>> {
     if raw.trim().is_empty() {
         bail!("token-mint requires --capabilities action:item[#field]");
     }
@@ -321,47 +325,56 @@ fn parse_capabilities(vault: &Vault, raw: &str) -> Result<Vec<Value>> {
         if matches!(action, "lifecycle" | "reseal") && field.is_some() {
             bail!("{action} capability is item-scoped and must not name a field");
         }
+        let capability = json!({"action": action, "item": item, "field": field});
+        if capabilities.contains(&capability) {
+            bail!("duplicate capability: {encoded}");
+        }
+        // Re-minting an existing bearer may preserve an old capability whose
+        // item was later trashed. That capability is already inert and is not
+        // being granted here. Re-validating it would make one stale row block
+        // every unrelated field addition, while dropping it would silently
+        // narrow the consumer. Validate only capabilities this mint introduces.
+        let preserved = preserved_capabilities.contains(&capability);
+
         // A `call` capability names a service and a route inside it, not a vault
         // item and one of its fields, so there is nothing here to exist yet.
         // Checking would tie the right to reach a service to that service
         // happening to keep a secret.
         if action == "call" {
-            capabilities.push(json!({"action": action, "item": item, "field": field}));
+            capabilities.push(capability);
             continue;
         }
-        if let Some(field) = field {
-            if field == "context" && action != "read" {
-                bail!("context is metadata and may only be named by read capabilities");
-            }
-            let item_exists = vault
-                .doc()
-                .get("items")
-                .and_then(Value::as_object)
-                .is_some_and(|items| items.contains_key(item));
-            if item_exists {
-                let payload = vault.get_item(item)?;
-                if schema::field(&payload, field).is_err()
-                    && !(matches!(action, "stage" | "acquire")
-                        && schema::allows_field(&payload, field))
-                {
-                    bail!("capability names a missing field: {item}#{field}");
+        if !preserved {
+            if let Some(field) = field {
+                if field == "context" && action != "read" {
+                    bail!("context is metadata and may only be named by read capabilities");
                 }
-            } else if !matches!(action, "stage" | "acquire") {
-                bail!("capability names a missing item: {item}");
+                let item_exists = vault
+                    .doc()
+                    .get("items")
+                    .and_then(Value::as_object)
+                    .is_some_and(|items| items.contains_key(item));
+                if item_exists {
+                    let payload = vault.get_item(item)?;
+                    if schema::field(&payload, field).is_err()
+                        && !(matches!(action, "stage" | "acquire")
+                            && schema::allows_field(&payload, field))
+                    {
+                        bail!("capability names a missing field: {item}#{field}");
+                    }
+                } else if !matches!(action, "stage" | "acquire") {
+                    bail!("capability names a missing item: {item}");
+                }
+            } else if matches!(
+                action,
+                "share" | "trash" | "purge" | "admin" | "lifecycle" | "reseal"
+            ) {
+                vault
+                    .doc()
+                    .get("items")
+                    .and_then(|items| items.get(item))
+                    .with_context(|| format!("capability names a missing item: {item}"))?;
             }
-        } else if matches!(
-            action,
-            "share" | "trash" | "purge" | "admin" | "lifecycle" | "reseal"
-        ) {
-            vault
-                .doc()
-                .get("items")
-                .and_then(|items| items.get(item))
-                .with_context(|| format!("capability names a missing item: {item}"))?;
-        }
-        let capability = json!({"action": action, "item": item, "field": field});
-        if capabilities.contains(&capability) {
-            bail!("duplicate capability: {encoded}");
         }
         capabilities.push(capability);
     }
@@ -448,22 +461,27 @@ fn mint_once(
     let _ = attempt;
 
     let mut vault = load()?;
+    let existing_capabilities = vault
+        .doc()
+        .get("tokens")
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get(consumer))
+        .map(|existing| {
+            existing
+                .get("capabilities")
+                .and_then(Value::as_array)
+                .cloned()
+                .context("existing grant is not v2; run migrate-v2 first")
+        })
+        .transpose()?;
     let capabilities = parse_capabilities(
         &vault,
         flags
             .get("capabilities")
             .context("--capabilities is required")?,
+        existing_capabilities.as_deref().unwrap_or_default(),
     )?;
-    if let Some(existing) = vault
-        .doc()
-        .get("tokens")
-        .and_then(Value::as_object)
-        .and_then(|tokens| tokens.get(consumer))
-    {
-        let existing_capabilities = existing
-            .get("capabilities")
-            .and_then(Value::as_array)
-            .context("existing grant is not v2; run migrate-v2 first")?;
+    if let Some(existing_capabilities) = &existing_capabilities {
         let same_capabilities = existing_capabilities.len() == capabilities.len()
             && existing_capabilities
                 .iter()
@@ -629,7 +647,8 @@ pub fn dispatch(
             let mut vault = load()?;
             let mut registrations = Vec::new();
             for (consumer, item, field) in &rows {
-                let capabilities = parse_capabilities(&vault, &format!("acquire:{item}#{field}"))?;
+                let capabilities =
+                    parse_capabilities(&vault, &format!("acquire:{item}#{field}"), &[])?;
                 if let Some(existing) = vault
                     .doc()
                     .get("tokens")
