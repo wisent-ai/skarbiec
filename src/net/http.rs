@@ -18,6 +18,7 @@ use wisent_errors::Code;
 use crate::access::tokens;
 use crate::core::{vault::Vault, vault_path};
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
+use crate::net::operator;
 
 const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
@@ -90,6 +91,9 @@ fn is_mutation(method: &str, path: &str) -> bool {
     if credential_status_item(method, path).is_some() {
         return true;
     }
+    if operator::is_mutation(path) {
+        return true;
+    }
     matches!(
         (method, path),
         ("PUT", "/v1/items")
@@ -142,6 +146,11 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     let missing_line = "HTTP/1.1 404 Not Found";
     let unavailable_line = "HTTP/1.1 503 Service Unavailable";
 
+    // Operator routes (net/operator.rs): the surface a local console drives,
+    // claimed before the consumer table so `/v1/operator/` is reserved whole.
+    if operator::handle(&mut stream, &method, &path, &body)? {
+        return Ok(());
+    }
     if method == "GET" && path == "/health" {
         // The probe opens one vault item and drops the plaintext: a broker
         // holding ciphertext it can no longer decrypt must report unhealthy,
@@ -330,7 +339,24 @@ pub fn dispatch(
                 match incoming {
                     // Thread per connection so a slow handler never queues
                     // every consumer; mutating routes take WRITE_LOCK inside.
+                    //
+                    // Both socket directions carry a deadline. Without one, a
+                    // client that connects and never finishes its request left
+                    // `read_line` blocked forever, and every such connection
+                    // held a thread plus two descriptors (the stream and its
+                    // BufReader clone). Under the fleet's polling consumers
+                    // that accumulated to EMFILE, at which point gpg, shasum
+                    // and openssl could no longer even be spawned.
                     Ok(stream) => {
+                        let deadline =
+                            std::time::Duration::from_secs("30".parse().unwrap_or_default());
+                        if let Err(e) = stream
+                            .set_read_timeout(Some(deadline))
+                            .and_then(|()| stream.set_write_timeout(Some(deadline)))
+                        {
+                            eprintln!("request error: socket deadline: {e}");
+                            continue;
+                        }
                         std::thread::spawn(|| {
                             if let Err(e) = handle(stream) {
                                 eprintln!("request error: {e}");
