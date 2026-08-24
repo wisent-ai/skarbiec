@@ -71,16 +71,21 @@ The following remain distinct applications on different toolchains:
 Loopback only. Started with `skarbiec serve` (port configurable with `--port`).
 The stable generic item surface is:
 
-- `POST /v1/items/list` — metadata for items covered by a `read:` scope.
-- `POST /v1/items/read` with `{"id":"..."}` — one decrypted JSON item.
-- `PUT /v1/items` with `{"id":"...","type":"...","value":...}` — create a new
-  encrypted version while preserving existing recipients and tags.
-- `DELETE /v1/items` with `{"id":"..."}` — soft-delete an item.
+- `POST /v1/items/list` — metadata for items covered by a `read` capability.
+- `POST /v1/items/read` with `{"id":"...","field":"..."}` — one decrypted
+  field, gated by `read:<item>#<field>`.
+- `PUT /v1/items` with `{"id":"...","field":"...","operation_id":"...","mode":"acquire"|"stage","value":...}`
+  — managed field write gated by `stage:<item>#<field>`; restricted to the
+  exact Weles writer that controls the item (`acquire` creates a new managed
+  item from a provider-verified payload).
+- `DELETE /v1/items` with `{"id":"..."}` — soft-delete, gated by
+  `trash:<item>`.
 
-Every generic endpoint requires `X-Consumer` and `Authorization: Bearer ...`.
-The grant must match the action-specific `read:`, `write:`, or `delete:` scope
-for the item. A legacy bare scope is read-only. Values occur only in authorized
-request/response bodies and are never included in audit records.
+Every generic endpoint requires `X-Consumer` and `Authorization: Bearer ...`,
+and the grant must carry the exact capability the route checks. Values occur
+only in authorized request/response bodies and are never included in audit
+records. The complete route table, including the credential, sync, donation,
+and operator surfaces, is in [http-api.md](http-api.md).
 
 The one-time field surface is separate:
 
