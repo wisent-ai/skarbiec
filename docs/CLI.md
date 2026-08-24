@@ -752,12 +752,22 @@ resource stands for.
 | --- | --- |
 | `routes list [<consumer>]` | Every route with its item and field, and whether the vault actually holds that item and that field. |
 | `routes add --resource <resource> --item <item> --field <field> --reason <text>` | Map one resource onto one vault field. Idempotent, leaves every existing route untouched, keeps the previous table beside the new one, and requires `--reason`. |
+| `routes reconcile` | Derive missing `provider:*` and `agent:*` identity routes from the live vault, plus each provider family's unique `-primary` credential. Existing routes are never moved; ambiguous items are reported and skipped. |
 | `routes verify [<consumer>]` | Resolve every route against the vault and exit non-zero when any of them cannot deliver, naming the resource and the problem. |
 
 The table is `SKARBIEC_CAPABILITY_ROUTES_FILE` when it is set, and otherwise
 `capability-routes.json` beside the capability state file. `routes help` prints
 the path that resolves to, because a table written where nothing reads it
 resolves nothing and says nothing about why.
+
+`routes reconcile` is the normal provisioning path. Skarbiec owns both the vault
+schema and this mapping, so Brama and other workloads do not open or rewrite the
+table. For an exact `provider:*` or `agent:*` item, the resource maps to the item
+with the same id when it carries exactly one text credential field. A generic
+resource such as `provider:codex` maps to the unique routed Codex item whose id
+ends in `-primary`. No primary or several primaries is reported under `skipped`;
+Skarbiec does not guess. Existing mappings always win, and every changed table is
+backed up and audited.
 
 `routes list` and `routes verify` answer the question the refusal does not.
 The Weles browser client reached the Cloudflare dashboard login, asked for the
@@ -826,6 +836,12 @@ recognise is looking at the table.
 and exits non-zero when anything is broken, so a console can render the rows and
 a provisioning sequence can read the status. Both read-only commands are safe
 against a live broker: they open items, print booleans, and change nothing.
+
+Capability state is also written through an atomic staging file. A state file
+left as concatenated JSON snapshots by an older interrupted writer is repaired
+from its newest complete snapshot on the next read; the original bytes are kept
+as `capability-state.json.corrupt-<pid>`. Capabilities are short-lived, so this
+restores issuance without silently discarding the damaged evidence.
 
 The optional `<consumer>` argument matches text in the resource name and is
 **presentation only**. It narrows what is printed and authorises nothing:

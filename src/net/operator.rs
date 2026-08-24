@@ -221,6 +221,9 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["resource", "item", "field", "reason"]),
             &["add".to_string()],
         ),
+        "/v1/operator/routes/reconcile" => {
+            access("routes", &no_flags, &["reconcile".to_string()])
+        },
         _ => bail!("unknown operator route: {path}"),
     }
 }
