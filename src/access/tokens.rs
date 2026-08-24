@@ -447,142 +447,142 @@ fn mint_once(
 ) -> anyhow::Result<Value> {
     let _ = attempt;
 
-            let mut vault = load()?;
-            let capabilities = parse_capabilities(
-                &vault,
-                flags
-                    .get("capabilities")
-                    .context("--capabilities is required")?,
-            )?;
-            if let Some(existing) = vault
-                .doc()
-                .get("tokens")
-                .and_then(Value::as_object)
-                .and_then(|tokens| tokens.get(consumer))
-            {
-                let existing_capabilities = existing
-                    .get("capabilities")
-                    .and_then(Value::as_array)
-                    .context("existing grant is not v2; run migrate-v2 first")?;
-                let same_capabilities = existing_capabilities.len() == capabilities.len()
-                    && existing_capabilities
-                        .iter()
-                        .all(|capability| capabilities.contains(capability));
-                let replace_capabilities = flags
-                    .get("replace-capabilities")
-                    .is_some_and(|value| value == "true");
-                if !same_capabilities && !replace_capabilities {
-                    bail!(
-                        "token-mint refuses to change existing capabilities without --replace-capabilities"
-                    );
-                }
-            }
-            let has_acquire = capabilities.iter().any(|capability| {
-                capability.get("action").and_then(Value::as_str) == Some("acquire")
-            });
-            if has_acquire
-                && capabilities.iter().any(|capability| {
-                    capability.get("action").and_then(Value::as_str) != Some("acquire")
-                })
-            {
-                bail!("acquire capabilities cannot share a grant with direct capabilities");
-            }
-            // Driving a credential lifecycle never authorizes reading the
-            // value it rotates, so the two never share one bearer.
-            let action_of = |capability: &Value| {
-                capability
-                    .get("action")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string()
-            };
-            if capabilities
+    let mut vault = load()?;
+    let capabilities = parse_capabilities(
+        &vault,
+        flags
+            .get("capabilities")
+            .context("--capabilities is required")?,
+    )?;
+    if let Some(existing) = vault
+        .doc()
+        .get("tokens")
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get(consumer))
+    {
+        let existing_capabilities = existing
+            .get("capabilities")
+            .and_then(Value::as_array)
+            .context("existing grant is not v2; run migrate-v2 first")?;
+        let same_capabilities = existing_capabilities.len() == capabilities.len()
+            && existing_capabilities
                 .iter()
-                .any(|capability| action_of(capability) == "lifecycle")
-                && capabilities
-                    .iter()
-                    .any(|capability| action_of(capability) == "read")
-            {
-                bail!("lifecycle capabilities cannot share a grant with read capabilities");
-            }
-            let workload_public_key = match flags.get("workload-public-key-file") {
-                Some(path) => Some(read_workload_public_key(Path::new(path))?),
-                None if has_acquire => {
-                    bail!("acquire capabilities require --workload-public-key-file")
-                }
-                None => None,
-            };
-            if !has_acquire && workload_public_key.is_some() {
-                bail!("workload public keys are valid only for acquire capabilities");
-            }
-            let ttl_seconds: u64 = flags
-                .get("ttl-seconds")
-                .map(String::as_str)
-                .unwrap_or("2592000")
-                .parse()
-                .context("--ttl-seconds must be an integer")?;
-            if ttl_seconds == u64::MIN {
-                bail!("--ttl-seconds must be positive");
-            }
-            let expires_at = now_epoch()?
-                .checked_add(ttl_seconds)
-                .context("grant expiry overflow")?;
-            let supplied_token = flags
-                .get("token-file")
-                .map(|path| read_fixed_token(Path::new(path)))
-                .transpose()?;
-            if has_acquire && supplied_token.is_some() {
-                bail!("acquire capabilities cannot use --token-file");
-            }
-            let generated_token = if has_acquire || supplied_token.is_some() {
-                None
-            } else {
-                Some(crypto::random_token()?)
-            };
-            let stored_token = supplied_token.as_deref().or(generated_token.as_deref());
-            let hash = match stored_token {
-                Some(token) => json!(crypto::sha256_hex(token)?),
-                None => Value::Null,
-            };
-            let audience = flags
-                .get("audience")
-                .map(String::as_str)
-                .unwrap_or(consumer);
-            vault
-                .doc_mut()
-                .get_mut("tokens")
-                .and_then(Value::as_object_mut)
-                .context("tokens section")?
-                .insert(
-                    consumer.to_string(),
-                    json!({
-                        "hash": hash,
-                        "capabilities": capabilities,
-                        "workload_public_key": workload_public_key,
-                        "audience": audience,
-                        "expires_at": expires_at,
-                    }),
-                );
-            vault.save()?;
-            crate::runtime::audit::append(
-                "token-mint",
-                &json!({
-                    "consumer": consumer,
-                    "capabilities": capabilities,
-                    "workload_bound": workload_public_key.is_some(),
-                    "audience": audience,
-                    "expires_at": expires_at,
-                }),
-            )?;
-            Ok(json!({
-                "ok": true,
-                "consumer": consumer,
+                .all(|capability| capabilities.contains(capability));
+        let replace_capabilities = flags
+            .get("replace-capabilities")
+            .is_some_and(|value| value == "true");
+        if !same_capabilities && !replace_capabilities {
+            bail!(
+                "token-mint refuses to change existing capabilities without --replace-capabilities"
+            );
+        }
+    }
+    let has_acquire = capabilities
+        .iter()
+        .any(|capability| capability.get("action").and_then(Value::as_str) == Some("acquire"));
+    if has_acquire
+        && capabilities
+            .iter()
+            .any(|capability| capability.get("action").and_then(Value::as_str) != Some("acquire"))
+    {
+        bail!("acquire capabilities cannot share a grant with direct capabilities");
+    }
+    // Driving a credential lifecycle never authorizes reading the
+    // value it rotates, so the two never share one bearer.
+    let action_of = |capability: &Value| {
+        capability
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    if capabilities
+        .iter()
+        .any(|capability| action_of(capability) == "lifecycle")
+        && capabilities
+            .iter()
+            .any(|capability| action_of(capability) == "read")
+    {
+        bail!("lifecycle capabilities cannot share a grant with read capabilities");
+    }
+    let workload_public_key = match flags.get("workload-public-key-file") {
+        Some(path) => Some(read_workload_public_key(Path::new(path))?),
+        None if has_acquire => {
+            bail!("acquire capabilities require --workload-public-key-file")
+        }
+        None => None,
+    };
+    if !has_acquire && workload_public_key.is_some() {
+        bail!("workload public keys are valid only for acquire capabilities");
+    }
+    let ttl_seconds: u64 = flags
+        .get("ttl-seconds")
+        .map(String::as_str)
+        .unwrap_or("2592000")
+        .parse()
+        .context("--ttl-seconds must be an integer")?;
+    if ttl_seconds == u64::MIN {
+        bail!("--ttl-seconds must be positive");
+    }
+    let expires_at = now_epoch()?
+        .checked_add(ttl_seconds)
+        .context("grant expiry overflow")?;
+    let supplied_token = flags
+        .get("token-file")
+        .map(|path| read_fixed_token(Path::new(path)))
+        .transpose()?;
+    if has_acquire && supplied_token.is_some() {
+        bail!("acquire capabilities cannot use --token-file");
+    }
+    let generated_token = if has_acquire || supplied_token.is_some() {
+        None
+    } else {
+        Some(crypto::random_token()?)
+    };
+    let stored_token = supplied_token.as_deref().or(generated_token.as_deref());
+    let hash = match stored_token {
+        Some(token) => json!(crypto::sha256_hex(token)?),
+        None => Value::Null,
+    };
+    let audience = flags
+        .get("audience")
+        .map(String::as_str)
+        .unwrap_or(consumer);
+    vault
+        .doc_mut()
+        .get_mut("tokens")
+        .and_then(Value::as_object_mut)
+        .context("tokens section")?
+        .insert(
+            consumer.to_string(),
+            json!({
+                "hash": hash,
                 "capabilities": capabilities,
-                "workload_bound": workload_public_key.is_some(),
+                "workload_public_key": workload_public_key,
                 "audience": audience,
                 "expires_at": expires_at,
-                "token": generated_token,
-            }))
+            }),
+        );
+    vault.save()?;
+    crate::runtime::audit::append(
+        "token-mint",
+        &json!({
+            "consumer": consumer,
+            "capabilities": capabilities,
+            "workload_bound": workload_public_key.is_some(),
+            "audience": audience,
+            "expires_at": expires_at,
+        }),
+    )?;
+    Ok(json!({
+        "ok": true,
+        "consumer": consumer,
+        "capabilities": capabilities,
+        "workload_bound": workload_public_key.is_some(),
+        "audience": audience,
+        "expires_at": expires_at,
+        "token": generated_token,
+    }))
 }
 
 pub fn dispatch(
@@ -697,8 +697,7 @@ pub fn dispatch(
                 match mint_once(consumer, flags, attempt) {
                     Ok(report) => return Ok(Some(report)),
                     Err(error)
-                        if error.to_string().contains("changed concurrently")
-                            && attempt < 5 =>
+                        if error.to_string().contains("changed concurrently") && attempt < 5 =>
                     {
                         std::thread::sleep(std::time::Duration::from_millis(
                             150 * u64::from(attempt),
