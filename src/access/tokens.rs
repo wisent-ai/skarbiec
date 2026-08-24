@@ -603,6 +603,73 @@ fn mint_once(
     }))
 }
 
+fn ensure_read_once(
+    consumer: &str,
+    item: &str,
+    field: &str,
+    token_file: &Path,
+) -> Result<Value> {
+    if !exact_component(consumer) || !exact_resource(item) || !exact_component(field) {
+        bail!("token-ensure-read requires exact consumer, item, and field names");
+    }
+    let mut vault = load()?;
+    let mut requested = parse_capabilities(&vault, &format!("read:{item}#{field}"), &[])?;
+    let capability = requested
+        .pop()
+        .context("token-ensure-read produced no capability")?;
+    let bearer = read_fixed_token(token_file)?;
+    let presented_hash = crypto::sha256_hex(&bearer)?;
+    let existing = vault
+        .doc()
+        .get("tokens")
+        .and_then(Value::as_object)
+        .and_then(|tokens| tokens.get(consumer))
+        .context("consumer has no existing grant")?;
+    if !active(existing) {
+        bail!("consumer grant is expired or inactive");
+    }
+    if existing.get("hash").and_then(Value::as_str) != Some(&presented_hash) {
+        bail!("token file does not match the consumer's recorded bearer");
+    }
+    let already_present = existing
+        .get("capabilities")
+        .and_then(Value::as_array)
+        .context("existing grant is not v2; run migrate-v2 first")?
+        .contains(&capability);
+    if already_present {
+        return Ok(json!({
+            "ok": true,
+            "consumer": consumer,
+            "capability": capability,
+            "status": "unchanged",
+        }));
+    }
+    vault
+        .doc_mut()
+        .get_mut("tokens")
+        .and_then(Value::as_object_mut)
+        .and_then(|tokens| tokens.get_mut(consumer))
+        .and_then(|grant| grant.get_mut("capabilities"))
+        .and_then(Value::as_array_mut)
+        .context("existing grant is not v2; run migrate-v2 first")?
+        .push(capability.clone());
+    vault.save()?;
+    crate::runtime::audit::append(
+        "token-ensure-read",
+        &json!({
+            "consumer": consumer,
+            "item": item,
+            "field": field,
+        }),
+    )?;
+    Ok(json!({
+        "ok": true,
+        "consumer": consumer,
+        "capability": capability,
+        "status": "added",
+    }))
+}
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -697,6 +764,34 @@ pub fn dispatch(
                 "registered": registrations.len(),
                 "expires_at": expires_at,
             })))
+        }
+        "token-ensure-read" => {
+            let consumer = positionals.first().context(
+                "usage: token-ensure-read <consumer> <item> --field <field> --token-file <path>",
+            )?;
+            let item = positionals.get(std::iter::once(()).count()).context(
+                "usage: token-ensure-read <consumer> <item> --field <field> --token-file <path>",
+            )?;
+            let field = flags.get("field").context("--field is required")?;
+            let token_file = flags
+                .get("token-file")
+                .map(Path::new)
+                .context("--token-file is required")?;
+            let mut attempt = 0u32;
+            loop {
+                attempt += 1;
+                match ensure_read_once(consumer, item, field, token_file) {
+                    Ok(report) => return Ok(Some(report)),
+                    Err(error)
+                        if error.to_string().contains("changed concurrently") && attempt < 5 =>
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            150 * u64::from(attempt),
+                        ));
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
         }
         "token-mint" => {
             let consumer = positionals
