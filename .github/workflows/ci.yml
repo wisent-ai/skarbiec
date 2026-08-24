@@ -15,7 +15,7 @@ jobs:
 
   evidence:
     needs: gates
-    uses: wisent-ai/quality-control/.github/workflows/probierz-kronika.yml@aa232f530baa4be8bb804e741d1a104ad859814a
+    uses: wisent-ai/quality-control/.github/workflows/probierz-kronika.yml@6c338b515ce3d601db68308ec3cd6826cce547ac
     with:
       app-id: skarbiec
       target: tui
