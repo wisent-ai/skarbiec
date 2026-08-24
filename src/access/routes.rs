@@ -42,6 +42,16 @@ use serde_json::{json, Map, Value};
 const MAX_RESOURCE_CHARS: usize = 512;
 const MAX_NAME_CHARS: usize = 128;
 const MAX_REASON_CHARS: usize = 512;
+const ROUTED_PREFIXES: &[&str] = &["provider:", "agent:"];
+const CREDENTIAL_FIELDS: &[&str] = &[
+    "api_key",
+    "token",
+    "access_token",
+    "apiKey",
+    "key",
+    "secret",
+    "value",
+];
 
 const STAMP_FORMAT: &str = "+%Y%m%dT%H%M%SZ";
 const ISO_FORMAT: &str = "+%Y-%m-%dT%H:%M:%SZ";
@@ -60,6 +70,7 @@ pub fn dispatch(
     let value = match subcommand {
         "list" => list(consumer)?,
         "add" => add(flags)?,
+        "reconcile" => reconcile()?,
         "verify" => {
             let report = verify_report(consumer)?;
             let broken = report
@@ -78,8 +89,14 @@ pub fn dispatch(
                     .map(|entry| {
                         format!(
                             "{}: {}",
-                            entry.get("resource").and_then(Value::as_str).unwrap_or_default(),
-                            entry.get("problem").and_then(Value::as_str).unwrap_or_default()
+                            entry
+                                .get("resource")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default(),
+                            entry
+                                .get("problem")
+                                .and_then(Value::as_str)
+                                .unwrap_or_default()
                         )
                     })
                     .collect();
@@ -96,9 +113,10 @@ pub fn dispatch(
             "commands": [
                 "routes list [<consumer>]",
                 "routes add --resource <resource> --item <item> --field <field> --reason <text>",
+                "routes reconcile",
                 "routes verify [<consumer>]",
             ],
-            "usage": "routes list [<consumer>] prints every route with the vault's answer for it; routes verify [<consumer>] exits non-zero when a route names a missing item or field; routes add is idempotent, keeps the previous table beside the new one, and requires --reason. The optional <consumer> argument matches resource text and is presentation only: it narrows what is printed and grants nothing, because redemption is authorised by the live vault token that registers a workload's Ed25519 key, never by this table.",
+            "usage": "routes reconcile derives identity mappings for provider:* and agent:* items from the live vault; routes list [<consumer>] prints every route with the vault's answer for it; routes verify [<consumer>] exits non-zero when a route names a missing item or field; routes add is idempotent, keeps the previous table beside the new one, and requires --reason. The optional <consumer> argument matches resource text and is presentation only: it narrows what is printed and grants nothing, because redemption is authorised by the live vault token that registers a workload's Ed25519 key, never by this table.",
             "table": routes_path().display().to_string(),
         }),
         other => bail!("unknown routes command: {other}"),
@@ -406,6 +424,82 @@ fn add(flags: &HashMap<String, String>) -> Result<Value> {
         "field": field,
         "backup": backup,
     }))
+}
+/// Derive the mappings whose resource and item are the same vault-owned name.
+///
+/// Provider and agent resources are minted from item ids, so these mappings
+/// contain no operator choice: `provider:x` means the item named `provider:x`.
+/// Skarbiec also owns the item schema and can select its credential field. An
+/// item with no single credential field is reported and left untouched. Existing
+/// routes are never repointed.
+fn reconcile() -> Result<Value> {
+    let path = routes_path();
+    let mut table = if path.exists() { load()? } else { Map::new() };
+    let vault = Vault::open(vault_path())?;
+    let items = vault
+        .doc()
+        .get("items")
+        .and_then(Value::as_object)
+        .context("vault items section is not an object")?;
+    let mut ids: Vec<&String> = items
+        .iter()
+        .filter(|(id, record)| {
+            ROUTED_PREFIXES.iter().any(|prefix| id.starts_with(prefix))
+                && record.get("state").and_then(Value::as_str) != Some("trashed")
+        })
+        .map(|(id, _)| id)
+        .collect();
+    ids.sort();
+
+    let mut added = Vec::new();
+    let mut skipped = Vec::new();
+    for id in ids {
+        if table.contains_key(id) {
+            continue;
+        }
+        let payload = match vault.get_item(id) {
+            Ok(payload) => payload,
+            Err(error) => {
+                skipped.push(json!({"resource": id, "problem": error.to_string()}));
+                continue;
+            }
+        };
+        let Some(fields) = payload.get("fields").and_then(Value::as_object) else {
+            skipped.push(json!({"resource": id, "problem": "item carries no fields object"}));
+            continue;
+        };
+        let candidates: Vec<&str> = CREDENTIAL_FIELDS
+            .iter()
+            .copied()
+            .filter(|name| fields.get(*name).is_some_and(Value::is_string))
+            .collect();
+        let [field] = candidates.as_slice() else {
+            skipped.push(json!({
+                "resource": id,
+                "problem": format!("item has {} credential fields: {}", candidates.len(), candidates.join(", ")),
+            }));
+            continue;
+        };
+        table.insert(id.clone(), json!({"item": id, "field": field}));
+        added.push(json!({"resource": id, "item": id, "field": field}));
+    }
+
+    let backup = if added.is_empty() {
+        None
+    } else {
+        publish(&path, &Value::Object(table))?
+    };
+    if !added.is_empty() {
+        let record = json!({
+            "at": utc(ISO_FORMAT),
+            "operation": "reconcile",
+            "added": added,
+            "backup": backup,
+        });
+        append_beside(&path, &record)?;
+        crate::runtime::audit::append_sync("capability-routes-reconciled", &record)?;
+    }
+    Ok(json!({"added": added, "skipped": skipped, "backup": backup}))
 }
 
 /// Refuse a table that cannot deliver what it promises.
