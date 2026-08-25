@@ -80,10 +80,14 @@ jobs:
       - name: Submit the committed version to Stado
         shell: bash
         env:
-          STADO_BIN: ${{ github.workspace }}/stado-source/stado-rs/target/release/stado
+          STADO_BIN: ${{ runner.temp }}/stado-release-client
+          STADO_CONFIG: /Users/charles/.config/stado/config.json
         run: |
           set -euo pipefail
-          export STADO_CONFIG="${STADO_CONFIG:-$HOME/.config/stado/config.json}"
+          cp stado-source/stado-rs/target/release/stado "$STADO_BIN"
+          chmod 0755 "$STADO_BIN"
+          rm -rf stado-source
+          test -r "$STADO_CONFIG"
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           test -n "$version"
           "$STADO_BIN" release submit \
