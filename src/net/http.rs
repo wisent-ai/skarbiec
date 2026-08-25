@@ -87,6 +87,36 @@ fn canary_item_ids(vault: &Vault) -> Vec<String> {
     canaries
 }
 
+fn readiness_check() -> Result<Vec<String>> {
+    crate::runtime::audit::probe().context("audit journal is not writable")?;
+    let vault = load().context("vault is unreadable")?;
+    let canaries = canary_item_ids(&vault);
+    for id in &canaries {
+        vault
+            .get_item(id)
+            .with_context(|| format!("stored item {id} cannot be decrypted"))?;
+    }
+    Ok(canaries)
+}
+
+fn start_readiness_monitor() -> Result<()> {
+    let seconds = std::env::var("SKARBIEC_READINESS_INTERVAL_SECONDS")
+        .ok()
+        .and_then(|raw| raw.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(60);
+    std::thread::Builder::new()
+        .name("skarbiec-readiness".to_string())
+        .spawn(move || loop {
+            if let Err(error) = readiness_check() {
+                eprintln!("skarbiec readiness monitor: {error:#}");
+            }
+            std::thread::sleep(std::time::Duration::from_secs(seconds));
+        })
+        .context("spawn Skarbiec readiness monitor")?;
+    Ok(())
+}
+
 /// Operator-facing failure text, length-capped.
 ///
 /// A gpg failure names key ids and recipient uids, which is exactly what an
@@ -227,17 +257,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         );
     }
     if method == "GET" && matches!(path.as_str(), "/health" | "/readyz") {
-        let readiness = (|| -> Result<Vec<String>> {
-            crate::runtime::audit::probe().context("audit journal is not writable")?;
-            let vault = load().context("vault is unreadable")?;
-            let canaries = canary_item_ids(&vault);
-            for id in &canaries {
-                vault
-                    .get_item(id)
-                    .with_context(|| format!("stored item {id} cannot be decrypted"))?;
-            }
-            Ok(canaries)
-        })();
+        let readiness = readiness_check();
         let (crypto_active, crypto_limit, gpg_active, gpg_limit) =
             crate::core::crypto::executor_status();
         match readiness {
@@ -487,6 +507,7 @@ pub fn dispatch(
                 TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
             let requests = RequestPool::new()?;
             crate::runtime::audit::append("serve", &json!({"address": address}))?;
+            start_readiness_monitor()?;
             eprintln!("skarbiec API listening on http://{address} (loopback only)");
             for incoming in listener.incoming() {
                 match incoming {

@@ -94,8 +94,43 @@ fn execution_timeout() -> Duration {
 
 // One bounded subprocess seam for every cryptographic tool. Output pipes are
 // drained concurrently, every child has a deadline, and timed-out children are
-// killed and reaped before capacity is returned to another request.
+// killed and reaped before capacity is returned to another request. A gpg
+// keybox failure gets one bounded daemon recovery and one retry.
 fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
+    let first = run_once(program, args, input);
+    let Err(first_error) = first else {
+        return first;
+    };
+    if program != "gpg" || !keybox_failure(&first_error.to_string()) {
+        return Err(first_error);
+    }
+    recover_keybox().context("recover gpg keybox after cryptographic operation failed")?;
+    run_once(program, args, input).with_context(|| {
+        format!("gpg retry failed after keybox recovery; initial error: {first_error}")
+    })
+}
+
+fn keybox_failure(detail: &str) -> bool {
+    let detail = detail.to_ascii_lowercase();
+    [
+        "keyboxd",
+        "keybox daemon",
+        "no keybox daemon running",
+        "resource temporarily unavailable",
+        "too many open files",
+    ]
+    .iter()
+    .any(|needle| detail.contains(needle))
+}
+
+fn recover_keybox() -> Result<()> {
+    let _ = run_once("gpgconf", &["--kill", "keyboxd"], None);
+    run_once("gpgconf", &["--launch", "keyboxd"], None)?;
+    run_once("gpgconf", &["--launch", "gpg-agent"], None)?;
+    Ok(())
+}
+
+fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
     let _capacity = CRYPTO_LIMIT.acquire();
     let _gpg_capacity = (program == "gpg").then(|| GPG_LIMIT.acquire());
     let mut child = Command::new(program)
@@ -240,24 +275,49 @@ pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
 
 /// Decrypt using whatever private key in the local keyring applies (gpg-agent).
 /// A protected vault can receive its unlock phrase through `SKARBIEC_UNLOCK`
-/// for a single invocation or an owner-only file named by
-/// `SKARBIEC_UNLOCK_FILE` for a persistent service. The phrase is handed to
-/// gpg over stdin, never argv. With neither source, an unprotected key decrypts
-/// normally while a protected key fails without opening an interactive prompt.
+/// for a single invocation, an owner-only file named by
+/// `SKARBIEC_UNLOCK_FILE`, or the persistent service default
+/// `$HOME/.stado/skarbiec-unlock`. The phrase is handed to gpg over stdin,
+/// never argv. With no phrase, an unprotected key decrypts normally while a
+/// protected key fails without opening an interactive prompt.
 fn unlock_phrase() -> Result<Option<String>> {
     if let Ok(phrase) = std::env::var("SKARBIEC_UNLOCK") {
         if !phrase.is_empty() {
             return Ok(Some(phrase));
         }
     }
-    let Ok(path) = std::env::var("SKARBIEC_UNLOCK_FILE") else {
-        return Ok(None);
+    let path = match std::env::var("SKARBIEC_UNLOCK_FILE") {
+        Ok(path) if !path.trim().is_empty() => std::path::PathBuf::from(path),
+        _ => {
+            let Some(home) = std::env::var_os("HOME") else {
+                return Ok(None);
+            };
+            let candidate = std::path::PathBuf::from(home)
+                .join(".stado")
+                .join("skarbiec-unlock");
+            if !candidate.is_file() {
+                return Ok(None);
+            }
+            candidate
+        }
     };
-    if path.trim().is_empty() {
-        return Ok(None);
+    let metadata = std::fs::symlink_metadata(&path)
+        .with_context(|| format!("inspect Skarbiec unlock file {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            anyhow::bail!(
+                "Skarbiec unlock file {} must be a regular file",
+                path.display()
+            );
+        }
+        if metadata.permissions().mode() & 0o077 != 0 {
+            anyhow::bail!("Skarbiec unlock file {} must be mode 0600", path.display());
+        }
     }
     let phrase = std::fs::read_to_string(&path)
-        .with_context(|| format!("read Skarbiec unlock file {path}"))?;
+        .with_context(|| format!("read Skarbiec unlock file {}", path.display()))?;
     let phrase = phrase.trim_end().to_string();
     Ok((!phrase.is_empty()).then_some(phrase))
 }
