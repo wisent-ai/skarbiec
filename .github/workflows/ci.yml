@@ -49,11 +49,13 @@ jobs:
       contents: write
 
   deploy:
-    # A green main commit is not a deployment. Hand the exact committed tree
-    # to Stado so its signed release, desired state and host reconciler remain
-    # the one delivery path instead of leaving a newer binary only on GitHub.
+    # Skarbiec is below Brama in the dependency graph. Kronika reaches Brama,
+    # and Brama reaches Skarbiec for capabilities, so making deployment wait
+    # for the combined evidence job deadlocks the repair path when Skarbiec is
+    # degraded. Stado runs the release manifest's own qualification; the
+    # independent public tag still waits for the full evidence job.
     if: github.ref == 'refs/heads/main'
-    needs: evidence
+    needs: gates
     runs-on: [self-hosted, macOS, ARM64, stado-precheck]
     concurrency:
       group: skarbiec-stable-release
