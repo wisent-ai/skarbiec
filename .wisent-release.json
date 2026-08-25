@@ -57,7 +57,8 @@
         "stage/NOTICE": "NOTICE",
         "stage/TRADEMARKS.md": "TRADEMARKS.md"
       },
-      "runner_platform": "linux-amd64"
+      "runner_platform": "linux-amd64",
+      "required": false
     }
   },
   "runtime": {
