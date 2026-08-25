@@ -48,6 +48,31 @@ jobs:
     permissions:
       contents: write
 
+  deploy:
+    # A green main commit is not a deployment. Hand the exact committed tree
+    # to Stado so its signed release, desired state and host reconciler remain
+    # the one delivery path instead of leaving a newer binary only on GitHub.
+    if: github.ref == 'refs/heads/main'
+    needs: evidence
+    runs-on: [self-hosted, macOS, ARM64, stado-precheck]
+    concurrency:
+      group: skarbiec-stable-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Submit the committed version to Stado
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          test -n "$version"
+          stado release submit \
+            --source "$GITHUB_WORKSPACE" \
+            --version "$version" \
+            --channel stable
+
   build:
     # Everything below is about publishing a tag, and none of it runs
     # otherwise. The untagged build lives in the shared gates now, so an
