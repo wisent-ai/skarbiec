@@ -49,6 +49,11 @@ jobs:
       contents: write
 
   deploy:
+    # Submission belongs on the Stado control plane: it owns the release store,
+    # signing route and target reconciliation. The former `stado-release` label
+    # described a runner that was never registered, so every successful main
+    # build waited forever without executing a single deployment step.
+    #
     # Skarbiec is below Brama in the dependency graph. Kronika reaches Brama,
     # and Brama reaches Skarbiec for capabilities, so making deployment wait
     # for the combined evidence job deadlocks the repair path when Skarbiec is
@@ -56,7 +61,7 @@ jobs:
     # independent public tag still waits for the full evidence job.
     if: github.ref == 'refs/heads/main'
     needs: gates
-    runs-on: [self-hosted, macOS, ARM64, stado-release]
+    runs-on: [self-hosted, stado-control-plane]
     concurrency:
       group: skarbiec-stable-release
       cancel-in-progress: false
@@ -81,7 +86,7 @@ jobs:
         shell: bash
         env:
           STADO_BIN: ${{ runner.temp }}/stado-release-client
-          STADO_CONFIG: /Users/charles/.config/stado/config.json
+          STADO_CONFIG: ${{ vars.STADO_CONFIG_PATH }}
         run: |
           set -euo pipefail
           cp stado-source/stado-rs/target/release/stado "$STADO_BIN"
