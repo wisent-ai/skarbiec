@@ -49,10 +49,10 @@ jobs:
       contents: write
 
   deploy:
-    # Submission belongs on the Stado control plane: it owns the release store,
-    # signing route and target reconciliation. The former `stado-release` label
-    # described a runner that was never registered, so every successful main
-    # build waited forever without executing a single deployment step.
+    # Submission uses Stado's authenticated public release API. The previous
+    # self-hosted label named a repository-scoped runner owned by Stado, so
+    # GitHub could never assign it to this repository and every deployment
+    # stayed queued before its first step.
     #
     # Skarbiec is below Brama in the dependency graph. Kronika reaches Brama,
     # and Brama reaches Skarbiec for capabilities, so making deployment wait
@@ -61,7 +61,7 @@ jobs:
     # independent public tag still waits for the full evidence job.
     if: github.ref == 'refs/heads/main'
     needs: gates
-    runs-on: [self-hosted, stado-control-plane]
+    runs-on: ubuntu-latest
     concurrency:
       group: skarbiec-stable-release
       cancel-in-progress: false
@@ -69,13 +69,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      # The runner label selects capacity, not a shell PATH. Build the exact
-      # Stado client this workflow was reviewed against so deployment does not
-      # depend on mutable, untracked host state.
+      # Build the exact Stado client this workflow was reviewed against rather
+      # than depending on mutable runner state.
       - uses: actions/checkout@v4
         with:
           repository: wisent-ai/stado
-          ref: d08b4d75d419dccc303eddcb44dead97d8cc5276
+          ref: e2abcb49c8e4e5f9781285c96c9426b04b88bfd9
           path: stado-source
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
@@ -86,13 +85,13 @@ jobs:
         shell: bash
         env:
           STADO_BIN: ${{ runner.temp }}/stado-release-client
-          STADO_CONFIG: ${{ vars.STADO_CONFIG_PATH }}
+          STADO_API_URL: ${{ vars.STADO_RELEASE_API_URL }}
+          STADO_API_TOKEN: ${{ secrets.STADO_RELEASE_PUBLISHER_TOKEN }}
         run: |
           set -euo pipefail
           cp stado-source/stado-rs/target/release/stado "$STADO_BIN"
           chmod 0755 "$STADO_BIN"
           rm -rf stado-source
-          test -r "$STADO_CONFIG"
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           test -n "$version"
           "$STADO_BIN" release submit \
