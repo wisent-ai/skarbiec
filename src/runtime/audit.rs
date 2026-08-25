@@ -106,6 +106,7 @@ fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .mode(0o600)
         .open(&lock_path)
         .with_context(|| format!("open audit journal lock {}", lock_path.display()))?;
