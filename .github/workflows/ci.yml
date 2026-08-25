@@ -56,7 +56,7 @@ jobs:
     # independent public tag still waits for the full evidence job.
     if: github.ref == 'refs/heads/main'
     needs: gates
-    runs-on: [self-hosted, macOS, ARM64, stado-precheck]
+    runs-on: [self-hosted, macOS, ARM64, stado-release]
     concurrency:
       group: skarbiec-stable-release
       cancel-in-progress: false
