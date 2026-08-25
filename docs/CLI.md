@@ -879,19 +879,18 @@ never by a name matched here.
 | --- | --- |
 | `audit [--limit N]` | Print the append-only journal, oldest first. `--limit` returns only the final N, read from the file's tail instead of parsing the whole journal. |
 | `audit-query [--op OP] [--consumer ID] [--item ID] [--since ISO] [--until ISO] [--limit N]` | Query local provenance by operation, workload consumer, item, and time window. Returns the newest matching bounded slice in chronological order. |
+| `audit-epoch-start --reason TEXT` | Preserve a broken journal, sign a checkpoint with the vault owner key, and start a new verifiable epoch without rewriting historical lines. Refuses an intact journal. |
 | `verify-chain [--tail N]` | Verify the hash chain and name the journal verified. |
 
-`verify-chain` reports two properties apart, because they fail for different
-reasons and cost different amounts:
+`verify-chain` reports three properties apart:
 
-- **Linkage** — each line's recorded predecessor is the line before it. Two
-  string comparisons, so it always covers the whole journal. This is what a
-  second process breaks when it appends against a tail another process has
-  already moved.
-- **Digests** — the line's own fields still hash to the hash it carries. This
-  is what a retroactive edit breaks, and it costs one `shasum` process per
-  line: a 75,000-entry journal takes about fifteen minutes. `--tail N` bounds
-  it to the newest N lines.
+- **Linkage** — each ordinary line names the prior line; an epoch line names the
+  prior period's tail in its signed checkpoint and begins from an empty `prev`.
+- **Epoch signature** — every epoch checkpoint must open under GPG and its
+  cleartext must exactly match the checkpoint stored in the journal line.
+- **Digests** — each line's fields still hash to the hash it carries. SHA-256 is
+  computed in-process, so verification does not create one subprocess per line;
+  `--tail N` still bounds how many digests are recomputed.
 
 Neither scan stops at the first fault, and the report names the file it read.
 That matters more than it sounds: this binary's default journal

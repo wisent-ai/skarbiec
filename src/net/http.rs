@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::{mpsc, Arc, Mutex};
 use wisent_errors::Code;
 
 use crate::access::tokens;
@@ -22,6 +23,19 @@ use crate::net::operator;
 
 const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
+const DEFAULT_HTTP_WORKERS: usize = 16;
+const DEFAULT_HTTP_QUEUE: usize = 32;
+const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
+const MAX_HEADER_BYTES: usize = 32 * 1024;
+const MAX_BODY_BYTES: usize = 1024 * 1024;
+
+fn configured_usize(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
 
 pub(crate) fn load() -> Result<Vault> {
     Vault::open(vault_path())
@@ -42,14 +56,35 @@ pub(crate) fn presented_identity(headers: &HashMap<String, String>) -> (String, 
 /// Deterministic (lowest id among live items) so repeated probes exercise the
 /// same ciphertext and a passing probe means the same thing every time. Only
 /// the id is returned; the caller decrypts and drops the value.
-fn canary_item_id(vault: &Vault) -> Option<String> {
+fn canary_item_ids(vault: &Vault) -> Vec<String> {
     let mut ids: Vec<String> = vault
         .list(false)
         .iter()
         .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
         .collect();
     ids.sort();
-    ids.into_iter().next()
+    let mut canaries = Vec::new();
+    if let Some(first) = ids.first() {
+        canaries.push(first.clone());
+    }
+    if let Some(last) = ids.last() {
+        if !canaries.contains(last) {
+            canaries.push(last.clone());
+        }
+    }
+    for configured in std::env::var("SKARBIEC_READINESS_ITEMS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+    {
+        if ids.iter().any(|item| item == configured)
+            && !canaries.iter().any(|item| item == configured)
+        {
+            canaries.push(configured.to_string());
+        }
+    }
+    canaries
 }
 
 /// Operator-facing failure text, length-capped.
@@ -106,10 +141,25 @@ fn is_mutation(method: &str, path: &str) -> bool {
     )
 }
 
+fn read_line_bounded(reader: &mut BufReader<TcpStream>, maximum: usize) -> Result<Option<String>> {
+    let mut line = String::new();
+    let read = reader
+        .take(u64::try_from(maximum.saturating_add(1))?)
+        .read_line(&mut line)?;
+    if read == 0 {
+        return Ok(None);
+    }
+    if read > maximum || !line.ends_with('\n') {
+        anyhow::bail!("request line exceeds {maximum} bytes");
+    }
+    Ok(Some(line))
+}
+
 fn handle(mut stream: TcpStream) -> Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let mut request_line = String::new();
-    reader.read_line(&mut request_line)?;
+    let Some(request_line) = read_line_bounded(&mut reader, MAX_REQUEST_LINE_BYTES)? else {
+        return Ok(());
+    };
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("").to_string();
     let path = parts.next().unwrap_or("").to_string();
@@ -121,9 +171,20 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     });
 
     let mut headers: HashMap<String, String> = HashMap::new();
+    let mut header_bytes = 0usize;
     loop {
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
+        let remaining = MAX_HEADER_BYTES.saturating_sub(header_bytes);
+        if remaining == 0 {
+            return write_response(
+                &mut stream,
+                "HTTP/1.1 431 Request Header Fields Too Large",
+                &json!({"error": "request headers too large"}),
+            );
+        }
+        let Some(line) = read_line_bounded(&mut reader, remaining)? else {
+            anyhow::bail!("request ended before headers");
+        };
+        header_bytes = header_bytes.saturating_add(line.len());
         if line.trim().is_empty() {
             break;
         }
@@ -131,10 +192,17 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             headers.insert(k.trim().to_lowercase(), v.trim().to_string());
         }
     }
-    let body_len: usize = headers
-        .get("content-length")
-        .and_then(|v| v.parse().ok())
-        .unwrap_or_default();
+    let body_len = match headers.get("content-length") {
+        Some(value) => value.parse::<usize>().context("invalid content-length")?,
+        None => 0,
+    };
+    if body_len > MAX_BODY_BYTES {
+        return write_response(
+            &mut stream,
+            "HTTP/1.1 413 Content Too Large",
+            &json!({"error": "request body too large"}),
+        );
+    }
     let mut body_buf = vec![Default::default(); body_len];
     reader.read_exact(&mut body_buf)?;
     let body = String::from_utf8_lossy(&body_buf).into_owned();
@@ -151,37 +219,61 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     if operator::handle(&mut stream, &method, &path, &body)? {
         return Ok(());
     }
-    if method == "GET" && path == "/health" {
-        // The probe opens one vault item and drops the plaintext: a broker
-        // holding ciphertext it can no longer decrypt must report unhealthy,
-        // not ok. Recipients are vault-wide, so one item settles it.
-        let (ready, detail) = match load() {
-            Err(error) => (false, format!("vault is unreadable: {error}")),
-            Ok(vault) => match canary_item_id(&vault) {
-                None => (true, "vault holds no items to probe".to_string()),
-                Some(id) => match vault.get_item(&id) {
-                    Ok(_) => (true, String::new()),
-                    Err(error) => (false, format!("stored items cannot be decrypted: {error}")),
-                },
-            },
-        };
-        if !ready {
-            return write_response(
+    if method == "GET" && path == "/livez" {
+        return write_response(
+            &mut stream,
+            ok_line,
+            &json!({"ok": true, "service": "skarbiec"}),
+        );
+    }
+    if method == "GET" && matches!(path.as_str(), "/health" | "/readyz") {
+        let readiness = (|| -> Result<Vec<String>> {
+            crate::runtime::audit::probe().context("audit journal is not writable")?;
+            let vault = load().context("vault is unreadable")?;
+            let canaries = canary_item_ids(&vault);
+            for id in &canaries {
+                vault
+                    .get_item(id)
+                    .with_context(|| format!("stored item {id} cannot be decrypted"))?;
+            }
+            Ok(canaries)
+        })();
+        let (crypto_active, crypto_limit, gpg_active, gpg_limit) =
+            crate::core::crypto::executor_status();
+        match readiness {
+            Err(error) => write_response(
                 &mut stream,
                 unavailable_line,
                 &json!({
                     "ok": false,
                     "service": "skarbiec",
                     "error_code": Code::InfraDown.as_str(),
-                    "detail": bounded_detail(&detail),
+                    "detail": bounded_detail(&error.to_string()),
+                    "crypto": {
+                        "active": crypto_active,
+                        "limit": crypto_limit,
+                        "gpg_active": gpg_active,
+                        "gpg_limit": gpg_limit,
+                    },
                 }),
-            );
-        }
-        return write_response(
-            &mut stream,
-            ok_line,
-            &json!({"ok": true, "service": "skarbiec"}),
-        );
+            ),
+            Ok(canaries) => write_response(
+                &mut stream,
+                ok_line,
+                &json!({
+                    "ok": true,
+                    "service": "skarbiec",
+                    "canaries": canaries,
+                    "crypto": {
+                        "active": crypto_active,
+                        "limit": crypto_limit,
+                        "gpg_active": gpg_active,
+                        "gpg_limit": gpg_limit,
+                    },
+                }),
+            ),
+        }?;
+        return Ok(());
     }
     if method == "GET" && path == "/list" {
         let vault = load()?;
@@ -319,6 +411,66 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     write_response(&mut stream, missing_line, &json!({"error": "not found"}))
 }
 
+struct RequestPool {
+    sender: mpsc::SyncSender<TcpStream>,
+}
+
+impl RequestPool {
+    fn new() -> Result<Self> {
+        let workers = configured_usize("SKARBIEC_HTTP_WORKERS", DEFAULT_HTTP_WORKERS);
+        let queue = configured_usize("SKARBIEC_HTTP_QUEUE", DEFAULT_HTTP_QUEUE);
+        let (sender, receiver) = mpsc::sync_channel::<TcpStream>(queue);
+        let receiver = Arc::new(Mutex::new(receiver));
+        for index in 0..workers {
+            let receiver = Arc::clone(&receiver);
+            std::thread::Builder::new()
+                .name(format!("skarbiec-http-{index}"))
+                .spawn(move || loop {
+                    let next = receiver
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .recv();
+                    let Ok(stream) = next else {
+                        break;
+                    };
+                    if let Err(error) = handle(stream) {
+                        eprintln!("request error: {error}");
+                    }
+                })
+                .context("spawn bounded HTTP worker")?;
+        }
+        Ok(Self { sender })
+    }
+
+    fn submit(&self, stream: TcpStream) {
+        match self.sender.try_send(stream) {
+            Ok(()) => {}
+            Err(mpsc::TrySendError::Full(mut stream)) => {
+                let _ = write_response(
+                    &mut stream,
+                    "HTTP/1.1 503 Service Unavailable",
+                    &json!({
+                        "error": "skarbiec request capacity exhausted",
+                        "error_code": Code::RateLimit.as_str(),
+                        "retryable": true,
+                    }),
+                );
+            }
+            Err(mpsc::TrySendError::Disconnected(mut stream)) => {
+                let _ = write_response(
+                    &mut stream,
+                    "HTTP/1.1 503 Service Unavailable",
+                    &json!({
+                        "error": "skarbiec request workers unavailable",
+                        "error_code": Code::InfraDown.as_str(),
+                        "retryable": false,
+                    }),
+                );
+            }
+        }
+    }
+}
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -333,20 +485,11 @@ pub fn dispatch(
             let address = format!("{LOOPBACK}:{port}");
             let listener =
                 TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
+            let requests = RequestPool::new()?;
             crate::runtime::audit::append("serve", &json!({"address": address}))?;
             eprintln!("skarbiec API listening on http://{address} (loopback only)");
             for incoming in listener.incoming() {
                 match incoming {
-                    // Thread per connection so a slow handler never queues
-                    // every consumer; mutating routes take WRITE_LOCK inside.
-                    //
-                    // Both socket directions carry a deadline. Without one, a
-                    // client that connects and never finishes its request left
-                    // `read_line` blocked forever, and every such connection
-                    // held a thread plus two descriptors (the stream and its
-                    // BufReader clone). Under the fleet's polling consumers
-                    // that accumulated to EMFILE, at which point gpg, shasum
-                    // and openssl could no longer even be spawned.
                     Ok(stream) => {
                         let deadline =
                             std::time::Duration::from_secs("30".parse().unwrap_or_default());
@@ -357,11 +500,7 @@ pub fn dispatch(
                             eprintln!("request error: socket deadline: {e}");
                             continue;
                         }
-                        std::thread::spawn(|| {
-                            if let Err(e) = handle(stream) {
-                                eprintln!("request error: {e}");
-                            }
-                        });
+                        requests.submit(stream);
                     }
                     Err(e) => eprintln!("accept error: {e}"),
                 }

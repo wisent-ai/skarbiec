@@ -18,6 +18,11 @@ described as the first released surface rather than as a delta.
 Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
 
 ### Added
+- Added distinct `/livez` and `/readyz` probes. Readiness verifies the audit
+  writer, vault, deterministic canaries, configured canaries, and reports
+  bounded crypto-executor occupancy; `/health` remains its compatibility alias.
+- Added `audit-epoch-start --reason`, which signs the broken period's tail and
+  starts a verifiable new epoch without rewriting historical evidence.
 
 - Added `skarbiec routes list|add|reconcile|verify` (`src/access/routes.rs`),
   the command and operator-API surface over the capability routes table the
@@ -60,6 +65,15 @@ Derived from `git diff v0.1.3 HEAD` (14 commits, 68 files, +5352/-1941).
 - Added `docs/examples/acquire-one-field.sh`.
 
 ### Fixed
+- Replaced unbounded thread-per-connection serving with a fixed worker set and
+  bounded queue, capped request headers and bodies, and explicit overload
+  refusal before descriptors or cryptographic capacity are consumed.
+- Centralized external cryptographic children behind bounded global and GPG
+  limits. Every child now has a deadline and is killed and reaped on timeout.
+- Replaced stale lock files and best-effort background audit writes with a
+  kernel-owned cross-process lock and synchronous, flushed appends. Journal
+  SHA-256 and timestamps now run in-process, removing subprocess amplification
+  from every secret read.
 
 - The `item-write` journal entry added to name the process behind a vault write
   named nobody, so the two subscription items whose enumeration tags kept

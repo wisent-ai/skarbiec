@@ -55,15 +55,14 @@ live and what to do.
 
 ## Verifying the chain
 
-`verify-chain` checks two properties that fail for different reasons and
-cost wildly different amounts (`chain_report`):
+`verify-chain` checks three properties:
 
-- **Linkage** — each line's `prev` is the line before it. String
-  comparison, always covers the whole journal. A second racing writer
-  breaks this.
+- **Linkage** — each ordinary line's `prev` is the line before it.
+- **Epoch signature** — a new period carries a GPG-signed checkpoint naming the
+  prior tail, so historical damage is preserved rather than rewritten.
 - **Digest** — each line's fields still hash to the `hash` it carries. A
-  retroactive edit breaks this. One `shasum` process per line, so
-  `--tail N` bounds it to the newest N lines; `doctor` uses `--tail 200`.
+  retroactive edit breaks this. SHA-256 runs in-process; `--tail N` bounds CPU
+  and disk work, and `doctor` uses `--tail 200`.
 
 Neither scan stops at the first fault — stopping is what hid seventy-two
 thousand well-formed entries behind one raced append. The report names the

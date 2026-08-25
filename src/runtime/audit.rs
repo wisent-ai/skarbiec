@@ -4,40 +4,16 @@
 // operation names and non-sensitive identifiers.
 
 use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{Read as _, Seek as _, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::LazyLock;
-use std::time::{Duration, Instant};
-
-use crate::core::crypto;
-
-// Appends are serialized across every process sharing one journal. The chain
-// is read-modify-write, so two writers that each read the same tail produce
-// two lines claiming one predecessor. That is not hypothetical: it happened
-// here on 2026-07-30T23:16:21Z, when a mutating command and an HTTP read
-// raced, and a single such line was enough to make `verify-chain` refuse the
-// whole record. A process-wide mutex cannot see the other process, so the
-// critical section is a lock file beside the journal and the predecessor is
-// always re-read from disk inside it. High-frequency read paths enqueue
-// entries on a channel that one worker thread journals; mutating operations
-// call `append_sync` so their evidence is durable before the response
-// returns.
-static QUEUE: LazyLock<std::sync::mpsc::Sender<(String, Value)>> = LazyLock::new(|| {
-    let (tx, rx) = std::sync::mpsc::channel::<(String, Value)>();
-    std::thread::spawn(move || {
-        while let Ok((op, extra)) = rx.recv() {
-            if let Err(error) = append_sync(&op, &extra) {
-                eprintln!("audit append failed: {error}");
-            }
-        }
-    });
-    tx
-});
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 fn audit_path() -> PathBuf {
     if let Ok(p) = std::env::var("SKARBIEC_AUDIT_FILE") {
@@ -50,12 +26,8 @@ fn audit_path() -> PathBuf {
 }
 
 fn now_iso() -> String {
-    Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
+    OffsetDateTime::now_utc()
+        .format(&Rfc3339)
         .unwrap_or_default()
 }
 
@@ -82,6 +54,11 @@ fn digest_input(prev: &str, at: &str, op: &str, extra: &Value) -> String {
 
 /// Read only the journal's tail: the hash of the last complete line. Seeks to
 /// the final window instead of parsing the whole file on every request.
+fn sha256_hex(input: &str) -> String {
+    let mut digest = Sha256::new();
+    digest.update(input.as_bytes());
+    format!("{:x}", digest.finalize())
+}
 fn tail_hash() -> Result<String> {
     let path = audit_path();
     if !path.exists() {
@@ -112,91 +89,29 @@ fn tail_hash() -> Result<String> {
     Ok(String::new())
 }
 
-/// The journal's cross-process critical section. Held for one tail read and
-/// one append - milliseconds - and released on drop, including on the error
-/// paths, because a lock leaked by a failed append would stall every later
-/// writer until it aged out.
-///
-/// The holder carries a stamp and releases only the lock still bearing it. An
-/// unconditional remove is what let two writers share one critical section: a
-/// lock aged past the abandonment window is deleted and recreated by the next
-/// writer, so the slow original's drop deleted *that* writer's lock and a third
-/// writer walked in beside it. Both then read one tail and appended two lines
-/// claiming a single predecessor. The journal on this workstation carries that
-/// shape twice, at 2026-08-10T03:55:23Z and 2026-08-10T17:08:42Z, each time an
-/// `mcp-serve` line and an `http-item-read` line sharing a `prev`.
-struct AppendLock {
-    path: PathBuf,
-    stamp: String,
-}
+/// The journal's cross-process critical section. The kernel owns lock lifetime:
+/// process exit releases it, so no stale file, timeout, or ownership stamp can
+/// let two writers share one predecessor.
+struct AppendLock(File);
 
 impl Drop for AppendLock {
     fn drop(&mut self) {
-        let ours = fs::read_to_string(&self.path)
-            .map(|held| held.trim() == self.stamp)
-            .unwrap_or(false);
-        if ours {
-            let _ = fs::remove_file(&self.path);
-        }
+        let _ = self.0.unlock();
     }
-}
-
-/// A holder that died leaves a file nobody removes. Appends take milliseconds,
-/// so a lock file older than this was abandoned rather than held, and waiting
-/// on it would be waiting forever.
-fn lock_is_abandoned(lock_path: &Path) -> bool {
-    let Ok(seconds) = "30".parse::<u64>() else {
-        return false;
-    };
-    fs::metadata(lock_path)
-        .and_then(|metadata| metadata.modified())
-        .map(|modified| modified.elapsed().unwrap_or_default() > Duration::from_secs(seconds))
-        .unwrap_or(false)
 }
 
 fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
     let lock_path = path.with_extension("append.lock");
-    let deadline = Instant::now() + Duration::from_secs("5".parse()?);
-    let pause = Duration::from_millis("5".parse()?);
-    loop {
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&lock_path)
-        {
-            Ok(mut file) => {
-                // The stamp is written and flushed before the guard exists, so a
-                // holder never claims a lock whose contents it failed to record.
-                // A write that fails leaves an unstamped file, which no drop will
-                // remove and which the abandonment window clears - slower than a
-                // leak-free release, and safe, which the alternative was not.
-                let stamp = format!("{}:{}", std::process::id(), crypto::random_token()?);
-                writeln!(file, "{stamp}")?;
-                file.sync_all()?;
-                return Ok(AppendLock {
-                    path: lock_path,
-                    stamp,
-                });
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                if lock_is_abandoned(&lock_path) {
-                    let _ = fs::remove_file(&lock_path);
-                    continue;
-                }
-                if Instant::now() >= deadline {
-                    anyhow::bail!(
-                        "audit journal lock {} is still held; no entry was written",
-                        lock_path.display()
-                    );
-                }
-                std::thread::sleep(pause);
-            }
-            Err(error) => {
-                return Err(error)
-                    .with_context(|| format!("open audit journal lock {}", lock_path.display()))
-            }
-        }
-    }
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .open(&lock_path)
+        .with_context(|| format!("open audit journal lock {}", lock_path.display()))?;
+    file.lock_exclusive()
+        .with_context(|| format!("lock audit journal {}", lock_path.display()))?;
+    Ok(AppendLock(file))
 }
 
 /// Parse only the journal's final `limit` entries, walking backwards in
@@ -239,15 +154,11 @@ fn tail_lines(limit: usize) -> Result<Vec<Value>> {
     }
 }
 
-/// Queue one entry for the background journal worker. Read paths use this so
-/// the hash-chain serialization (two subprocess spawns per line) never lands
-/// on the consumer's response latency. Falls back to a synchronous append
-/// when the worker is gone, so evidence is never silently dropped.
+/// Audit completion is part of the operation, not best-effort background work.
+/// The bounded HTTP executor supplies backpressure; this call returns only
+/// after the journal entry is durable.
 pub fn append(op: &str, extra: &Value) -> Result<()> {
-    match QUEUE.send((op.to_string(), extra.clone())) {
-        Ok(()) => Ok(()),
-        Err(std::sync::mpsc::SendError((op, extra))) => append_sync(&op, &extra),
-    }
+    append_sync(op, extra)
 }
 
 /// Append one hash-chained entry inline. `prev` is the previous line's hash
@@ -268,14 +179,35 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     let _lock = acquire_append_lock(&path)?;
     let prev = tail_hash()?;
     let at = now_iso();
-    let hash = crypto::sha256_hex(&digest_input(&prev, &at, op, extra))?;
+    let hash = sha256_hex(&digest_input(&prev, &at, op, extra));
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
     let fresh = !path.exists();
-    let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(&path)?;
     writeln!(file, "{entry}")?;
+    file.sync_data()?;
     if fresh {
-        Command::new("chmod").arg("600").arg(&path).status().ok();
+        File::open(path.parent().context("audit path has no parent")?)?.sync_all()?;
     }
+    Ok(())
+}
+
+/// Readiness check for the journal without adding health-probe noise to it.
+pub fn probe() -> Result<()> {
+    let path = audit_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let _lock = acquire_append_lock(&path)?;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)?;
+    file.sync_data()?;
     Ok(())
 }
 
@@ -319,23 +251,48 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
     let mut faults: Vec<Value> = Vec::new();
     let mut linked = usize::MIN;
     let mut digested = usize::MIN;
+    let mut epochs = usize::MIN;
     let mut previous_hash = String::new();
     for (offset, entry) in entries.iter().enumerate() {
         let at = entry.get("at").and_then(Value::as_str).unwrap_or("");
         let op = entry.get("op").and_then(Value::as_str).unwrap_or("");
         let stored_prev = entry.get("prev").and_then(Value::as_str).unwrap_or("");
         let stored_hash = entry.get("hash").and_then(Value::as_str).unwrap_or("");
+        let extra = entry.get("extra").cloned().unwrap_or(Value::Null);
         let line = offset.saturating_add(one);
-        if stored_prev == previous_hash {
+        let epoch_link = if op == "audit-epoch-start" {
+            let prior = extra
+                .get("previous_tail")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let payload = extra
+                .get("checkpoint")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let signed = extra
+                .get("signed_checkpoint")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let verified = crate::core::crypto::verify_clearsigned(signed)
+                .map(|cleartext| cleartext.trim_end() == payload.trim_end())
+                .unwrap_or(false);
+            let valid = stored_prev.is_empty() && prior == previous_hash && verified;
+            if valid {
+                epochs = epochs.saturating_add(one);
+            } else {
+                faults.push(json!({"line": line, "at": at, "op": op, "fault": "epoch"}));
+            }
+            valid
+        } else {
+            false
+        };
+        if stored_prev == previous_hash || epoch_link {
             linked = linked.saturating_add(one);
         } else {
             faults.push(json!({"line": line, "at": at, "op": op, "fault": "linkage"}));
         }
         if offset >= digests_from {
-            let extra = entry.get("extra").cloned().unwrap_or(Value::Null);
-            // Recomputed against the line's own recorded predecessor, so one
-            // linkage fault does not cascade into every later digest.
-            let recomputed = crypto::sha256_hex(&digest_input(stored_prev, at, op, &extra))?;
+            let recomputed = sha256_hex(&digest_input(stored_prev, at, op, &extra));
             if stored_hash == recomputed {
                 digested = digested.saturating_add(one);
             } else {
@@ -354,6 +311,7 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
         "entries": total,
         "linkage_checked": total,
         "linkage_verified": linked,
+        "epochs": epochs,
         "digests_checked": total.saturating_sub(digests_from),
         "digests_verified": digested,
         "intact": faults.is_empty(),
@@ -420,6 +378,80 @@ fn query(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!({"matched": matched, "returned": entries.len(), "entries": entries}))
 }
 
+fn start_epoch(flags: &HashMap<String, String>) -> Result<Value> {
+    let reason = flags
+        .get("reason")
+        .map(String::as_str)
+        .filter(|reason| !reason.trim().is_empty())
+        .context("--reason is required")?;
+    let report = chain_report(&HashMap::new())?;
+    if report.get("intact").and_then(Value::as_bool) == Some(true) {
+        anyhow::bail!("audit journal is intact; refusing to create an unnecessary epoch");
+    }
+    let path = audit_path();
+    let previous_tail = tail_hash()?;
+    let _lock = acquire_append_lock(&path)?;
+    if tail_hash()? != previous_tail {
+        anyhow::bail!("audit journal changed while preparing checkpoint; retry");
+    }
+    let vault = crate::core::vault::Vault::open(crate::core::vault_path())?;
+    let owner = vault
+        .doc()
+        .get("owner")
+        .and_then(Value::as_str)
+        .context("vault owner is missing")?;
+    let signer = vault
+        .doc()
+        .get("recipients")
+        .and_then(Value::as_object)
+        .and_then(|recipients| recipients.get(owner))
+        .and_then(|recipient| recipient.get("fingerprint"))
+        .and_then(Value::as_str)
+        .context("vault owner fingerprint is missing")?;
+    let at = now_iso();
+    let checkpoint = serde_json::to_string(&json!({
+        "at": at,
+        "reason": reason,
+        "previous_tail": previous_tail,
+        "broken_at": report.get("broken_at").cloned().unwrap_or(Value::Null),
+        "faults": report
+            .get("faults")
+            .and_then(Value::as_array)
+            .map(Vec::len)
+            .unwrap_or_default(),
+    }))?;
+    let signed_checkpoint = crate::core::crypto::clearsign(signer, &checkpoint)?;
+    let extra = json!({
+        "reason": reason,
+        "previous_tail": previous_tail,
+        "signer": signer,
+        "checkpoint": checkpoint,
+        "signed_checkpoint": signed_checkpoint,
+    });
+    let prev = String::new();
+    let hash = sha256_hex(&digest_input(&prev, &at, "audit-epoch-start", &extra));
+    let entry = json!({
+        "at": at,
+        "op": "audit-epoch-start",
+        "extra": extra,
+        "prev": prev,
+        "hash": hash,
+    });
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(&path)?;
+    writeln!(file, "{entry}")?;
+    file.sync_data()?;
+    Ok(json!({
+        "started": true,
+        "signer": signer,
+        "previous_tail": previous_tail,
+        "hash": hash,
+    }))
+}
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -428,6 +460,7 @@ pub fn dispatch(
     match command {
         "audit" => Ok(Some(json!(recent(flags)?))),
         "audit-query" => Ok(Some(query(flags)?)),
+        "audit-epoch-start" => Ok(Some(start_epoch(flags)?)),
         "verify-chain" => Ok(Some(chain_report(flags)?)),
         _ => Ok(None),
     }

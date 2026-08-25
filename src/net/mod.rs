@@ -22,8 +22,7 @@ use crate::access::tokens;
 use crate::core::{crypto, inbox, schema};
 
 // Shared request helpers, re-exported by net::http so handler call sites read
-// the same in every module. Moved here to keep net::http under its line
-// budget after the listener went thread-per-connection.
+// the same in every module.
 //
 // The width is skarbiec's own decision; how to cut is not. `trim_detail` is the
 // fleet's rule, from `wisent-errors`, so an operator reading a truncated gpg

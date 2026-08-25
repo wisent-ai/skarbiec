@@ -99,10 +99,11 @@ whole ([WORM audit](concepts/worm-audit.md#verifying-the-chain)).
   carries: a retroactive edit of exactly that line. Executed demonstration
   (one byte changed on line 2): `"intact": false`, `"faults": [{"line": 2,
   "fault": "digest", ...}]`, linkage still 3 of 3.
-- A full digest pass costs one `shasum` process per line (about fifteen
-  minutes at 75k entries — measured in the source comments); bound it with
-  `verify-chain --tail N` (`--tail must be at least one`). `doctor` already
-  verifies the newest 200.
+- Digest verification runs in-process. `--tail N` bounds CPU and disk work;
+  `doctor` verifies the newest 200 while linkage still covers the entire file.
+- `"fault": "epoch"` means a checkpoint signature, its cleartext, or its
+  `previous_tail` does not validate. For known historical damage, preserve the
+  file and run `audit-epoch-start --reason <incident>`.
 - Check you are reading the journal in service: the report's `journal`
   field names the file, and the default path and the path a supervisor
   passes (`SKARBIEC_AUDIT_FILE`) can be different files with wildly

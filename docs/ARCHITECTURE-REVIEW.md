@@ -30,12 +30,10 @@ truthful failure second, features last.
 
 ## How the repository works today
 
-One crate, one binary, deliberately dependency-light: `anyhow` and `serde_json`
-only. All cryptography is delegated to vetted local tools — `gpg` for
-public-key operations and key material, `openssl` for random, `shasum` for
-digests — invoked as subprocesses. That choice is worth keeping: it makes the
-trust base auditable and the crate portable, at the cost of a process spawn per
-operation.
+One crate, one binary, deliberately dependency-light. GPG remains the external
+encryption and key-custody boundary and OpenSSL supplies random bearers. Their
+children run through bounded executors with deadlines; SHA-256 journal hashing
+and timestamps run in-process, so audit traffic cannot multiply subprocesses.
 
 - `core/` — `crypto` (the subprocess seam), `vault` (the document), `items`
   (typed item model).

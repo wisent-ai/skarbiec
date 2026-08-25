@@ -1,12 +1,11 @@
 # Architecture
 
-skarbiec is a standalone secrets manager: encryption at
-rest, multi-recipient sharing, service-account access, recovery, tamper-evident
-audit, and runtime injection — with no dependency on any external manager or
-hosted service. All cryptography is delegated to vetted local tools (gpg for
-authenticated per-recipient encryption and key material, openssl for entropy,
-shasum for hashing, optional oathtool for one-time codes). No cryptography is
-hand-rolled here.
+skarbiec is a standalone secrets manager: encryption at rest,
+multi-recipient sharing, service-account access, recovery, tamper-evident audit,
+and runtime injection, with no hosted manager dependency. GPG remains the
+external encryption and key-custody boundary and OpenSSL supplies random
+bearers; bounded executors own those subprocesses, while journal SHA-256 and
+timestamps run in-process.
 
 ## What is built and verified (engine, command line, local API)
 
@@ -21,15 +20,13 @@ hand-rolled here.
   vault with a trusted user after an operator-chosen moment.
 - Admin policy. Minimum generated length and per-item rules, checked before the
   relevant operation.
-- Tamper-evident audit. An append-only journal where each line carries the prior
-  line hash; verify-chain detects any retroactive edit. Appends take a lock
-  file beside the journal and re-read the predecessor from disk inside it,
-  because the chain is read-modify-write and every CLI invocation is a
-  separate process: two writers that each cached the same tail once produced
-  two lines claiming one predecessor. Verification reports linkage and digests
-  apart — linkage is free and covers everything, digests cost one `shasum` per
-  line — and always names the journal it read, since the default path and
-  `$SKARBIEC_AUDIT_FILE` are different files.
+- Tamper-evident audit. Every audited operation appends synchronously under a
+  kernel-owned cross-process file lock, re-reads the predecessor inside that
+  lock, writes one SHA-256-linked line, and flushes it before returning. A dead
+  process releases the lock automatically. `audit-epoch-start --reason ...`
+  preserves a broken historical period and starts a signed new epoch without
+  rewriting old evidence. Verification reports linkage, epoch signatures, and
+  digests separately and always names the journal it read.
 - Runtime injection. resolve writes an owner-only shell file of canonical login
   variables and returns its path — values land in the file, never on stdout;
   expand fills skarbiec reference lines in a template.
@@ -103,14 +100,12 @@ rename under an exclusive lock.
 Compatibility endpoints remain available: metadata-only `GET /list`, `GET /audit`,
 and login-oriented `POST /resolve`.
 
-`GET /health` proves the key material is still usable rather than that the
-process is running. It opens the lowest-id live item and reports `503` with
-`error_code: infra_down` when the stored ciphertext cannot be decrypted,
-because a broker holding items it can no longer read is down however healthy
-its socket looks. The probe is deterministic, so repeated calls exercise the
-same ciphertext; the decrypted value is discarded and never returned or
-logged. Reads of an item that exists but will not decrypt answer `503` with
-the same code instead of dropping the connection.
+`GET /livez` proves only that the process can answer. `GET /readyz` and its
+compatibility alias `GET /health` acquire the journal lock, prove the audit file
+is writable, open the vault, and decrypt deterministic first/last canaries plus
+every item named by `SKARBIEC_READINESS_ITEMS`; failures answer `503
+infra_down`. The response also exposes current and maximum crypto/GPG executor
+occupancy without secret data.
 
 Every `error_code` this API emits comes from the fleet's failure package,
 [`wisent-errors`](https://github.com/wisent-ai/wisent-errors), pinned by commit

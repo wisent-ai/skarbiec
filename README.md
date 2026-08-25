@@ -254,10 +254,16 @@ model and should not be used for new machine integrations.
 | `SKARBIEC_MCP_CONSUMER` | Server-side consumer identity required to enable MCP resolve |
 | `SKARBIEC_MCP_TOKEN_FILE` | Server-side compatibility grant file; never a tool argument |
 | `SKARBIEC_MCP_OUT_DIR` | Required absolute directory for mode-0600 MCP resolve output |
+| `SKARBIEC_HTTP_WORKERS` | Maximum concurrent HTTP handlers; default 16 |
+| `SKARBIEC_HTTP_QUEUE` | Waiting HTTP requests before overload is refused; default 32 |
+| `SKARBIEC_CRYPTO_CONCURRENCY` | Maximum concurrent external cryptographic tools; default 8 |
+| `SKARBIEC_GPG_CONCURRENCY` | Maximum concurrent `gpg` processes sharing the keyring; default 2 |
+| `SKARBIEC_CRYPTO_TIMEOUT_SECONDS` | Deadline after which a cryptographic child is killed and reaped; default 30 |
+| `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
 
 Run `skarbiec status` for the vault path and non-sensitive counts,
-`skarbiec key-doctor` for key and decryptability diagnosis, and the broker's
-`/health` endpoint for its service verdict.
+`skarbiec key-doctor` for key and decryptability diagnosis, `/livez` for process
+liveness, and `/readyz` (or compatibility alias `/health`) for readiness.
 
 ### Ownership by concern
 
@@ -266,9 +272,9 @@ Run `skarbiec status` for the vault path and non-sensitive counts,
 | Configuration | Operator-owned environment variables and owner-only files; the supported settings and defaults are listed above. There is no configuration file and no reload: an explicit variable wins over the built-in default, and each invocation reads the environment it was given |
 | State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl`. Each is written through a mode-0600 temporary file, `fsync`, and `rename` under a directory lock, so a reader sees the old document or the new one and never a partial write; the operator chooses the durable filesystem and its backups |
 | Credentials | Values live in the vault only as per-recipient GPG ciphertext. Plaintext exists in exactly three places: the `gpg` child process and Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that the compatibility `resolve --emit` path writes on request. The protected-key path stages ciphertext — never plaintext — to a temporary file, and an unlock phrase reaches `gpg` over stdin rather than argv. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `rotate-owner`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `token-revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material |
-| Networking | `serve` binds `127.0.0.1` only, on port 8787 unless `--port` says otherwise, and announces that loopback restriction on startup. The one connection Skarbiec itself initiates outward is `breach-check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally, so the value never leaves the host; an unreachable endpoint reports `range_api_unreachable` rather than failing open. Ciphertext sync uses `git` against the remote the operator configures. Any encrypted tunnel, TLS edge, firewall, and service supervision is operator-owned |
+| Networking | `serve` binds `127.0.0.1` only, on port 8787 unless `--port` says otherwise. A fixed worker set and bounded waiting queue cap connections; overload is refused before it can consume cryptographic or file-descriptor capacity. The one connection Skarbiec itself initiates outward is `breach-check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
 | Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. Hosted Hub pricing is not published because that service is not shipped |
-| Observability | Skarbiec provides `status`, `/health`, `key-doctor`, `audit-query`, and `verify-chain`. The hash-chained journal records non-sensitive identifiers only — item ids, fields, consumers, and outcomes. Secret values, one-use tokens, signatures, and public keys are never written to it, so the journal can be shipped to a log collector that the vault itself must not reach. The operator owns collection, retention, and alerting |
+| Observability | Skarbiec provides `/livez`, `/readyz`, compatibility alias `/health`, `status`, `key-doctor`, `audit-query`, `audit-epoch-start`, and `verify-chain`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it |
 | Upgrades | The operator pins a release tag and its published SHA-256, performs an atomic rollout, and retains the prior exact coordinate for rollback. A tag whose name disagrees with the version declared in `Cargo.toml` is refused before the first tagged artifact is built, and the publication workflow refuses to replace an existing asset, so changed bytes require a new tag |
 | Recovery | Skarbiec preserves the recovery recipient through owner rotation and supplies `recovery-status` and `recovery-drill`; the custodian stores the private half off-host and exercises it before an incident. If no secret half present on the machine opens the vault and no recovery key is available, the ciphertext is readable by no one — there is no cloud fallback and no vendor-held copy |
 
@@ -291,10 +297,10 @@ Skarbiec owns:
   errors;
 - a hash-chained audit trail that reveals no secret values.
 
-Cryptography is delegated to local `gpg`, `openssl`, and `shasum`; Skarbiec does
-not replace host security. See the complete
-[security model](docs/SECURITY.md) and
-[architecture](docs/ARCHITECTURE.md).
+GPG remains the external encryption and key-custody boundary; OpenSSL supplies
+high-entropy tokens, while SHA-256 journal hashing and timestamps run in-process
+so an audit entry cannot exhaust subprocess capacity. See the complete
+[security model](docs/SECURITY.md) and [architecture](docs/ARCHITECTURE.md).
 
 ## Documentation
 
@@ -318,7 +324,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Maturity | Early public `0.1.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
 | Latest complete release | [`v0.1.3`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.1.3) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
-| Runtime dependencies | `gpg`, `openssl`, and `shasum`; `oathtool` only for TOTP |
+| Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking and `oathtool` only for TOTP |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |
 | Metadata | Item ids, types, tags, recipients, and revision counts are cleartext |
 | Default machine access | Ed25519 workload proof → one short-lived, one-use, field-bound capability |

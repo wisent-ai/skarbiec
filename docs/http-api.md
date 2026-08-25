@@ -10,14 +10,17 @@ Consumer endpoints authenticate with two headers: `X-Consumer` naming the
 consumer, and `Authorization: Bearer <token>` carrying its bearer. The
 grant must carry the exact capability the route checks
 ([grants and consumers](grants-and-consumers.md)). Mutating routes
-serialize process-wide behind a write lock; read-only routes stay parallel.
+serialize process-wide behind a write lock. All routes run through a fixed
+worker set and bounded queue; a full queue is refused with `503 rate_limit`
+before it can consume cryptographic or descriptor capacity.
 
 ## Health
 
 | Endpoint | What it does |
 | --- | --- |
-| `GET /health` | Opens a deterministic canary item (lowest live id) and drops the plaintext. Answers `{"ok":true,"service":"skarbiec"}`, or `503` with `error_code: infra_down` when stored ciphertext cannot be decrypted — a broker holding items it can no longer read is down however healthy its socket looks. |
-
+| `GET /livez` | Process liveness only; no vault, keyring, or journal access. |
+| `GET /readyz` | Proves the journal can lock and write, opens the vault, and decrypts deterministic and configured canary items. Returns executor occupancy or `503 infra_down`. |
+| `GET /health` | Compatibility alias for `/readyz`. |
 ## Items
 
 | Endpoint | Capability | What it does |
@@ -30,9 +33,8 @@ serialize process-wide behind a write lock; read-only routes stay parallel.
 
 Every `error_code` comes from the fleet's failure package,
 [`wisent-errors`](https://github.com/wisent-ai/wisent-errors), pinned by
-commit in `Cargo.toml`; Skarbiec emits `not_found`, `config`, and
-`infra_down`. Statuses and the 400-character `detail` bound are Skarbiec's
-own.
+commit in `Cargo.toml`; Skarbiec emits `not_found`, `config`, `rate_limit`, and
+`infra_down`. Statuses and the 400-character `detail` bound are Skarbiec's own.
 
 ## Acquisitions
 

@@ -123,16 +123,18 @@ hypothesis, so open one item with it on a schedule.
 ## Tamper evidence
 
 The audit journal is append-only; each line carries the prior line's hash.
-`verify-chain` recomputes the chain and reports any retroactive edit.
+Appends complete under a kernel-owned cross-process lock and are flushed before
+the audited operation returns. `verify-chain` checks linkage, SHA-256 digests,
+and signed epoch checkpoints. `audit-epoch-start` preserves damaged history and
+starts a new signed period; it never edits an existing line.
 
-## Cryptography is delegated
+## Cryptography boundary
 
-skarbiec performs no cryptography of its own. It shells out to vetted local
-tools: `gpg` for per-recipient public-key encryption and key material, `openssl`
-for entropy, `shasum` for hashing (the audit chain and the k-anonymity breach
-check), and optional `oathtool` for one-time codes. The vault's security rests on
-those tools and on the operating system that guards the keyring and the unlock
-phrase.
+GPG performs per-recipient public-key encryption, decryption, owner signatures,
+and key custody. OpenSSL supplies high-entropy bearer values. Both run only
+through a bounded executor with a deadline and guaranteed child reaping.
+SHA-256 journal hashing runs in-process to prevent audit traffic from multiplying
+subprocesses; optional `oathtool` remains the TOTP implementation.
 
 ## What skarbiec does not defend against
 

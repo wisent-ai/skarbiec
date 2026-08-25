@@ -8,55 +8,184 @@
 // shape 1Password/Bitwarden use for sharing.
 
 use anyhow::{bail, Context, Result};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::process::{Command, Stdio};
+use std::sync::{Condvar, LazyLock, Mutex};
+use std::time::Duration;
+use wait_timeout::ChildExt;
 
-// Run a program, optionally piping `input` to stdin. A nonzero exit is an error
-// carrying stderr — the failure surfaces, never a silent empty result.
+const DEFAULT_CRYPTO_LIMIT: usize = 8;
+const DEFAULT_GPG_LIMIT: usize = 2;
+const DEFAULT_CRYPTO_TIMEOUT_SECONDS: u64 = 30;
+
+struct ExecutionLimit {
+    active: Mutex<usize>,
+    available: Condvar,
+    maximum: usize,
+}
+
+impl ExecutionLimit {
+    fn acquire(&self) -> ExecutionPermit<'_> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *active >= self.maximum {
+            active = self
+                .available
+                .wait(active)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *active += 1;
+        ExecutionPermit { limit: self }
+    }
+
+    fn in_use(&self) -> usize {
+        *self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+struct ExecutionPermit<'a> {
+    limit: &'a ExecutionLimit,
+}
+
+impl Drop for ExecutionPermit<'_> {
+    fn drop(&mut self) {
+        let mut active = self
+            .limit
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *active = active.saturating_sub(1);
+        self.limit.available.notify_one();
+    }
+}
+
+static CRYPTO_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
+    active: Mutex::new(0),
+    available: Condvar::new(),
+    maximum: configured_limit("SKARBIEC_CRYPTO_CONCURRENCY", DEFAULT_CRYPTO_LIMIT),
+});
+static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
+    active: Mutex::new(0),
+    available: Condvar::new(),
+    maximum: configured_limit("SKARBIEC_GPG_CONCURRENCY", DEFAULT_GPG_LIMIT),
+});
+
+fn configured_limit(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
+}
+
+fn execution_timeout() -> Duration {
+    let seconds = std::env::var("SKARBIEC_CRYPTO_TIMEOUT_SECONDS")
+        .ok()
+        .and_then(|raw| raw.parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_CRYPTO_TIMEOUT_SECONDS);
+    Duration::from_secs(seconds)
+}
+
+// One bounded subprocess seam for every cryptographic tool. Output pipes are
+// drained concurrently, every child has a deadline, and timed-out children are
+// killed and reaped before capacity is returned to another request.
 fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
+    let _capacity = CRYPTO_LIMIT.acquire();
+    let _gpg_capacity = (program == "gpg").then(|| GPG_LIMIT.acquire());
     let mut child = Command::new(program)
         .args(args)
-        .stdin(Stdio::piped())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .with_context(|| format!("spawn {program}"))?;
-    if let Some(text) = input {
-        child
-            .stdin
-            .take()
-            .context("child stdin unavailable")?
-            .write_all(text.as_bytes())?;
-    }
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
+
+    let input = input.map(str::as_bytes).map(Vec::from);
+    let stdin = child.stdin.take();
+    let input_writer = std::thread::spawn(move || -> std::io::Result<()> {
+        if let (Some(mut stdin), Some(input)) = (stdin, input) {
+            stdin.write_all(&input)?;
+        }
+        Ok(())
+    });
+    let mut stdout = child.stdout.take().context("child stdout unavailable")?;
+    let stdout_reader = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        stdout.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    });
+    let mut stderr = child.stderr.take().context("child stderr unavailable")?;
+    let stderr_reader = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        stderr.read_to_end(&mut bytes)?;
+        Ok(bytes)
+    });
+
+    let status = match child.wait_timeout(execution_timeout())? {
+        Some(status) => status,
+        None => {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("{program} timed out");
+        }
+    };
+    input_writer
+        .join()
+        .map_err(|_| anyhow::anyhow!("{program} stdin writer panicked"))??;
+    let stdout = stdout_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("{program} stdout reader panicked"))??;
+    let stderr = stderr_reader
+        .join()
+        .map_err(|_| anyhow::anyhow!("{program} stderr reader panicked"))??;
+    if !status.success() {
         bail!(
             "{program} failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
+            String::from_utf8_lossy(&stderr).trim()
         );
     }
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
-// Probe variant for optional tools / trial key operations: a nonzero exit means
-// "this key/tool did not apply" (a normal negative), returned as None.
 fn run_opt(program: &str, args: &[&str], input: Option<&str>) -> Option<String> {
-    let mut child = Command::new(program)
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    if let Some(text) = input {
-        child.stdin.take()?.write_all(text.as_bytes()).ok()?;
-    }
-    let out = child.wait_with_output().ok()?;
-    if out.status.success() {
-        Some(String::from_utf8_lossy(&out.stdout).into_owned())
-    } else {
-        None
-    }
+    run(program, args, input).ok()
+}
+
+pub fn executor_status() -> (usize, usize, usize, usize) {
+    (
+        CRYPTO_LIMIT.in_use(),
+        CRYPTO_LIMIT.maximum,
+        GPG_LIMIT.in_use(),
+        GPG_LIMIT.maximum,
+    )
+}
+pub fn clearsign(signer: &str, payload: &str) -> Result<String> {
+    run(
+        "gpg",
+        &[
+            "--batch",
+            "--yes",
+            "--armor",
+            "--local-user",
+            signer,
+            "--clearsign",
+        ],
+        Some(payload),
+    )
+}
+
+pub fn verify_clearsigned(signed: &str) -> Result<String> {
+    run("gpg", &["--batch", "--yes", "--decrypt"], Some(signed))
 }
 
 /// High-entropy random token (hex). Used for consumer service tokens.

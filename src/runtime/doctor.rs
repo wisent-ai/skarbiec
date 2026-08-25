@@ -27,9 +27,8 @@ const PASS: &str = "pass";
 const FAIL: &str = "fail";
 const NOT_CONFIGURED: &str = "not_configured";
 
-/// Digests recomputed for the newest entries. Linkage covers the whole
-/// journal for free; each digest costs one `shasum` process, so a complete
-/// pass over a large journal is a deliberate `verify-chain`, not a diagnosis.
+/// Digests recomputed for the newest entries. Linkage covers the whole journal;
+/// the bounded window keeps routine diagnosis proportional to a fixed tail.
 const DIGEST_WINDOW: &str = "200";
 
 fn check(name: &str, status: &str, detail: String) -> Value {

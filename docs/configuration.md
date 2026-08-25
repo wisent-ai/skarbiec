@@ -64,6 +64,10 @@ in a transcript, log, or child argv
 | --- | --- |
 | `SKARBIEC_WORM_RECEIPT_DIR`, `SKARBIEC_WORM_CHECKPOINT` | Enable write-once receipt checking in `doctor`; with either unset, `doctor` reports `not_configured`, which is deliberately not a failure. |
 | `SKARBIEC_OPENSSL` | Path of the `openssl` binary when the preferred OpenSSL 3 build lives somewhere unusual. |
+| `SKARBIEC_HTTP_WORKERS`, `SKARBIEC_HTTP_QUEUE` | Bound active and waiting HTTP work; defaults 16 and 32. |
+| `SKARBIEC_CRYPTO_CONCURRENCY`, `SKARBIEC_GPG_CONCURRENCY` | Bound all external crypto children and the GPG subset; defaults 8 and 2. |
+| `SKARBIEC_CRYPTO_TIMEOUT_SECONDS` | Kills and reaps a cryptographic child after this many seconds; default 30. |
+| `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids that readiness must decrypt. |
 
 ## Install and build stamps
 
@@ -74,6 +78,6 @@ in a transcript, log, or child argv
 
 ## External tools
 
-Skarbiec performs no cryptography of its own. It requires `gpg`, `openssl`,
-and `shasum` on the PATH, and `oathtool` only for `totp`
-([SECURITY.md](SECURITY.md#cryptography-is-delegated)).
+Skarbiec requires `gpg` for encryption and key custody and `openssl` for random
+bearers. SHA-256 journal hashing and timestamps run in-process; `shasum` remains
+needed only by breach checking, and `oathtool` only by `totp`.
