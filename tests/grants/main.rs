@@ -2,6 +2,7 @@
 mod support;
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 
 use serde_json::Value;
 use support::{assert_success, stderr, CliFixture};
@@ -12,7 +13,9 @@ const ITEM: &str = "brama-router";
 fn fixture() -> CliFixture {
     let fixture = CliFixture::new("grants");
     fixture.init("Skarbiec grant test <skarbiec-grant-test@example.invalid>");
-    let output = fixture.run(&["set", ITEM, "--type", "api-key", "api_key=sekret-123"]);
+    let output = fixture.run(&[
+        "set", ITEM, "--type", "api-key", "api_key=sekret-123", "username=ops",
+    ]);
     assert_success("seed one api-key item", &output);
     fixture
 }
@@ -193,4 +196,121 @@ fn token_revoke_deletes_the_grant_and_stays_idempotent() {
     assert_success("list consumers after revoke", &output);
     let listing: Value = serde_json::from_slice(&output.stdout).expect("parse consumer listing");
     assert_eq!(listing, serde_json::json!([]));
+}
+
+#[test]
+fn token_grants_are_edited_by_rotation_replacement_or_ensure_read() {
+    let fixture = fixture();
+
+    let first = mint(&fixture, "read:brama-router#api_key");
+    let first_token = first["token"].as_str().expect("first bearer").to_owned();
+
+    let allowed = |field: &str, token: &str| -> bool {
+        let output = fixture.run(&[
+            "token-verify", CONSUMER, ITEM, "--field", field, "--token", token,
+        ]);
+        assert_success("verify answers instead of erroring", &output);
+        let verdict: Value = serde_json::from_slice(&output.stdout).expect("parse verify verdict");
+        verdict["allowed"].as_bool().expect("boolean verdict")
+    };
+
+    // Re-minting the same capabilities rotates the bearer: the old value dies,
+    // the new one answers for the unchanged scope.
+    let rotated = mint(&fixture, "read:brama-router#api_key");
+    let rotated_token = rotated["token"].as_str().expect("rotated bearer").to_owned();
+    assert_ne!(rotated_token, first_token);
+    assert!(!allowed("api_key", &first_token));
+    assert!(allowed("api_key", &rotated_token));
+
+    // Changing the scope is refused unless the caller states the replacement.
+    let output = fixture.run(&[
+        "token-mint", CONSUMER, "--capabilities", "read:brama-router#username",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains(
+        "token-mint refuses to change existing capabilities without --replace-capabilities"
+    ));
+
+    // With --replace-capabilities the grant is rewritten: new field answers,
+    // the dropped field and the previous bearer both stop.
+    let output = fixture.run(&[
+        "token-mint", CONSUMER,
+        "--capabilities", "read:brama-router#username",
+        "--replace-capabilities", "true",
+    ]);
+    assert_success("replace the grant's capabilities", &output);
+    let replaced: Value = serde_json::from_slice(&output.stdout).expect("parse mint response");
+    let replaced_token = replaced["token"].as_str().expect("replaced bearer").to_owned();
+    assert!(allowed("username", &replaced_token));
+    assert!(!allowed("api_key", &replaced_token));
+    assert!(!allowed("api_key", &rotated_token));
+
+    // token-ensure-read widens by one exact field without rotating the bearer.
+    // The owner proves possession through a 0600 token file.
+    let bearer_file = fixture.root.join("bearer.txt");
+    fs::write(&bearer_file, &replaced_token).expect("write bearer file");
+    fs::set_permissions(&bearer_file, fs::Permissions::from_mode(0o600))
+        .expect("protect bearer file");
+    let bearer_path = bearer_file.to_str().expect("utf-8 bearer path");
+
+    let ensure = |field: &str| -> Value {
+        let output = fixture.run(&[
+            "token-ensure-read", CONSUMER, ITEM, "--field", field, "--token-file", bearer_path,
+        ]);
+        assert_success("ensure one exact field read", &output);
+        serde_json::from_slice(&output.stdout).expect("parse ensure-read response")
+    };
+    let widened = ensure("api_key");
+    assert_eq!(widened["ok"], true);
+    assert_eq!(widened["status"], "added");
+    assert_eq!(widened["capability"]["field"], "api_key");
+    assert!(allowed("api_key", &replaced_token));
+    assert!(allowed("username", &replaced_token));
+
+    // Repeating the same widening settles as unchanged.
+    assert_eq!(ensure("api_key")["status"], "unchanged");
+
+    // A file that does not hash to the recorded bearer is refused.
+    let wrong_file = fixture.root.join("wrong.txt");
+    fs::write(&wrong_file, "deadbeef").expect("write wrong bearer");
+    fs::set_permissions(&wrong_file, fs::Permissions::from_mode(0o600))
+        .expect("protect wrong bearer");
+    let output = fixture.run(&[
+        "token-ensure-read", CONSUMER, ITEM, "--field", "username",
+        "--token-file", wrong_file.to_str().expect("utf-8 path"),
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("token file does not match the consumer's recorded bearer"));
+
+    // A world-readable token file is refused before it is read.
+    fs::set_permissions(&bearer_file, fs::Permissions::from_mode(0o644))
+        .expect("loosen bearer file");
+    let output = fixture.run(&[
+        "token-ensure-read", CONSUMER, ITEM, "--field", "username", "--token-file", bearer_path,
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output).contains("token file must be an owner-controlled regular file"));
+}
+
+#[test]
+fn token_mint_refuses_grants_that_mix_incompatible_actions() {
+    let fixture = fixture();
+
+    // Driving a credential lifecycle never authorizes reading the value.
+    let output = fixture.run(&[
+        "token-mint", "mixer",
+        "--capabilities", "read:brama-router#api_key,lifecycle:brama-router",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output)
+        .contains("lifecycle capabilities cannot share a grant with read capabilities"));
+
+    // One-use acquisition and standing direct access never share one bearer.
+    let output = fixture.run(&[
+        "token-mint", "mixer",
+        "--capabilities", "acquire:brama-router#api_key,read:brama-router#username",
+    ]);
+    assert!(!output.status.success());
+    assert!(stderr(&output)
+        .contains("acquire capabilities cannot share a grant with direct capabilities"));
 }
