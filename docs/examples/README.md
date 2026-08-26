@@ -32,6 +32,19 @@ to overwrite existing vault files.
 12. [`sharing/donate-item-to-host.sh`](sharing/donate-item-to-host.sh) — donate + duplicate rejection.
 13. [`operations/diagnose-a-vault.sh`](operations/diagnose-a-vault.sh) — `doctor`, bounded chain verification, endpoint declaration, tail of the journal.
 
+## Reading from Skarbiec
+
+An owner reading one exact text field uses one CLI command:
+
+```sh
+skarbiec get github --field username
+```
+
+`get --field` writes only that field's plaintext value to stdout. It does not
+return the rest of the item. This is the owner-operated CLI path; a machine
+workload uses the one-use acquisition flow above instead of inheriting the
+owner's decryption authority.
+
 ## Run the acquisition proof
 
 ```sh

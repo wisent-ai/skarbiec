@@ -11,6 +11,10 @@ readme = "README.md"
 name = "skarbiec"
 path = "src/main.rs"
 
+[[test]]
+name = "items"
+path = "tests/items/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"
