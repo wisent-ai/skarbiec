@@ -7,12 +7,12 @@
   "primaryAction": {
     "label": "Install a verified release",
     "kind": "url",
-    "target": "https://github.com/wisent-ai/skarbiec/blob/main/docs/INSTALL.md"
+    "target": "https://skarbiec.wisent.com/docs/install"
   },
   "secondaryAction": {
     "label": "Run the executable quick start",
     "purpose": "Lower-commitment product explanation: the defining one-use acquisition path runs against a disposable vault and stores only the literal non-secret value `not-a-secret`.",
-    "target": "https://github.com/wisent-ai/skarbiec/blob/main/docs/examples/acquire-one-field.sh"
+    "target": "https://skarbiec.wisent.com/docs/examples"
   },
   "approvedClaims": [
     {

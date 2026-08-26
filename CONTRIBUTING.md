@@ -39,9 +39,8 @@ Use a disposable vault and isolated GPG home for manual work. Never point develo
 - Fix the source of the behavior; do not add a compatibility alias unless the product contract requires one.
 - Keep secret values out of source, shell history, command arguments, fixtures, logs, issue text, and screenshots.
 - Preserve the distinction between operator commands, one-use acquisition, and legacy direct grants.
-- Update `docs/CLI.md` when a public command or output changes.
-- Update `docs/SECURITY.md` when a trust or failure boundary changes.
-- Add or update one runnable script under `docs/examples/` for every new user-visible flow.
+- Update the corresponding page in the `wisent-ai/skarbiec-landing` repository when a public command, output, trust boundary, or failure boundary changes.
+- Add or update one runnable script under `docs/examples/` for every new user-visible flow; scripts stay with the executable they exercise, while explanatory prose lives only on `skarbiec.wisent.com/docs`.
 - Include the real redacted output shape and the failure path. Do not invent successful output.
 
 ## Local checks

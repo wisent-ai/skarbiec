@@ -26,9 +26,9 @@ Bitwarden reimagined for the AI Agent Era.
 
 All Your Auth Needs Sorted with One Install of Skarbiec.
 
-[Install](docs/INSTALL.md) · [Quick start](#quick-start) ·
-[CLI](docs/CLI.md) · [Examples](docs/examples/README.md) ·
-[Security](docs/SECURITY.md) · [Contributing](CONTRIBUTING.md)
+[Install](https://skarbiec.wisent.com/docs/install) · [Quick start](#quick-start) ·
+[CLI](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) ·
+[Security](https://skarbiec.wisent.com/docs/security) · [Contributing](CONTRIBUTING.md)
 
 Skarbiec is an early public `0.1.x` product, not a hosted secret manager or a
 claim that local brokering makes a compromised host safe. The complete local
@@ -91,9 +91,9 @@ journal.
 | Let a new workload borrow one field | The workload has no standing read bearer; the first matching read succeeds and replay fails | [Executable acquisition proof](docs/examples/acquire-one-field.sh) |
 | Store and inspect a credential without printing it | The write returns the item id; `list` returns metadata only | [Add a credential](docs/examples/add-credential.sh) |
 | Share an item, then withdraw access | The recipient can decrypt only the shared item; revocation re-encrypts it to the remaining recipients | [Sharing example](docs/examples/sharing/share-credential-with-user.sh) |
-| Replace a lost or departing owner | Every current and historical ciphertext is rewrapped and recovery remains present | [Owner rotation](docs/examples/rotate-skarbiec-owner.sh) |
-| Prove recovery before an incident | An isolated custodian keyring opens and discards a deterministic canary and records pass/fail | [Recovery commands](docs/CLI.md#recovery-and-emergency-access) |
-| Move ciphertext between hosts | A replica receives encrypted vault state; local-only data is protected from accidental overwrite | [Sync examples](docs/examples/README.md#command-surfaces--which-tool-for-what) |
+| Replace a lost or departing owner | Every current and historical ciphertext is rewrapped and recovery remains present | [Owner rotation](https://skarbiec.wisent.com/docs/examples) |
+| Prove recovery before an incident | An isolated custodian keyring opens and discards a deterministic canary and records pass/fail | [Recovery commands](https://skarbiec.wisent.com/docs/cli#recovery-and-emergency-access) |
+| Move ciphertext between hosts | A replica receives encrypted vault state; local-only data is protected from accidental overwrite | [Sync examples](https://skarbiec.wisent.com/docs/examples#command-surfaces--which-tool-for-what) |
 
 ## Real product journeys
 
@@ -155,7 +155,7 @@ the fleet's definition, not this repository's.
 ## Install
 
 Use an exact, checksum-verified tagged archive for deployment. The complete
-release and update procedure is in [docs/INSTALL.md](docs/INSTALL.md).
+release and update procedure is in [Install and updates](https://skarbiec.wisent.com/docs/install).
 
 Contributors can build and atomically install from source:
 
@@ -219,21 +219,21 @@ rm -rf "${TMPDIR:-/tmp}/skarbiec-acquisition-quickstart"
 ```
 
 For a real vault, first follow
-[the recovery boundary](docs/SECURITY.md#recovery-and-rotation), move the
+[the recovery boundary](https://skarbiec.wisent.com/docs/security#recovery-and-rotation), move the
 recovery private material to its custodian, and verify it with
 `recovery-drill`. Store real values through stdin, as shown in
-[the credential example](docs/examples/add-credential.sh), and register new
+[the executable examples](https://skarbiec.wisent.com/docs/examples), and register new
 workloads through acquisition rather than a legacy direct bearer.
 
 ## Primary interfaces
 
 | Interface | Canonical purpose | Stability | Documentation and example |
 | --- | --- | --- | --- |
-| `skarbiec` CLI | Owner administration, diagnostics, and supervised automation | Public `0.1.x`; tracked by the versioned command surface | [CLI reference](docs/CLI.md) · [Create a vault](docs/examples/create-skarbiec.sh) |
-| Loopback HTTP broker | Service acquisition, compatibility item access, health, and ciphertext sync | Public `/v1`; acquisition is the default, direct scopes are compatibility-only | [Acquisition contract](docs/CLI.md#service-account-grants) · [Build a host](docs/examples/operations/build-skarbiec-host.sh) |
-| MCP server | Agent-safe metadata and audit, plus explicitly configured compatibility resolve | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](docs/SECURITY.md#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](docs/CLI.md#servers) |
-| Chrome native host | Origin-checked fill through the managed extension | Public managed integration; the extension never receives a vault bearer or private key | [Browser boundary](docs/SECURITY.md#the-browser-boundary) · [Managed installation](docs/INSTALL.md#managed-browser-installation-and-updates) |
-| Stado adapter | Preserve exact deployed Wisent consumer/item contracts over the broker | Compatibility interface outside the core binary | [Compatibility example](docs/examples/add-credential.sh) |
+| `skarbiec` CLI | Owner administration, diagnostics, and supervised automation | Public `0.1.x`; tracked by the versioned command surface | [CLI reference](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) |
+| Loopback HTTP broker | Service acquisition, compatibility item access, health, and ciphertext sync | Public `/v1`; acquisition is the default, direct scopes are compatibility-only | [Acquisition contract](https://skarbiec.wisent.com/docs/cli#service-account-grants) · [Examples](https://skarbiec.wisent.com/docs/examples) |
+| MCP server | Agent-safe metadata and audit, plus explicitly configured compatibility resolve | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](https://skarbiec.wisent.com/docs/security#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](https://skarbiec.wisent.com/docs/cli#servers) |
+| Chrome native host | Origin-checked fill through the managed extension | Public managed integration; the extension never receives a vault bearer or private key | [Browser boundary](https://skarbiec.wisent.com/docs/security#the-browser-boundary) · [Managed installation](https://skarbiec.wisent.com/docs/install#managed-browser-installation-and-updates) |
+| Stado adapter | Preserve exact deployed Wisent consumer/item contracts over the broker | Compatibility interface outside the core binary | [Examples](https://skarbiec.wisent.com/docs/examples) |
 
 The MCP surface deliberately excludes raw item reads, minting, rotation, and
 export. Its compatibility `resolve` path writes a mode-0600 env file and returns
@@ -300,17 +300,17 @@ Skarbiec owns:
 GPG remains the external encryption and key-custody boundary; OpenSSL supplies
 high-entropy tokens, while SHA-256 journal hashing and timestamps run in-process
 so an audit entry cannot exhaust subprocess capacity. See the complete
-[security model](docs/SECURITY.md) and [architecture](docs/ARCHITECTURE.md).
+[security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
 
 ## Documentation
 
-- **Choose and install a release:** [Install and updates](docs/INSTALL.md)
-- **Use a command or integration surface:** [CLI reference](docs/CLI.md)
-- **Run an end-to-end task:** [Executable examples](docs/examples/README.md)
-- **Review trust and failure boundaries:** [Security model](docs/SECURITY.md)
-- **Understand storage and network design:** [Architecture](docs/ARCHITECTURE.md)
-- **Understand current priorities and planned work:** [Product contract](docs/PRODUCT.md)
-- **Trace the public code lineage:** [Lineage](docs/LINEAGE.md)
+- **Choose and install a release:** [Install and updates](https://skarbiec.wisent.com/docs/install)
+- **Use a command or integration surface:** [CLI reference](https://skarbiec.wisent.com/docs/cli)
+- **Run an end-to-end task:** [Executable examples](https://skarbiec.wisent.com/docs/examples)
+- **Review trust and failure boundaries:** [Security model](https://skarbiec.wisent.com/docs/security)
+- **Understand storage and network design:** [Architecture](https://skarbiec.wisent.com/docs/architecture)
+- **Understand current priorities and planned work:** [Product contract](https://skarbiec.wisent.com/docs/product-contract)
+- **Trace the public code lineage:** [Lineage](https://skarbiec.wisent.com/docs/lineage)
 - **Prepare a change:** [Contributing guide](CONTRIBUTING.md)
 
 ## Project status and support
@@ -348,7 +348,7 @@ Not supported or promised:
 
 The local core, acquisition flow, sharing, recovery, audit, sync, MCP boundary,
 and managed browser extension exist today. The fleet-level **Hosted Hub**
-described in [the product assessment](docs/PRODUCT.md#monetization-assessment)
+described in [the product contract](https://skarbiec.wisent.com/docs/product-contract#monetization-assessment)
 is planned commercial control-plane work, not a dependency or capability of the
 current core.
 
