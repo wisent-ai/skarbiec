@@ -78,7 +78,6 @@ install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
 install -m 0755 "$source_dir/scripts/release/launch.sh" "$stage/bin/start"
 install -m 0644 "$source_dir/LICENSE" "$stage/LICENSE"
 install -m 0644 "$source_dir/NOTICE" "$stage/NOTICE"
-install -m 0644 "$source_dir/TRADEMARKS.md" "$stage/TRADEMARKS.md"
 
 if [[ "$platform" == linux-amd64 ]]; then
   extension_key=${SKARBIEC_EXTENSION_PRIVATE_KEY_FILE:?Skarbiec extension signing-key grant is required}
