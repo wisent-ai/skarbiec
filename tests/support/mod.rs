@@ -5,7 +5,10 @@ use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 pub struct CliFixture {
     pub root: PathBuf,
@@ -19,13 +22,14 @@ impl CliFixture {
             .duration_since(UNIX_EPOCH)
             .expect("system clock must follow the Unix epoch")
             .as_nanos();
+        let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         // GnuPG places sockets below GNUPGHOME. Keep this path short enough
-        // for macOS AF_UNIX while using the operator-designated scratch root.
+        // for macOS AF_UNIX while making parallel fixtures distinct.
         let root = PathBuf::from(env!("HOME"))
             .join(".stado")
             .join("work")
             .join(format!(
-                "{area}-{:x}{:08x}",
+                "{area}-{:x}{:08x}{sequence:x}",
                 std::process::id(),
                 unique & 0xffff_ffff
             ));
