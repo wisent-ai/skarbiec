@@ -1,158 +1,58 @@
-use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::PathBuf;
-use std::process::{Command, Output};
-use std::time::{SystemTime, UNIX_EPOCH};
+#[path = "../support/mod.rs"]
+mod support;
 
 use serde_json::Value;
-
-struct CliFixture {
-    root: PathBuf,
-    gnupg: PathBuf,
-    vault: PathBuf,
-    bridge: PathBuf,
-    request: PathBuf,
-}
-
-impl CliFixture {
-    fn new() -> Self {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock must follow the Unix epoch")
-            .as_nanos();
-        let root = PathBuf::from("/private/tmp").join(format!(
-            "sbc{:x}{:08x}",
-            std::process::id(),
-            unique & 0xffff_ffff
-        ));
-        let gnupg = root.join("gnupg");
-        fs::create_dir_all(&gnupg).expect("create isolated GPG home");
-        fs::set_permissions(&gnupg, fs::Permissions::from_mode(0o700))
-            .expect("protect isolated GPG home");
-
-        let request = root.join("weles-request.json");
-        let bridge = root.join("weles-credential-bridge");
-        let script = format!(
-            "#!/bin/sh\ncat > '{}'\nprintf '%s\\n' '{{\"status\":\"operation_plan\",\"operation\":\"acquire\",\"provider\":\"openrouter\",\"vaultItemId\":\"openrouter\"}}'\n",
-            request.display()
-        );
-        fs::write(&bridge, script).expect("write isolated Weles protocol fixture");
-        fs::set_permissions(&bridge, fs::Permissions::from_mode(0o700))
-            .expect("protect isolated Weles protocol fixture");
-
-        Self {
-            vault: root.join("vault.json"),
-            root,
-            gnupg,
-            bridge,
-            request,
-        }
-    }
-
-    fn run(&self, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_skarbiec"))
-            .args(args)
-            .env("HOME", &self.root)
-            .env("GNUPGHOME", &self.gnupg)
-            .env("SKARBIEC_VAULT_FILE", &self.vault)
-            .env("SKARBIEC_AUDIT_FILE", self.root.join("audit.jsonl"))
-            .env("SKARBIEC_WELES_CREDENTIAL_COMMAND", &self.bridge)
-            .output()
-            .expect("run real skarbiec binary")
-    }
-
-    fn init(&self) {
-        let output = self.run(&[
-            "init",
-            "Skarbiec credential test <skarbiec-credential-test@example.invalid>",
-        ]);
-        assert_success("init fixture vault", &output);
-    }
-}
-
-impl Drop for CliFixture {
-    fn drop(&mut self) {
-        let _ = Command::new("gpgconf")
-            .env("GNUPGHOME", &self.gnupg)
-            .args(["--kill", "all"])
-            .status();
-        let _ = fs::remove_dir_all(&self.root);
-    }
-}
-
-fn assert_success(context: &str, output: &Output) {
-    assert!(
-        output.status.success(),
-        "{context} failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).trim().to_owned()
-}
+use support::{assert_success, stderr, CliFixture};
 
 #[test]
-fn acquire_plans_one_missing_generic_credential_and_refuses_malformed_origins() {
-    let fixture = CliFixture::new();
-    fixture.init();
+fn seal_directory_persists_one_identity_contract_and_refuses_replacement() {
+    let fixture = CliFixture::new("credentials");
+    fixture.init("Skarbiec credential test <skarbiec-credential-test@example.invalid>");
 
-    let planned = fixture.run(&[
+    let sealed = fixture.run(&[
         "credential",
-        "acquire",
-        "openrouter",
+        "seal-directory",
+        "entra-admin",
         "--provider",
-        "openrouter",
-        "--consumer",
-        "design-assets",
-        "--purpose",
-        "read approved design assets",
-        "--signup-origin",
-        "https://openrouter.ai",
-        "--dry-run",
+        "microsoft_entra",
+        "--tenant",
+        "11111111-1111-4111-8111-111111111111",
+        "--object-id",
+        "22222222-2222-4222-8222-222222222222",
+        "--account-upn",
+        "admin@example.invalid",
         "--local",
     ]);
-    assert_success("plan missing generic credential acquisition", &planned);
-    let response: Value = serde_json::from_slice(&planned.stdout).expect("parse command response");
-    assert_eq!(response.get("ok"), Some(&Value::Bool(true)));
-    assert_eq!(response["operation"], "acquire");
-    assert_eq!(response["credential"], "openrouter");
-    assert_eq!(response["weles"]["status"], "operation_plan");
+    assert_success("seal one directory identity", &sealed);
+    let response: Value = serde_json::from_slice(&sealed.stdout).expect("parse seal response");
+    assert_eq!(response["status"], "sealed");
+    assert_eq!(response["credential"], "entra-admin");
+    assert_eq!(response["directory"]["provider"], "microsoft_entra");
 
-    let request: Value = serde_json::from_slice(
-        &fs::read(&fixture.request).expect("read the request sent to the Weles bridge"),
-    )
-    .expect("parse the request sent to the Weles bridge");
-    assert_eq!(request["mode"], "submit");
-    assert_eq!(request["operation"], "acquire");
-    assert_eq!(request["credential_id"], "openrouter");
-    assert_eq!(request["provider"], "openrouter");
-    assert_eq!(request["consumer"], "design-assets");
-    assert_eq!(request["purpose"], "read approved design assets");
-    assert_eq!(request["signup_origin"], "https://openrouter.ai");
-    assert_eq!(request["field"], "api_key");
-    assert_eq!(request["dry_run"], true);
+    let status = fixture.run(&["credential", "status", "entra-admin", "--local"]);
+    assert_success("read persisted directory identity", &status);
+    let status: Value = serde_json::from_slice(&status.stdout).expect("parse credential status");
+    assert_eq!(status["directory"]["tenant_id"], "11111111-1111-4111-8111-111111111111");
+    assert_eq!(status["directory"]["principal_object_id"], "22222222-2222-4222-8222-222222222222");
+    assert_eq!(status["directory"]["account_upn"], "admin@example.invalid");
 
-    let absent = fixture.run(&["get", "openrouter", "--field", "api_key"]);
-    assert_eq!(absent.status.code(), Some(1));
-    assert_eq!(stderr(&absent), "Error: no item: openrouter");
-
-    let malformed_origin = fixture.run(&[
+    let duplicate = fixture.run(&[
         "credential",
-        "acquire",
-        "openrouter",
+        "seal-directory",
+        "entra-admin",
         "--provider",
-        "openrouter",
-        "--consumer",
-        "design-assets",
-        "--signup-origin",
-        "https://openrouter.ai/signup?source=test",
-        "--dry-run",
+        "microsoft_entra",
+        "--tenant",
+        "33333333-3333-4333-8333-333333333333",
+        "--object-id",
+        "44444444-4444-4444-8444-444444444444",
+        "--account-upn",
+        "other@example.invalid",
         "--local",
     ]);
-    assert_eq!(malformed_origin.status.code(), Some(1));
+    assert_eq!(duplicate.status.code(), Some(1));
     assert_eq!(
-        stderr(&malformed_origin),
-        "Error: --signup-origin must be https://<host>[:<port>]: an absolute https origin, lowercase host, no userinfo, path, query or fragment"
+        stderr(&duplicate),
+        "Error: entra-admin already carries a sealed directory contract; changing it requires credential reseal and a reseal capability"
     );
 }

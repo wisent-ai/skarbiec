@@ -19,6 +19,18 @@ path = "tests/items/main.rs"
 name = "credentials"
 path = "tests/credentials/main.rs"
 
+[[test]]
+name = "onboarding"
+path = "tests/onboarding/main.rs"
+
+[[test]]
+name = "schema"
+path = "tests/schema/main.rs"
+
+[[test]]
+name = "vault"
+path = "tests/vault/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"
