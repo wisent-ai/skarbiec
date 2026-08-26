@@ -16,9 +16,13 @@ impl CliFixture {
             .duration_since(UNIX_EPOCH)
             .expect("system clock must follow the Unix epoch")
             .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "skarbiec-cli-items-{}-{unique}",
-            std::process::id()
+        // GnuPG places Unix sockets below GNUPGHOME. macOS rejects the socket
+        // before key generation when a random system temp path exceeds its
+        // AF_UNIX limit, so the isolated fixture name is deliberately short.
+        let root = PathBuf::from("/private/tmp").join(format!(
+            "sb{:x}{:08x}",
+            std::process::id(),
+            unique & 0xffff_ffff
         ));
         let gnupg = root.join("gnupg");
         fs::create_dir_all(&gnupg).expect("create isolated GPG home");
