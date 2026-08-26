@@ -1166,3 +1166,29 @@ impl Vault {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_lock_creates_a_private_parent_for_a_fresh_vault() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join(format!("vault-lock-test-{}", std::process::id()));
+        let vault_path = root.join("fresh").join("vault.json");
+
+        let guard = acquire_write_lock(&vault_path).expect("fresh vault lock");
+        assert!(vault_path.with_extension("write.lock").is_file());
+        assert_eq!(
+            fs::metadata(vault_path.parent().expect("vault parent"))
+                .expect("vault parent metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+
+        drop(guard);
+        fs::remove_dir_all(root).expect("remove vault lock test directory");
+    }
+}

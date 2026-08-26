@@ -528,3 +528,73 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn note_requires_one_string_value() {
+        let valid = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "note",
+            "fields": {"value": "non-secret onboarding proof"},
+            "context": {},
+        });
+        validate_payload(&valid, "note").expect("valid note");
+
+        let missing = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "note",
+            "fields": {"title": "not canonical"},
+            "context": {},
+        });
+        assert!(validate_payload(&missing, "note").is_err());
+
+        let non_string = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "note",
+            "fields": {"value": true},
+            "context": {},
+        });
+        assert!(validate_payload(&non_string, "note").is_err());
+    }
+
+    #[test]
+    fn host_account_requires_both_fields_and_a_named_account() {
+        let valid = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles", "password": "not-the-real-one"},
+            "context": {"account_ref": "charles@charless-mac-mini", "source_kind": "fleet-host"},
+        });
+        validate_payload(&valid, "host-account").expect("valid host account");
+
+        let no_password = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles"},
+            "context": {"account_ref": "charles@charless-mac-mini"},
+        });
+        assert!(validate_payload(&no_password, "host-account").is_err());
+
+        // Without account_ref nothing can decide which registry target the
+        // credential belongs to, so the write must not be accepted at all.
+        let unnamed = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles", "password": "not-the-real-one"},
+            "context": {"source_kind": "fleet-host"},
+        });
+        assert!(validate_payload(&unnamed, "host-account").is_err());
+
+        // A machine account is not a web login: the login factors have no reader
+        // here and must not be smuggled in under this kind.
+        let login_shaped = json!({
+            "schema": ITEM_SCHEMA,
+            "kind": "host-account",
+            "fields": {"username": "charles", "totp_secret": "ABCD"},
+            "context": {"account_ref": "charles@charless-mac-mini"},
+        });
+        assert!(validate_payload(&login_shaped, "host-account").is_err());
+    }
+}
