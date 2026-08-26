@@ -15,6 +15,10 @@ path = "src/main.rs"
 name = "items"
 path = "tests/items/main.rs"
 
+[[test]]
+name = "credentials"
+path = "tests/credentials/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"
