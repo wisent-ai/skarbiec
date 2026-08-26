@@ -120,8 +120,13 @@ fn token_mint_refuses_inexact_unknown_or_dangling_capabilities() {
         );
     }
 
-    // No refusal may leave a grant behind.
-    assert_eq!(vault_tokens(&fixture), Value::Null);
+    // No refusal may leave a grant behind: the consumer never appears in the
+    // vault's token map, whether that map is absent or empty.
+    let stored = vault_tokens(&fixture);
+    assert!(
+        stored.is_null() || stored.as_object().is_some_and(|map| map.is_empty()),
+        "refusals must not persist grants, vault kept {stored}"
+    );
 }
 
 #[test]
