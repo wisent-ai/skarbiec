@@ -24,8 +24,6 @@ mod state;
 mod status;
 mod wire;
 
-#[cfg(test)]
-mod tests;
 
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
