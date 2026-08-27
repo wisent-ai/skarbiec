@@ -66,16 +66,16 @@ jobs:
       group: skarbiec-stable-release
       cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Submit exact revision to the Stado release runner
         env:
           GH_TOKEN: ${{ secrets.RELEASE_BOOTSTRAP_TOKEN }}
         run: |
           set -euo pipefail
-          version="$(gh api "repos/$GITHUB_REPOSITORY/contents/Cargo.toml?ref=$GITHUB_SHA" \
-            --jq '.content' | base64 --decode |
-            sed -n 's/^version = "\(.*\)"/\1/p' | head -1)"
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
           test -n "$version"
-          title="product-release $GITHUB_REPOSITORY@$GITHUB_SHA"
           jq -n \
             --arg repository "$GITHUB_REPOSITORY" \
             --arg ref "$GITHUB_SHA" \
@@ -84,28 +84,6 @@ jobs:
             > "$RUNNER_TEMP/release-dispatch.json"
           gh api "repos/wisent-ai/stado/dispatches" \
             --method POST --input "$RUNNER_TEMP/release-dispatch.json"
-          run_id=
-          for attempt in $(seq 1 360); do
-            runs="$(gh api \
-              'repos/wisent-ai/stado/actions/workflows/product-release.yml/runs?event=repository_dispatch&per_page=20')"
-            run_id="$(jq -r --arg title "$title" \
-              '.workflow_runs[] | select(.display_title == $title) | .id' \
-              <<<"$runs" | head -1)"
-            if [ -n "$run_id" ]; then
-              status="$(jq -r --argjson id "$run_id" \
-                '.workflow_runs[] | select(.id == $id) | .status' <<<"$runs")"
-              if [ "$status" = completed ]; then
-                conclusion="$(jq -r --argjson id "$run_id" \
-                  '.workflow_runs[] | select(.id == $id) | .conclusion' <<<"$runs")"
-                echo "Stado product release run: https://github.com/wisent-ai/stado/actions/runs/$run_id"
-                [ "$conclusion" = success ]
-                exit
-              fi
-            fi
-            sleep 10
-          done
-          echo "::error::Stado did not complete product release $title"
-          false
 
   build:
     # Everything below is about publishing a tag, and none of it runs
