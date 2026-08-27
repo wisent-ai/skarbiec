@@ -66,38 +66,46 @@ jobs:
       group: skarbiec-stable-release
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      # Build the exact Stado client this workflow was reviewed against rather
-      # than depending on mutable runner state.
-      - uses: actions/checkout@v4
-        with:
-          repository: wisent-ai/stado
-          ref: 1c121b80d43003a3cfd3e5ddeae1fbd949c0c28e
-          path: stado-source
-          persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build pinned Stado release client
-        working-directory: stado-source/stado-rs
-        run: cargo build --locked --release --bin stado
-      - name: Submit the committed version to Stado
-        shell: bash
+      - name: Submit exact revision to the Stado release runner
         env:
-          STADO_BIN: ${{ runner.temp }}/stado-release-client
-          STADO_API_URL: ${{ vars.STADO_RELEASE_API_URL }}
-          STADO_API_TOKEN: ${{ secrets.STADO_RELEASE_PUBLISHER_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_BOOTSTRAP_TOKEN }}
         run: |
           set -euo pipefail
-          cp stado-source/stado-rs/target/release/stado "$STADO_BIN"
-          chmod 0755 "$STADO_BIN"
-          rm -rf stado-source
-          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          version="$(gh api "repos/$GITHUB_REPOSITORY/contents/Cargo.toml?ref=$GITHUB_SHA" \
+            --jq '.content' | base64 --decode |
+            sed -n 's/^version = "\(.*\)"/\1/p' | head -1)"
           test -n "$version"
-          "$STADO_BIN" release submit \
-            --source "$GITHUB_WORKSPACE" \
-            --version "$version" \
-            --channel stable
+          title="product-release $GITHUB_REPOSITORY@$GITHUB_SHA"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg ref "$GITHUB_SHA" \
+            --arg version "$version" \
+            '{event_type:"product-release",client_payload:{repository:$repository,ref:$ref,version:$version,channel:"stable"}}' \
+            > "$RUNNER_TEMP/release-dispatch.json"
+          gh api "repos/wisent-ai/stado/dispatches" \
+            --method POST --input "$RUNNER_TEMP/release-dispatch.json"
+          run_id=
+          for attempt in $(seq 1 120); do
+            runs="$(gh api \
+              'repos/wisent-ai/stado/actions/workflows/product-release.yml/runs?event=repository_dispatch&per_page=20')"
+            run_id="$(jq -r --arg title "$title" \
+              '.workflow_runs[] | select(.display_title == $title) | .id' \
+              <<<"$runs" | head -1)"
+            if [ -n "$run_id" ]; then
+              status="$(jq -r --argjson id "$run_id" \
+                '.workflow_runs[] | select(.id == $id) | .status' <<<"$runs")"
+              if [ "$status" = completed ]; then
+                conclusion="$(jq -r --argjson id "$run_id" \
+                  '.workflow_runs[] | select(.id == $id) | .conclusion' <<<"$runs")"
+                echo "Stado product release run: https://github.com/wisent-ai/stado/actions/runs/$run_id"
+                [ "$conclusion" = success ]
+                exit
+              fi
+            fi
+            sleep 10
+          done
+          echo "::error::Stado did not complete product release $title"
+          false
 
   build:
     # Everything below is about publishing a tag, and none of it runs
