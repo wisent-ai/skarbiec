@@ -85,7 +85,7 @@ jobs:
           gh api "repos/wisent-ai/stado/dispatches" \
             --method POST --input "$RUNNER_TEMP/release-dispatch.json"
           run_id=
-          for attempt in $(seq 1 120); do
+          for attempt in $(seq 1 360); do
             runs="$(gh api \
               'repos/wisent-ai/stado/actions/workflows/product-release.yml/runs?event=repository_dispatch&per_page=20')"
             run_id="$(jq -r --arg title "$title" \
