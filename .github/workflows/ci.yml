@@ -74,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: wisent-ai/stado
-          ref: e2abcb49c8e4e5f9781285c96c9426b04b88bfd9
+          ref: 1c121b80d43003a3cfd3e5ddeae1fbd949c0c28e
           path: stado-source
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
