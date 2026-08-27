@@ -17,13 +17,10 @@ fn onboarding_reaches_first_success_only_after_the_real_note_and_audit_exist() {
     assert!(stdout.contains("\"status\": \"completed\""));
     assert!(stdout.contains("\"first_success\": \"audit_entry_observed\""));
 
-    let state_path = fixture
-        .root
-        .join(".local/share/skarbiec/onboarding.json");
-    let state: Value = serde_json::from_slice(
-        &fs::read(&state_path).expect("read persisted onboarding state"),
-    )
-    .expect("parse persisted onboarding state");
+    let state_path = fixture.root.join(".local/share/skarbiec/onboarding.json");
+    let state: Value =
+        serde_json::from_slice(&fs::read(&state_path).expect("read persisted onboarding state"))
+            .expect("parse persisted onboarding state");
     assert_eq!(state["status"], "completed");
 
     let listed = fixture.run(&["list"]);
@@ -33,8 +30,8 @@ fn onboarding_reaches_first_success_only_after_the_real_note_and_audit_exist() {
         "the completed journey did not persist its note"
     );
 
-    let audit = fs::read_to_string(fixture.root.join("audit.jsonl"))
-        .expect("read persisted audit journal");
+    let audit =
+        fs::read_to_string(fixture.root.join("audit.jsonl")).expect("read persisted audit journal");
     assert!(audit.contains("onboarding-safe-note-"));
     assert!(!audit.contains("This is a non-secret onboarding proof"));
 }

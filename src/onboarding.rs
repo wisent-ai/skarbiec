@@ -416,4 +416,3 @@ fn state_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".local/share/skarbiec/onboarding.json")
 }
-

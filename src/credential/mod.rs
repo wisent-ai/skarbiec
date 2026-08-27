@@ -24,7 +24,6 @@ mod state;
 mod status;
 mod wire;
 
-
 use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;

@@ -32,11 +32,9 @@ fn set_json_persists_canonical_items_and_refuses_invalid_payloads() {
     assert_eq!(absent.status.code(), Some(1));
     assert_eq!(stderr(&absent), "Error: no item: missing-note");
 
-    let non_string = r#"{"schema":"skarbiec.item.v2","kind":"note","fields":{"value":true},"context":{}}"#;
-    let refused = fixture.run_with_stdin(
-        &["set-json", "typed-note", "--type", "note"],
-        non_string,
-    );
+    let non_string =
+        r#"{"schema":"skarbiec.item.v2","kind":"note","fields":{"value":true},"context":{}}"#;
+    let refused = fixture.run_with_stdin(&["set-json", "typed-note", "--type", "note"], non_string);
     assert_eq!(refused.status.code(), Some(1));
     assert_eq!(
         stderr(&refused),

@@ -10,20 +10,35 @@ fn migrate_copies_live_items_preserves_destination_and_force_overwrites() {
     let destination = fixture.root.join("destination.json");
     let owner = "Skarbiec migration test <skarbiec-migration-test@example.invalid>";
 
-    assert_success("initialize source", &fixture.run_with_vault(&source, &["init", owner]));
+    assert_success(
+        "initialize source",
+        &fixture.run_with_vault(&source, &["init", owner]),
+    );
     assert_success(
         "store source item",
-        &fixture.run_with_vault(&source, &["set", "shared", "--type", "note", "value=from-source"]),
+        &fixture.run_with_vault(
+            &source,
+            &["set", "shared", "--type", "note", "value=from-source"],
+        ),
     );
     assert_success(
         "store source-only item",
-        &fixture.run_with_vault(&source, &["set", "source-only", "--type", "note", "value=copy-me"]),
+        &fixture.run_with_vault(
+            &source,
+            &["set", "source-only", "--type", "note", "value=copy-me"],
+        ),
     );
 
-    assert_success("initialize destination", &fixture.run_with_vault(&destination, &["init", owner]));
+    assert_success(
+        "initialize destination",
+        &fixture.run_with_vault(&destination, &["init", owner]),
+    );
     assert_success(
         "store destination item",
-        &fixture.run_with_vault(&destination, &["set", "shared", "--type", "note", "value=keep-me"]),
+        &fixture.run_with_vault(
+            &destination,
+            &["set", "shared", "--type", "note", "value=keep-me"],
+        ),
     );
 
     let from = source.to_str().expect("source path is utf-8");
@@ -42,12 +57,19 @@ fn migrate_copies_live_items_preserves_destination_and_force_overwrites() {
     assert_success("force migration", &forced);
     let overwritten = fixture.run_with_vault(&destination, &["get", "shared", "--field", "value"]);
     assert_success("read overwritten destination item", &overwritten);
-    assert_eq!(String::from_utf8_lossy(&overwritten.stdout), "from-source\n");
+    assert_eq!(
+        String::from_utf8_lossy(&overwritten.stdout),
+        "from-source\n"
+    );
 
     let missing = fixture.run(&[
         "migrate",
         "--from",
-        fixture.root.join("missing.json").to_str().expect("missing path is utf-8"),
+        fixture
+            .root
+            .join("missing.json")
+            .to_str()
+            .expect("missing path is utf-8"),
         "--to",
         to,
     ]);

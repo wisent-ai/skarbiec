@@ -1165,4 +1165,3 @@ impl Vault {
         self.set_item(id, &kind, &payload, &recipients, &tags)
     }
 }
-

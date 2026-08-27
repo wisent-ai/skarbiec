@@ -527,4 +527,3 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
         Err(_) => fallback_payload(fallback, context),
     }
 }
-
