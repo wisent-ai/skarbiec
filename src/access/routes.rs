@@ -229,12 +229,13 @@ fn resolve<'a>(
                 item_present = false;
                 problem = Some(format!("vault item {item} does not open: {detail}"));
             }
-            // Redemption hands out a text value and nothing else, so a field
-            // holding an object -- `context`, say -- is as broken as a missing
-            // one and is named separately rather than reported as absent.
+            // Redemption hands out text, and a structured field is served as
+            // its canonical JSON text -- the shape a browser sign-in banks an
+            // OAuth grant in. Only a field that cannot be text at all (null)
+            // is broken.
             Ok(payload) => match schema::field(payload, field) {
                 Err(_) => problem = Some(format!("vault item {item} has no {field} field")),
-                Ok(value) if !value.is_string() => {
+                Ok(Value::Null) => {
                     problem = Some(format!(
                         "vault item {item} field {field} is not a text value"
                     ))

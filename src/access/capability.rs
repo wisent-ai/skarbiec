@@ -321,14 +321,23 @@ fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// One item field as the text a redemption hands out.
+///
+/// A field written as a string is served verbatim. A field holding a
+/// structured document -- the shape a browser sign-in banks an OAuth grant
+/// in -- is served as its canonical JSON text: redemption's contract is text,
+/// and the serialization is that text, exactly what the consumer's own
+/// credential reduction expects to peel. Refusing the object here parked
+/// every signed-in subscription behind "capability redemption denied" while
+/// the vault held a working grant.
 fn item_field(vault: &Vault, item: &str, field: &str) -> Option<String> {
-    vault
-        .get_item(item)
-        .ok()?
-        .get("fields")
-        .and_then(|fields| fields.get(field))
-        .and_then(Value::as_str)
-        .map(str::to_string)
+    let payload = vault.get_item(item).ok()?;
+    let value = payload.get("fields").and_then(|fields| fields.get(field))?;
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Null => None,
+        other => serde_json::to_string(other).ok(),
+    }
 }
 
 // `len() % 4` is the base64 padding rule as the format itself states it, and the
