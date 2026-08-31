@@ -9,7 +9,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -32,6 +32,10 @@ pub struct ManagedWrite<'a> {
 struct WritePolicy<'a> {
     writer: Option<&'a str>,
     managed: Option<ManagedWrite<'a>>,
+    /// A uid this item already had somewhere else -- the source vault of a
+    /// cross-vault migrate. Only ever consulted when the target has no item
+    /// under this id yet; an existing item's own uid always wins.
+    uid: Option<&'a str>,
 }
 
 struct VaultWriteLock(PathBuf);
@@ -84,6 +88,56 @@ fn private_file_mode() -> Result<u32> {
 /// each comparison, so a reader could not tell which number was load-bearing.
 pub fn current_envelope() -> u64 {
     "2".parse().expect("envelope revision is a number")
+}
+
+/// Bytes of OS entropy behind one item uid.
+const UID_ENTROPY_BYTES: usize = 16;
+
+/// Mint an item's permanent identifier.
+///
+/// An item id is a mutable human-chosen name, and this session removed its
+/// power to decide behaviour one guard at a time. What was left is that the
+/// name is still the only identity the vault has, so renaming one item is a
+/// fleet-wide migration and nobody renames anything -- which is how the names
+/// came to carry meaning in the first place. This is the identity a rename
+/// cannot touch.
+///
+/// 128 bits straight from `/dev/urandom`, hex. Random and nothing else: no
+/// counter, no hostname, no MAC address and no timestamp, because this string
+/// travels in cleartext beside the ciphertext and into `list`, a route table
+/// row and a journal line, and an identifier that encodes when or where an item
+/// was made would disclose exactly what an opaque one must not. 128 bits of
+/// CSPRNG output collide by birthday at around 2^64 items against a vault
+/// holding hundreds, so no coordination, registry or uniqueness check is
+/// needed -- which is the whole point, since two vaults mint independently.
+///
+/// Hex rather than base64url or a UUID's hyphenated grouping: the alphabet is
+/// `exact_component`-clean, so the value can appear in a resource string, an
+/// error or a log line with no escaping and no case ambiguity, and it needs no
+/// dependency and no version-nibble fiddling to produce. `/dev/urandom`
+/// directly rather than `crypto::random_token`, which spawns `openssl`: the
+/// backfill mints for every item that lacks one, and 599 subprocesses to
+/// produce 599 random numbers is not a thing to ship.
+pub fn mint_item_uid() -> Result<String> {
+    let mut bytes = vec![Default::default(); UID_ENTROPY_BYTES];
+    File::open("/dev/urandom")
+        .context("open /dev/urandom")?
+        .read_exact(&mut bytes)
+        .context("read entropy for item uid")?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+/// The uid an entry already carries, if it carries a usable one.
+///
+/// Absent is a legitimate, permanent state: every item written before this
+/// field existed has none, and no read, list, route or diagnosis may fail or
+/// narrow because of it. Only a non-empty string counts, so a `null` left by
+/// an older projection reads as absent rather than as an identity.
+pub fn entry_uid(entry: &Value) -> Option<&str> {
+    entry
+        .get("uid")
+        .and_then(Value::as_str)
+        .filter(|uid| !uid.is_empty())
 }
 
 fn document_generation(doc: &Value) -> u64 {
@@ -469,6 +523,7 @@ impl Vault {
             WritePolicy {
                 writer: Some(writer),
                 managed: None,
+                uid: None,
             },
         )
     }
@@ -491,6 +546,38 @@ impl Vault {
             WritePolicy {
                 writer: Some(write.writer),
                 managed: Some(write),
+                uid: None,
+            },
+        )
+    }
+
+    /// Write an item that already has an identity in another vault.
+    ///
+    /// The cross-vault `migrate` copies an item between vaults, and the item on
+    /// the far side is the same item: carrying its uid across is what lets a
+    /// route table or a consumer config that referred to it still be traced.
+    /// The supplied uid is only ever adopted when the target has no item under
+    /// this id; if one is already there, that item's own identity wins, because
+    /// overwriting an item's contents does not make it a different item.
+    pub fn set_item_with_uid(
+        &mut self,
+        id: &str,
+        item_kind: &str,
+        payload: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+        uid: Option<&str>,
+    ) -> Result<()> {
+        self.set_item_with_writer(
+            id,
+            item_kind,
+            payload,
+            recipient_uids,
+            tags,
+            WritePolicy {
+                writer: None,
+                managed: None,
+                uid,
             },
         )
     }
@@ -639,6 +726,24 @@ impl Vault {
             .map(Vec::as_slice)
             .unwrap_or_default();
         schema::ensure_registered_tags(carried_tags, &effective_tags)?;
+        // The item's permanent identity, decided once and never again.
+        //
+        // This is the one write that rebuilds the whole envelope from scratch,
+        // so every field it does not carry forward is a field it destroys. The
+        // precedence is what makes the guarantee absolute rather than
+        // best-effort: an existing item's own uid always wins, so no write of
+        // any kind -- rotation, retag, share, revoke, managed lifecycle write,
+        // restore-version, or a forced cross-vault overwrite -- can replace an
+        // identity that already exists. Only an item this vault has never seen
+        // takes the caller's uid (a cross-vault migrate carrying the source's),
+        // and only an item with neither mints a new one.
+        let uid = match previous.as_ref().and_then(entry_uid) {
+            Some(existing) => existing.to_string(),
+            None => match policy.uid {
+                Some(supplied) => supplied.to_string(),
+                None => mint_item_uid()?,
+            },
+        };
         let management = requested_management
             .or_else(|| {
                 previous
@@ -683,6 +788,7 @@ impl Vault {
         let stored_tags = effective_tags.len();
         let entry = json!({
             "format": current_envelope(),
+            "uid": uid,
             "kind": item_kind,
             "state": "active",
             "revision": revision,
@@ -776,6 +882,14 @@ impl Vault {
         schema::ensure_registered_tags(carried, &written)?;
         entry["tags"] = Value::Array(written);
         entry["updated_at"] = json!(now());
+        // Lazy mint. `retag` mutates the envelope in place, so an existing uid
+        // survives untouched; an item written before uids existed picks one up
+        // here rather than waiting for the backfill. Every write is a chance to
+        // stamp one, which is what makes the field arrive without anyone
+        // running anything.
+        if entry_uid(&entry).is_none() {
+            entry["uid"] = json!(mint_item_uid()?);
+        }
         obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
         self.save()
     }
@@ -1032,6 +1146,12 @@ impl Vault {
                         let versions = history_len.saturating_add(std::iter::once(()).count());
                         Some(json!({
                             "id": id,
+                            // `null` for an item that predates the field, the
+                            // same way this projection already reports a
+                            // missing `kind`. That null is useful rather than
+                            // untidy: it is how an operator sees which items
+                            // `uid-backfill` still has to stamp.
+                            "uid": item.get("uid"),
                             "kind": item.get("kind"),
                             "state": state,
                             "revision": item.get("revision"),
@@ -1143,6 +1263,124 @@ impl Vault {
             .remove(id)
             .with_context(|| format!("no item: {id}"))?;
         self.save()
+    }
+
+    /// The id currently holding this uid, if any item does.
+    ///
+    /// This is what turns "no vault item X" into "X is now Y". Linear over the
+    /// items map and reading only cleartext envelope metadata, so it costs no
+    /// decryption and is safe to call from a diagnosis on a host whose gpg is
+    /// the fault.
+    pub fn id_for_uid(&self, uid: &str) -> Option<&str> {
+        if uid.is_empty() {
+            return None;
+        }
+        self.doc
+            .get("items")
+            .and_then(Value::as_object)?
+            .iter()
+            .find(|(_, entry)| entry_uid(entry) == Some(uid))
+            .map(|(id, _)| id.as_str())
+    }
+
+    /// Move one item to a new id, keeping everything that is not the id.
+    ///
+    /// The entry object is moved whole, so uid, history, revision, created_at,
+    /// tags, recipients, management and the ciphertext itself are the same
+    /// bytes at the new key. Nothing is decrypted and nothing is re-encrypted:
+    /// the id is a map key, not part of the sealed payload.
+    ///
+    /// Improvising this with `get` + `set-json` under a new id + `delete` does
+    /// not do the same thing. That is a copy: the new item starts at revision
+    /// 1, its history is empty, `created_at` is now, tags are gone because
+    /// there is no previous entry to preserve them from, and it needs the
+    /// plaintext in hand to write at all.
+    ///
+    /// A uid is minted here when the item has none, because the uid is what
+    /// lets a route table or a consumer config work out where the item went;
+    /// renaming without one leaves exactly the untraceable gap this exists to
+    /// close.
+    pub fn rename_item(&mut self, from: &str, to: &str) -> Result<String> {
+        if from == to {
+            bail!("{from} already has that id");
+        }
+        if !schema::exact_token(to, schema::MAX_NAME_CHARS) {
+            bail!("a new item id must be one exact name of 1 to {} characters with no NUL, newline or carriage return", schema::MAX_NAME_CHARS);
+        }
+        let items = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .context("vault has no items section")?;
+        if items.contains_key(to) {
+            bail!("{to} already exists; renaming onto a live item would replace it");
+        }
+        let mut entry = items
+            .get(from)
+            .cloned()
+            .with_context(|| format!("no item: {from}"))?;
+        if entry.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
+            bail!("{from} still uses the legacy envelope; run migrate-v2 before renaming it");
+        }
+        let uid = match entry_uid(&entry) {
+            Some(existing) => existing.to_string(),
+            None => {
+                let minted = mint_item_uid()?;
+                entry["uid"] = json!(minted);
+                minted
+            }
+        };
+        entry["updated_at"] = json!(now());
+        let items = obj_mut(&mut self.doc, "items");
+        items.remove(from);
+        items.insert(to.to_string(), entry);
+        self.save()?;
+        Ok(uid)
+    }
+
+    /// Stamp a uid onto every item that has none.
+    ///
+    /// Idempotent by construction: an item that already carries one is skipped
+    /// before anything is generated, so a second run mints nothing, writes no
+    /// new value over an old one, and reports zero stamped. Envelope only --
+    /// no payload is read, decrypted, re-encrypted or revised, and `revision`,
+    /// `updated_at` and `current` are left exactly as they were, because
+    /// acquiring an identifier is not a change to the credential.
+    ///
+    /// The vault is saved once at the end rather than per item, and only when
+    /// something actually changed.
+    pub fn backfill_uids(&mut self) -> Result<(Vec<String>, usize)> {
+        let ids: Vec<String> = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|(_, entry)| entry_uid(entry).is_none())
+                    .map(|(id, _)| id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let total = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .map(Map::len)
+            .unwrap_or_default();
+        if ids.is_empty() {
+            return Ok((ids, total));
+        }
+        for id in &ids {
+            let minted = mint_item_uid()?;
+            let entry = obj_mut(&mut self.doc, "items")
+                .get_mut(id)
+                .and_then(Value::as_object_mut)
+                .with_context(|| format!("no item: {id}"))?;
+            entry.insert("uid".to_string(), json!(minted));
+        }
+        self.save()?;
+        Ok((ids, total))
     }
 
     // Restoring history creates a fresh canonical revision instead of

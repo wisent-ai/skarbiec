@@ -227,7 +227,23 @@ fn resolve<'a>(
     };
     let stored = vault.doc().get("items").and_then(|items| items.get(item));
     let mut problem = match stored {
-        None => Some(format!("no vault item {item}")),
+        // A route whose item is gone reported `no vault item X`, which is the
+        // same sentence for a purge and for a rename -- and a rename is the
+        // common case, because an id is a mutable name. The row records the
+        // uid the item had when the route was written, so when the name no
+        // longer resolves the vault can be asked where that identity went. An
+        // answer turns a fleet-wide hunt into one line naming what to update.
+        //
+        // A row written before uids, or a route to an item that never had one,
+        // has nothing to correlate and falls back to exactly today's sentence.
+        None => Some(
+            entry
+                .get("uid")
+                .and_then(Value::as_str)
+                .and_then(|uid| vault.id_for_uid(uid))
+                .map(|found| format!("vault item {item} was renamed to {found}"))
+                .unwrap_or_else(|| format!("no vault item {item}")),
+        ),
         Some(record) if record.get("state").and_then(Value::as_str) == Some("trashed") => {
             Some(format!("vault item {item} is in trash"))
         }
@@ -290,6 +306,24 @@ fn list(consumer: Option<&str>) -> Result<Value> {
         })
         .collect();
     Ok(json!({"consumer": consumer, "routes": routes}))
+}
+
+/// One table row: the item and field it maps, plus that item's uid when the
+/// item has one. The uid is what lets `verify` distinguish a renamed item from
+/// a purged one; a row without it degrades to naming only what it always did.
+fn route_row(vault: &Vault, item: &str, field: &str) -> Value {
+    let mut row = Map::new();
+    row.insert("item".to_string(), json!(item));
+    row.insert("field".to_string(), json!(field));
+    if let Some(uid) = vault
+        .doc()
+        .get("items")
+        .and_then(|items| items.get(item))
+        .and_then(crate::core::vault::entry_uid)
+    {
+        row.insert("uid".to_string(), json!(uid));
+    }
+    Value::Object(row)
 }
 
 /// A flag that is absent, empty, or carrying a newline would land in the table
@@ -421,7 +455,19 @@ fn add(flags: &HashMap<String, String>) -> Result<Value> {
             mapped("field")
         );
     }
-    table.insert(resource.to_string(), json!({"item": item, "field": field}));
+    // The item's uid alongside its name, so a later `verify` can say where the
+    // item went rather than only that the name stopped resolving.
+    //
+    // Opportunistic on purpose. `routes add` deliberately does not require the
+    // item to exist -- a route may be mapped ahead of provisioning, and
+    // `verify` is what checks -- so an unreadable vault, an absent item or an
+    // item with no uid yet all leave the row exactly as it would have been
+    // written before. Nothing here may turn a working add into a failure.
+    let row = match Vault::open(vault_path()) {
+        Ok(vault) => route_row(&vault, item, field),
+        Err(_) => json!({"item": item, "field": field}),
+    };
+    table.insert(resource.to_string(), row);
     let backup = publish(&path, &Value::Object(table))?;
     let record = json!({
         "at": utc(ISO_FORMAT),
@@ -550,7 +596,7 @@ fn reconcile() -> Result<Value> {
         if table.contains_key(&resource) {
             continue;
         }
-        table.insert(resource.clone(), json!({"item": item, "field": field}));
+        table.insert(resource.clone(), route_row(&vault, item, &field));
         added.push(json!({"resource": resource, "item": item, "field": field}));
     }
 
@@ -618,7 +664,7 @@ fn reconcile() -> Result<Value> {
         };
         table.insert(
             resource.clone(),
-            json!({"item": item, "field": "agent_auth_secret"}),
+            route_row(&vault, item, "agent_auth_secret"),
         );
         added.push(json!({
             "resource": resource,
@@ -641,7 +687,7 @@ fn reconcile() -> Result<Value> {
             }));
             continue;
         };
-        table.insert(resource.clone(), json!({"item": item, "field": field}));
+        table.insert(resource.clone(), route_row(&vault, item, field));
         added.push(json!({"resource": resource, "item": item, "field": field}));
     }
 

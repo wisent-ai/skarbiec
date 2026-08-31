@@ -227,6 +227,73 @@ fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<
     emit(&json!({"ok": true, "id": id, "tags": tags}))
 }
 
+/// Change one item's id, keeping everything that is not the id.
+///
+/// There was no way to do this. The improvisation -- `get`, `set-json` under
+/// the new id, `delete` the old -- is a copy wearing a rename's clothes: the
+/// result starts at revision 1 with an empty history and a fresh `created_at`,
+/// its tags are gone because a new id has no previous entry to preserve them
+/// from, and it needs the plaintext in hand. Measured on a scratch vault, an
+/// item at revision 3 with two historical versions came out at revision 1 with
+/// none.
+///
+/// Owner-controlled items only, the same bar `retag` and `delete` apply. An
+/// item the credential lifecycle or Weles controls is refused, because its
+/// controller holds references keyed by the id and this command cannot update
+/// them.
+///
+/// The references this does break -- capability routes, consumer grants,
+/// acquisition bearers in flight -- break loudly, which is the accepted
+/// tradeoff. What changes is that they are now traceable: the uid travels with
+/// the item, so `routes verify` reports a renamed item as renamed and names
+/// where it went, instead of reporting it as missing and leaving an operator
+/// unable to tell a rename from a purge.
+fn cmd_rename(positionals: &[String]) -> Result<()> {
+    let from = positionals
+        .first()
+        .context("usage: rename <id> <new-id>")?;
+    let to = positionals
+        .get("1".parse::<usize>()?)
+        .context("usage: rename <id> <new-id>")?;
+    let mut vault = Vault::open(vault_path())?;
+    ensure_owner_mutation_allowed(&vault, from, "rename")?;
+    let uid = vault.rename_item(from, to)?;
+    crate::runtime::audit::append_sync(
+        "item-renamed",
+        &json!({"from": from, "to": to, "uid": uid}),
+    )?;
+    emit(&json!({"ok": true, "from": from, "to": to, "uid": uid}))
+}
+
+/// Stamp a permanent uid onto every item that predates the field.
+///
+/// Lazy minting means the field arrives on its own as items are written, but
+/// an operator wanting a complete picture should not have to touch hundreds of
+/// items by hand to get one. Idempotent: an item that already has a uid is
+/// skipped before anything is generated, so a second run stamps nothing.
+///
+/// Envelope only. No payload is read, decrypted or re-encrypted, and
+/// `revision`, `updated_at` and `current` are untouched -- acquiring an
+/// identifier is not a change to the credential, and a diff of a backfilled
+/// vault shows one added field per item and nothing else.
+fn cmd_uid_backfill() -> Result<()> {
+    let mut vault = Vault::open(vault_path())?;
+    let (stamped, total) = vault.backfill_uids()?;
+    if !stamped.is_empty() {
+        crate::runtime::audit::append_sync(
+            "item-uid-backfill",
+            &json!({"stamped": stamped.len(), "items": total}),
+        )?;
+    }
+    emit(&json!({
+        "ok": true,
+        "items": total,
+        "stamped": stamped.len(),
+        "already_present": total.saturating_sub(stamped.len()),
+        "ids": stamped,
+    }))
+}
+
 pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().context("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;
@@ -403,6 +470,8 @@ fn main() -> Result<()> {
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
         "retag" => cmd_retag(&flags, &positionals),
+        "rename" => cmd_rename(&positionals),
+        "uid-backfill" => cmd_uid_backfill(),
         "delete" => emit(&cmd_delete(&positionals)?),
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => emit(&cmd_restore(&positionals)?),
@@ -419,7 +488,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","retag","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-ensure-read","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","capability-issue","capability-serve","routes","credential","apple-challenge-put","version"]}),
+            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","retag","rename","uid-backfill","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-ensure-read","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","capability-issue","capability-serve","routes","credential","apple-challenge-put","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
