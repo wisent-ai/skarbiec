@@ -42,7 +42,22 @@ use serde_json::{json, Map, Value};
 const MAX_RESOURCE_CHARS: usize = 512;
 const MAX_NAME_CHARS: usize = 128;
 const MAX_REASON_CHARS: usize = 512;
-const ROUTED_PREFIXES: &[&str] = &["provider:", "agent:"];
+// What an item declares about itself, in the tag vocabulary Brama's gateway and
+// desktop console already decide item identity by: `brama:provider:<provider>`
+// names the provider whose credential this is, and `brama:id:<subscription id>`
+// names the exact subscription inside that provider. Reading a declared tag is
+// not reading a name: the tag is a classification an operator wrote down, and
+// renaming the item does not touch it.
+const PROVIDER_TAG: &str = "brama:provider:";
+const SUBSCRIPTION_TAG: &str = "brama:id:";
+
+// The one canonical kind whose schema declares an agent signing identity:
+// `fields.id` names the Brama agent and `fields.agent_auth_secret` is its
+// credential, both first-class in `core::schema` with their own aliases. Every
+// other kind either forbids those fields outright or is a free-form dump that
+// declares nothing, so this kind is what makes the pair a declaration rather
+// than a coincidence.
+const AGENT_IDENTITY_KIND: &str = "internal-authority";
 const CREDENTIAL_FIELDS: &[&str] = &[
     "api_key",
     "token",
@@ -116,7 +131,7 @@ pub fn dispatch(
                 "routes reconcile",
                 "routes verify [<consumer>]",
             ],
-            "usage": "routes reconcile derives identity mappings for provider:* and agent:* items from the live vault; routes list [<consumer>] prints every route with the vault's answer for it; routes verify [<consumer>] exits non-zero when a route names a missing item or field; routes add is idempotent, keeps the previous table beside the new one, and requires --reason. The optional <consumer> argument matches resource text and is presentation only: it narrows what is printed and grants nothing, because redemption is authorised by the live vault token that registers a workload's Ed25519 key, never by this table.",
+            "usage": "routes reconcile derives capability routes from what vault items declare -- the brama:provider:/brama:id: tags an operator wrote on a credential, and the id/agent_auth_secret fields an internal-authority item carries -- never from how an item happens to be named; an item that declares nothing is mapped by hand with routes add. routes list [<consumer>] prints every route with the vault's answer for it; routes verify [<consumer>] exits non-zero when a route names a missing item or field; routes add is idempotent, keeps the previous table beside the new one, and requires --reason. The optional <consumer> argument matches resource text and is presentation only: it narrows what is printed and grants nothing, because redemption is authorised by the live vault token that registers a workload's Ed25519 key, never by this table.",
             "table": routes_path().display().to_string(),
         }),
         other => bail!("unknown routes command: {other}"),
@@ -426,14 +441,22 @@ fn add(flags: &HashMap<String, String>) -> Result<Value> {
         "backup": backup,
     }))
 }
-/// Derive identity mappings from vault-owned item schemas.
+/// Derive capability routes from what vault items declare about themselves.
 ///
-/// Exact `provider:*` and `agent:*` items map to themselves when they carry one
-/// credential field. Product request-signing items use the established
-/// `<product>-agent-auth` or `<product>-model-agent-auth` names; their own `id`
-/// field names the agent and `agent_auth_secret` is the credential. Skarbiec
-/// validates both fields and refuses duplicate agent identities rather than
-/// making a caller choose a credential. Existing routes are never repointed.
+/// An item id is a mutable human-chosen name: it can be changed at any moment
+/// and it means nothing, so nothing here is decided by how one is spelled. A
+/// credential joins the provider vocabulary by carrying `brama:provider:` (and,
+/// for one subscription among several, `brama:id:`); an agent signing identity
+/// is an `internal-authority` item whose own `id` field names the agent and
+/// whose `agent_auth_secret` is the credential. Both were previously found by
+/// matching `provider:`/`agent:` id prefixes and `-agent-auth` id suffixes,
+/// which meant a rename silently changed which items became routes and which
+/// credential an agent signed with, and nothing was raised. Naming an item by
+/// its exact id stays available -- `routes add` does exactly that, and a rename
+/// then fails loudly in `routes verify` as a missing item.
+///
+/// Existing entries are never repointed: a resource already in the table is
+/// left exactly as the operator left it.
 fn reconcile() -> Result<Value> {
     let path = routes_path();
     let mut table = if path.exists() { load()? } else { Map::new() };
@@ -443,58 +466,103 @@ fn reconcile() -> Result<Value> {
         .get("items")
         .and_then(Value::as_object)
         .context("vault items section is not an object")?;
-    let mut ids: Vec<&String> = items
-        .iter()
-        .filter(|(id, record)| {
-            ROUTED_PREFIXES.iter().any(|prefix| id.starts_with(prefix))
-                && record.get("state").and_then(Value::as_str) != Some("trashed")
-        })
-        .map(|(id, _)| id)
-        .collect();
-    ids.sort();
 
     let mut added = Vec::new();
     let mut skipped = Vec::new();
-    for id in ids {
-        if table.contains_key(id) {
+
+    // Provider credentials, in the order their declarations sort: the vault
+    // document is a map and its iteration order is not a promise, while the
+    // table this writes is read by humans.
+    let mut declared: Vec<(String, Option<String>, &String)> = Vec::new();
+    for (item, record) in items {
+        if record.get("state").and_then(Value::as_str) == Some("trashed") {
             continue;
         }
-        let payload = match vault.get_item(id) {
-            Ok(payload) => payload,
-            Err(error) => {
-                skipped.push(json!({"resource": id, "problem": error.to_string()}));
+        let providers = declared_tags(record, PROVIDER_TAG);
+        let [provider] = providers.as_slice() else {
+            if !providers.is_empty() {
+                skipped.push(json!({
+                    "item": item,
+                    "problem": format!("item declares {} provider tags: {}", providers.len(), providers.join(", ")),
+                }));
+            }
+            continue;
+        };
+        if !exact_token(provider, MAX_NAME_CHARS) {
+            skipped
+                .push(json!({"item": item, "problem": "declared provider is not an exact name"}));
+            continue;
+        }
+        let ids = declared_tags(record, SUBSCRIPTION_TAG);
+        let subscription = match ids.as_slice() {
+            [] => None,
+            [id] if exact_token(id, MAX_NAME_CHARS) => Some((*id).to_string()),
+            [_] => {
+                skipped.push(
+                    json!({"item": item, "problem": "declared subscription id is not an exact name"}),
+                );
+                continue;
+            }
+            many => {
+                skipped.push(json!({
+                    "item": item,
+                    "problem": format!("item declares {} subscription ids: {}", many.len(), many.join(", ")),
+                }));
                 continue;
             }
         };
-        let Some(fields) = payload.get("fields").and_then(Value::as_object) else {
-            skipped.push(json!({"resource": id, "problem": "item carries no fields object"}));
-            continue;
-        };
-        let candidates: Vec<&str> = CREDENTIAL_FIELDS
-            .iter()
-            .copied()
-            .filter(|name| fields.get(*name).is_some_and(Value::is_string))
-            .collect();
-        let [field] = candidates.as_slice() else {
-            skipped.push(json!({
-                "resource": id,
-                "problem": format!("item has {} credential fields: {}", candidates.len(), candidates.join(", ")),
-            }));
-            continue;
-        };
-        table.insert(id.clone(), json!({"item": id, "field": field}));
-        added.push(json!({"resource": id, "item": id, "field": field}));
+        declared.push(((*provider).to_string(), subscription, item));
     }
-    // Request-signing items predate the `agent:*` resource vocabulary, so their
-    // item name and resource are intentionally different. Their schema carries
-    // the missing join: `id` is the Brama identity and `agent_auth_secret` is
-    // its signing credential. Only the two established item-name families are
-    // considered; scanning arbitrary secrets for coincidentally named fields
-    // would make a new mapping appear without an operator choosing that schema.
+    declared.sort();
+
+    // A provider family resource names that provider's one credential. Which
+    // one is decided by there being exactly one -- never by a subscription id
+    // ending in `-primary`, because that id is a name an operator may rewrite,
+    // and electing a default from it meant a rename silently moved every
+    // request for the family onto a different credential. Two candidates stay
+    // unmapped and are reported, exactly as two `-primary` ids were before.
+    let mut families: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    for (provider, subscription, item) in &declared {
+        let family = format!("provider:{provider}");
+        let resource = match subscription {
+            Some(id) => format!("{family}:{id}"),
+            None => family.clone(),
+        };
+        if !exact_token(&resource, MAX_RESOURCE_CHARS) {
+            skipped.push(json!({"item": item, "problem": "declared resource is not an exact token"}));
+            continue;
+        }
+        // An already-routed bare provider credential elects nothing and is not
+        // repointed, so it never needs opening.
+        if subscription.is_none() && table.contains_key(&resource) {
+            continue;
+        }
+        let Some(field) = credential_field(&vault, item, &mut skipped) else {
+            continue;
+        };
+        if subscription.is_some() {
+            families
+                .entry(family)
+                .or_default()
+                .push(((*item).clone(), field.clone()));
+        }
+        if table.contains_key(&resource) {
+            continue;
+        }
+        table.insert(resource.clone(), json!({"item": item, "field": field}));
+        added.push(json!({"resource": resource, "item": item, "field": field}));
+    }
+
+    // Agent signing credentials. The join between the `agent:` resource
+    // vocabulary and the vault is the item's own declaration -- `fields.id` is
+    // the Brama identity -- so the resource is built from what the item says it
+    // is, and an item that carries no such identity is simply not one. Two
+    // items claiming one agent are ambiguous and stay unmapped rather than
+    // making this command choose a signing key.
     let mut agent_credentials: HashMap<String, Vec<String>> = HashMap::new();
     for (item, record) in items {
         if record.get("state").and_then(Value::as_str) == Some("trashed")
-            || !(item.ends_with("-agent-auth") || item.ends_with("-model-agent-auth"))
+            || record.get("kind").and_then(Value::as_str) != Some(AGENT_IDENTITY_KIND)
         {
             continue;
         }
@@ -507,17 +575,7 @@ fn reconcile() -> Result<Value> {
         };
         let Some(fields) = payload.get("fields").and_then(Value::as_object) else {
             skipped.push(
-                json!({"item": item, "problem": "agent identity item carries no fields object"}),
-            );
-            continue;
-        };
-        let Some(agent_id) = fields
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|value| exact_token(value, MAX_NAME_CHARS))
-        else {
-            skipped.push(
-                json!({"item": item, "problem": "agent identity item has no exact id field"}),
+                json!({"item": item, "problem": "internal authority carries no fields object"}),
             );
             continue;
         };
@@ -525,22 +583,35 @@ fn reconcile() -> Result<Value> {
             .get("agent_auth_secret")
             .is_some_and(Value::is_string)
         {
-            skipped.push(json!({"item": item, "problem": "agent identity item has no text agent_auth_secret field"}));
             continue;
         }
+        let Some(agent_id) = fields
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| exact_token(value, MAX_NAME_CHARS))
+        else {
+            skipped.push(json!({
+                "item": item,
+                "problem": "item carries an agent_auth_secret but no exact id field naming the agent",
+            }));
+            continue;
+        };
         agent_credentials
             .entry(format!("agent:{agent_id}"))
             .or_default()
             .push(item.clone());
     }
-    for (resource, candidates) in agent_credentials {
+    let mut agent_resources: Vec<(String, Vec<String>)> = agent_credentials.into_iter().collect();
+    agent_resources.sort();
+    for (resource, mut candidates) in agent_resources {
         if table.contains_key(&resource) {
             continue;
         }
+        candidates.sort();
         let [item] = candidates.as_slice() else {
             skipped.push(json!({
                 "resource": resource,
-                "problem": format!("agent has {} signing credentials", candidates.len()),
+                "problem": format!("agent has {} signing credentials: {}", candidates.len(), candidates.join(", ")),
             }));
             continue;
         };
@@ -555,40 +626,17 @@ fn reconcile() -> Result<Value> {
         }));
     }
 
-    // A provider family resource names its unique primary credential. The
-    // provider is the second colon-delimited component; subscription item ids
-    // keep that prefix and mark the operator-selected default with `-primary`.
-    // Multiple primaries are ambiguous and remain unmapped.
-    let mut primaries: HashMap<String, Vec<(String, String)>> = HashMap::new();
-    for (resource, entry) in &table {
-        let mut parts = resource.splitn(3, ':');
-        if parts.next() != Some("provider") {
-            continue;
-        }
-        let Some(provider) = parts.next() else {
-            continue;
-        };
-        if parts.next().is_none() || !resource.ends_with("-primary") {
-            continue;
-        }
-        if let (Some(item), Some(field)) = (
-            entry.get("item").and_then(Value::as_str),
-            entry.get("field").and_then(Value::as_str),
-        ) {
-            primaries
-                .entry(format!("provider:{provider}"))
-                .or_default()
-                .push((item.to_string(), field.to_string()));
-        }
-    }
-    for (resource, candidates) in primaries {
+    let mut family_resources: Vec<(String, Vec<(String, String)>)> = families.into_iter().collect();
+    family_resources.sort();
+    for (resource, mut candidates) in family_resources {
         if table.contains_key(&resource) {
             continue;
         }
+        candidates.sort();
         let [(item, field)] = candidates.as_slice() else {
             skipped.push(json!({
                 "resource": resource,
-                "problem": format!("provider has {} primary credentials", candidates.len()),
+                "problem": format!("provider declares {} credentials and no single default", candidates.len()),
             }));
             continue;
         };
@@ -612,6 +660,51 @@ fn reconcile() -> Result<Value> {
         crate::runtime::audit::append_sync("capability-routes-reconciled", &record)?;
     }
     Ok(json!({"added": added, "skipped": skipped, "backup": backup}))
+}
+
+/// Values an item declares under one tag prefix. The prefix is Skarbiec's and
+/// Brama's own vocabulary; the value after it is the declaration itself, not a
+/// name this crate minted or may rewrite.
+fn declared_tags<'a>(record: &'a Value, prefix: &str) -> Vec<&'a str> {
+    record
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .filter_map(|tag| tag.strip_prefix(prefix))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The one credential field an item declares, or nothing plus the reason. An
+/// item with two is ambiguous and this command never chooses for the operator.
+fn credential_field(vault: &Vault, item: &str, skipped: &mut Vec<Value>) -> Option<String> {
+    let payload = match vault.get_item(item) {
+        Ok(payload) => payload,
+        Err(error) => {
+            skipped.push(json!({"item": item, "problem": error.to_string()}));
+            return None;
+        }
+    };
+    let Some(fields) = payload.get("fields").and_then(Value::as_object) else {
+        skipped.push(json!({"item": item, "problem": "item carries no fields object"}));
+        return None;
+    };
+    let candidates: Vec<&str> = CREDENTIAL_FIELDS
+        .iter()
+        .copied()
+        .filter(|name| fields.get(*name).is_some_and(Value::is_string))
+        .collect();
+    let [field] = candidates.as_slice() else {
+        skipped.push(json!({
+            "item": item,
+            "problem": format!("item has {} credential fields: {}", candidates.len(), candidates.join(", ")),
+        }));
+        return None;
+    };
+    Some((*field).to_string())
 }
 
 /// Refuse a table that cannot deliver what it promises.

@@ -249,7 +249,7 @@ pub(crate) fn handle_items_put(
     let mode = parsed.get("mode").and_then(Value::as_str).unwrap_or("");
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
-    if crate::credential::lifecycle_owned_item(id) {
+    if crate::credential::lifecycle_owned_item(&vault, id) {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
