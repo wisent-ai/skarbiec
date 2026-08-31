@@ -74,6 +74,7 @@ static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
     available: Condvar::new(),
     maximum: configured_limit("SKARBIEC_GPG_CONCURRENCY", DEFAULT_GPG_LIMIT),
 });
+static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 
 fn configured_limit(name: &str, default: usize) -> usize {
     std::env::var(name)
@@ -94,25 +95,39 @@ fn execution_timeout() -> Duration {
 
 // One bounded subprocess seam for every cryptographic tool. Output pipes are
 // drained concurrently, every child has a deadline, and timed-out children are
-// killed and reaped before capacity is returned to another request. A gpg
-// keybox failure gets one bounded daemon recovery and one retry.
+// killed and reaped before capacity is returned to another request. A recoverable
+// gpg daemon failure gets one serialized daemon recovery and one retry.
 fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
+    let recovery_generation = (program == "gpg").then(|| {
+        *GPG_RECOVERY_GENERATION
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    });
     let first = run_once(program, args, input);
     let Err(first_error) = first else {
         return first;
     };
-    if program != "gpg" || !keybox_failure(&first_error.to_string()) {
+    if program != "gpg" || !recoverable_gpg_failure(&first_error.to_string()) {
         return Err(first_error);
     }
-    recover_keybox().context("recover gpg keybox after cryptographic operation failed")?;
+
+    let mut current_generation = GPG_RECOVERY_GENERATION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if recovery_generation == Some(*current_generation) {
+        recover_gpg_daemons()
+            .context("recover gpg daemons after cryptographic operation failed")?;
+        *current_generation = current_generation.wrapping_add(1);
+    }
     run_once(program, args, input).with_context(|| {
-        format!("gpg retry failed after keybox recovery; initial error: {first_error}")
+        format!("gpg retry failed after daemon recovery; initial error: {first_error}")
     })
 }
 
-fn keybox_failure(detail: &str) -> bool {
+fn recoverable_gpg_failure(detail: &str) -> bool {
     let detail = detail.to_ascii_lowercase();
     [
+        "gpg timed out",
         "keyboxd",
         "keybox daemon",
         "no keybox daemon running",
@@ -123,8 +138,9 @@ fn keybox_failure(detail: &str) -> bool {
     .any(|needle| detail.contains(needle))
 }
 
-fn recover_keybox() -> Result<()> {
+fn recover_gpg_daemons() -> Result<()> {
     let _ = run_once("gpgconf", &["--kill", "keyboxd"], None);
+    let _ = run_once("gpgconf", &["--kill", "gpg-agent"], None);
     run_once("gpgconf", &["--launch", "keyboxd"], None)?;
     run_once("gpgconf", &["--launch", "gpg-agent"], None)?;
     Ok(())
