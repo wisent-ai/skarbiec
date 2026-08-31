@@ -322,7 +322,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Boundary | Current contract |
 | --- | --- |
 | Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
-| Latest complete release | [`v0.1.3`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.1.3) |
+| Latest complete release | [`v0.2.29`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.29) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
 | Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking and `oathtool` only for TOTP |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |
@@ -362,8 +362,7 @@ recipe receives the browser signing key only as the file-backed
 source or a release asset. Promotion reconciles the same immutable receipts from
 `candidate` to `stable`.
 
-- Review release notes in `CHANGELOG.md` and resolve downloadable assets from
-  the canonical Stado release receipt.
+- Resolve downloadable assets from the canonical Stado release receipt.
 - Commercial or account support is not applicable to the local core; Hosted Hub
   is planned and has no published paid contract.
 - Ask design and usage questions in
