@@ -54,7 +54,7 @@ jobs:
     # coordinator on a GitHub-hosted runner made STADO_API_URL look configured
     # while registry reads still resolved to the runner's empty local store.
     if: github.ref == 'refs/heads/main'
-    needs: gates
+    needs: evidence
     runs-on: ubuntu-latest
     concurrency:
       group: skarbiec-stable-release
