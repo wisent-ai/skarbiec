@@ -65,7 +65,9 @@
     "config_schema": 1,
     "state_schema": 1,
     "minimum_stado_version": "0.6.1",
-    "rollback_compatible_with": []
+    "rollback_compatible_with": [
+      "0.2.31"
+    ]
   },
   "promotion": {
     "channels": [
