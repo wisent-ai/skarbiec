@@ -26,11 +26,29 @@ pub(crate) fn seal_item_id(credential_id: &str) -> String {
     format!("directory:credential/{credential_id}")
 }
 
-// Item ids the credential lifecycle owns end to end: operation records and
-// sealed directory contracts. No item API may write, import, or accept a
-// donation for one of these.
-pub(crate) fn lifecycle_owned_item(id: &str) -> bool {
-    id.starts_with("operation:credential/") || id.starts_with("directory:credential/")
+// Items the credential lifecycle owns end to end: operation records and sealed
+// directory contracts. Both are written only by `save_request`, which writes
+// them as `REQUEST_KIND` under a managed authority whose controller is
+// `REQUEST_WRITER`; the vault refuses any later write that names a different
+// authority, so that pair is the record's own declaration of who owns it and it
+// cannot be forged through an item API. The id is not authoritative: it is a
+// mutable human-chosen name, and deriving the write protection from how it
+// happens to be spelled meant a rename silently removed the protection with
+// nothing raised. An id this vault does not hold is not owned by anything --
+// if something else takes the name first, the lifecycle's own managed write is
+// the loud failure ("controlled by a different management authority").
+// No item API may write, import, or accept a donation for one of these.
+pub(crate) fn lifecycle_owned_item(vault: &Vault, id: &str) -> bool {
+    let Some(item) = vault.doc().get("items").and_then(|items| items.get(id)) else {
+        return false;
+    };
+    if item.get("kind").and_then(Value::as_str) != Some(REQUEST_KIND) {
+        return false;
+    }
+    item.get("management").is_some_and(|management| {
+        management.get("mode").and_then(Value::as_str) == Some("managed")
+            && management.get("controller").and_then(Value::as_str) == Some(REQUEST_WRITER)
+    })
 }
 
 pub(super) fn live_item_exists(vault: &Vault, id: &str) -> bool {

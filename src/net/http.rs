@@ -360,15 +360,15 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         let Some(id) = request_id(&parsed) else {
             return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
         };
-        if crate::credential::lifecycle_owned_item(id) {
+        let (consumer, bearer) = presented_identity(&headers);
+        let mut vault = load()?;
+        if crate::credential::lifecycle_owned_item(&vault, id) {
             return write_response(
                 &mut stream,
                 denied_line,
                 &json!({"error": "credential lifecycle requests and sealed directory contracts cannot be changed through item APIs"}),
             );
         }
-        let (consumer, bearer) = presented_identity(&headers);
-        let mut vault = load()?;
         if consumer.is_empty()
             || !tokens::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
         {

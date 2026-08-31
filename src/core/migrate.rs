@@ -151,16 +151,19 @@ fn migrate_item(vault: &Vault, id: &str, entry: &Value) -> Result<(Value, Vec<St
         current_at.clone(),
         writer,
     )?;
-    let mut tags: Vec<Value> = entry
+    let tags: Vec<Value> = entry
         .get("tags")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    if !writer.starts_with("weles-") {
-        tags.retain(|tag| tag.as_str() != Some("managed:weles"));
-    }
-    let managed_by_weles = writer.starts_with("weles-")
-        && tags.iter().any(|tag| tag.as_str() == Some("managed:weles"));
+    // `managed:weles` is a reserved tag: the CLI and `import` refuse it by name,
+    // so only an authenticated Weles managed write ever put it on a legacy item.
+    // That tag is therefore the item's own declaration that Weles controls it.
+    // The writer identity recorded beside it is a mutable name, and testing it
+    // for a `weles-` prefix meant renaming a consumer silently stripped the
+    // declared tag and downgraded the item's management authority from managed
+    // to owner or external, with nothing raised. The declaration decides.
+    let managed_by_weles = tags.iter().any(|tag| tag.as_str() == Some("managed:weles"));
     let management = if kind == "credential-operation" {
         json!({
             "mode": "managed",

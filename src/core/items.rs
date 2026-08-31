@@ -153,7 +153,7 @@ pub fn import_json(positionals: &[String]) -> Result<Value> {
     for row in rows {
         match row.get("id").and_then(Value::as_str) {
             Some(id) => {
-                if crate::credential::lifecycle_owned_item(id) {
+                if crate::credential::lifecycle_owned_item(&vault, id) {
                     bail!("{id} is managed by the credential lifecycle and cannot be imported");
                 }
                 if crate::core::inbox::managed_by_weles(&vault, id) {
@@ -292,7 +292,9 @@ pub fn migrate_vault(flags: &std::collections::HashMap<String, String>) -> Resul
             skipped.push(id.to_string());
             continue;
         }
-        if crate::credential::lifecycle_owned_item(id) {
+        if crate::credential::lifecycle_owned_item(&source, id)
+            || crate::credential::lifecycle_owned_item(&target, id)
+        {
             bail!("{id} is managed by the credential lifecycle and cannot be migrated");
         }
         if crate::core::inbox::managed_by_weles(&target, id) {
