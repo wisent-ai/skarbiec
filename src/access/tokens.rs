@@ -56,6 +56,34 @@ fn capabilities_for<'a>(
     Ok(capabilities_for_hash(vault, consumer, &hash))
 }
 
+/// Every consumer grant that still authorizes something, with its capabilities.
+///
+/// Expired entries are left out for the reason `parse_capabilities` already
+/// gives about a preserved stale row: a grant that authorizes nothing is
+/// already inert, and a diagnosis that reports the vault coordinates of dead
+/// grants spends an operator's attention on rows no workload can reach.
+/// Liveness is `active`, the same predicate every authorization lookup here
+/// applies, so what the diagnosis walks is exactly what a caller could use.
+pub(crate) fn live_grants(vault: &Vault) -> Vec<(&str, &Vec<Value>)> {
+    vault
+        .doc()
+        .get("tokens")
+        .and_then(Value::as_object)
+        .map(|tokens| {
+            tokens
+                .iter()
+                .filter(|(_, entry)| active(entry))
+                .filter_map(|(consumer, entry)| {
+                    entry
+                        .get("capabilities")
+                        .and_then(Value::as_array)
+                        .map(|capabilities| (consumer.as_str(), capabilities))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[allow(dead_code)]
 pub fn token_valid(vault: &Vault, consumer: &str, presented: &str) -> Result<bool> {
     Ok(capabilities_for(vault, consumer, presented)?.is_some())

@@ -356,6 +356,23 @@ pub fn fields(payload: &Value) -> Result<&Map<String, Value>> {
         .context("canonical item has no fields object")
 }
 
+/// Whether a kind permits a field, asked of the kind alone.
+///
+/// The envelope carries `kind` in cleartext beside the ciphertext, so a reader
+/// that only needs to know whether a name is permissible -- rather than
+/// whether a value is present -- can answer without opening the item. That is
+/// what lets the access-plane diagnosis walk every grant in the vault without
+/// spawning one gpg per item, and lets it still answer when gpg is the thing
+/// that is broken.
+pub fn kind_allows_field(kind: &str, name: &str) -> bool {
+    if name == "context" {
+        return true;
+    }
+    allowed_fields(kind)
+        .map(|allowed| allowed.contains(&name))
+        .unwrap_or_else(|| exact_component(name))
+}
+
 pub fn allows_field(payload: &Value, name: &str) -> bool {
     if name == "context" {
         return true;
@@ -363,9 +380,7 @@ pub fn allows_field(payload: &Value, name: &str) -> bool {
     let Some(kind) = payload.get("kind").and_then(Value::as_str) else {
         return false;
     };
-    allowed_fields(kind)
-        .map(|allowed| allowed.contains(&name))
-        .unwrap_or_else(|| exact_component(name))
+    kind_allows_field(kind, name)
 }
 
 pub fn field<'a>(payload: &'a Value, name: &str) -> Result<&'a Value> {
