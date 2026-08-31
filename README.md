@@ -302,6 +302,49 @@ high-entropy tokens, while SHA-256 journal hashing and timestamps run in-process
 so an audit entry cannot exhaust subprocess capacity. See the complete
 [security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
 
+### Item tags
+
+An item's tags are cleartext metadata, and they carry two different kinds of
+meaning. A tag with no colon claims no namespace: it is the operator's own
+label, governed by nobody and filtered on by nobody, and Skarbiec has no
+standing over it. A tag containing a colon claims a namespace, and a claim has
+to be honoured — so a write that *introduces* a namespaced tag is refused
+unless that namespace is registered. The registry in `src/core/schema.rs` is
+the authority: a namespace exists because it is a row there, and a refusal
+names the tag, says what is wrong with it, and lists the registered set.
+
+A namespace comes in one of two shapes, and they are not interchangeable. An
+exact namespace is the whole statement and must match exactly, so
+`brama:subscription:anything` is a different, unregistered tag. A valued
+namespace carries the content in its value, and a bare prefix is a declaration
+with its subject missing; the value must be 1 to 128 bytes and carry no NUL,
+newline, or carriage return.
+
+| Registered namespace | Shape | What it marks |
+| --- | --- | --- |
+| `managed:weles` | exact | The item is managed by Weles rather than by hand |
+| `brama:subscription` | exact | The item is a subscription, not merely provider-shaped |
+| `brama:agent:<agent>` | valued | Which agent the subscription routes to |
+| `brama:provider:<provider>` | valued | Which provider the subscription is held with |
+| `brama:id:<id>` | valued | The subscription's own identifier |
+| `brama:login:<login>` | valued | Which login item a Codex subscription belongs to |
+| `fleet:host-account` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
+| `fleet:target:<name>` | valued | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
+| `fleet:tailnet-tls` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
+| `lifecycle:quarantined` | exact | Written and cleared by the credential lifecycle when it freezes or releases an item, and read back to decide whether an item is frozen |
+
+Only what a write introduces is judged. A tag the item already carries is left
+alone, because writes deliberately preserve tags they do not mention and
+re-reading that preserved list through the gate would turn every unrelated
+rotation of an already-tagged item into a refusal. An unregistered tag already
+in the vault — including one carried in by a migration — is therefore preserved
+rather than re-judged: it is a migration to run, not a rotation to break.
+
+The registry governs writes from every direction that reaches an item's tags:
+CLI and API item writes, imports, sharing and rewraps, donation acceptance,
+retagging, and managed writes. Registering a namespace means adding a row in
+the same commit that starts writing it; nothing else registers anything.
+
 ## Documentation
 
 - **Choose and install a release:** [Install and updates](https://skarbiec.wisent.com/docs/install)
