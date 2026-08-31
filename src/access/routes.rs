@@ -529,7 +529,8 @@ fn reconcile() -> Result<Value> {
             None => family.clone(),
         };
         if !exact_token(&resource, MAX_RESOURCE_CHARS) {
-            skipped.push(json!({"item": item, "problem": "declared resource is not an exact token"}));
+            skipped
+                .push(json!({"item": item, "problem": "declared resource is not an exact token"}));
             continue;
         }
         // An already-routed bare provider credential elects nothing and is not
