@@ -32,10 +32,10 @@ pub struct ManagedWrite<'a> {
 struct WritePolicy<'a> {
     writer: Option<&'a str>,
     managed: Option<ManagedWrite<'a>>,
-    /// A uid this item already had somewhere else -- the source vault of a
-    /// cross-vault migrate. Only ever consulted when the target has no item
-    /// under this id yet; an existing item's own uid always wins.
-    uid: Option<&'a str>,
+    /// An `item_uid` this item already had somewhere else -- the source vault
+    /// of a cross-vault migrate. Only ever consulted when the target has no
+    /// item under this id yet; an existing item's own identifier always wins.
+    item_uid: Option<&'a str>,
 }
 
 struct VaultWriteLock(PathBuf);
@@ -90,8 +90,8 @@ pub fn current_envelope() -> u64 {
     "2".parse().expect("envelope revision is a number")
 }
 
-/// Bytes of OS entropy behind one item uid.
-const UID_ENTROPY_BYTES: usize = 16;
+/// Bytes of OS entropy behind one `item_uid`.
+const ITEM_UID_ENTROPY_BYTES: usize = 16;
 
 /// Mint an item's permanent identifier.
 ///
@@ -119,7 +119,7 @@ const UID_ENTROPY_BYTES: usize = 16;
 /// backfill mints for every item that lacks one, and 599 subprocesses to
 /// produce 599 random numbers is not a thing to ship.
 pub fn mint_item_uid() -> Result<String> {
-    let mut bytes = vec![Default::default(); UID_ENTROPY_BYTES];
+    let mut bytes = vec![Default::default(); ITEM_UID_ENTROPY_BYTES];
     File::open("/dev/urandom")
         .context("open /dev/urandom")?
         .read_exact(&mut bytes)
@@ -127,17 +127,17 @@ pub fn mint_item_uid() -> Result<String> {
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// The uid an entry already carries, if it carries a usable one.
+/// The `item_uid` an entry already carries, if it carries a usable one.
 ///
 /// Absent is a legitimate, permanent state: every item written before this
 /// field existed has none, and no read, list, route or diagnosis may fail or
 /// narrow because of it. Only a non-empty string counts, so a `null` left by
 /// an older projection reads as absent rather than as an identity.
-pub fn entry_uid(entry: &Value) -> Option<&str> {
+pub fn entry_item_uid(entry: &Value) -> Option<&str> {
     entry
-        .get("uid")
+        .get("item_uid")
         .and_then(Value::as_str)
-        .filter(|uid| !uid.is_empty())
+        .filter(|value| !value.is_empty())
 }
 
 fn document_generation(doc: &Value) -> u64 {
@@ -523,7 +523,7 @@ impl Vault {
             WritePolicy {
                 writer: Some(writer),
                 managed: None,
-                uid: None,
+                item_uid: None,
             },
         )
     }
@@ -546,7 +546,7 @@ impl Vault {
             WritePolicy {
                 writer: Some(write.writer),
                 managed: Some(write),
-                uid: None,
+                item_uid: None,
             },
         )
     }
@@ -559,14 +559,14 @@ impl Vault {
     /// The supplied uid is only ever adopted when the target has no item under
     /// this id; if one is already there, that item's own identity wins, because
     /// overwriting an item's contents does not make it a different item.
-    pub fn set_item_with_uid(
+    pub fn set_migrated_item(
         &mut self,
         id: &str,
         item_kind: &str,
         payload: &Value,
         recipient_uids: &[String],
         tags: &[String],
-        uid: Option<&str>,
+        item_uid: Option<&str>,
     ) -> Result<()> {
         self.set_item_with_writer(
             id,
@@ -577,7 +577,7 @@ impl Vault {
             WritePolicy {
                 writer: None,
                 managed: None,
-                uid,
+                item_uid,
             },
         )
     }
@@ -737,9 +737,9 @@ impl Vault {
         // identity that already exists. Only an item this vault has never seen
         // takes the caller's uid (a cross-vault migrate carrying the source's),
         // and only an item with neither mints a new one.
-        let uid = match previous.as_ref().and_then(entry_uid) {
+        let item_uid = match previous.as_ref().and_then(entry_item_uid) {
             Some(existing) => existing.to_string(),
-            None => match policy.uid {
+            None => match policy.item_uid {
                 Some(supplied) => supplied.to_string(),
                 None => mint_item_uid()?,
             },
@@ -788,7 +788,7 @@ impl Vault {
         let stored_tags = effective_tags.len();
         let entry = json!({
             "format": current_envelope(),
-            "uid": uid,
+            "item_uid": item_uid,
             "kind": item_kind,
             "state": "active",
             "revision": revision,
@@ -887,8 +887,8 @@ impl Vault {
         // here rather than waiting for the backfill. Every write is a chance to
         // stamp one, which is what makes the field arrive without anyone
         // running anything.
-        if entry_uid(&entry).is_none() {
-            entry["uid"] = json!(mint_item_uid()?);
+        if entry_item_uid(&entry).is_none() {
+            entry["item_uid"] = json!(mint_item_uid()?);
         }
         obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
         self.save()
@@ -1150,8 +1150,8 @@ impl Vault {
                             // same way this projection already reports a
                             // missing `kind`. That null is useful rather than
                             // untidy: it is how an operator sees which items
-                            // `uid-backfill` still has to stamp.
-                            "uid": item.get("uid"),
+                            // `backfill-item-uids` still has to stamp.
+                            "item_uid": item.get("item_uid"),
                             "kind": item.get("kind"),
                             "state": state,
                             "revision": item.get("revision"),
@@ -1265,29 +1265,29 @@ impl Vault {
         self.save()
     }
 
-    /// The id currently holding this uid, if any item does.
+    /// The id currently holding this `item_uid`, if any item does.
     ///
     /// This is what turns "no vault item X" into "X is now Y". Linear over the
     /// items map and reading only cleartext envelope metadata, so it costs no
     /// decryption and is safe to call from a diagnosis on a host whose gpg is
     /// the fault.
-    pub fn id_for_uid(&self, uid: &str) -> Option<&str> {
-        if uid.is_empty() {
+    pub fn id_for_item_uid(&self, item_uid: &str) -> Option<&str> {
+        if item_uid.is_empty() {
             return None;
         }
         self.doc
             .get("items")
             .and_then(Value::as_object)?
             .iter()
-            .find(|(_, entry)| entry_uid(entry) == Some(uid))
+            .find(|(_, entry)| entry_item_uid(entry) == Some(item_uid))
             .map(|(id, _)| id.as_str())
     }
 
     /// Move one item to a new id, keeping everything that is not the id.
     ///
-    /// The entry object is moved whole, so uid, history, revision, created_at,
-    /// tags, recipients, management and the ciphertext itself are the same
-    /// bytes at the new key. Nothing is decrypted and nothing is re-encrypted:
+    /// The entry object is moved whole, so `item_uid`, history, revision,
+    /// created_at, tags, recipients, management and the ciphertext itself are
+    /// the same bytes at the new key. Nothing is decrypted or re-encrypted:
     /// the id is a map key, not part of the sealed payload.
     ///
     /// Improvising this with `get` + `set-json` under a new id + `delete` does
@@ -1296,7 +1296,7 @@ impl Vault {
     /// there is no previous entry to preserve them from, and it needs the
     /// plaintext in hand to write at all.
     ///
-    /// A uid is minted here when the item has none, because the uid is what
+    /// An `item_uid` is minted here when the item has none, because it is what
     /// lets a route table or a consumer config work out where the item went;
     /// renaming without one leaves exactly the untraceable gap this exists to
     /// close.
@@ -1322,11 +1322,11 @@ impl Vault {
         if entry.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
             bail!("{from} still uses the legacy envelope; run migrate-v2 before renaming it");
         }
-        let uid = match entry_uid(&entry) {
+        let item_uid = match entry_item_uid(&entry) {
             Some(existing) => existing.to_string(),
             None => {
                 let minted = mint_item_uid()?;
-                entry["uid"] = json!(minted);
+                entry["item_uid"] = json!(minted);
                 minted
             }
         };
@@ -1335,10 +1335,10 @@ impl Vault {
         items.remove(from);
         items.insert(to.to_string(), entry);
         self.save()?;
-        Ok(uid)
+        Ok(item_uid)
     }
 
-    /// Stamp a uid onto every item that has none.
+    /// Stamp an `item_uid` onto every item that has none.
     ///
     /// Idempotent by construction: an item that already carries one is skipped
     /// before anything is generated, so a second run mints nothing, writes no
@@ -1349,7 +1349,7 @@ impl Vault {
     ///
     /// The vault is saved once at the end rather than per item, and only when
     /// something actually changed.
-    pub fn backfill_uids(&mut self) -> Result<(Vec<String>, usize)> {
+    pub fn backfill_item_uids(&mut self) -> Result<(Vec<String>, usize)> {
         let ids: Vec<String> = self
             .doc
             .get("items")
@@ -1357,7 +1357,7 @@ impl Vault {
             .map(|items| {
                 items
                     .iter()
-                    .filter(|(_, entry)| entry_uid(entry).is_none())
+                    .filter(|(_, entry)| entry_item_uid(entry).is_none())
                     .map(|(id, _)| id.clone())
                     .collect()
             })
@@ -1377,7 +1377,7 @@ impl Vault {
                 .get_mut(id)
                 .and_then(Value::as_object_mut)
                 .with_context(|| format!("no item: {id}"))?;
-            entry.insert("uid".to_string(), json!(minted));
+            entry.insert("item_uid".to_string(), json!(minted));
         }
         self.save()?;
         Ok((ids, total))

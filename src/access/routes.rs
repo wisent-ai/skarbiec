@@ -238,9 +238,9 @@ fn resolve<'a>(
         // has nothing to correlate and falls back to exactly today's sentence.
         None => Some(
             entry
-                .get("uid")
+                .get("item_uid")
                 .and_then(Value::as_str)
-                .and_then(|uid| vault.id_for_uid(uid))
+                .and_then(|uid| vault.id_for_item_uid(uid))
                 .map(|found| format!("vault item {item} was renamed to {found}"))
                 .unwrap_or_else(|| format!("no vault item {item}")),
         ),
@@ -308,20 +308,20 @@ fn list(consumer: Option<&str>) -> Result<Value> {
     Ok(json!({"consumer": consumer, "routes": routes}))
 }
 
-/// One table row: the item and field it maps, plus that item's uid when the
-/// item has one. The uid is what lets `verify` distinguish a renamed item from
+/// One table row: the item and field it maps, plus that item's `item_uid` when the
+/// item has one. That is what lets `verify` distinguish a renamed item from
 /// a purged one; a row without it degrades to naming only what it always did.
 fn route_row(vault: &Vault, item: &str, field: &str) -> Value {
     let mut row = Map::new();
     row.insert("item".to_string(), json!(item));
     row.insert("field".to_string(), json!(field));
-    if let Some(uid) = vault
+    if let Some(item_uid) = vault
         .doc()
         .get("items")
         .and_then(|items| items.get(item))
-        .and_then(crate::core::vault::entry_uid)
+        .and_then(crate::core::vault::entry_item_uid)
     {
-        row.insert("uid".to_string(), json!(uid));
+        row.insert("item_uid".to_string(), json!(item_uid));
     }
     Value::Object(row)
 }

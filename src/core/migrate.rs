@@ -191,16 +191,16 @@ fn migrate_item(vault: &Vault, id: &str, entry: &Value) -> Result<(Value, Vec<St
     } else {
         "active"
     };
-    // A v1 envelope has no uid, and this builds the v2 entry from scratch, so
+    // A v1 envelope has no `item_uid`, and this builds the v2 entry from scratch, so
     // the identity is minted here rather than left for the backfill. A legacy
-    // item that somehow carries one keeps it: a uid is never reissued.
-    let uid = match crate::core::vault::entry_uid(entry) {
+    // item that somehow carries one keeps it: an `item_uid` is never reissued.
+    let item_uid = match crate::core::vault::entry_item_uid(entry) {
         Some(existing) => existing.to_string(),
         None => crate::core::vault::mint_item_uid()?,
     };
     let canonical = json!({
         "format": crate::core::vault::current_envelope(),
-        "uid": uid,
+        "item_uid": item_uid,
         "kind": kind,
         "state": state,
         "revision": revision,

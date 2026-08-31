@@ -257,31 +257,31 @@ fn cmd_rename(positionals: &[String]) -> Result<()> {
         .context("usage: rename <id> <new-id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, from, "rename")?;
-    let uid = vault.rename_item(from, to)?;
+    let item_uid = vault.rename_item(from, to)?;
     crate::runtime::audit::append_sync(
         "item-renamed",
-        &json!({"from": from, "to": to, "uid": uid}),
+        &json!({"from": from, "to": to, "item_uid": item_uid}),
     )?;
-    emit(&json!({"ok": true, "from": from, "to": to, "uid": uid}))
+    emit(&json!({"ok": true, "from": from, "to": to, "item_uid": item_uid}))
 }
 
-/// Stamp a permanent uid onto every item that predates the field.
+/// Stamp a permanent `item_uid` onto every item that predates the field.
 ///
 /// Lazy minting means the field arrives on its own as items are written, but
 /// an operator wanting a complete picture should not have to touch hundreds of
-/// items by hand to get one. Idempotent: an item that already has a uid is
+/// items by hand to get one. Idempotent: an item that already has one is
 /// skipped before anything is generated, so a second run stamps nothing.
 ///
 /// Envelope only. No payload is read, decrypted or re-encrypted, and
 /// `revision`, `updated_at` and `current` are untouched -- acquiring an
 /// identifier is not a change to the credential, and a diff of a backfilled
 /// vault shows one added field per item and nothing else.
-fn cmd_uid_backfill() -> Result<()> {
+fn cmd_backfill_item_uids() -> Result<()> {
     let mut vault = Vault::open(vault_path())?;
-    let (stamped, total) = vault.backfill_uids()?;
+    let (stamped, total) = vault.backfill_item_uids()?;
     if !stamped.is_empty() {
         crate::runtime::audit::append_sync(
-            "item-uid-backfill",
+            "item-uids-backfilled",
             &json!({"stamped": stamped.len(), "items": total}),
         )?;
     }
@@ -471,7 +471,7 @@ fn main() -> Result<()> {
         "list" => emit(&cmd_list(&flags)?),
         "retag" => cmd_retag(&flags, &positionals),
         "rename" => cmd_rename(&positionals),
-        "uid-backfill" => cmd_uid_backfill(),
+        "backfill-item-uids" => cmd_backfill_item_uids(),
         "delete" => emit(&cmd_delete(&positionals)?),
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => emit(&cmd_restore(&positionals)?),
@@ -488,7 +488,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","retag","rename","uid-backfill","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-ensure-read","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","capability-issue","capability-serve","routes","credential","apple-challenge-put","version"]}),
+            &json!({"commands": ["status","doctor","vaults","init","set","set-json","get","list","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-ensure-read","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","capability-issue","capability-serve","routes","credential","apple-challenge-put","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),

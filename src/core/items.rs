@@ -322,16 +322,16 @@ pub fn migrate_vault(flags: &std::collections::HashMap<String, String>) -> Resul
             })
             .unwrap_or_default();
         // The same item on the far side of a copy, so it keeps the same
-        // identity. `set_item_with_uid` adopts this only when the target has
+        // identity. `set_migrated_item` adopts this only when the target has
         // no item under the id yet; an existing target item keeps its own.
-        let source_uid = source
+        let source_item_uid = source
             .doc()
             .get("items")
             .and_then(|items| items.get(id))
-            .and_then(crate::core::vault::entry_uid)
+            .and_then(crate::core::vault::entry_item_uid)
             .map(str::to_string);
         target
-            .set_item_with_uid(id, item_kind, &payload, &[], &tags, source_uid.as_deref())
+            .set_migrated_item(id, item_kind, &payload, &[], &tags, source_item_uid.as_deref())
             .with_context(|| format!("write item {id} into target vault"))?;
         let mut field_names: Vec<String> = payload
             .get("fields")
