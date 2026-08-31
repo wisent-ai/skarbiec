@@ -295,17 +295,31 @@ fn handle(mut stream: TcpStream) -> Result<()> {
         }?;
         return Ok(());
     }
+    // `GET /list` and `GET /audit` are the pre-`/v1` spellings of the item
+    // index. They were documented as compatibility routes for existing callers
+    // and were left ungated on that basis; a search of every product in this
+    // workspace — brama, stado, weles, jeden, probierz, wisent-backend,
+    // wisent-integrations, the Swift desktop client, the native host and the
+    // installed helpers under `~/.stado` — found no caller of either. Every
+    // client reaches the index through `POST /v1/items/list`. So the sentence
+    // was the only thing holding them open, and they now answer through the
+    // same grant and the same per-item filter that route applies: an unnamed
+    // caller on the loopback port can no longer read the whole index.
+    //
+    // They stay reachable rather than being deleted so that a caller nobody
+    // found still reads a diagnosis. A 403 naming the missing grant says what
+    // to fix; a 404 is indistinguishable from a wrong port or a dead daemon.
     if method == "GET" && path == "/list" {
-        let vault = load()?;
-        return write_response(&mut stream, ok_line, &json!(vault.list(false)));
+        return crate::net::mcp::handle_items_list(&mut stream, &headers);
     }
+    // Named for audit but only ever a count of the index, so it answers the
+    // count of what this caller is allowed to see. The audit journal itself is
+    // `/v1/operator/audit`.
     if method == "GET" && path == "/audit" {
-        let vault = load()?;
-        return write_response(
-            &mut stream,
-            ok_line,
-            &json!({"items": vault.list(false).len()}),
-        );
+        let Some(visible) = crate::net::mcp::authorized_items(&headers)? else {
+            return crate::net::mcp::refuse_without_grant(&mut stream);
+        };
+        return write_response(&mut stream, ok_line, &json!({"items": visible.len()}));
     }
     if method == "POST" && path == "/v1/acquisitions" {
         return crate::net::mcp::handle_acquisitions_issue(&mut stream, &headers, &body);
