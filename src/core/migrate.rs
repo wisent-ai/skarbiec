@@ -151,6 +151,12 @@ fn migrate_item(vault: &Vault, id: &str, entry: &Value) -> Result<(Value, Vec<St
         current_at.clone(),
         writer,
     )?;
+    // Carried across verbatim, and deliberately not put through the tag
+    // registry. A migration introduces no tag: it re-envelopes tags the item
+    // has carried since before the registry was executable. Judging them here
+    // would make a v1 vault holding one unregistered tag impossible to migrate
+    // at all, which is the opposite of the repair -- the tag has to reach v2
+    // before an operator can retag it away.
     let tags: Vec<Value> = entry
         .get("tags")
         .and_then(Value::as_array)

@@ -48,6 +48,145 @@ pub fn supported_kind(kind: &str) -> bool {
     )
 }
 
+/// The bound an exact name carries throughout this crate: non-empty, no longer
+/// than this many bytes, and free of the separators a name must never smuggle
+/// into a resource string, a route table row or a journal line.
+pub const MAX_NAME_CHARS: usize = 128;
+
+pub fn exact_token(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && !value.contains('\0')
+        && !value.contains('\n')
+        && !value.contains('\r')
+}
+
+/// One registered tag namespace, and the two shapes a namespace comes in.
+///
+/// The shapes are not interchangeable and flattening them into one prefix test
+/// is what leaves the surface open. `brama:subscription` is the whole
+/// statement — an item either is a subscription or is not — and
+/// `brama:subscription:anything` is a different, unowned tag that a prefix test
+/// would wave through. `brama:agent:` is the opposite: the prefix alone says
+/// nothing, the agent name is the content, and a bare `brama:agent:` is a
+/// declaration with its subject missing. So an exact namespace matches only
+/// itself, and a valued namespace demands a value that clears the same bound
+/// every other exact name in this crate clears.
+enum TagNamespace {
+    /// A tag that is the entire contract; it must match exactly.
+    Exact(&'static str),
+    /// A prefix whose value names what the role points at. `value` is the
+    /// placeholder an operator reads back in a refusal, never part of the match.
+    Valued {
+        prefix: &'static str,
+        value: &'static str,
+    },
+}
+
+/// The registry. This is the authority: a namespace exists because it is here,
+/// and the published table documents what this list already enforces.
+///
+/// Registering a namespace is adding a row here in the same commit that starts
+/// writing it. Nothing else registers anything.
+const TAG_NAMESPACES: &[TagNamespace] = &[
+    TagNamespace::Exact("managed:weles"),
+    TagNamespace::Exact("brama:subscription"),
+    TagNamespace::Valued {
+        prefix: "brama:agent:",
+        value: "agent",
+    },
+    TagNamespace::Valued {
+        prefix: "brama:provider:",
+        value: "provider",
+    },
+    TagNamespace::Valued {
+        prefix: "brama:id:",
+        value: "id",
+    },
+    TagNamespace::Exact("fleet:host-account"),
+    TagNamespace::Valued {
+        prefix: "fleet:target:",
+        value: "name",
+    },
+    TagNamespace::Exact("fleet:tailnet-tls"),
+];
+
+impl TagNamespace {
+    fn shown(&self) -> String {
+        match self {
+            TagNamespace::Exact(tag) => (*tag).to_string(),
+            TagNamespace::Valued { prefix, value } => format!("{prefix}<{value}>"),
+        }
+    }
+}
+
+/// Why one tag is refused, or `Ok` if a registered namespace covers it.
+///
+/// A tag carrying no colon claims no namespace: it is an operator's own label,
+/// governed by nobody and filtered on by nobody, and the registry has no
+/// standing over it. This crate writes two of them itself — `onboarding` and
+/// `challenge` — and refusing them would refuse the onboarding walkthrough and
+/// the Apple challenge record. A colon is the claim, and a claim is what has to
+/// be honoured.
+fn tag_refusal(tag: &str) -> Result<(), String> {
+    if !tag.contains(':') {
+        return Ok(());
+    }
+    if TAG_NAMESPACES
+        .iter()
+        .any(|namespace| matches!(namespace, TagNamespace::Exact(exact) if tag == *exact))
+    {
+        return Ok(());
+    }
+    for namespace in TAG_NAMESPACES {
+        let TagNamespace::Valued { prefix, value } = namespace else {
+            continue;
+        };
+        let Some(carried) = tag.strip_prefix(prefix) else {
+            continue;
+        };
+        if exact_token(carried, MAX_NAME_CHARS) {
+            return Ok(());
+        }
+        return Err(format!(
+            "claims the {prefix}<{value}> namespace without a usable {value}: the value must be 1 to {MAX_NAME_CHARS} bytes and carry no NUL, newline or carriage return"
+        ));
+    }
+    Err("claims a namespace that is not registered".to_string())
+}
+
+/// The refusal an operator reads. It names the tag, says what is wrong with it,
+/// and lists what is allowed, because a refusal that withholds the allowed set
+/// only moves the guessing one step along.
+fn tag_refused(tag: &str, reason: &str) -> String {
+    let registered: Vec<String> = TAG_NAMESPACES.iter().map(TagNamespace::shown).collect();
+    format!(
+        "tag `{tag}` {reason}. Registered namespaces: {}. Register a namespace before anything writes it; a tag with no colon claims no namespace and stays the operator's own label.",
+        registered.join(", ")
+    )
+}
+
+/// Refuse a write that introduces a tag no registered namespace covers.
+///
+/// Only what this write introduces. A tag the item already carries is left
+/// alone: writes deliberately preserve tags they do not mention, and re-reading
+/// that preserved list through this gate would turn every unrelated rotation of
+/// an already-tagged item into a refusal — which is the tag-loss failure the
+/// preserving write was added to end, arriving by the other door. An
+/// unregistered tag already in the vault is a migration to run, not a rotation
+/// to break.
+pub fn ensure_registered_tags(carried: &[Value], written: &[Value]) -> Result<()> {
+    for tag in written.iter().filter_map(Value::as_str) {
+        if carried.iter().any(|kept| kept.as_str() == Some(tag)) {
+            continue;
+        }
+        if let Err(reason) = tag_refusal(tag) {
+            bail!("{}", tag_refused(tag, &reason));
+        }
+    }
+    Ok(())
+}
+
 fn exact_component(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= "128".parse().unwrap_or(usize::MAX)

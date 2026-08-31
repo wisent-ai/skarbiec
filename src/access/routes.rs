@@ -31,7 +31,8 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::Command;
 
-use super::capability::{exact_token, routes_path, write_private_file};
+use super::capability::{routes_path, write_private_file};
+use crate::core::schema::{exact_token, MAX_NAME_CHARS};
 use crate::core::{schema, vault::Vault, vault_path};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
@@ -40,7 +41,6 @@ use serde_json::{json, Map, Value};
 // field are vault names. The bounds are the ones `capability-issue` already
 // applies to a resource it refuses to issue.
 const MAX_RESOURCE_CHARS: usize = 512;
-const MAX_NAME_CHARS: usize = 128;
 const MAX_REASON_CHARS: usize = 512;
 // What an item declares about itself, in the tag vocabulary Brama's gateway and
 // desktop console already decide item identity by: `brama:provider:<provider>`

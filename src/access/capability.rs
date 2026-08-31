@@ -32,6 +32,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::core::schema::exact_token;
 use crate::core::{crypto, vault::Vault, vault_path};
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -223,14 +224,6 @@ fn resolve_route(resource: &str) -> Result<Option<(String, String)>> {
         (Some(item), Some(field)) => Ok(Some((item.to_string(), field.to_string()))),
         _ => bail!("capability route for {resource} must name an item and a field"),
     }
-}
-
-pub(super) fn exact_token(value: &str, max: usize) -> bool {
-    !value.is_empty()
-        && value.len() <= max
-        && !value.contains('\0')
-        && !value.contains('\n')
-        && !value.contains('\r')
 }
 
 // Each bound is refused separately and the error names the pair, so `x < low || x >

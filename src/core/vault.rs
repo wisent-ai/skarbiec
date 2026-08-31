@@ -622,6 +622,23 @@ impl Vault {
         } else {
             tags.iter().cloned().map(Value::String).collect()
         };
+        // Every item write in this crate arrives here -- `set`, `set-json`,
+        // `import`, the cross-vault copy, share, revoke, the emergency grant,
+        // the bond pull, donation-accept, the credential lifecycle and the
+        // HTTP acquire -- so the tag registry is enforced once, where the
+        // stored list is finally known, rather than once per caller with the
+        // next caller forgetting.
+        //
+        // Against what the item already carries, not against nothing: this is
+        // the one write that legitimately restates a tag list it did not
+        // author, because an absent `--tags` means "leave this as it is".
+        let carried_tags: &[Value] = previous
+            .as_ref()
+            .and_then(|entry| entry.get("tags"))
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        schema::ensure_registered_tags(carried_tags, &effective_tags)?;
         let management = requested_management
             .or_else(|| {
                 previous
@@ -744,7 +761,20 @@ impl Vault {
         if entry.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
             bail!("{id} still uses the legacy envelope; run migrate-v2 before updating it");
         }
-        entry["tags"] = tags.iter().cloned().map(Value::String).collect();
+        // `retag` is the one write whose entire subject is the tag list, so it
+        // is the one that must not slip past the registry on its way around
+        // `set_item_with_writer`. Same rule as there: a tag the item already
+        // carries is preserved, not re-judged, so restoring a lost enumeration
+        // tag onto an item that also carries an older unregistered one still
+        // works.
+        let written: Vec<Value> = tags.iter().cloned().map(Value::String).collect();
+        let carried: &[Value] = entry
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        schema::ensure_registered_tags(carried, &written)?;
+        entry["tags"] = Value::Array(written);
         entry["updated_at"] = json!(now());
         obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
         self.save()

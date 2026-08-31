@@ -22,6 +22,16 @@ use super::{QUARANTINE_CONFIRMATION, QUARANTINE_TAG, STATE_QUARANTINED, STATE_UN
 // The freeze marker lives in the plaintext envelope: it can be set while a
 // staged candidate exists, which is exactly when we must not re-encrypt the
 // payload and lose that candidate.
+//
+// It also does not pass the tag registry, because it is not operator input:
+// the only value written here is one crate constant, set and cleared by the
+// quarantine lifecycle alone, the same way the sealed directory identity and
+// the provider receipt are lifecycle-owned and never written through an item
+// API. Worth stating plainly, though: `lifecycle:quarantined` is namespaced
+// and is not one of the registered namespaces, so it is a tag this binary
+// mints that the registry does not list. Nothing breaks -- a write that keeps
+// it is preserving, not introducing -- but re-adding it by hand after a retag
+// dropped it would be refused.
 pub(super) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> Result<()> {
     let entry = vault
         .doc_mut()
