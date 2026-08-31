@@ -316,6 +316,48 @@ pub struct IssuedAcquisition {
     pub expires_at: u64,
 }
 
+/// One redeemed acquisition: the bound field, and the item's declared provider
+/// when it declares one.
+pub struct AcquiredField {
+    pub value: Value,
+    pub provider: Option<String>,
+}
+
+/// The provider this credential belongs to, as the item itself declares it.
+///
+/// A reset flow has to know whether an account is Entra or consumer Microsoft
+/// before it can drive anything, and the authoritative statement of that is
+/// `context.provider`, sealed inside the ciphertext. Returning only the field
+/// left the caller no way to ask, so the caller kept its own copy of the
+/// mapping -- a hardcoded list of item names in another repository, which is a
+/// second source of truth this response's shape created.
+///
+/// `provider` alone, deliberately, not the context object. The rest of what
+/// context carries is either a personal identifier (`account_ref` is an
+/// account address, and on a `login` item it restates the sealed `username`
+/// field the caller holds no capability for), a customer identifier
+/// (`tenant_ref`), lifecycle bookkeeping the caller already minted
+/// (`request_id`, `operation`), or trajectory input nothing here needs
+/// (`login_url`, `domains`, `session_label`, `login_method`, `name`,
+/// `source_kind`). Two further members -- the sealed directory identity and
+/// the provider receipt -- are owned end to end by the credential lifecycle.
+/// A caller that genuinely needs the whole object asks for it with
+/// `read:<item>#context`, which is the capability that exists for it.
+///
+/// Bounded with the same predicate capability routing applies to a declared
+/// provider tag, so a value carrying a newline cannot break the line a caller
+/// logs it on. A provider that is missing, non-text or unbounded yields
+/// `None`, and `None` omits the key entirely: absence has to stay absence, not
+/// an empty string a caller could read as a declaration.
+fn declared_provider(payload: &Value) -> Option<String> {
+    schema::field(payload, "context")
+        .ok()?
+        .get("provider")
+        .and_then(Value::as_str)
+        .filter(|provider| schema::exact_token(provider, schema::MAX_NAME_CHARS))
+        .map(str::to_string)
+}
+
 pub fn issue(
     consumer: &str,
     item: &str,
@@ -395,7 +437,12 @@ pub fn issue(
     Ok(Some(IssuedAcquisition { token, expires_at }))
 }
 
-pub fn consume(consumer: &str, presented: &str, item: &str, field: &str) -> Result<Option<Value>> {
+pub fn consume(
+    consumer: &str,
+    presented: &str,
+    item: &str,
+    field: &str,
+) -> Result<Option<AcquiredField>> {
     if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || presented.is_empty() {
         return Ok(None);
     }
@@ -437,23 +484,34 @@ pub fn consume(consumer: &str, presented: &str, item: &str, field: &str) -> Resu
     // value that proves anything, and only the adopt verification path may
     // read it. Outside that exact window a candidate is unreadable and the
     // single-use bearer is left unspent.
-    let value = match crate::credential::managed_read(&vault, item, field, consumer)? {
-        crate::credential::ManagedRead::Staged(candidate) => candidate,
+    //
+    // The payload comes back from both branches so provenance costs no
+    // decryption the redemption was not already paying: the current branch
+    // opens the item anyway to take the field out of it. Only the staged
+    // branch, the adopt window, adds one open, and it adds it with `ok()` --
+    // provenance must never turn a redemption that has already proved its
+    // capability into a failure.
+    let (value, payload) = match crate::credential::managed_read(&vault, item, field, consumer)? {
+        crate::credential::ManagedRead::Staged(candidate) => {
+            (candidate, vault.get_item(item).ok())
+        }
         crate::credential::ManagedRead::Refused => return Ok(None),
         crate::credential::ManagedRead::Current => {
             let payload = vault.get_item(item)?;
-            schema::field(&payload, field)
+            let value = schema::field(&payload, field)
                 .cloned()
-                .context("acquisition field no longer exists on item")?
+                .context("acquisition field no longer exists on item")?;
+            (value, Some(payload))
         }
     };
+    let provider = payload.as_ref().and_then(declared_provider);
     state
         .get_mut("tokens")
         .and_then(Value::as_object_mut)
         .context("acquisition tokens section")?
         .remove(&hash);
     save_state(&path, &state)?;
-    Ok(Some(value))
+    Ok(Some(AcquiredField { value, provider }))
 }
 
 pub fn dispatch(
@@ -526,16 +584,24 @@ pub fn dispatch(
                 .get("2".parse::<usize>()?)
                 .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
             let presented = flags.get("token").context("--token required")?;
-            let Some(value) = consume(consumer, presented, item, field)? else {
+            let Some(acquired) = consume(consumer, presented, item, field)? else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
             };
             crate::runtime::audit::append_sync(
                 "acquisition-consumed",
                 &json!({"consumer": consumer, "item": item, "field": field}),
             )?;
-            Ok(Some(
-                json!({"ok": true, "consumer": consumer, "item": item, "field": field, "value": value}),
-            ))
+            let mut answer = json!({
+                "ok": true,
+                "consumer": consumer,
+                "item": item,
+                "field": field,
+                "value": acquired.value,
+            });
+            if let Some(provider) = acquired.provider {
+                answer["provider"] = json!(provider);
+            }
+            Ok(Some(answer))
         }
         _ => Ok(None),
     }

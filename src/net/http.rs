@@ -320,13 +320,13 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             );
         };
         let (consumer, acquisition_token) = presented_identity(&headers);
-        let value = if consumer.is_empty() {
+        let acquired = if consumer.is_empty() {
             None
         } else {
             crate::access::acquisition::consume(&consumer, &acquisition_token, item, field)
                 .unwrap_or(None)
         };
-        let Some(value) = value else {
+        let Some(acquired) = acquired else {
             return write_response(
                 &mut stream,
                 unauthorized_line,
@@ -337,11 +337,19 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             "http-acquisition-consumed",
             &json!({"consumer": consumer, "item": item, "field": field}),
         )?;
-        return write_response(
-            &mut stream,
-            ok_line,
-            &json!({"consumer": consumer, "item": item, "field": field, "value": value}),
-        );
+        // The bound field, plus the one thing the item declares about itself
+        // that a caller needs in order to know which flow the credential
+        // belongs to. The key is absent when the item declares no provider.
+        let mut answer = json!({
+            "consumer": consumer,
+            "item": item,
+            "field": field,
+            "value": acquired.value,
+        });
+        if let Some(provider) = acquired.provider {
+            answer["provider"] = json!(provider);
+        }
+        return write_response(&mut stream, ok_line, &answer);
     }
     if method == "POST" && path == "/v1/items/list" {
         return crate::net::mcp::handle_items_list(&mut stream, &headers);
