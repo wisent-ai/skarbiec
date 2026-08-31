@@ -1,6 +1,6 @@
 [package]
 name = "skarbiec"
-version = "0.2.28"
+version = "0.2.29"
 edition = "2021"
 description = "Self-contained vault for sensitive values: at-rest encryption, multi-recipient sharing, scoped access grants, tamper-evident audit, and runtime injection. GPG owns encryption and key custody; bounded subprocess execution and in-process audit hashing keep the broker available under load."
 license-file = "LICENSE"
