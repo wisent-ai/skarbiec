@@ -16,7 +16,7 @@ jobs:
 
   evidence:
     needs: gates
-    uses: wisent-ai/quality-control/.github/workflows/probierz-kronika.yml@6fda341aa9206cc2a221e15093b03ef24a6a7da9
+    uses: wisent-ai/quality-control/.github/workflows/probierz-kronika.yml@12bf5fbe426c995d3124c96258a55e68d06d4880
     with:
       app-id: skarbiec
       target: tui
@@ -45,7 +45,7 @@ jobs:
   tag:
     if: github.ref == 'refs/heads/main'
     needs: evidence
-    uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@6fda341aa9206cc2a221e15093b03ef24a6a7da9
+    uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@12bf5fbe426c995d3124c96258a55e68d06d4880
     with:
       release-workflow: ci.yml
     permissions:
