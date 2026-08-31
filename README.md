@@ -405,6 +405,13 @@ recipe receives the browser signing key only as the file-backed
 source or a release asset. Promotion reconciles the same immutable receipts from
 `candidate` to `stable`.
 
+Release `0.2.33` is rollback-compatible with exact release `0.2.31`. This
+declaration lets Stado atomically restore `0.2.31` after a `0.2.33` rollout
+because both releases use runtime configuration schema 1 and state schema 1;
+it is not a compatibility promise for every `0.2.x` release. Retain the exact
+`0.2.31` receipt and checksum, and do not select a rollback target that is not
+listed in `runtime.rollback_compatible_with`.
+
 - Resolve downloadable assets from the canonical Stado release receipt.
 - Commercial or account support is not applicable to the local core; Hosted Hub
   is planned and has no published paid contract.
