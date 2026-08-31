@@ -26,8 +26,7 @@
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/bin/start": "bin/start",
         "stage/LICENSE": "LICENSE",
-        "stage/NOTICE": "NOTICE",
-        "stage/TRADEMARKS.md": "TRADEMARKS.md"
+        "stage/NOTICE": "NOTICE"
       },
       "runner_platform": "darwin-arm64"
     },
@@ -54,8 +53,7 @@
         "stage/share/skarbiec/browser/skarbiec-autofill.crx": "share/skarbiec/browser/skarbiec-autofill.crx",
         "stage/share/skarbiec/browser/skarbiec-autofill.xml": "share/skarbiec/browser/skarbiec-autofill.xml",
         "stage/LICENSE": "LICENSE",
-        "stage/NOTICE": "NOTICE",
-        "stage/TRADEMARKS.md": "TRADEMARKS.md"
+        "stage/NOTICE": "NOTICE"
       },
       "runner_platform": "linux-amd64",
       "required": false

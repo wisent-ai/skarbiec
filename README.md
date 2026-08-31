@@ -30,7 +30,7 @@ All Your Auth Needs Sorted with One Install of Skarbiec.
 [CLI](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) ·
 [Security](https://skarbiec.wisent.com/docs/security) · [Contributing](CONTRIBUTING.md)
 
-Skarbiec is an early public `0.1.x` product, not a hosted secret manager or a
+Skarbiec is an early public `0.2.x` product, not a hosted secret manager or a
 claim that local brokering makes a compromised host safe. The complete local
 broker works without a Wisent account, network licence check, item limit, or
 paid seat. Operated fleet synchronization, retained organization audit,
@@ -229,7 +229,7 @@ workloads through acquisition rather than a legacy direct bearer.
 
 | Interface | Canonical purpose | Stability | Documentation and example |
 | --- | --- | --- | --- |
-| `skarbiec` CLI | Owner administration, diagnostics, and supervised automation | Public `0.1.x`; tracked by the versioned command surface | [CLI reference](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) |
+| `skarbiec` CLI | Owner administration, diagnostics, and supervised automation | Public `0.2.x`; tracked by the versioned command surface | [CLI reference](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) |
 | Loopback HTTP broker | Service acquisition, compatibility item access, health, and ciphertext sync | Public `/v1`; acquisition is the default, direct scopes are compatibility-only | [Acquisition contract](https://skarbiec.wisent.com/docs/cli#service-account-grants) · [Examples](https://skarbiec.wisent.com/docs/examples) |
 | MCP server | Agent-safe metadata and audit, plus explicitly configured compatibility resolve | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](https://skarbiec.wisent.com/docs/security#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](https://skarbiec.wisent.com/docs/cli#servers) |
 | Chrome native host | Origin-checked fill through the managed extension | Public managed integration; the extension never receives a vault bearer or private key | [Browser boundary](https://skarbiec.wisent.com/docs/security#the-browser-boundary) · [Managed installation](https://skarbiec.wisent.com/docs/install#managed-browser-installation-and-updates) |
@@ -315,14 +315,14 @@ so an audit entry cannot exhaust subprocess capacity. See the complete
 
 ## Project status and support
 
-Skarbiec is an **early public `0.1.x` release**, not a hosted secrets service.
+Skarbiec is an **early public `0.2.x` release**, not a hosted secrets service.
 Deploy an exact release tag and checksum; do not infer readiness from
 `Cargo.toml` or a mutable `latest` pointer.
 
 | Boundary | Current contract |
 | --- | --- |
-| Maturity | Early public `0.1.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
-| Latest complete release | [`v0.1.3`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.1.3) |
+| Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
+| Latest complete release | [`v0.2.29`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.29) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
 | Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking and `oathtool` only for TOTP |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |
@@ -333,7 +333,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Availability | No cloud fallback by design; if the local broker cannot decrypt, the integration is unavailable |
 | Versioning | Additions require an additive bump; removals or changed command contracts require a compatibility-breaking bump |
 | Distribution | Canonical Stado releases for both supported platforms, plus the signed `skarbiec-autofill.crx` and its update manifest on the Linux recipe. Contributors can build and install from source with `sh scripts/install.sh`. There is no package-registry distribution |
-| License | [Apache License, Version 2.0](LICENSE); copies previously received under MIT remain under that grant. The license grants no trademark rights — see [TRADEMARKS.md](TRADEMARKS.md) |
+| License | [Apache License, Version 2.0](LICENSE); copies previously received under MIT remain under that grant. The license grants no trademark rights |
 
 Not supported or promised:
 
@@ -362,8 +362,7 @@ recipe receives the browser signing key only as the file-backed
 source or a release asset. Promotion reconciles the same immutable receipts from
 `candidate` to `stable`.
 
-- Review release notes in `CHANGELOG.md` and resolve downloadable assets from
-  the canonical Stado release receipt.
+- Resolve downloadable assets from the canonical Stado release receipt.
 - Commercial or account support is not applicable to the local core; Hosted Hub
   is planned and has no published paid contract.
 - Ask design and usage questions in
@@ -387,5 +386,4 @@ and maintainer-only release process.
 Apache License, Version 2.0 — see [LICENSE](LICENSE). Existing copies previously
 received under MIT remain under that grant.
 
-The software license grants no trademark rights. See
-[TRADEMARKS.md](TRADEMARKS.md).
+The software license grants no trademark rights.

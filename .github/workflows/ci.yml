@@ -54,7 +54,7 @@ jobs:
     # coordinator on a GitHub-hosted runner made STADO_API_URL look configured
     # while registry reads still resolved to the runner's empty local store.
     if: github.ref == 'refs/heads/main'
-    needs: gates
+    needs: evidence
     runs-on: ubuntu-latest
     concurrency:
       group: skarbiec-stable-release
@@ -162,7 +162,7 @@ jobs:
           archive="skarbiec-${GITHUB_REF_NAME}-${{ matrix.platform }}.tar.gz"
           checksum="${archive}.sha256"
           stage="$(mktemp -d)"
-          cp target/release/skarbiec LICENSE NOTICE TRADEMARKS.md "$stage/"
+          cp target/release/skarbiec LICENSE NOTICE "$stage/"
           tar -czf "$archive" -C "$stage" .
           openssl dgst -sha256 -r "$archive" > "$checksum"
           gh release view "$GITHUB_REF_NAME" >/dev/null \
