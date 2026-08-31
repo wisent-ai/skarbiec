@@ -538,10 +538,13 @@ fn validate_v2(vault: &Vault) -> Result<()> {
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
             .context("v2 item management has no controller")?;
-        if kind == "credential-operation"
+        // Both families the credential lifecycle writes carry the same managed
+        // authority; a stored record claiming either kind without it did not
+        // come from the lifecycle.
+        if matches!(kind, "credential-operation" | "credential-directory-seal")
             && (mode != "managed" || controller != "skarbiec-credential-lifecycle")
         {
-            bail!("{id} credential operation is not lifecycle-managed");
+            bail!("{id} credential record is not lifecycle-managed");
         }
         let mut previous_revision = u64::MIN;
         for revision in item

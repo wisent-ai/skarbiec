@@ -47,6 +47,18 @@ use wire::WIRE_VERSION;
 const REQUEST_WRITER: &str = "skarbiec-credential-lifecycle";
 const REQUEST_KIND: &str = "credential-operation";
 
+// The sealed directory contract's own kind. The lifecycle owns two families of
+// item and writes both under the same managed authority, so the authority says
+// who owns them and this says which of the two a record is. Without it the only
+// difference between a seal and an operation record was the id, and a reader
+// that wanted seals had to parse a mutable name to find them.
+//
+// Records sealed before this kind existed still carry `REQUEST_KIND`, and
+// nothing reads a seal by kind: `sealed_record` resolves the contract, and
+// `lifecycle_owned_item` protects it, whichever of the two kinds it carries.
+// An absent declaration narrows what a reader can prove; it never breaks one.
+const SEAL_KIND: &str = "credential-directory-seal";
+
 // Every credential operation, in the order a lifecycle uses them.
 pub(crate) const OPERATIONS: &[&str] = &["acquire", "adopt", "rotate", "reset", "verify", "remove"];
 

@@ -20,7 +20,7 @@ use super::common::{
 use super::receipt::{checked_approval, checked_receipt, receipt_matches, DIRECTORY_IDENTITY_KEYS};
 use super::{
     ACCOUNT_PROVIDER, EXPECTATION_MISMATCH, IDENTITY_OPERATIONS, IDENTITY_PROVIDER,
-    PROVIDER_EFFECTS, REQUEST_KIND, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBACK_STATUSES,
+    PROVIDER_EFFECTS, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBACK_STATUSES,
 };
 
 pub(super) const WIRE_VERSION: &str = "skarbiec.credential-operation.v3";
@@ -268,11 +268,15 @@ pub(super) fn request_payload(request: Value) -> Result<Value> {
         .context("credential operation record has no canonical value field")
 }
 
-pub(super) fn request_envelope(request: &Value) -> Value {
+// The canonical envelope one lifecycle-owned record is stored in. `kind` is the
+// record's declaration of which family it belongs to, so it is supplied rather
+// than assumed: the operation record and the sealed directory contract share
+// this shape and are not the same thing.
+pub(super) fn record_envelope(kind: &str, record: &Value) -> Value {
     json!({
         "schema": schema::ITEM_SCHEMA,
-        "kind": REQUEST_KIND,
-        "fields": {"value": request},
+        "kind": kind,
+        "fields": {"value": record},
         "context": {},
     })
 }

@@ -10,9 +10,9 @@ use crate::core::vault::{ManagedWrite, Vault};
 use crate::core::{inbox, schema};
 
 use super::common::now_iso;
-use super::wire::{request_envelope, request_payload, WIRE_VERSION};
+use super::wire::{record_envelope, request_payload, WIRE_VERSION};
 use super::{
-    ITEM_STATES, QUARANTINE_CONFIRMATION, QUARANTINE_TAG, REQUEST_KIND, REQUEST_WRITER,
+    ITEM_STATES, QUARANTINE_CONFIRMATION, QUARANTINE_TAG, REQUEST_KIND, REQUEST_WRITER, SEAL_KIND,
     STATE_MANAGED, STATE_QUARANTINED, STATE_UNMANAGED,
 };
 
@@ -27,22 +27,31 @@ pub(crate) fn seal_item_id(credential_id: &str) -> String {
 }
 
 // Items the credential lifecycle owns end to end: operation records and sealed
-// directory contracts. Both are written only by `save_request`, which writes
-// them as `REQUEST_KIND` under a managed authority whose controller is
-// `REQUEST_WRITER`; the vault refuses any later write that names a different
-// authority, so that pair is the record's own declaration of who owns it and it
-// cannot be forged through an item API. The id is not authoritative: it is a
-// mutable human-chosen name, and deriving the write protection from how it
-// happens to be spelled meant a rename silently removed the protection with
-// nothing raised. An id this vault does not hold is not owned by anything --
-// if something else takes the name first, the lifecycle's own managed write is
-// the loud failure ("controlled by a different management authority").
+// directory contracts. Both are written only through `save_record`, under a
+// managed authority whose controller is `REQUEST_WRITER`; the vault refuses any
+// later write that names a different authority, so that authority is the
+// record's own declaration of who owns it and it cannot be forged through an
+// item API. The id is not authoritative: it is a mutable human-chosen name, and
+// deriving the write protection from how it happens to be spelled meant a
+// rename silently removed the protection with nothing raised. An id this vault
+// does not hold is not owned by anything -- if something else takes the name
+// first, the lifecycle's own managed write is the loud failure ("controlled by
+// a different management authority").
 // No item API may write, import, or accept a donation for one of these.
+//
+// Ownership spans both kinds and is deliberately not narrowed to one. The kind
+// says which family a record belongs to; the managed authority says the
+// lifecycle owns it. A seal written before `SEAL_KIND` existed still carries
+// `REQUEST_KIND`, and it is owned exactly as much as one written today, so
+// testing for either is what keeps an existing seal protected.
 pub(crate) fn lifecycle_owned_item(vault: &Vault, id: &str) -> bool {
     let Some(item) = vault.doc().get("items").and_then(|items| items.get(id)) else {
         return false;
     };
-    if item.get("kind").and_then(Value::as_str) != Some(REQUEST_KIND) {
+    if !matches!(
+        item.get("kind").and_then(Value::as_str),
+        Some(REQUEST_KIND) | Some(SEAL_KIND)
+    ) {
         return false;
     }
     item.get("management").is_some_and(|management| {
@@ -58,19 +67,32 @@ pub(super) fn live_item_exists(vault: &Vault, id: &str) -> bool {
         .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
 }
 
-pub(super) fn save_request(vault_path: &Path, request_item: &str, request: &Value) -> Result<()> {
+// One writer, two declared families. The kind travels with the record instead
+// of being assumed, because assuming it is what made a seal and an operation
+// record indistinguishable once written.
+fn save_record(vault_path: &Path, item: &str, kind: &str, record: &Value) -> Result<()> {
     Vault::open(vault_path.to_path_buf())?.set_managed_item(
-        request_item,
-        REQUEST_KIND,
-        &request_envelope(request),
+        item,
+        kind,
+        &record_envelope(kind, record),
         &[],
         &[],
         ManagedWrite {
             controller: REQUEST_WRITER,
             writer: REQUEST_WRITER,
-            operation_id: request.get("request_id").and_then(Value::as_str),
+            operation_id: record.get("request_id").and_then(Value::as_str),
         },
     )
+}
+
+pub(super) fn save_request(vault_path: &Path, request_item: &str, request: &Value) -> Result<()> {
+    save_record(vault_path, request_item, REQUEST_KIND, request)
+}
+
+// The sealed directory contract, declared as one. `seal_directory` is the only
+// caller: a seal is written by sealing and by resealing, and by nothing else.
+pub(super) fn save_seal(vault_path: &Path, seal_item: &str, sealed: &Value) -> Result<()> {
+    save_record(vault_path, seal_item, SEAL_KIND, sealed)
 }
 
 pub(super) fn update_request(

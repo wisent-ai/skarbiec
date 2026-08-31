@@ -16,7 +16,7 @@ use super::common::{
     now_iso, safe_string, uuid_shaped,
 };
 use super::state::{
-    context_block, live_item_exists, refuse_quarantined, save_request, seal_item_id, store_context,
+    context_block, live_item_exists, refuse_quarantined, save_seal, seal_item_id, store_context,
 };
 use super::wire::request_payload;
 use super::EXPECTATION_MISMATCH;
@@ -224,7 +224,7 @@ pub(super) fn seal_directory(
         );
     }
     let seal_item = seal_item_id(credential_id);
-    save_request(vault_path, &seal_item, &sealed)?;
+    save_seal(vault_path, &seal_item, &sealed)?;
     vault = Vault::open(vault_path.to_path_buf())?;
     if live_item_exists(&vault, credential_id) {
         store_context(&mut vault, credential_id, &[("directory", sealed.clone())])?;

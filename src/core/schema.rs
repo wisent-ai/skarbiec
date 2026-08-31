@@ -45,6 +45,16 @@ pub fn supported_kind(kind: &str) -> bool {
             | "stado-secret"
             | "internal-authority"
             | "credential-operation"
+            // The sealed directory contract. A separate kind from the
+            // operation record because it is a separate family: an operation
+            // record is one request and its outcome, a seal is the standing
+            // statement of which principal an item speaks for. Both are
+            // written by the credential lifecycle under the same managed
+            // authority, so before this kind existed the only thing that told
+            // them apart was how their ids happened to be spelled -- and an id
+            // is a mutable name, not evidence. A reader that wants seals can
+            // now ask for seals.
+            | "credential-directory-seal"
     )
 }
 
@@ -225,7 +235,7 @@ fn allowed_fields(kind: &str) -> Option<&'static [&'static str]> {
         "key-pair" => Some(KEY_PAIR_FIELDS),
         "certificate" => Some(CERTIFICATE_FIELDS),
         "service-account" => Some(SERVICE_ACCOUNT_FIELDS),
-        "credential-operation" => Some(VALUE_FIELDS),
+        "credential-operation" | "credential-directory-seal" => Some(VALUE_FIELDS),
         _ => None,
     }
 }
@@ -242,7 +252,11 @@ fn required(fields: &Map<String, Value>, names: &[&str], kind: &str) -> Result<(
 fn valid_field_value(kind: &str, name: &str, value: &Value) -> bool {
     if matches!(
         kind,
-        "stado-secret" | "internal-authority" | "credential-operation" | "bundle"
+        "stado-secret"
+            | "internal-authority"
+            | "credential-operation"
+            | "credential-directory-seal"
+            | "bundle"
     ) {
         return true;
     }
@@ -323,7 +337,9 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
         "key-pair" => required(fields, &["private_key"], expected_kind)?,
         "certificate" => required(fields, &["certificate", "private_key"], expected_kind)?,
         "service-account" => required(fields, &["credential_json"], expected_kind)?,
-        "credential-operation" => required(fields, &["value"], expected_kind)?,
+        "credential-operation" | "credential-directory-seal" => {
+            required(fields, &["value"], expected_kind)?;
+        }
         "stado-secret" | "internal-authority" | "bundle" => {}
         _ => unreachable!(),
     }
