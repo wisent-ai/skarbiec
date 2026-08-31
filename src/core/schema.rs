@@ -103,12 +103,29 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
         prefix: "brama:id:",
         value: "id",
     },
+    // Which login item a Codex subscription belongs to. `credential status
+    // <id> reauth` treats an item as that subscription only when it carries
+    // this tag alongside `brama:subscription` and `brama:provider:codex`
+    // (`credential::status::named_subscription_present`), so the product reads
+    // this namespace and decides on it. Leaving it unregistered meant the
+    // binary demanded a tag it refused to let anyone write: every other tag
+    // that workflow needs passed the gate and this one did not.
+    TagNamespace::Valued {
+        prefix: "brama:login:",
+        value: "login",
+    },
     TagNamespace::Exact("fleet:host-account"),
     TagNamespace::Valued {
         prefix: "fleet:target:",
         value: "name",
     },
     TagNamespace::Exact("fleet:tailnet-tls"),
+    // Written by the credential lifecycle when it freezes an item, and read
+    // back by `record_quarantined` to decide whether an item is frozen. The
+    // product both writes and reads it, so it is a namespace this vault uses
+    // and belongs here; describing it as a gap elsewhere is not the same as
+    // closing it.
+    TagNamespace::Exact("lifecycle:quarantined"),
 ];
 
 impl TagNamespace {

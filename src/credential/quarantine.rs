@@ -21,17 +21,18 @@ use super::{QUARANTINE_CONFIRMATION, QUARANTINE_TAG, STATE_QUARANTINED, STATE_UN
 
 // The freeze marker lives in the plaintext envelope: it can be set while a
 // staged candidate exists, which is exactly when we must not re-encrypt the
-// payload and lose that candidate.
+// payload and lose that candidate. That is why this writes the envelope
+// directly instead of going through `set_item_with_writer`.
 //
-// It also does not pass the tag registry, because it is not operator input:
-// the only value written here is one crate constant, set and cleared by the
-// quarantine lifecycle alone, the same way the sealed directory identity and
-// the provider receipt are lifecycle-owned and never written through an item
-// API. Worth stating plainly, though: `lifecycle:quarantined` is namespaced
-// and is not one of the registered namespaces, so it is a tag this binary
-// mints that the registry does not list. Nothing breaks -- a write that keeps
-// it is preserving, not introducing -- but re-adding it by hand after a retag
-// dropped it would be refused.
+// It does go through the tag registry, though. This path used to be exempt on
+// the grounds that it writes one crate constant rather than operator input,
+// which was true and still left the product minting a namespace its own
+// registry did not contain. `lifecycle:quarantined` is registered now, so the
+// exemption bought nothing and is gone: the check is cheap, it is pure string
+// comparison over the envelope, and running it here means a future edit to
+// `QUARANTINE_TAG` cannot introduce an unregistered namespace unnoticed. The
+// same rule applies as everywhere else -- only what this write introduces is
+// judged, so clearing the marker is never refused.
 pub(super) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> Result<()> {
     let entry = vault
         .doc_mut()
@@ -39,21 +40,25 @@ pub(super) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> 
         .and_then(|items| items.get_mut(id))
         .and_then(Value::as_object_mut)
         .with_context(|| format!("no item: {id}"))?;
-    let mut tags: Vec<Value> = entry
+    let carried: Vec<Value> = entry
         .get("tags")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let tagged = tags.iter().any(|tag| tag.as_str() == Some(QUARANTINE_TAG));
+    let tagged = carried
+        .iter()
+        .any(|tag| tag.as_str() == Some(QUARANTINE_TAG));
     if frozen == tagged {
         return Ok(());
     }
+    let mut written = carried.clone();
     if frozen {
-        tags.push(Value::String(QUARANTINE_TAG.to_string()));
+        written.push(Value::String(QUARANTINE_TAG.to_string()));
     } else {
-        tags.retain(|tag| tag.as_str() != Some(QUARANTINE_TAG));
+        written.retain(|tag| tag.as_str() != Some(QUARANTINE_TAG));
     }
-    entry.insert("tags".to_string(), Value::Array(tags));
+    crate::core::schema::ensure_registered_tags(&carried, &written)?;
+    entry.insert("tags".to_string(), Value::Array(written));
     vault.save()
 }
 
