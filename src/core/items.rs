@@ -331,7 +331,14 @@ pub fn migrate_vault(flags: &std::collections::HashMap<String, String>) -> Resul
             .and_then(crate::core::vault::entry_item_uid)
             .map(str::to_string);
         target
-            .set_migrated_item(id, item_kind, &payload, &[], &tags, source_item_uid.as_deref())
+            .set_migrated_item(
+                id,
+                item_kind,
+                &payload,
+                &[],
+                &tags,
+                source_item_uid.as_deref(),
+            )
             .with_context(|| format!("write item {id} into target vault"))?;
         let mut field_names: Vec<String> = payload
             .get("fields")

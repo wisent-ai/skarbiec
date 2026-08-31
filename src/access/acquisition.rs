@@ -492,9 +492,7 @@ pub fn consume(
     // provenance must never turn a redemption that has already proved its
     // capability into a failure.
     let (value, payload) = match crate::credential::managed_read(&vault, item, field, consumer)? {
-        crate::credential::ManagedRead::Staged(candidate) => {
-            (candidate, vault.get_item(item).ok())
-        }
+        crate::credential::ManagedRead::Staged(candidate) => (candidate, vault.get_item(item).ok()),
         crate::credential::ManagedRead::Refused => return Ok(None),
         crate::credential::ManagedRead::Current => {
             let payload = vault.get_item(item)?;

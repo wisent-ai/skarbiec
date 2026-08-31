@@ -249,9 +249,7 @@ fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<
 /// where it went, instead of reporting it as missing and leaving an operator
 /// unable to tell a rename from a purge.
 fn cmd_rename(positionals: &[String]) -> Result<()> {
-    let from = positionals
-        .first()
-        .context("usage: rename <id> <new-id>")?;
+    let from = positionals.first().context("usage: rename <id> <new-id>")?;
     let to = positionals
         .get("1".parse::<usize>()?)
         .context("usage: rename <id> <new-id>")?;

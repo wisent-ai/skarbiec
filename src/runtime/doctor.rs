@@ -232,7 +232,10 @@ fn grant_problem(vault: &Vault, item: &str, field: Option<&str>) -> Option<Strin
         return Some(format!("vault item {item} is in trash"));
     }
     let field = field?;
-    let kind = record.get("kind").and_then(Value::as_str).unwrap_or_default();
+    let kind = record
+        .get("kind")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
     if !schema::kind_allows_field(kind, field) {
         return Some(format!(
             "vault item {item} kind {kind} does not allow the {field} field"
@@ -262,7 +265,13 @@ fn written_capability(action: &str, item: &str, field: Option<&str>) -> String {
 fn grants_check() -> Value {
     let vault = match Vault::open(vault_path()) {
         Ok(vault) => vault,
-        Err(error) => return check("grants", FAIL, format!("{}: {error}", vault_path().display())),
+        Err(error) => {
+            return check(
+                "grants",
+                FAIL,
+                format!("{}: {error}", vault_path().display()),
+            )
+        }
     };
     let mut checked = usize::MIN;
     let mut problems = Vec::new();
