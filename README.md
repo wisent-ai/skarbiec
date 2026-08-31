@@ -322,7 +322,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Boundary | Current contract |
 | --- | --- |
 | Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
-| Latest complete release | [`v0.2.29`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.29) |
+| Latest complete release | [`v0.2.30`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.30) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
 | Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking and `oathtool` only for TOTP |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |

@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     tags: [ "v*" ]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   # The gates are not spelled here any more. Four Rust repositories in this
@@ -44,9 +45,12 @@ jobs:
   tag:
     if: github.ref == 'refs/heads/main'
     needs: evidence
-    uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@897485548846d7dfe38832b6b9a38212cdd1685a
+    uses: wisent-ai/quality-control/.github/workflows/tag-on-manifest-bump.yml@52aca696c0ca17873b85f078bebef0732b58161e
+    with:
+      release-workflow: ci.yml
     permissions:
       contents: write
+      actions: write
 
   deploy:
     # Product repositories publish an immutable request; Stado's own control-plane
