@@ -325,9 +325,9 @@ MACOS_SIGN_IDENTITY  wisent-apple-developer-id#sign_identity
 ```
 
 `scripts/apple-developer-id.py` is the tool for that item. It reads an App Store
-Connect key from the vault rather than a file, so no key material lands on disk,
-and writes the item as one canonical `bundle` payload through stdin, so no secret
-is ever a command-line argument:
+Connect key from this vault rather than from a file, so no key material lands on
+disk, and writes the item as one canonical `bundle` payload through stdin, so no
+secret is ever a command-line argument:
 
 ```sh
 SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
@@ -338,40 +338,17 @@ SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
   python3 scripts/apple-developer-id.py mint    # create one and store it
 ```
 
-The kind is `bundle` and not `certificate` for a reason worth knowing: the
-canonical `certificate` kind allows exactly `certificate`, `private_key`, `chain`
-and `passphrase` (`src/core/schema.rs`), while the release manifests declare a
-p12, its password and an identity string. `bundle` is the kind with no field
-allowlist, which is what a set of related release values is.
+Development and distribution certificates are issued through the App Store
+Connect API with no browser at all. A Developer ID Application certificate is
+the exception Apple reserves for the Account Holder, and it has its own
+automated path through Weles: a tracked trajectory, one authorization per
+password submit, and a relay that captures the second factor on a Mac with a
+live GUI session.
 
-**A Developer ID Application certificate cannot be created with an API key.**
-Apple answers every attempt with `403 This operation can only be performed by
-the Account Holder`, and an App Store Connect key carries a team role, never that
-one. Measured here with both keys the vault holds, `api-appstoreconnect-weles`
-and `platform-admin-appstore-apikey`, each `key_type: team`. `roles` shows the
-account has a single user, `ACCOUNT_HOLDER, ADMIN`, so there is no key to
-delegate to either.
-
-What remains is a portal session as the Account Holder, and none of it needs
-writing: **Weles already has the trajectory.**
-`weles/scripts/trajectories/apple/create_developer_id.mjs` navigates
-`developer.apple.com/account/resources/certificates/add`, uploads a CSR at
-`APPLE_CSR_PATH`, and writes the issued certificate to
-`APPLE_CERTIFICATE_PATH`. It is registered in `weles/dist/worker/dispatch.js` as
-provider `apple`, action `create_developer_id`, and it takes email, password and
-the 2FA code as one-use Skarbiec capabilities: `WELES_LOGIN_ITEM` names the
-account item, `APPLE_AUTH_GUARD_ID` scopes the grant, and the device code arrives
-through the relay resource `challenge:apple/<guard-id>` — the read half of what
-`skarbiec apple-challenge-put` writes. `scripts/grant-weles-login-acquisitions.sh`
-grants the per-field acquisitions that trajectory declares.
-
-So the missing step is an enqueued Weles job, not a human in a browser. The
-Weles CLI (`weles open`, `screenshot`, `doctor`) does not expose enqueue; the
-worker claims rows from its queue, so the dispatch path is Stado's, and the
-browser runs on the Stado-selected host, never locally.
-
-Once the certificate exists, `mint` is unnecessary: import it with `set-json`
-under the three field names above, and every signing build resolves it.
+The whole procedure — both paths, the recorded provenance of a certificate the
+API already issued, and what still blocks a Developer ID run — is
+[Apple Developer Certificates](https://skarbiec.wisent.com/docs/apple-developer-certificates).
+It is documented there rather than here so there is one copy to keep true.
 
 ### Item tags
 
