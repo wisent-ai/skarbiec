@@ -84,5 +84,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 #       <item> does not open: ...` — that last one is this host's gpg, not the
 #       credential, and it will name every route at once.
 #
-# Next: docs/CLI.md for the full command surface, and
-# docs/examples/acquire-one-field.sh for the workload-bound access path.
+# Next: docs/CLI.md for the full command surface,
+# docs/examples/operations/issue-a-capability.sh for the contract issuance
+# enforces against these same routes, and docs/examples/acquire-one-field.sh
+# for the workload-bound access path.
