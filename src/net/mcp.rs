@@ -267,6 +267,15 @@ pub(crate) fn handle_acquisitions_issue(
             signature,
         ) {
             Ok(value) => value,
+            Err(error)
+                if error
+                    .downcast_ref::<crate::access::acquisition::AcquisitionFieldMissing>()
+                    .is_some() =>
+            {
+                eprintln!("acquisition field absent for {consumer} on {item}#{field}: {error:#}");
+                let e = &json!({"error": "acquisition field does not exist on item"});
+                return http::write_response(stream, "HTTP/1.1 404 Not Found", e);
+            }
             Err(error) => {
                 eprintln!("acquisition issue failed for {consumer} on {item}#{field}: {error:#}");
                 let e = &json!({"error": Code::InfraDown.as_str()});

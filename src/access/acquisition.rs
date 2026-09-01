@@ -24,6 +24,17 @@ impl Drop for StateLock {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct AcquisitionFieldMissing;
+
+impl std::fmt::Display for AcquisitionFieldMissing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("acquisition field does not exist on item")
+    }
+}
+
+impl std::error::Error for AcquisitionFieldMissing {}
+
 fn private_file_mode() -> Result<u32> {
     u32::from_str_radix("600", "8".parse()?).context("private file mode")
 }
@@ -292,7 +303,14 @@ fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {
         bail!("item and field must be exact names without wildcards or separators");
     }
     let payload = vault.get_item(item)?;
-    schema::field(&payload, field).context("acquisition field does not exist on item")?;
+    let present = if field == "context" {
+        payload.get("context").is_some()
+    } else {
+        schema::fields(&payload)?.contains_key(field)
+    };
+    if !present {
+        return Err(AcquisitionFieldMissing.into());
+    }
     Ok(())
 }
 
@@ -384,7 +402,6 @@ pub fn issue(
     else {
         return Ok(None);
     };
-    validate_target(&vault, item, field)?;
     let now = now_epoch()?;
     if now.abs_diff(timestamp) > proof_window_seconds()? {
         return Ok(None);
@@ -393,6 +410,10 @@ pub fn issue(
     if !verify_workload_proof(&public_key, &payload, signature)? {
         return Ok(None);
     }
+    // A missing field is returned only after the workload proves its identity.
+    // The caller can then distinguish optional material from an authority
+    // outage without turning the endpoint into a field-existence oracle.
+    validate_target(&vault, item, field)?;
 
     let path = state_path();
     let _lock = acquire_lock(&path)?;
