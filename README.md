@@ -313,6 +313,54 @@ high-entropy tokens, while SHA-256 journal hashing and timestamps run in-process
 so an audit entry cannot exhaust subprocess capacity. See the complete
 [security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
 
+### The macOS signing certificate
+
+Every `*-desktop` release manifest, and Oko's command-line release, reads the
+same three coordinates out of this vault:
+
+```text
+MACOS_CERT_P12       wisent-apple-developer-id#certificate_p12_base64
+MACOS_CERT_PASSWORD  wisent-apple-developer-id#certificate_password
+MACOS_SIGN_IDENTITY  wisent-apple-developer-id#sign_identity
+```
+
+`scripts/apple-developer-id.py` is the tool for that item. It reads an App Store
+Connect key from the vault rather than a file, so no key material lands on disk,
+and writes the item as one canonical `bundle` payload through stdin, so no secret
+is ever a command-line argument:
+
+```sh
+SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
+  python3 scripts/apple-developer-id.py roles   # who may do what
+SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
+  python3 scripts/apple-developer-id.py list    # what the account already holds
+SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
+  python3 scripts/apple-developer-id.py mint    # create one and store it
+```
+
+The kind is `bundle` and not `certificate` for a reason worth knowing: the
+canonical `certificate` kind allows exactly `certificate`, `private_key`, `chain`
+and `passphrase` (`src/core/schema.rs`), while the release manifests declare a
+p12, its password and an identity string. `bundle` is the kind with no field
+allowlist, which is what a set of related release values is.
+
+**A Developer ID Application certificate cannot be created with an API key.**
+Apple answers every attempt with `403 This operation can only be performed by
+the Account Holder`, and an App Store Connect key carries a team role, never that
+one. Measured here with both keys the vault holds, `api-appstoreconnect-weles`
+and `platform-admin-appstore-apikey`, each `key_type: team`. `roles` shows the
+account has a single user, `ACCOUNT_HOLDER, ADMIN`, so there is no key to
+delegate to either.
+
+What remains is therefore a portal session as the Account Holder, and the pieces
+for it are already here rather than to be invented: `weles-apple-control-account`
+holds that account's email and password, `scripts/grant-weles-login-acquisitions.sh`
+grants Weles the per-field acquisitions its login trajectory declares, and
+`skarbiec apple-challenge-put <resource>` takes the six digits a trusted device
+shows. The browser runs on the Stado-selected host through Weles, never locally.
+Once the certificate exists, `mint` is unnecessary: import it with `set-json`
+under the three field names above, and every signing build resolves it.
+
 ### Item tags
 
 An item's tags are cleartext metadata, and they carry two different kinds of
