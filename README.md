@@ -89,6 +89,7 @@ journal.
 | Goal | Observable outcome | Start here |
 | --- | --- | --- |
 | Let a new workload borrow one field | The workload has no standing read bearer; the first matching read succeeds and replay fails | [Executable acquisition proof](docs/examples/acquire-one-field.sh) |
+| Issue a finite capability against a routed credential | Issuance refuses before handing one out, naming the coordinate and the reason, unless the credential the route names can actually serve | [Capability issuance example](docs/examples/operations/issue-a-capability.sh) |
 | Store and inspect a credential without printing it | The write returns the item id; `list` returns metadata only | [Add a credential](docs/examples/add-credential.sh) |
 | Share an item, then withdraw access | The recipient can decrypt only the shared item; revocation re-encrypts it to the remaining recipients | [Sharing example](docs/examples/sharing/share-credential-with-user.sh) |
 | Replace a lost or departing owner | Every current and historical ciphertext is rewrapped and recovery remains present | [Owner rotation](https://skarbiec.wisent.com/docs/examples) |
