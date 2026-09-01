@@ -267,7 +267,8 @@ pub(crate) fn handle_acquisitions_issue(
             signature,
         ) {
             Ok(value) => value,
-            Err(_) => {
+            Err(error) => {
+                eprintln!("acquisition issue failed for {consumer} on {item}#{field}: {error:#}");
                 let e = &json!({"error": Code::InfraDown.as_str()});
                 return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
             }

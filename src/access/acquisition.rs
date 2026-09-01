@@ -2,11 +2,12 @@
 // workload identities may request an acquisition but can never read directly.
 
 use anyhow::{bail, Context, Result};
+use fs2::FileExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::fs::{self, DirBuilder, File, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -15,22 +16,16 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::access::tokens;
 use crate::core::{crypto, schema, vault::Vault, vault_path};
 
-struct StateLock {
-    path: PathBuf,
-}
+struct StateLock(File);
 
 impl Drop for StateLock {
     fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        let _ = self.0.unlock();
     }
 }
 
 fn private_file_mode() -> Result<u32> {
     u32::from_str_radix("600", "8".parse()?).context("private file mode")
-}
-
-fn private_dir_mode() -> Result<u32> {
-    u32::from_str_radix("700", "8".parse()?).context("private directory mode")
 }
 
 fn unsafe_mode_bits() -> Result<u32> {
@@ -68,20 +63,29 @@ fn lock_path(path: &Path) -> PathBuf {
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
-        .map(|value| format!("{value}.lock"))
-        .unwrap_or_else(|| "skarbiec.vault.acquisitions.lock".to_string());
+        .map(|value| format!("{value}.advisory.lock"))
+        .unwrap_or_else(|| "skarbiec.vault.acquisitions.advisory.lock".to_string());
     path.with_file_name(name)
 }
 
 fn acquire_lock(path: &Path) -> Result<StateLock> {
     let lock = lock_path(path);
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(private_file_mode()?)
+        .open(&lock)
+        .with_context(|| format!("open acquisition state lock {}", lock.display()))?;
+    validate_owned_regular(&lock)?;
     let attempts: usize = "500".parse()?;
     let pause = Duration::from_millis("10".parse()?);
     for _ in std::iter::repeat_n((), attempts) {
-        match DirBuilder::new().mode(private_dir_mode()?).create(&lock) {
-            Ok(()) => return Ok(StateLock { path: lock }),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => thread::sleep(pause),
-            Err(error) => return Err(error).context("create acquisition state lock"),
+        match file.try_lock_exclusive() {
+            Ok(()) => return Ok(StateLock(file)),
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(pause),
+            Err(error) => return Err(error).context("lock acquisition state"),
         }
     }
     bail!("acquisition state is locked")
