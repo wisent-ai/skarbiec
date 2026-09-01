@@ -211,15 +211,16 @@ The registration output has `workload_bound: true`, `token: null`, and one exact
 `acquisition-consumed`; it never contains the field value, signature, public
 key, or one-use token.
 
-`POST /v1/acquisitions` returns `400` when the request body lacks an exact id,
-field, or workload proof. An absent consumer, missing acquisition grant,
-expired timestamp, invalid signature, or replay returns `401` with
-`{"error":"unauthorized"}`. After the workload has proved its identity, a field
-that the item does not carry returns `404` with
-`{"error":"acquisition field does not exist on item"}`; other issuance failures
-return `503` with `{"error":"infra_down"}`. The missing-field distinction is
-therefore available to an authorized workload without exposing field existence
-to an unproved caller.
+`POST /v1/acquisitions` returns `400` when a required request member is
+missing, the id or field is empty, or the timestamp is not an unsigned integer.
+Supplied item, field, or workload values that fail exact-name or workload-proof
+validation return `401` with `{"error":"unauthorized"}`, as do an absent
+consumer, a missing acquisition grant, an expired timestamp, or a replay.
+After the workload has proved its identity, a field that the item does not
+carry returns `404` with `{"error":"acquisition field does not exist on item"}`;
+other issuance failures return `503` with `{"error":"infra_down"}`. The
+missing-field distinction is therefore available to an authorized workload
+without exposing field existence to an unproved caller.
 
 The script refuses to overwrite an existing demo directory. Remove the isolated
 state when finished:
