@@ -376,7 +376,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Boundary | Current contract |
 | --- | --- |
 | Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
-| Latest complete release | [`v0.2.36`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.36) |
+| Latest complete release | [`v0.2.37`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.37) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
 | Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking and `oathtool` only for TOTP |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |
@@ -416,11 +416,11 @@ recipe receives the browser signing key only as the file-backed
 source or a release asset. Promotion reconciles the same immutable receipts from
 `candidate` to `stable`.
 
-Release `0.2.36` is rollback-compatible with exact release `0.2.35`. This
-declaration lets Stado atomically restore `0.2.35` after a `0.2.36` rollout
+Release `0.2.37` is rollback-compatible with exact release `0.2.36`. This
+declaration lets Stado atomically restore `0.2.36` after a `0.2.37` rollout
 because both releases use runtime configuration schema 1 and state schema 1;
 it is not a compatibility promise for every `0.2.x` release. Retain the exact
-`0.2.35` receipt and checksum, and do not select a rollback target that is not
+`0.2.36` receipt and checksum, and do not select a rollback target that is not
 listed in `runtime.rollback_compatible_with`.
 
 - Resolve downloadable assets from the canonical Stado release receipt.
