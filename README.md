@@ -211,6 +211,17 @@ The registration output has `workload_bound: true`, `token: null`, and one exact
 `acquisition-consumed`; it never contains the field value, signature, public
 key, or one-use token.
 
+`POST /v1/acquisitions` returns `400` when a required request member is
+missing, the id or field is empty, or the timestamp is not an unsigned integer.
+Supplied item, field, or workload values that fail exact-name or workload-proof
+validation return `401` with `{"error":"unauthorized"}`, as do an absent
+consumer, a missing acquisition grant, an expired timestamp, or a replay.
+After the workload has proved its identity, a field that the item does not
+carry returns `404` with `{"error":"acquisition field does not exist on item"}`;
+other issuance failures return `503` with `{"error":"infra_down"}`. The
+missing-field distinction is therefore available to an authorized workload
+without exposing field existence to an unproved caller.
+
 The script refuses to overwrite an existing demo directory. Remove the isolated
 state when finished:
 
@@ -365,7 +376,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Boundary | Current contract |
 | --- | --- |
 | Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
-| Latest complete release | [`v0.2.32`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.32) |
+| Latest complete release | [`v0.2.36`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.36) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
 | Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking and `oathtool` only for TOTP |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |
@@ -405,11 +416,11 @@ recipe receives the browser signing key only as the file-backed
 source or a release asset. Promotion reconciles the same immutable receipts from
 `candidate` to `stable`.
 
-Release `0.2.35` is rollback-compatible with exact release `0.2.34`. This
-declaration lets Stado atomically restore `0.2.34` after a `0.2.35` rollout
+Release `0.2.36` is rollback-compatible with exact release `0.2.35`. This
+declaration lets Stado atomically restore `0.2.35` after a `0.2.36` rollout
 because both releases use runtime configuration schema 1 and state schema 1;
 it is not a compatibility promise for every `0.2.x` release. Retain the exact
-`0.2.34` receipt and checksum, and do not select a rollback target that is not
+`0.2.35` receipt and checksum, and do not select a rollback target that is not
 listed in `runtime.rollback_compatible_with`.
 
 - Resolve downloadable assets from the canonical Stado release receipt.
