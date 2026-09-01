@@ -270,7 +270,7 @@ liveness, and `/readyz` (or compatibility alias `/health`) for readiness.
 | Concern | Current owner and contract |
 | --- | --- |
 | Configuration | Operator-owned environment variables and owner-only files; the supported settings and defaults are listed above. There is no configuration file and no reload: an explicit variable wins over the built-in default, and each invocation reads the environment it was given |
-| State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl`. Each is written through a mode-0600 temporary file, `fsync`, and `rename` under a directory lock, so a reader sees the old document or the new one and never a partial write; the operator chooses the durable filesystem and its backups |
+| State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl`. State documents use mode-0600 temporary files, `fsync`, and `rename`, so a reader sees the old document or the new one and never a partial write. Acquisition updates serialize through the owner-only `<vault>.acquisitions.json.advisory.lock` file and a kernel lock that is released when the process exits; the operator chooses the durable filesystem and its backups |
 | Credentials | Values live in the vault only as per-recipient GPG ciphertext. Plaintext exists in exactly three places: the `gpg` child process and Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that the compatibility `resolve --emit` path writes on request. The protected-key path stages ciphertext — never plaintext — to a temporary file, and an unlock phrase reaches `gpg` over stdin rather than argv. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `rotate-owner`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `token-revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material |
 | Networking | `serve` binds `127.0.0.1` only, on port 8787 unless `--port` says otherwise. A fixed worker set and bounded waiting queue cap connections; overload is refused before it can consume cryptographic or file-descriptor capacity. The one connection Skarbiec itself initiates outward is `breach-check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
 | Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. Hosted Hub pricing is not published because that service is not shipped |
@@ -405,11 +405,11 @@ recipe receives the browser signing key only as the file-backed
 source or a release asset. Promotion reconciles the same immutable receipts from
 `candidate` to `stable`.
 
-Release `0.2.34` is rollback-compatible with exact release `0.2.31`. This
-declaration lets Stado atomically restore `0.2.31` after a `0.2.34` rollout
+Release `0.2.35` is rollback-compatible with exact release `0.2.34`. This
+declaration lets Stado atomically restore `0.2.34` after a `0.2.35` rollout
 because both releases use runtime configuration schema 1 and state schema 1;
 it is not a compatibility promise for every `0.2.x` release. Retain the exact
-`0.2.31` receipt and checksum, and do not select a rollback target that is not
+`0.2.34` receipt and checksum, and do not select a rollback target that is not
 listed in `runtime.rollback_compatible_with`.
 
 - Resolve downloadable assets from the canonical Stado release receipt.
