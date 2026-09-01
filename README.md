@@ -352,12 +352,24 @@ and `platform-admin-appstore-apikey`, each `key_type: team`. `roles` shows the
 account has a single user, `ACCOUNT_HOLDER, ADMIN`, so there is no key to
 delegate to either.
 
-What remains is therefore a portal session as the Account Holder, and the pieces
-for it are already here rather than to be invented: `weles-apple-control-account`
-holds that account's email and password, `scripts/grant-weles-login-acquisitions.sh`
-grants Weles the per-field acquisitions its login trajectory declares, and
-`skarbiec apple-challenge-put <resource>` takes the six digits a trusted device
-shows. The browser runs on the Stado-selected host through Weles, never locally.
+What remains is a portal session as the Account Holder, and none of it needs
+writing: **Weles already has the trajectory.**
+`weles/scripts/trajectories/apple/create_developer_id.mjs` navigates
+`developer.apple.com/account/resources/certificates/add`, uploads a CSR at
+`APPLE_CSR_PATH`, and writes the issued certificate to
+`APPLE_CERTIFICATE_PATH`. It is registered in `weles/dist/worker/dispatch.js` as
+provider `apple`, action `create_developer_id`, and it takes email, password and
+the 2FA code as one-use Skarbiec capabilities: `WELES_LOGIN_ITEM` names the
+account item, `APPLE_AUTH_GUARD_ID` scopes the grant, and the device code arrives
+through the relay resource `challenge:apple/<guard-id>` — the read half of what
+`skarbiec apple-challenge-put` writes. `scripts/grant-weles-login-acquisitions.sh`
+grants the per-field acquisitions that trajectory declares.
+
+So the missing step is an enqueued Weles job, not a human in a browser. The
+Weles CLI (`weles open`, `screenshot`, `doctor`) does not expose enqueue; the
+worker claims rows from its queue, so the dispatch path is Stado's, and the
+browser runs on the Stado-selected host, never locally.
+
 Once the certificate exists, `mint` is unnecessary: import it with `set-json`
 under the three field names above, and every signing build resolves it.
 
