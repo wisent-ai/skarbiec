@@ -51,7 +51,11 @@ from pathlib import Path
 import jwt
 
 API = "https://api.appstoreconnect.apple.com/v1"
-ITEM = "wisent-apple-developer-id"
+# The item Stado actually reads when it signs: host_precheck_runner.rs sets
+# DEVELOPER_ID_ITEM = "desktop-release-developer-id". The release manifests
+# declare wisent-apple-developer-id in their secret_env, and Stado reads that
+# coordinate nowhere — it resolves signing material by its own constants.
+ITEM = "desktop-release-developer-id"
 CERTIFICATE_TYPE = "DEVELOPER_ID_APPLICATION"
 
 

@@ -316,8 +316,10 @@ so an audit entry cannot exhaust subprocess capacity. See the complete
 
 ### The macOS signing certificate
 
-Every `*-desktop` release manifest, and Oko's command-line release, reads the
-same three coordinates out of this vault:
+Stado reads the signing material from `desktop-release-developer-id`, which is the
+name its own `DEVELOPER_ID_ITEM` constant carries. The release manifests declare
+`wisent-apple-developer-id#…` in their `secret_env`, and Stado reads that
+coordinate nowhere; the fields are the same three either way:
 
 ```text
 MACOS_CERT_P12       wisent-apple-developer-id#certificate_p12_base64
