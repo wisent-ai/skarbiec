@@ -8,7 +8,10 @@
 // shape 1Password/Bitwarden use for sharing.
 
 use anyhow::{bail, Context, Result};
+use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Condvar, LazyLock, Mutex};
 use std::time::Duration;
@@ -75,6 +78,43 @@ static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
     maximum: configured_limit("SKARBIEC_GPG_CONCURRENCY", DEFAULT_GPG_LIMIT),
 });
 static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
+static CRYPTO_PROGRAMS: LazyLock<HashMap<&'static str, PathBuf>> = LazyLock::new(|| {
+    ["gpg", "gpgconf", "openssl", "shasum", "oathtool"]
+        .into_iter()
+        .map(|program| (program, resolve_program_path(program)))
+        .collect()
+});
+
+fn resolve_program_path(program: &str) -> PathBuf {
+    let from_environment = std::env::var_os("PATH")
+        .map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let home_local = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join(".local/bin"));
+    let fallbacks = [
+        Some(PathBuf::from("/opt/homebrew/bin")),
+        Some(PathBuf::from("/usr/local/MacGPG2/bin")),
+        Some(PathBuf::from("/home/linuxbrew/.linuxbrew/bin")),
+        Some(PathBuf::from("/usr/local/bin")),
+        home_local,
+        Some(PathBuf::from("/usr/bin")),
+        Some(PathBuf::from("/bin")),
+    ];
+    from_environment
+        .into_iter()
+        .chain(fallbacks.into_iter().flatten())
+        .map(|directory| directory.join(program))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| PathBuf::from(program))
+}
+
+fn crypto_program(program: &str) -> Cow<'_, Path> {
+    CRYPTO_PROGRAMS
+        .get(program)
+        .map(|path| Cow::Borrowed(path.as_path()))
+        .unwrap_or_else(|| Cow::Borrowed(Path::new(program)))
+}
 
 fn configured_limit(name: &str, default: usize) -> usize {
     std::env::var(name)
@@ -149,7 +189,7 @@ fn recover_gpg_daemons() -> Result<()> {
 fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
     let _capacity = CRYPTO_LIMIT.acquire();
     let _gpg_capacity = (program == "gpg").then(|| GPG_LIMIT.acquire());
-    let mut child = Command::new(program)
+    let mut child = Command::new(crypto_program(program).as_ref())
         .args(args)
         .stdin(if input.is_some() {
             Stdio::piped()
