@@ -34,7 +34,7 @@ use std::process::{Command, Stdio};
 
 use crate::core::schema::exact_token;
 use crate::core::{crypto, vault::Vault, vault_path};
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 
 const PROOF_DOMAIN: &[u8] = b"SKARBIEC-WORKLOAD-PROOF\0v1\0";
@@ -226,6 +226,41 @@ fn resolve_route(resource: &str) -> Result<Option<(String, String)>> {
     }
 }
 
+/// A refusal the caller can act on, on stdout as well as in the error.
+///
+/// `capability-issue` is run as a subprocess by the gateway that needs the
+/// credential, and a refusal is rendered by `anyhow` on stderr. A gateway
+/// reading the child's stdout therefore recorded `capability_issue_refused`
+/// with an empty detail -- seven providers refused at once, and the operator
+/// facing message carried nothing at all. A security refusal that will not say
+/// what it refused is how a month of quarantined releases named the symptom
+/// every time and the cause never.
+///
+/// So the reason goes to stdout as a document too, naming the coordinate and
+/// the command that would repair it, exactly as `routes verify` prints its
+/// report before failing. The coordinate is configuration, not a secret, and
+/// no value is ever read into it.
+fn refused(
+    resource: &str,
+    coordinate: Option<(&str, &str)>,
+    reason: &str,
+    remedy: &str,
+) -> anyhow::Error {
+    let document = json!({
+        "status": "refused",
+        "command": "capability-issue",
+        "resource": resource,
+        "item": coordinate.map(|(item, _)| item),
+        "field": coordinate.map(|(_, field)| field),
+        "reason": reason,
+        "remedy": remedy,
+    });
+    if let Ok(text) = serde_json::to_string_pretty(&document) {
+        println!("{text}");
+    }
+    anyhow!("capability-issue refused for {resource}: {reason}; {remedy}")
+}
+
 // Each bound is refused separately and the error names the pair, so `x < low || x >
 // high` mirrors the sentence the caller reads back. A `contains` on a range says the
 // same thing about a set, which is not what is being explained here.
@@ -270,8 +305,33 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     // only at redemption, inside a flow that has already spent its one Apple password
     // submit. Refuse at issue time. `challenge:` is the documented exception: its
     // value is written later, by the relay.
-    if !resource.starts_with("challenge:") && resolve_route(resource)?.is_none() {
-        bail!("no capability route maps {resource} to a vault field");
+    //
+    // The same argument reaches one step further, and until now it stopped short:
+    // a route can be present and the credential behind it still hold nothing, and
+    // that capability was issued too, redeemed, and refused at the far end. So the
+    // credential itself is checked here, in `routes verify`'s words.
+    if !resource.starts_with("challenge:") {
+        let Some((item, field)) = resolve_route(resource)? else {
+            return Err(refused(
+                resource,
+                None,
+                &format!("no capability route maps {resource} to a vault field"),
+                "map it with: skarbiec routes add --resource <resource> --item <item> \
+                 --field <field> --reason <text>, or derive it with skarbiec routes reconcile",
+            ));
+        };
+        let vault = Vault::open(vault_path())?;
+        let mut opened = HashMap::new();
+        if let Some(problem) =
+            crate::access::routes::coordinate(&vault, &mut opened, &item, &field, None).problem
+        {
+            return Err(refused(
+                resource,
+                Some((&item, &field)),
+                &problem,
+                "inspect every route with: skarbiec routes verify, or skarbiec doctor",
+            ));
+        }
     }
 
     let capability_id = crypto::sha256_hex(&crypto::random_token()?)?;

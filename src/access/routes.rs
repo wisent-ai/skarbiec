@@ -190,41 +190,70 @@ fn selected<'a>(
         .filter(move |(resource, _)| consumer.is_none_or(|needle| resource.contains(needle)))
 }
 
-/// Resolve one route the way redemption would, and say what stopped it.
+/// Whether a field holds nothing a consumer could authenticate with.
 ///
-/// `item_present` answers "can this host read this item at all" -- present in the
-/// document, not in the trash, and it opened -- and `field_present` answers only
-/// the field question, which it can never answer for an item that did not open.
+/// Emptiness is asked of the text redemption would hand out, not of the
+/// value's shape: a string is served verbatim and a structured field is served
+/// as its canonical JSON text, so an empty string, a string of nothing but
+/// whitespace, and a container whose every leaf is one of those all reduce to
+/// a credential with no credential in it. `{}` and `[]` are that same nothing
+/// written as a container -- `all` over no elements is true, which is exactly
+/// the answer wanted here.
+///
+/// A bool or a number is never blank: it is short, not absent.
+fn blank(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(text) => text.trim().is_empty(),
+        Value::Array(items) => items.iter().all(blank),
+        Value::Object(fields) => fields.values().all(blank),
+        Value::Bool(_) | Value::Number(_) => false,
+    }
+}
+
+/// What the vault answers for one coordinate.
+///
+/// `item_present` answers "can this host read this item at all" -- present in
+/// the document, not in the trash, and it opened -- and `field_present`
+/// answers only the field question, which it can never answer for an item that
+/// did not open.
+pub(crate) struct Coordinate {
+    pub(crate) item_present: bool,
+    pub(crate) field_present: bool,
+    pub(crate) problem: Option<String>,
+}
+
+/// Resolve one vault coordinate the way redemption would, and say what stopped it.
+///
 /// Reporting an unopenable item as present used to leave both readers with one
 /// sentence for two remedies: a desktop console rendering the live table saw ten
 /// rows saying `item_present: true, field_present: false` on a host whose `gpg`
 /// could not be spawned, which reads as ten items each missing the field named
-/// beside it. It is now `item_present: false` for all ten, `verify` names the
-/// cause once per item, and a false `field_present` under a true `item_present`
-/// means exactly one thing: the item opened and does not carry that field.
+/// beside it. It is now `item_present: false` for all ten, the cause is named
+/// once per item, and a false `field_present` under a true `item_present`
+/// means exactly one thing: the item opened and does not carry a usable value
+/// at that field.
 ///
-/// Items are opened at most once per listing: a table maps several resources onto
-/// one login item, and each open is a gpg process.
-fn resolve<'a>(
+/// A field that is present and empty is a broken credential, not a working
+/// one. It used to pass here -- only `null` was refused -- so a provider whose
+/// secret had been emptied verified clean right up to the redemption that
+/// needed it, and the gateway that could not obtain a single credential was
+/// left quarantining its own release for a month with nothing naming why.
+///
+/// This is the one question the whole table exists to answer, so every surface
+/// asks it here: `routes verify`, `doctor`, and `capability-issue` all call
+/// this rather than carrying a second opinion about what a usable credential
+/// is.
+///
+/// Items are opened at most once per `opened` map: a table maps several
+/// resources onto one login item, and each open is a gpg process.
+pub(crate) fn coordinate(
     vault: &Vault,
     opened: &mut HashMap<String, Result<Value, String>>,
-    resource: &str,
-    entry: &'a Value,
-) -> Resolved<'a> {
-    let (Some(item), Some(field)) = (
-        entry.get("item").and_then(Value::as_str),
-        entry.get("field").and_then(Value::as_str),
-    ) else {
-        return Resolved {
-            item: "",
-            field: "",
-            item_present: false,
-            field_present: false,
-            problem: Some(format!(
-                "capability route for {resource} must name an item and a field"
-            )),
-        };
-    };
+    item: &str,
+    field: &str,
+    item_uid: Option<&str>,
+) -> Coordinate {
     let stored = vault.doc().get("items").and_then(|items| items.get(item));
     let mut problem = match stored {
         // A route whose item is gone reported `no vault item X`, which is the
@@ -237,9 +266,7 @@ fn resolve<'a>(
         // A row written before uids, or a route to an item that never had one,
         // has nothing to correlate and falls back to exactly today's sentence.
         None => Some(
-            entry
-                .get("item_uid")
-                .and_then(Value::as_str)
+            item_uid
                 .and_then(|uid| vault.id_for_item_uid(uid))
                 .map(|found| format!("vault item {item} was renamed to {found}"))
                 .unwrap_or_else(|| format!("no vault item {item}")),
@@ -262,8 +289,9 @@ fn resolve<'a>(
             }
             // Redemption hands out text, and a structured field is served as
             // its canonical JSON text -- the shape a browser sign-in banks an
-            // OAuth grant in. Only a field that cannot be text at all (null)
-            // is broken.
+            // OAuth grant in. A field that cannot be text at all (null) keeps
+            // its own sentence, because "not a text value" and "empty" are
+            // different repairs: one was written wrong, the other was emptied.
             Ok(payload) => match schema::field(payload, field) {
                 Err(_) => problem = Some(format!("vault item {item} has no {field} field")),
                 Ok(Value::Null) => {
@@ -271,16 +299,60 @@ fn resolve<'a>(
                         "vault item {item} field {field} is not a text value"
                     ))
                 }
+                Ok(value) if blank(value) => {
+                    problem = Some(format!(
+                        "vault item {item} field {field} is present but empty"
+                    ))
+                }
                 Ok(_) => field_present = true,
             },
         }
     }
-    Resolved {
-        item,
-        field,
+    Coordinate {
         item_present,
         field_present,
         problem,
+    }
+}
+
+/// One route as the vault answers it, from the entry the table carries.
+///
+/// The table's own shape is checked here -- an entry naming no item and no
+/// field is a broken row rather than a broken credential -- and every question
+/// past that is the shared coordinate one.
+fn resolve<'a>(
+    vault: &Vault,
+    opened: &mut HashMap<String, Result<Value, String>>,
+    resource: &str,
+    entry: &'a Value,
+) -> Resolved<'a> {
+    let (Some(item), Some(field)) = (
+        entry.get("item").and_then(Value::as_str),
+        entry.get("field").and_then(Value::as_str),
+    ) else {
+        return Resolved {
+            item: "",
+            field: "",
+            item_present: false,
+            field_present: false,
+            problem: Some(format!(
+                "capability route for {resource} must name an item and a field"
+            )),
+        };
+    };
+    let answer = coordinate(
+        vault,
+        opened,
+        item,
+        field,
+        entry.get("item_uid").and_then(Value::as_str),
+    );
+    Resolved {
+        item,
+        field,
+        item_present: answer.item_present,
+        field_present: answer.field_present,
+        problem: answer.problem,
     }
 }
 
@@ -754,6 +826,50 @@ fn credential_field(vault: &Vault, item: &str, skipped: &mut Vec<Value>) -> Opti
     Some((*field).to_string())
 }
 
+/// One route's verdict, for every surface that walks the whole table.
+///
+/// `verify` prints the resource and the sentence; `doctor` prints the
+/// coordinate too, because an operator reading a health report has not got the
+/// table open beside it and "which credential" is the first thing they ask.
+pub(crate) struct Verdict {
+    pub(crate) resource: String,
+    pub(crate) item: String,
+    pub(crate) field: String,
+    pub(crate) problem: Option<String>,
+}
+
+/// Whether this host has a capability route table at all, and where.
+///
+/// A reader that must describe the table's absence rather than fail on it --
+/// `doctor`, for which no table is `not_configured` and not an outage -- asks
+/// this first. `load` deliberately answers absence with an error, because for
+/// `routes verify` a missing table is the whole finding.
+pub(crate) fn table_path() -> std::path::PathBuf {
+    routes_path()
+}
+
+/// Every route in the table, with the vault's answer beside it.
+///
+/// The one walk of the table, shared: `verify` reduces it to resources and
+/// sentences, `doctor` keeps the coordinates. Items are opened once each
+/// across the whole walk, however many resources map onto them.
+pub(crate) fn verdicts(consumer: Option<&str>) -> Result<Vec<Verdict>> {
+    let table = load()?;
+    let vault = Vault::open(vault_path())?;
+    let mut opened = HashMap::new();
+    Ok(selected(&table, consumer)
+        .map(|(resource, entry)| {
+            let row = resolve(&vault, &mut opened, resource, entry);
+            Verdict {
+                resource: resource.clone(),
+                item: row.item.to_string(),
+                field: row.field.to_string(),
+                problem: row.problem,
+            }
+        })
+        .collect())
+}
+
 /// Refuse a table that cannot deliver what it promises.
 ///
 /// The report goes to stdout even when the command fails, because both readers
@@ -766,26 +882,14 @@ fn credential_field(vault: &Vault, item: &str, skipped: &mut Vec<Value>) -> Opti
 /// the loopback operator API answers with it, because the console reading it
 /// over HTTP came for exactly the rows a bare exit status would throw away.
 pub(crate) fn verify_report(consumer: Option<&str>) -> Result<Value> {
-    let table = load()?;
-    let vault = Vault::open(vault_path())?;
-    let mut opened = HashMap::new();
-    let rows: Vec<(&String, Option<String>)> = selected(&table, consumer)
-        .map(|(resource, entry)| {
-            (
-                resource,
-                resolve(&vault, &mut opened, resource, entry).problem,
-            )
-        })
-        .collect();
-    let broken: Vec<(&String, &String)> = rows
-        .iter()
-        .filter_map(|(resource, problem)| problem.as_ref().map(|problem| (*resource, problem)))
-        .collect();
+    let rows = verdicts(consumer)?;
     Ok(json!({
         "checked": rows.len(),
-        "broken": broken
+        "broken": rows
             .iter()
-            .map(|(resource, problem)| json!({"resource": resource, "problem": problem}))
+            .filter_map(|row| row.problem.as_ref().map(|problem| {
+                json!({"resource": row.resource, "problem": problem})
+            }))
             .collect::<Vec<Value>>(),
     }))
 }

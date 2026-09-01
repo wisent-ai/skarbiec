@@ -15,7 +15,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::access::tokens;
+use crate::access::{routes, tokens};
 use crate::core::{schema, vault::Vault, vault_path};
 use crate::credential;
 use crate::runtime::audit;
@@ -320,6 +320,82 @@ fn grants_check() -> Value {
     entry
 }
 
+/// Capability routes, against the credentials they promise.
+///
+/// `grants` asks whether a consumer is allowed to reach a coordinate. This
+/// asks the question underneath it, the one nothing in this crate ever asked
+/// automatically: does the credential that coordinate names actually hold a
+/// value? A route can be present, its item live, its field named and its
+/// grant in order, and the field still hold nothing -- and every surface
+/// reported that as healthy until the gateway needing the credential could not
+/// obtain one, failed to become ready, and had its release quarantined
+/// eighteen times over a month with "candidate did not become ready" recorded
+/// each time and the cause recorded never.
+///
+/// The verdict comes from `routes verify`'s own resolver, not a second opinion
+/// about what a usable credential is: item present, not trashed, opens, field
+/// present, field non-empty.
+///
+/// Unlike `grants` this one decrypts, because emptiness is not a question the
+/// cleartext envelope can answer. That is one gpg per distinct item, and the
+/// resolver opens each item once however many resources map onto it.
+fn credentials_check() -> Value {
+    // No table is a fresh install, exactly as no WORM receipt is: the broker
+    // resolves nothing yet and there is no credential to be wrong about.
+    let path = routes::table_path();
+    if !path.exists() {
+        return check(
+            "credentials",
+            NOT_CONFIGURED,
+            format!("no capability routes table at {}", path.display()),
+        );
+    }
+    let rows = match routes::verdicts(None) {
+        Ok(rows) => rows,
+        Err(error) => return check("credentials", FAIL, format!("{}: {error}", path.display())),
+    };
+    // A table that parses but maps nothing resolves nothing, and there is
+    // still no credential to be wrong about.
+    if rows.is_empty() {
+        return check(
+            "credentials",
+            NOT_CONFIGURED,
+            format!("no capability route in {}", path.display()),
+        );
+    }
+    let problems: Vec<Value> = rows
+        .iter()
+        .filter_map(|row| {
+            row.problem.as_ref().map(|problem| {
+                json!({
+                    "resource": row.resource,
+                    "item": row.item,
+                    "field": row.field,
+                    "problem": problem,
+                })
+            })
+        })
+        .collect();
+    if problems.is_empty() {
+        return check(
+            "credentials",
+            PASS,
+            format!("{} routes hold a usable credential", rows.len()),
+        );
+    }
+    let mut entry = check(
+        "credentials",
+        FAIL,
+        format!(
+            "{} of {} routes cannot serve a credential",
+            problems.len(),
+            rows.len()
+        ),
+    );
+    entry["problems"] = json!(problems);
+    entry
+}
+
 /// Every check, plus a tally an operator can read at a glance.
 pub fn report() -> Result<Value> {
     let checks = vec![
@@ -328,6 +404,7 @@ pub fn report() -> Result<Value> {
         endpoint_check(),
         worm_check(),
         grants_check(),
+        credentials_check(),
     ];
     let tally = |status: &str| -> usize {
         checks
