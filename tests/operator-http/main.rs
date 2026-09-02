@@ -164,3 +164,51 @@ fn operator_http_get_returns_all_fields_in_value_format() {
         "response should have value wrapper"
     );
 }
+
+#[test]
+fn operator_http_set_json_replaces_the_whole_document() {
+    let fixture = CliFixture::new("operator-http");
+    fixture.init("HTTP Test <http@test.local>");
+
+    // Seed an item with three fields
+    fixture.run(&[
+        "set",
+        "login",
+        "username=alice",
+        "password=secret456",
+        "totp_secret=SEED123",
+    ]);
+    let broker = fixture.serve();
+
+    // Phase 1: set-json with all three original fields and no password field.
+    // set-json replaces the entire document, it does not merge. The client is
+    // responsible for reading the full item, merging updates, and writing back
+    // the complete document. If the broker protected against incomplete writes,
+    // clients could not implement conditional fields or schema evolution.
+    let payload_json = r#"{"schema":"skarbiec.item.v2","kind":"login","context":{},"fields":{"username":"alice","totp_secret":"SEED123"}}"#;
+    let body = format!(
+        r#"{{"operation":"set-json","item":"login","payload":{}}}"#,
+        payload_json
+    );
+    let _ = Command::new("curl")
+        .args(["-s", "-X", "POST", &broker.url("/v1/operator/credential")])
+        .args(["-H", "Content-Type: application/json"])
+        .args(["-d", &body])
+        .output()
+        .expect("run curl");
+
+    // Verify username and totp_secret are still present but password is gone
+    let response = request_credential(&broker, "get", "login", "");
+    assert!(
+        response.contains("alice"),
+        "username should still be present"
+    );
+    assert!(
+        response.contains("SEED123"),
+        "totp_secret should still be present"
+    );
+    assert!(
+        !response.contains("secret456"),
+        "password should be gone - set-json replaces, does not merge"
+    );
+}
