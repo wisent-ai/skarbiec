@@ -8,11 +8,60 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Check that the broker and client have compatible operations.
-  # This fails if the desktop client calls operations the broker doesn't support.
+  # Does the desktop client call an operation this broker does not serve?
+  #
+  # Answering needs both trees and only one is reachable from here.
+  # `wisent-ai/skarbiec-desktop` is private, and this workflow's GITHUB_TOKEN is
+  # scoped to `wisent-ai/skarbiec` alone, so the second checkout answered
+  # `##[error]Not Found` in about forty seconds on every run from 29748ec
+  # onward. The credential is a named secret now, so the day it is provisioned
+  # this check starts working with no further edit; until then it says which
+  # credential is missing instead of dying inside a checkout that cannot
+  # explain itself.
+  #
+  # What it must never do again is gate anything. `needs:` carries an implicit
+  # `success()`, so one unsatisfiable checkout did not fail the gates - it
+  # skipped them, along with the evidence, the tag and the deploy, on five
+  # consecutive merges to main. Compilation, formatting and lints for this
+  # crate depend on nothing outside this repository and now answer for
+  # themselves.
   broker-client-contract:
     runs-on: ubuntu-latest
     steps:
+      - name: Refuse to report on a contract this run cannot read
+        env:
+          DESKTOP_CONTRACT_TOKEN: ${{ secrets.DESKTOP_CONTRACT_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -n "$DESKTOP_CONTRACT_TOKEN" ]; then
+            printf '%s\n' "credential for the private sibling is present"
+            exit 0
+          fi
+          printf '%s\n' \
+            "This check compares the operations wisent-ai/skarbiec-desktop calls" \
+            "against the ones src/net/operator.rs serves, so it has to read a" \
+            "private sibling repository. The workflow GITHUB_TOKEN reads" \
+            "wisent-ai/skarbiec and nothing else, which is why every run since" \
+            "29748ec died on 'Not Found' rather than on a contract violation." \
+            "" \
+            "Missing, and it is one thing: a repository secret" \
+            "DESKTOP_CONTRACT_TOKEN holding a fine-grained personal access token" \
+            "or GitHub App installation token with Contents: read on" \
+            "wisent-ai/skarbiec-desktop." \
+            "" \
+            "No secret already on this repository is a substitute." \
+            "STADO_RELEASE_PUBLISHER_TOKEN publishes releases and" \
+            "RELEASE_BOOTSTRAP_TOKEN is a one-shot signing bootstrap; neither is" \
+            "a source-read credential for this sibling, and widening either one" \
+            "to be one is a decision for whoever owns them." \
+            "" \
+            "A checked-in copy of the client's operation list is not a" \
+            "substitute either: this check exists to catch the desktop tree" \
+            "drifting from this one, and a snapshot in this repository would" \
+            "only ever agree with itself." \
+            "" \
+            "This job fails alone. The Rust gates do not sit behind it."
+          exit 1
       - uses: actions/checkout@v4
         with:
           path: broker
@@ -20,6 +69,7 @@ jobs:
         with:
           repository: wisent-ai/skarbiec-desktop
           path: desktop
+          token: ${{ secrets.DESKTOP_CONTRACT_TOKEN }}
       - name: Validate broker-client contract
         run: |
           python3 broker/tools/check-broker-client-contract.py \
@@ -29,8 +79,10 @@ jobs:
   # The gates are not spelled here any more. Four Rust repositories in this
   # pack had four different gate sets, and a fix applied to one of them
   # protected one repository; the shared workflow is one place to fix.
+  #
+  # No `needs:`. This job is the floor, and a floor that waits on a
+  # cross-repository check is not a floor.
   gates:
-    needs: broker-client-contract
     uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
 
   evidence:
