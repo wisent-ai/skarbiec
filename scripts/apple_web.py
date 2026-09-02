@@ -23,6 +23,7 @@ run inside Apple's trust window signs in without a prompt.
 from __future__ import annotations
 
 import base64
+import gzip
 import hashlib
 import http.cookiejar
 import json
@@ -162,12 +163,19 @@ class AppStoreConnectWebSession:
             status = error.code
             raw = error.read()
             response_headers = {key.lower(): value for key, value in error.headers.items()}
+        # iris answers gzip even without an Accept-Encoding, and a compressed refusal
+        # read as text is a refusal nobody can act on.
+        if response_headers.get("content-encoding", "").lower() in ("gzip", "x-gzip") and raw:
+            try:
+                raw = gzip.decompress(raw)
+            except OSError:
+                pass
         payload: dict = {}
         if raw:
             try:
                 payload = json.loads(raw)
             except ValueError:
-                payload = {"raw": raw.decode(errors="replace")[:400]}
+                payload = {"raw": raw.decode(errors="replace")[:600]}
         if status not in accept:
             raise WebSessionError(f"{method} {url.split('?')[0]} -> {status}: {self._sentence(payload)}")
         return status, payload, response_headers
@@ -261,6 +269,16 @@ class AppStoreConnectWebSession:
         headers = {**self._auth_headers(), "Accept": "application/json"}
         _, options, _ = self._call("GET", AUTH, headers=headers)
         length = int((options.get("securityCode") or {}).get("length") or 6)
+        devices = len(options.get("trustedDevices") or [])
+        phones = [
+            f"id {phone.get('id')} {phone.get('numberWithDialCode') or phone.get('pushMode') or ''}".strip()
+            for phone in (options.get("trustedPhoneNumbers") or [])
+            if isinstance(phone, dict)
+        ]
+        self.log(
+            f"second factor    Apple offers {length} digits to {devices} trusted device(s)"
+            + (f" and {len(phones)} phone number(s): {'; '.join(phones)}" if phones else "")
+        )
         code = second_factor()
         if not (code.isdigit() and len(code) == length):
             raise WebSessionError(f"the captured second factor is not {length} digits")
@@ -306,6 +324,21 @@ class AppStoreConnectWebSession:
                 "type": "appStoreVersions",
                 "id": f"${{new-{platform}-appVersion-id}}",
                 "attributes": {"platform": platform, "versionString": version},
+                # iris refuses the whole create without this: "The provided entity is
+                # missing a required relationship: appStoreVersionLocalizations".
+                "relationships": {
+                    "appStoreVersionLocalizations": {
+                        "data": [{
+                            "type": "appStoreVersionLocalizations",
+                            "id": f"${{new-{platform}-appVersionLocalization-id}}",
+                        }]
+                    }
+                },
+            })
+            included.append({
+                "type": "appStoreVersionLocalizations",
+                "id": f"${{new-{platform}-appVersionLocalization-id}}",
+                "attributes": {"locale": primary_locale},
             })
         body = {
             "data": {
@@ -342,6 +375,7 @@ def capture_second_factor(script: Path = CAPTURE_SCRIPT, code_file: Path = CODE_
     code_file.unlink(missing_ok=True)
     deadline = time.monotonic() + wait_seconds
     last = "no attempt yet"
+    seen: dict[str, str] = {}
     while time.monotonic() < deadline:
         for flags in (["--click-allow", "--click-done"], ["--click-done"]):
             result = subprocess.run(
@@ -356,6 +390,19 @@ def capture_second_factor(script: Path = CAPTURE_SCRIPT, code_file: Path = CODE_
             if report.get("accessibilityTrusted") is False:
                 raise WebSessionError("Accessibility does not trust this terminal, so the Apple prompt cannot be read")
             last = str(report.get("error") or result.stderr.strip() or "swift exited %s" % result.returncode)[:200]
+            # Every Apple-looking window the helper saw, with its digits masked. A pass
+            # that finds no code has to say what it did see, or "found none" is the same
+            # silence for a prompt that never appeared and a prompt in a shape the
+            # matcher does not know.
+            for process in report.get("processes") or []:
+                preview = str(process.get("textPreview") or "")
+                if "apple" not in preview.lower():
+                    continue
+                key = f"{process.get('name')}#{process.get('windowIndex')}"
+                if seen.get(key) == preview:
+                    continue
+                seen[key] = preview
+                log(f"prompt           {key}: {preview}")
             if code_file.is_file():
                 code = "".join(ch for ch in code_file.read_text() if ch.isdigit())[:6]
                 code_file.unlink(missing_ok=True)

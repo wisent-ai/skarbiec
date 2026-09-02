@@ -40,6 +40,7 @@ import re
 import secrets
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -222,6 +223,47 @@ def existing_app(bearer: str, bundle_id: str) -> str | None:
     return None
 
 
+def apple_login(account_item: str) -> tuple[str, str]:
+    """The Apple ID this account holder signs in with. Two item shapes hold it:
+    `weles-apple-control-account` (email, password) and `platform-admin-appstore`
+    (username, password)."""
+    fields = vault_item(account_item).get("fields", {})
+    email = fields.get("email") or fields.get("username") or ""
+    password = fields.get("password") or ""
+    if not email or not password:
+        fail(f"{account_item} holds no Apple ID login: expected email/username and password")
+    return email, password
+
+
+def stale_login(account_item: str, email: str, error: WebSessionError) -> None:
+    """Apple refused the stored password. Say which coordinate is stale and how one
+    command replaces it, because guessing at a second item is how an Apple ID gets
+    locked — and a locked account blocks every trajectory, not just this one."""
+    fail(
+        f"App Store Connect refused the Apple ID in {account_item}: {error}\n"
+        f"That item's password no longer opens {email}. Replace it and this write finishes:\n"
+        f"  skarbiec set {account_item} password=<the current password>\n"
+        f"  python3 scripts/apple-ios-signing.py check-login --account-item {account_item}\n"
+        f"Nothing else is missing: the certificate, the bundle id and the profile are stored."
+    )
+
+
+def check_login(account_item: str) -> None:
+    """One sign-in and nothing else, so replacing a stale password is verifiable
+    without running a write. The second factor is read from the prompt on this Mac.
+
+    A throwaway cookie jar, because the point is the password: reusing the trusted
+    session would answer "fine" without ever sending it."""
+    email, password = apple_login(account_item)
+    with tempfile.TemporaryDirectory() as scratch:
+        session = AppStoreConnectWebSession(session_file=Path(scratch) / "session.cookies", log=print)
+        try:
+            session.sign_in(email, password, capture_second_factor)
+        except WebSessionError as error:
+            stale_login(account_item, email, error)
+    print(f"login            {email} opens App Store Connect; the app-record write can run")
+
+
 def create_app(bearer: str, bundle_id: str, name: str, sku: str, account_item: str) -> str:
     """The App Store Connect app record: `altool --upload-app` refuses a build for a
     bundle id with no app behind it.
@@ -233,23 +275,26 @@ def create_app(bearer: str, bundle_id: str, name: str, sku: str, account_item: s
     requires the name to be unused store-wide, so its refusal is the operator's cue
     to choose another and rerun.
     """
-    # Two item shapes hold this Apple ID: `weles-apple-control-account` (email,
-    # password) and `platform-admin-appstore` (username, password).
-    fields = vault_item(account_item).get("fields", {})
-    email = fields.get("email") or fields.get("username") or ""
-    password = fields.get("password") or ""
-    if not email or not password:
-        fail(f"{account_item} holds no Apple ID login: expected email/username and password")
+    email, password = apple_login(account_item)
     session = AppStoreConnectWebSession(log=print)
     try:
         session.sign_in(email, password, capture_second_factor)
+    except WebSessionError as error:
+        stale_login(account_item, email, error)
+    try:
         app_id = session.create_app(bundle_id, name, sku)
     except WebSessionError as error:
         fail(f"App Store Connect web session: {error}")
         raise
-    listed = call(f"/apps?filter[bundleId]={quote(bundle_id, safe='')}&limit=10", bearer, user_agent=USER_AGENT).get("data", [])
-    if not any(item.get("id") == app_id for item in listed):
-        fail(f"iris answered app {app_id} but the App Store Connect API does not list it for {bundle_id}")
+    # The record is created by the site and reaches the public API a moment later, so
+    # the check waits for it instead of calling a completed write a failure.
+    for attempt in range(12):
+        listed = call(f"/apps?filter[bundleId]={quote(bundle_id, safe='')}&limit=10", bearer, user_agent=USER_AGENT).get("data", [])
+        if any(item.get("id") == app_id for item in listed):
+            break
+        if attempt == 11:
+            fail(f"iris created app {app_id} but the App Store Connect API still does not list it for {bundle_id}")
+        time.sleep(5)
     print(f"app record       {app_id}  {name} (created now, sku {sku})")
     return app_id
 
@@ -460,6 +505,8 @@ def main() -> int:
     record.add_argument("--app-name", required=True)
     record.add_argument("--sku", required=True)
     record.add_argument("--account-item", default=ACCOUNT_ITEM)
+    login = commands.add_parser("check-login", help="one Apple ID sign-in and nothing else, to verify a stored password")
+    login.add_argument("--account-item", default=ACCOUNT_ITEM)
     pub = commands.add_parser("publish", help="set the GitHub Actions secrets of one repository from the vault")
     pub.add_argument("--repository", required=True)
     pub.add_argument("--without-signing", action="store_true",
@@ -477,6 +524,8 @@ def main() -> int:
     elif args.command == "app-record":
         if existing_app(bearer, args.bundle_id) is None:
             create_app(bearer, args.bundle_id, args.app_name, args.sku, args.account_item)
+    elif args.command == "check-login":
+        check_login(args.account_item)
     elif args.command == "publish":
         publish(args, key_id, issuer, private_key)
     return 0
