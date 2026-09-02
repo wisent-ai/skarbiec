@@ -359,28 +359,32 @@ def set_secret(repository: str, name: str, value: str) -> None:
 
 
 def publish(args: argparse.Namespace, key_id: str, issuer: str, private_key: str) -> None:
-    target = signing_item(args.repository)
-    if not vault_has(target):
-        fail(f"{target} is absent: run `apple-ios-signing.py profile --repository {args.repository} …` first")
     values = {
         "AC_API_KEY_ID": key_id,
         "AC_API_ISSUER_ID": issuer,
         # The workflows `base64 --decode` this into AuthKey_<id>.p8.
         "AC_API_KEY_P8": base64.b64encode(private_key.strip().encode() + b"\n").decode(),
-        "IOS_DIST_P12_B64": vault_get(CERTIFICATE_ITEM, "certificate_p12_base64"),
-        "IOS_DIST_P12_PASSWORD": vault_get(CERTIFICATE_ITEM, "certificate_password"),
-        "IOS_PROFILE_B64": vault_get(target, "provisioning_profile_base64"),
         # Package.swift pins private wisent-ai packages by URL; a GitHub-hosted
         # runner clones them with this, the same token Stado hands desktop
         # repositories as RELEASE_BOOTSTRAP_TOKEN.
         "WISENT_PACKAGES_TOKEN": vault_get(PACKAGES_TOKEN_ITEM, "value"),
     }
+    if not args.without_signing:
+        target = signing_item(args.repository)
+        if not vault_has(target):
+            fail(f"{target} is absent: run `apple-ios-signing.py profile --repository {args.repository} …` first")
+        values.update({
+            "IOS_DIST_P12_B64": vault_get(CERTIFICATE_ITEM, "certificate_p12_base64"),
+            "IOS_DIST_P12_PASSWORD": vault_get(CERTIFICATE_ITEM, "certificate_password"),
+            "IOS_PROFILE_B64": vault_get(target, "provisioning_profile_base64"),
+        })
     for name, value in values.items():
         if not value:
             fail(f"{name} resolved to an empty value; nothing was published")
     for name, value in values.items():
         set_secret(args.repository, name, value)
-    print(f"published        {len(values)} secrets; the TestFlight workflow of {ORGANIZATION}/{args.repository} can now resolve, sign and upload")
+    what = "resolve and upload" if args.without_signing else "resolve, sign and upload"
+    print(f"published        {len(values)} secrets; the TestFlight workflow of {ORGANIZATION}/{args.repository} can now {what}")
 
 
 # --- listing ----------------------------------------------------------------
@@ -432,8 +436,10 @@ def main() -> int:
     prof.add_argument("--profile-name", help='defaults to "<app-name> CI AppStore", the name project.yml pins')
     prof.add_argument("--sku", help="defaults to the repository name")
     prof.add_argument("--dry-run", action="store_true")
-    pub = commands.add_parser("publish", help="set the six GitHub Actions secrets of one repository from the vault")
+    pub = commands.add_parser("publish", help="set the GitHub Actions secrets of one repository from the vault")
     pub.add_argument("--repository", required=True)
+    pub.add_argument("--without-signing", action="store_true",
+                     help="only the App Store Connect key and the package token, for a workflow that signs automatically")
     args = root.parse_args()
 
     key_id, issuer, private_key = credentials(args)
