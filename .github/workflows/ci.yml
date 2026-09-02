@@ -7,6 +7,7 @@ on:
   pull_request:
   workflow_dispatch:
 
+jobs:
   # Check that the broker and client have compatible operations.
   # This fails if the desktop client calls operations the broker doesn't support.
   broker-client-contract:
@@ -25,7 +26,6 @@ on:
             broker/src/net/operator.rs \
             desktop/Sources/SkarbiecDesktop/BackendClient.swift
 
-jobs:
   # The gates are not spelled here any more. Four Rust repositories in this
   # pack had four different gate sets, and a fix applied to one of them
   # protected one repository; the shared workflow is one place to fix.
