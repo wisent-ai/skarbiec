@@ -138,34 +138,6 @@ fn operator_http_unknown_operation_refused_with_contract_message() {
 }
 
 #[test]
-fn operator_http_get_returns_all_fields_in_value_format() {
-    let fixture = CliFixture::new("operator-http");
-    fixture.init("HTTP Test <http@test.local>");
-
-    // Create item with multiple fields
-    fixture.run(&[
-        "set",
-        "login",
-        "username=alice",
-        "password=secret",
-        "totp_secret=SEED123",
-    ]);
-    let broker = fixture.serve();
-
-    // Get the full item
-    let response = request_credential(&broker, "get", "login", "");
-
-    // Verify it contains all fields
-    assert!(response.contains("alice"), "should contain username");
-    assert!(response.contains("secret"), "should contain password");
-    assert!(response.contains("SEED123"), "should contain totp_secret");
-    assert!(
-        response.contains("value"),
-        "response should have value wrapper"
-    );
-}
-
-#[test]
 fn operator_http_set_json_replaces_the_whole_document() {
     let fixture = CliFixture::new("operator-http");
     fixture.init("HTTP Test <http@test.local>");
@@ -180,8 +152,60 @@ fn operator_http_set_json_replaces_the_whole_document() {
     ]);
     let broker = fixture.serve();
 
-    // Phase 1: set-json with all three original fields and no password field.
-    // set-json replaces the entire document, it does not merge. The client is
+    // Phase 1: set-json writes a field the item did not have.
+    //
+    // This is what the desktop client does on every save: BackendClient
+    // .updateCredentialFields reads the whole item, merges one field the item
+    // has never carried, and writes the whole document back. Replacement alone
+    // does not prove that path - a broker that only ever accepted fields it had
+    // already stored would pass the phase below and still refuse the save the
+    // client actually performs. So the seeded item has three fields and this
+    // payload has four.
+    //
+    // The new field is recovery_codes rather than a free-form name because the
+    // broker refuses anything else on a login: allowed_fields is exactly
+    // username, password, totp_secret, recovery_codes (src/core/schema.rs), and
+    // a `notes` member is answered with
+    // `{"error":"field notes is not allowed for login"}`. recovery_codes is a
+    // field this item did not have, which is the property under test.
+    let payload_json = r#"{"schema":"skarbiec.item.v2","kind":"login","context":{},"fields":{"username":"alice","password":"newpassword","totp_secret":"SEED123","recovery_codes":"aaa-bbb-ccc"}}"#;
+    let body = format!(
+        r#"{{"operation":"set-json","item":"login","payload":{}}}"#,
+        payload_json
+    );
+    let output = Command::new("curl")
+        .args(["-s", "-X", "POST", &broker.url("/v1/operator/credential")])
+        .args(["-H", "Content-Type: application/json"])
+        .args(["-d", &body])
+        .output()
+        .expect("run curl");
+    let written = String::from_utf8_lossy(&output.stdout).to_string();
+    assert!(
+        written.contains("\"ok\":true"),
+        "set-json must accept a document carrying a field the item did not have, answered: {written}"
+    );
+
+    // All four fields are present, each with its own value. Reading the item
+    // back is the assertion: the answer above only says the write was accepted.
+    let response = request_credential(&broker, "get", "login", "");
+    assert!(
+        response.contains(r#"\"username\":\"alice\""#),
+        "username should be present with its value, got: {response}"
+    );
+    assert!(
+        response.contains(r#"\"password\":\"newpassword\""#),
+        "password should be present with its updated value, got: {response}"
+    );
+    assert!(
+        response.contains(r#"\"totp_secret\":\"SEED123\""#),
+        "totp_secret should be present with its value, got: {response}"
+    );
+    assert!(
+        response.contains(r#"\"recovery_codes\":\"aaa-bbb-ccc\""#),
+        "recovery_codes was not in the seeded item; set-json must have written it, got: {response}"
+    );
+
+    // Phase 2: set-json replaces the entire document, it does not merge. The client is
     // responsible for reading the full item, merging updates, and writing back
     // the complete document. If the broker protected against incomplete writes,
     // clients could not implement conditional fields or schema evolution.
@@ -197,18 +221,29 @@ fn operator_http_set_json_replaces_the_whole_document() {
         .output()
         .expect("run curl");
 
-    // Verify username and totp_secret are still present but password is gone
+    // Verify username and totp_secret survive, and that BOTH fields the
+    // previous document carried and this one omits are gone.
+    //
+    // The two negatives name the values phase 1 actually wrote. Asserting the
+    // seeded "secret456" here would pass without the broker doing anything:
+    // phase 1 already replaced it, so its absence says nothing about this
+    // write. "newpassword" and "aaa-bbb-ccc" were present immediately before
+    // this request, so only the replacement can have removed them.
     let response = request_credential(&broker, "get", "login", "");
     assert!(
-        response.contains("alice"),
-        "username should still be present"
+        response.contains(r#"\"username\":\"alice\""#),
+        "username should still be present, got: {response}"
     );
     assert!(
-        response.contains("SEED123"),
-        "totp_secret should still be present"
+        response.contains(r#"\"totp_secret\":\"SEED123\""#),
+        "totp_secret should still be present, got: {response}"
     );
     assert!(
-        !response.contains("secret456"),
-        "password should be gone - set-json replaces, does not merge"
+        !response.contains("newpassword"),
+        "the password phase 1 wrote should be gone - set-json replaces, does not merge, got: {response}"
+    );
+    assert!(
+        !response.contains("aaa-bbb-ccc"),
+        "the recovery_codes phase 1 wrote should be gone - set-json replaces, does not merge, got: {response}"
     );
 }
