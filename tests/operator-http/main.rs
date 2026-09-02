@@ -35,16 +35,31 @@ fn operator_http_get_returns_full_item_and_fields() {
     fixture.init("HTTP Test <http@test.local>");
 
     // Add test item
-    fixture.run(&["set", "test-item", "username=alice", "password=secret123", "totp_secret=SEED"]);
+    fixture.run(&[
+        "set",
+        "test-item",
+        "username=alice",
+        "password=secret123",
+        "totp_secret=SEED",
+    ]);
 
     // Start broker on this fixture's port; the guard stops it on drop
     let broker = fixture.serve();
 
     // Test: GET returns full item
     let response = request_credential(&broker, "get", "test-item", "");
-    assert!(response.contains("\"value\""), "response should have value field");
-    assert!(response.contains("alice"), "response should contain username");
-    assert!(response.contains("secret123"), "response should contain password");
+    assert!(
+        response.contains("\"value\""),
+        "response should have value field"
+    );
+    assert!(
+        response.contains("alice"),
+        "response should contain username"
+    );
+    assert!(
+        response.contains("secret123"),
+        "response should contain password"
+    );
 
     // Test: GET specific field
     let response = request_credential(&broker, "get", "test-item", r#""field": "username""#);
@@ -56,7 +71,13 @@ fn operator_http_set_preserves_existing_fields() {
     let fixture = CliFixture::new("operator-http");
     fixture.init("HTTP Test <http@test.local>");
 
-    fixture.run(&["set", "cred", "username=bob", "password=pass", "totp_secret=KEY"]);
+    fixture.run(&[
+        "set",
+        "cred",
+        "username=bob",
+        "password=pass",
+        "totp_secret=KEY",
+    ]);
     let broker = fixture.serve();
 
     // SET with new password
@@ -75,17 +96,29 @@ fn operator_http_totp_reports_seed_status() {
     let fixture = CliFixture::new("operator-http");
     fixture.init("HTTP Test <http@test.local>");
 
-    fixture.run(&["set", "with-totp", "username=user", "password=pass", "totp_secret=SEED"]);
+    fixture.run(&[
+        "set",
+        "with-totp",
+        "username=user",
+        "password=pass",
+        "totp_secret=SEED",
+    ]);
     fixture.run(&["set", "no-totp", "username=user", "password=pass"]);
     let broker = fixture.serve();
 
     // With seed
     let response = request_credential(&broker, "totp", "with-totp", "");
-    assert!(response.contains("has_seed"), "should report has_seed field");
+    assert!(
+        response.contains("has_seed"),
+        "should report has_seed field"
+    );
 
     // Without seed
     let response = request_credential(&broker, "totp", "no-totp", "");
-    assert!(response.contains("has_seed"), "should report has_seed field even when false");
+    assert!(
+        response.contains("has_seed"),
+        "should report has_seed field even when false"
+    );
 }
 
 #[test]
@@ -110,15 +143,24 @@ fn operator_http_get_returns_all_fields_in_value_format() {
     fixture.init("HTTP Test <http@test.local>");
 
     // Create item with multiple fields
-    fixture.run(&["set", "login", "username=alice", "password=secret", "totp_secret=SEED123"]);
+    fixture.run(&[
+        "set",
+        "login",
+        "username=alice",
+        "password=secret",
+        "totp_secret=SEED123",
+    ]);
     let broker = fixture.serve();
 
     // Get the full item
     let response = request_credential(&broker, "get", "login", "");
-    
+
     // Verify it contains all fields
     assert!(response.contains("alice"), "should contain username");
     assert!(response.contains("secret"), "should contain password");
     assert!(response.contains("SEED123"), "should contain totp_secret");
-    assert!(response.contains("value"), "response should have value wrapper");
+    assert!(
+        response.contains("value"),
+        "response should have value wrapper"
+    );
 }
