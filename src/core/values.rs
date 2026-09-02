@@ -46,11 +46,7 @@ pub fn dispatch(
             let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
             let mut vault = Vault::open(vault_path())?;
             ensure_owner_set_allowed(&vault, id)?;
-            let fields: Vec<String> = positionals
-                .iter()
-                .skip(2)
-                .cloned()
-                .collect();
+            let fields: Vec<String> = positionals.iter().skip(2).cloned().collect();
             let payload = items::build_item(item_kind, &fields)?;
             let recipients = requested_or_existing(flags, &vault, id, "recipients");
             let tags = requested_or_existing(flags, &vault, id, "tags");
@@ -68,8 +64,7 @@ pub fn dispatch(
 
             // For operator route, the JSON payload comes from the request body
             let payload: Value = if let Some(payload_value) = flags.get("__payload__") {
-                serde_json::from_str(payload_value)
-                    .context("payload must be valid JSON")?
+                serde_json::from_str(payload_value).context("payload must be valid JSON")?
             } else {
                 bail!("set-json payload required")
             };
@@ -130,17 +125,16 @@ fn requested_or_existing(
             .collect();
     }
     match vault.get_item(id) {
-        Ok(item) => {
-            item.get(field)
-                .and_then(Value::as_array)
-                .map(|array| {
-                    array
-                        .iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default()
-        }
+        Ok(item) => item
+            .get(field)
+            .and_then(Value::as_array)
+            .map(|array| {
+                array
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default(),
         Err(_) => Vec::new(),
     }
 }
