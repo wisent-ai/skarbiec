@@ -7,6 +7,7 @@ pub mod inbox;
 pub mod items;
 pub mod migrate;
 pub mod schema;
+pub mod values;
 pub mod vault;
 
 use std::cell::RefCell;

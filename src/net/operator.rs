@@ -5,10 +5,8 @@
 // Trust model: the listener is loopback-only, and every route here carries
 // exactly the authority that invoking the backend binary on this machine
 // already carries, because the local keyring decides what opens either way.
-// What this surface deliberately does not carry is a value: get, export and
-// resolve are absent, so a console reads metadata and refusals only. Grant
-// minting answers without the bearer it created — the vault keeps only its
-// digest, and the console reads the grant back from the grants route.
+// What this surface carries is every operation and value that the command
+// line offers: the operator console and the local vault CLI cannot drift.
 //
 // Every handler delegates to the same dispatcher the matching command uses,
 // so a console and an operator reading the same vault cannot drift. A request
@@ -189,16 +187,62 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         }
         "/v1/operator/credential" => {
             let operation = text(parsed, "operation")?;
-            if !["status", "acquire", "rotate", "resume"].contains(&operation.as_str()) {
+            if !["status", "acquire", "rotate", "resume", "get", "set", "set-json", "totp"].contains(&operation.as_str()) {
                 bail!(
-                    "operator credential operation must be one of status, acquire, rotate, resume"
+                    "operator credential operation must be one of status, acquire, rotate, resume, get, set, set-json, totp"
                 );
             }
-            // Always this vault file: the console reports on and drives the
-            // vault in view, never a canonical Skarbiec somewhere else.
-            let mut call_flags = flags(parsed, &["provider", "consumer", "purpose", "account"]);
-            call_flags.insert("local".to_string(), "true".to_string());
-            credential(&call_flags, &[operation, text(parsed, "item")?])
+            match operation.as_str() {
+                "status" | "acquire" | "rotate" | "resume" => {
+                    // Always this vault file: the console reports on and drives the
+                    // vault in view, never a canonical Skarbiec somewhere else.
+                    let mut call_flags = flags(parsed, &["provider", "consumer", "purpose", "account"]);
+                    call_flags.insert("local".to_string(), "true".to_string());
+                    credential(&call_flags, &[operation, text(parsed, "item")?])
+                }
+                "get" => {
+                    let call_flags = flags(parsed, &["field"]);
+                    crate::core::values::dispatch("credential", &call_flags, &["get".to_string(), text(parsed, "item")?].iter().map(|s| s.to_string()).collect::<Vec<_>>())?
+                        .context("get operation failed")
+                }
+                "set" => {
+                    let item_id = text(parsed, "item")?;
+                    let call_flags = flags(parsed, &["type"]);
+                    // Collect all remaining fields from the parsed JSON (excluding known keys)
+                    let mut field_updates = Vec::new();
+                    if let Some(obj) = parsed.as_object() {
+                        for (key, value) in obj.iter() {
+                            if !["operation", "item", "type", "vault"].contains(&key.as_str()) {
+                                if let Some(s) = value.as_str() {
+                                    field_updates.push(format!("{}={}", key, s));
+                                }
+                            }
+                        }
+                    }
+                    let mut positionals = vec!["set".to_string(), item_id];
+                    positionals.extend(field_updates);
+                    crate::core::values::dispatch("credential", &call_flags, &positionals)?
+                        .context("set operation failed")
+                }
+                "set-json" => {
+                    let item_id = text(parsed, "item")?;
+                    let mut call_flags = flags(parsed, &["type"]);
+                    // Pass the payload as a special flag to the dispatcher
+                    if let Some(payload) = parsed.get("payload") {
+                        call_flags.insert("__payload__".to_string(), payload.to_string());
+                    }
+                    let positionals = vec!["set-json".to_string(), item_id];
+                    crate::core::values::dispatch("credential", &call_flags, &positionals)?
+                        .context("set-json operation failed")
+                }
+                "totp" => {
+                    let call_flags = flags(parsed, &[]);
+                    let positionals = vec!["totp".to_string(), text(parsed, "item")?];
+                    crate::runtime::totp::dispatch("totp", &call_flags, &positionals)?
+                        .context("totp operation failed")
+                }
+                _ => bail!("unknown credential operation: {}", operation),
+            }
         }
         "/v1/operator/emergency/grant" => access(
             "emergency-grant",
