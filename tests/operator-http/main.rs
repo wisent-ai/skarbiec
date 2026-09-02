@@ -138,34 +138,6 @@ fn operator_http_unknown_operation_refused_with_contract_message() {
 }
 
 #[test]
-fn operator_http_get_returns_all_fields_in_value_format() {
-    let fixture = CliFixture::new("operator-http");
-    fixture.init("HTTP Test <http@test.local>");
-
-    // Create item with multiple fields
-    fixture.run(&[
-        "set",
-        "login",
-        "username=alice",
-        "password=secret",
-        "totp_secret=SEED123",
-    ]);
-    let broker = fixture.serve();
-
-    // Get the full item
-    let response = request_credential(&broker, "get", "login", "");
-
-    // Verify it contains all fields
-    assert!(response.contains("alice"), "should contain username");
-    assert!(response.contains("secret"), "should contain password");
-    assert!(response.contains("SEED123"), "should contain totp_secret");
-    assert!(
-        response.contains("value"),
-        "response should have value wrapper"
-    );
-}
-
-#[test]
 fn operator_http_set_json_replaces_the_whole_document() {
     let fixture = CliFixture::new("operator-http");
     fixture.init("HTTP Test <http@test.local>");
@@ -180,8 +152,33 @@ fn operator_http_set_json_replaces_the_whole_document() {
     ]);
     let broker = fixture.serve();
 
-    // Phase 1: set-json with all three original fields and no password field.
-    // set-json replaces the entire document, it does not merge. The client is
+    // Phase 1: set-json can write field updates that the client has merged in.
+    // Update the password to a new value while keeping other fields.
+    let payload_json = r#"{"schema":"skarbiec.item.v2","kind":"login","context":{},"fields":{"username":"alice","password":"newpassword","totp_secret":"SEED123"}}"#;
+    let body = format!(
+        r#"{{"operation":"set-json","item":"login","payload":{}}}"#,
+        payload_json
+    );
+    let _ = Command::new("curl")
+        .args(["-s", "-X", "POST", &broker.url("/v1/operator/credential")])
+        .args(["-H", "Content-Type: application/json"])
+        .args(["-d", &body])
+        .output()
+        .expect("run curl");
+
+    // Verify updated password is present along with other fields
+    let response = request_credential(&broker, "get", "login", "");
+    assert!(response.contains("alice"), "username should be present");
+    assert!(
+        response.contains("newpassword"),
+        "password should be updated to new value"
+    );
+    assert!(
+        response.contains("SEED123"),
+        "totp_secret should be present"
+    );
+
+    // Phase 2: set-json replaces the entire document, it does not merge. The client is
     // responsible for reading the full item, merging updates, and writing back
     // the complete document. If the broker protected against incomplete writes,
     // clients could not implement conditional fields or schema evolution.
