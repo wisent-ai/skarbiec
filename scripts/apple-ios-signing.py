@@ -63,6 +63,9 @@ CERTIFICATE_TYPE = "IOS_DISTRIBUTION"
 PROFILE_TYPE = "IOS_APP_STORE"
 ORGANIZATION = "wisent-ai"
 CREATED_BY = "skarbiec/scripts/apple-ios-signing.py"
+# The vault item Stado's publisher bootstrap reads as the GitHub credential
+# (host_precheck_runner.rs: GITHUB_CREDENTIAL_ITEM), a token with `repo` scope.
+PACKAGES_TOKEN_ITEM = "GITHUB_TOKEN"
 USER_AGENT = "skarbiec-apple-ios-signing"
 
 
@@ -367,13 +370,17 @@ def publish(args: argparse.Namespace, key_id: str, issuer: str, private_key: str
         "IOS_DIST_P12_B64": vault_get(CERTIFICATE_ITEM, "certificate_p12_base64"),
         "IOS_DIST_P12_PASSWORD": vault_get(CERTIFICATE_ITEM, "certificate_password"),
         "IOS_PROFILE_B64": vault_get(target, "provisioning_profile_base64"),
+        # Package.swift pins private wisent-ai packages by URL; a GitHub-hosted
+        # runner clones them with this, the same token Stado hands desktop
+        # repositories as RELEASE_BOOTSTRAP_TOKEN.
+        "WISENT_PACKAGES_TOKEN": vault_get(PACKAGES_TOKEN_ITEM, "value"),
     }
     for name, value in values.items():
         if not value:
             fail(f"{name} resolved to an empty value; nothing was published")
     for name, value in values.items():
         set_secret(args.repository, name, value)
-    print(f"published        6 secrets; the TestFlight workflow of {ORGANIZATION}/{args.repository} can now sign and upload")
+    print(f"published        {len(values)} secrets; the TestFlight workflow of {ORGANIZATION}/{args.repository} can now resolve, sign and upload")
 
 
 # --- listing ----------------------------------------------------------------

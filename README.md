@@ -357,8 +357,10 @@ IOS_PROFILE_B64         <repository>-signing#provisioning_profile_base64
 `apple_asc.py` helpers as the Developer ID tool. An iOS distribution certificate
 is not reserved for the Account Holder, so the whole path is the REST API: the
 certificate from a CSR generated locally, the bundle id by identifier, the App
-Store profile from the two, and the six GitHub Actions secrets of one repository
-piped into `gh secret set` through stdin:
+Store profile from the two, and the seven GitHub Actions secrets of one
+repository piped into `gh secret set` through stdin — the six signing values
+above plus `WISENT_PACKAGES_TOKEN`, the vault's `GITHUB_TOKEN`, with which a
+GitHub-hosted runner clones the private `wisent-ai` Swift packages:
 
 ```sh
 python3 scripts/apple-ios-signing.py list                     # certificates, bundle ids, apps, profiles
