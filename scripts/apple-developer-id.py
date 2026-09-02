@@ -30,27 +30,32 @@ Credentials it needs, and where it looks:
 
 An Account Holder key is required to create a Developer ID certificate; a key
 with a lesser role gets a clear 403 from Apple, which this reports as such.
+
+The App Store Connect plumbing — bearer, calls, openssl, the stdin write — is
+`apple_asc.py`, shared with `apple-ios-signing.py`.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-import datetime as dt
-import json
 import os
 import secrets
-import subprocess
-import sys
 import tempfile
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
-import jwt
+from apple_asc import (
+    add_credential_arguments,
+    call,
+    credentials,
+    describe,
+    fail,
+    list_certificates,
+    openssl,
+    token,
+    vault_set_bundle,
+)
 
-API = "https://api.appstoreconnect.apple.com/v1"
 # The item Stado actually reads when it signs: host_precheck_runner.rs sets
 # DEVELOPER_ID_ITEM = "desktop-release-developer-id". The release manifests
 # declare wisent-apple-developer-id in their secret_env, and Stado reads that
@@ -59,160 +64,17 @@ ITEM = "desktop-release-developer-id"
 CERTIFICATE_TYPE = "DEVELOPER_ID_APPLICATION"
 
 
-def fail(message: str) -> None:
-    print(message, file=sys.stderr)
-    raise SystemExit(1)
-
-
-def vault_get(item: str, field: str) -> str:
-    result = subprocess.run(
-        ["skarbiec", "get", item, "--field", field], text=True, capture_output=True,
-    )
-    if result.returncode:
-        fail(f"skarbiec get {item}#{field}: {' '.join((result.stderr or '').split())[:200]}")
-    return result.stdout.strip()
-
-
-def vault_item(item: str) -> dict:
-    result = subprocess.run(["skarbiec", "get", item], text=True, capture_output=True)
-    if result.returncode:
-        fail(f"skarbiec get {item}: {' '.join((result.stderr or '').split())[:200]}")
-    return json.loads(result.stdout)
-
-
-def api_key_from(item: str) -> tuple[str, str, str] | None:
-    """Read an App Store Connect key from whichever shape the vault holds it in.
-
-    Two shapes exist here, both legitimate. `api-appstoreconnect-weles` is a
-    `key-pair` with issuer_id, key_id and private_key as fields.
-    `platform-admin-appstore-apikey` is a `stado-secret` whose single `value` is
-    an object carrying issuer_id, key_id and p8 — the shape the asc CLI keychain
-    export produces, recorded in its context as `asc-cli-keychain`.
-    """
-    payload = vault_item(item)
-    fields = payload.get("fields", {})
-    if {"issuer_id", "key_id"} <= set(fields):
-        return fields["key_id"], fields["issuer_id"], fields.get("private_key", "")
-    value = fields.get("value")
-    if isinstance(value, dict) and {"issuer_id", "key_id"} <= set(value):
-        return value["key_id"], value["issuer_id"], value.get("p8", "")
-    return None
-
-
-def credentials(args: argparse.Namespace) -> tuple[str, str, str]:
-    """Where the App Store Connect key comes from.
-
-    The vault, because that is where it belongs and where the fleet already keeps
-    it; reading it here means the key never lands on disk. The copy this work
-    started from was an `AuthKey_*.p8` sitting in ~/Downloads, which is exactly
-    the situation a vault exists to end.
-
-    Explicit arguments still win, for the bootstrap case where the vault does not
-    hold the key yet.
-    """
-    if args.key_id and args.issuer and args.key_file:
-        if not Path(args.key_file).is_file():
-            fail(f"App Store Connect key file is absent: {args.key_file}")
-        return args.key_id, args.issuer, Path(args.key_file).read_text()
-    found = api_key_from(args.vault_item)
-    if found is None:
-        fail(f"{args.vault_item} carries no App Store Connect key: expected issuer_id and key_id")
-    key_id, issuer, private_key = found
-    if not private_key:
-        fail(f"{args.vault_item} names a key but holds no private key material")
-    return args.key_id or key_id, args.issuer or issuer, private_key
-
-
-def token(key_id: str, issuer: str, private_key: str) -> str:
-    now = int(time.time())
-    return jwt.encode(
-        {"iss": issuer, "iat": now, "exp": now + 900, "aud": "appstoreconnect-v1"},
-        private_key,
-        algorithm="ES256",
-        headers={"kid": key_id, "typ": "JWT"},
-    )
-
-def call(path: str, bearer: str, method: str = "GET", body: dict | None = None) -> dict:
-    request = urllib.request.Request(
-        f"{API}{path}",
-        method=method,
-        data=json.dumps(body).encode() if body is not None else None,
-        headers={
-            "Authorization": f"Bearer {bearer}",
-            "Content-Type": "application/json",
-            "User-Agent": "skarbiec-apple-developer-id",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request) as response:
-            payload = response.read()
-            return json.loads(payload) if payload else {}
-    except urllib.error.HTTPError as error:
-        detail = error.read().decode(errors="replace")
-        try:
-            errors = json.loads(detail)["errors"]
-            detail = "; ".join(
-                f"{item.get('title', '')}: {item.get('detail', '')}".strip(": ") for item in errors
-            )
-        except Exception:
-            detail = " ".join(detail.split())[:400]
-        fail(f"App Store Connect {method} {path} -> {error.code}: {detail}")
-        raise
-
-
-def openssl(*argv: str, stdin: bytes | None = None) -> bytes:
-    result = subprocess.run(
-        ["openssl", *argv], input=stdin, capture_output=True,
-    )
-    if result.returncode:
-        fail(f"openssl {' '.join(argv[:2])}: {result.stderr.decode(errors='replace').strip()[:300]}")
-    return result.stdout
-
-
 def vault_store(fields: dict[str, str], identity: str, certificate_id: str) -> None:
-    """Write the item as one canonical payload, through stdin.
-
-    `skarbiec set` takes `k=v` pairs in argv, which publishes a secret to `ps`
-    for as long as the command runs — the one thing a vault exists to prevent.
-    `set-json` reads a canonical payload from stdin instead, so nothing sensitive
-    is ever an argument.
-
-    The kind is `bundle` because the schema says so, not by preference:
-    `certificate` allows exactly certificate, private_key, chain and passphrase
-    (src/core/schema.rs:25), while the fifty-two release manifests declare
-    certificate_p12_base64, certificate_password and sign_identity. `bundle` is
-    the kind with no field allowlist (schema.rs:239), which is what a set of
-    related release values is.
-    """
-    payload = {
-        "schema": "skarbiec.item.v2",
-        "kind": "bundle",
-        "fields": fields,
-        "context": {
+    vault_set_bundle(
+        ITEM,
+        fields,
+        {
             "purpose": "macos-developer-id-signing",
             "certificate_id": certificate_id,
             "sign_identity": identity,
             "created_by": "skarbiec/scripts/apple-developer-id.py",
         },
-    }
-    result = subprocess.run(
-        ["skarbiec", "set-json", ITEM, "--type", "bundle"],
-        input=json.dumps(payload), text=True, capture_output=True,
     )
-    if result.returncode:
-        fail(f"skarbiec set-json {ITEM}: {' '.join((result.stderr or '').split())[:300]}")
-
-
-def describe(certificate: dict) -> str:
-    attributes = certificate.get("attributes", {})
-    return (
-        f"{certificate.get('id', '?'):<12} {attributes.get('certificateType', '?'):<26} "
-        f"{attributes.get('displayName', '?'):<34} expires {attributes.get('expirationDate', '?')[:10]}"
-    )
-
-
-def list_certificates(bearer: str) -> list[dict]:
-    return call("/certificates?limit=200", bearer).get("data", [])
 
 
 def mint(bearer: str, dry_run: bool) -> None:
@@ -254,6 +116,7 @@ def mint(bearer: str, dry_run: bool) -> None:
                     },
                 }
             },
+            user_agent="skarbiec-apple-developer-id",
         )
         attributes = created["data"]["attributes"]
         print(f"created          {describe(created['data'])}")
@@ -290,11 +153,7 @@ def mint(bearer: str, dry_run: bool) -> None:
 
 def main() -> int:
     root = argparse.ArgumentParser(prog="apple-developer-id.py", description=__doc__)
-    root.add_argument("--vault-item", default="api-appstoreconnect-weles",
-                      help="vault item carrying issuer_id, key_id and private_key")
-    root.add_argument("--key-id", default=os.environ.get("APPLE_API_KEY_ID"))
-    root.add_argument("--issuer", default=os.environ.get("APPLE_API_ISSUER_ID"))
-    root.add_argument("--key-file", default=os.environ.get("APPLE_API_KEY_FILE"))
+    add_credential_arguments(root, os.environ)
     commands = root.add_subparsers(dest="command", required=True)
     commands.add_parser("list", help="list every certificate the account holds")
     commands.add_parser("roles", help="who holds which App Store Connect role, and who the Account Holder is")

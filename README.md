@@ -341,6 +341,40 @@ SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
   python3 scripts/apple-developer-id.py mint    # create one and store it
 ```
 
+### The iOS signing material
+
+Every `*-ios` release manifest and TestFlight workflow declares the same
+coordinates, and no item had ever been created for them either:
+
+```text
+IOS_DIST_P12_B64        wisent-ios-distribution#certificate_p12_base64
+IOS_DIST_P12_PASSWORD   wisent-ios-distribution#certificate_password
+IOS_SIGN_IDENTITY       wisent-ios-distribution#sign_identity
+IOS_PROFILE_B64         <repository>-signing#provisioning_profile_base64
+```
+
+`scripts/apple-ios-signing.py` is the tool for those items, built on the same
+`apple_asc.py` helpers as the Developer ID tool. An iOS distribution certificate
+is not reserved for the Account Holder, so the whole path is the REST API: the
+certificate from a CSR generated locally, the bundle id by identifier, the App
+Store profile from the two, and the six GitHub Actions secrets of one repository
+piped into `gh secret set` through stdin:
+
+```sh
+python3 scripts/apple-ios-signing.py list                     # certificates, bundle ids, apps, profiles
+python3 scripts/apple-ios-signing.py mint-certificate         # once per certificate; refuses to overwrite
+python3 scripts/apple-ios-signing.py profile \
+  --repository jeden-ios --bundle-id ai.wisent.jeden --app-name Jeden
+python3 scripts/apple-ios-signing.py publish --repository jeden-ios
+```
+
+A profile is immutable at Apple, so one that exists under the pinned name but
+names a revoked certificate — the state `Oko CI AppStore` was found in — is
+deleted and recreated, and the tool says so. The one step the API refuses is
+the App Store Connect app record itself (`POST /v1/apps` answers "The resource
+'apps' does not allow 'CREATE'"), which a TestFlight upload needs to exist; the
+tool creates everything up to it and reports that refusal verbatim.
+
 Development and distribution certificates are issued through the App Store
 Connect API with no browser at all. A Developer ID Application certificate is
 the exception Apple reserves for the Account Holder, and it has its own
