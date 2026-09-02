@@ -372,10 +372,18 @@ python3 scripts/apple-ios-signing.py publish --repository jeden-ios
 
 A profile is immutable at Apple, so one that exists under the pinned name but
 names a revoked certificate — the state `Oko CI AppStore` was found in — is
-deleted and recreated, and the tool says so. The one step the API refuses is
+deleted and recreated, and the tool says so. The one write the API refuses is
 the App Store Connect app record itself (`POST /v1/apps` answers "The resource
-'apps' does not allow 'CREATE'"), which a TestFlight upload needs to exist; the
-tool creates everything up to it and reports that refusal verbatim.
+'apps' does not allow 'CREATE'"), which a TestFlight upload needs to exist. For
+that one write `scripts/apple_web.py` does what the site does, with no browser:
+an SRP-6a sign-in at `idmsa.apple.com` with the Apple ID the vault holds
+(`weles-apple-control-account`), the second factor read from the trusted-device
+prompt on this Mac by Weles's `followup_ax_capture.swift` — the registry binds
+the Apple account to this host, so the prompt appears here — and then
+`iris/v1/apps`, the same request `fastlane produce` sends. `profile` runs it
+when the bundle id has no record; `app-record` runs it alone. The trusted
+session's cookies stay owner-only under `~/.stado/work`, so a second run inside
+Apple's trust window signs in without a prompt.
 
 Development and distribution certificates are issued through the App Store
 Connect API with no browser at all. A Developer ID Application certificate is
