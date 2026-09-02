@@ -105,20 +105,54 @@ fn operator_http_unknown_operation_refused_with_contract_message() {
 }
 
 #[test]
-fn operator_http_get_returns_all_fields_in_value_format() {
+fn operator_http_set_json_replaces_the_whole_document() {
     let fixture = CliFixture::new("operator-http");
     fixture.init("HTTP Test <http@test.local>");
 
-    // Create item with multiple fields
-    fixture.run(&["set", "login", "username=alice", "password=secret", "totp_secret=SEED123"]);
+    // Seed an item with three fields
+    fixture.run(&["set", "login", "username=alice", "password=secret456", "totp_secret=SEED123"]);
     let broker = fixture.serve();
 
-    // Get the full item
+    // Phase 1: set-json with all three original fields plus a fourth field
+    let payload_with_four = r#"{"schema":"skarbiec.item.v2","kind":"login","context":{},"fields":{"username":"alice","password":"secret456","totp_secret":"SEED123","notes":"added"}}"#;
+    let body = format!(
+        r#"{{"operation":"set-json","item":"login","payload":{}}}"#,
+        payload_with_four
+    );
+    let _ = Command::new("curl")
+        .args(["-s", "-X", "POST", &broker.url("/v1/operator/credential")])
+        .args(["-H", "Content-Type: application/json"])
+        .args(["-d", &body])
+        .output()
+        .expect("run curl");
+
+    // Verify all four fields are present
     let response = request_credential(&broker, "get", "login", "");
-    
-    // Verify it contains all fields
-    assert!(response.contains("alice"), "should contain username");
-    assert!(response.contains("secret"), "should contain password");
-    assert!(response.contains("SEED123"), "should contain totp_secret");
-    assert!(response.contains("value"), "response should have value wrapper");
+    assert!(response.contains("alice"), "username should be present");
+    assert!(response.contains("secret456"), "password should be present");
+    assert!(response.contains("SEED123"), "totp_secret should be present");
+    assert!(response.contains("added"), "notes field should be present");
+
+    // Phase 2: set-json with payload omitting password - this deletes it by design
+    // set-json replaces the entire document, it does not merge. The client is
+    // responsible for reading the full item, merging updates, and writing back
+    // the complete document. If the broker protected against incomplete writes,
+    // clients could not implement conditional fields or schema evolution.
+    let payload_without_password = r#"{"schema":"skarbiec.item.v2","kind":"login","context":{},"fields":{"username":"alice","totp_secret":"SEED123"}}"#;
+    let body = format!(
+        r#"{{"operation":"set-json","item":"login","payload":{}}}"#,
+        payload_without_password
+    );
+    let _ = Command::new("curl")
+        .args(["-s", "-X", "POST", &broker.url("/v1/operator/credential")])
+        .args(["-H", "Content-Type: application/json"])
+        .args(["-d", &body])
+        .output()
+        .expect("run curl");
+
+    // Verify password is gone and other fields survived
+    let response = request_credential(&broker, "get", "login", "");
+    assert!(response.contains("alice"), "username should still be present");
+    assert!(response.contains("SEED123"), "totp_secret should still be present");
+    assert!(!response.contains("secret456"), "password should be gone - set-json replaces, does not merge");
 }
