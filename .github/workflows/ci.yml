@@ -7,11 +7,30 @@ on:
   pull_request:
   workflow_dispatch:
 
+  # Check that the broker and client have compatible operations.
+  # This fails if the desktop client calls operations the broker doesn't support.
+  broker-client-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: broker
+      - uses: actions/checkout@v4
+        with:
+          repository: wisent-ai/skarbiec-desktop
+          path: desktop
+      - name: Validate broker-client contract
+        run: |
+          python3 broker/tools/check-broker-client-contract.py \
+            broker/src/net/operator.rs \
+            desktop/Sources/SkarbiecDesktop/BackendClient.swift
+
 jobs:
   # The gates are not spelled here any more. Four Rust repositories in this
   # pack had four different gate sets, and a fix applied to one of them
   # protected one repository; the shared workflow is one place to fix.
   gates:
+    needs: broker-client-contract
     uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
 
   evidence:
