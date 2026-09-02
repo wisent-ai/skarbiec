@@ -659,38 +659,63 @@ fn ensure_read_once(consumer: &str, item: &str, field: &str, token_file: &Path) 
         .and_then(Value::as_array)
         .context("existing grant is not v2; run migrate-v2 first")?
         .contains(&capability);
-    if already_present {
-        return Ok(json!({
-            "ok": true,
-            "consumer": consumer,
-            "capability": capability,
-            "status": "unchanged",
-        }));
-    }
-    vault
-        .doc_mut()
-        .get_mut("tokens")
-        .and_then(Value::as_object_mut)
-        .and_then(|tokens| tokens.get_mut(consumer))
-        .and_then(|grant| grant.get_mut("capabilities"))
-        .and_then(Value::as_array_mut)
-        .context("existing grant is not v2; run migrate-v2 first")?
-        .push(capability.clone());
-    vault.save()?;
-    crate::runtime::audit::append(
-        "token-ensure-read",
-        &json!({
-            "consumer": consumer,
-            "item": item,
-            "field": field,
-        }),
-    )?;
-    Ok(json!({
-        "ok": true,
+    let status = if already_present {
+        "unchanged"
+    } else {
+        vault
+            .doc_mut()
+            .get_mut("tokens")
+            .and_then(Value::as_object_mut)
+            .and_then(|tokens| tokens.get_mut(consumer))
+            .and_then(|grant| grant.get_mut("capabilities"))
+            .and_then(Value::as_array_mut)
+            .context("existing grant is not v2; run migrate-v2 first")?
+            .push(capability.clone());
+        vault.save()?;
+        crate::runtime::audit::append(
+            "token-ensure-read",
+            &json!({
+                "consumer": consumer,
+                "item": item,
+                "field": field,
+            }),
+        )?;
+        "added"
+    };
+
+    // A capability recorded in the grant is not the same claim as a read that
+    // succeeds: the serving path also matches the presented bearer, resolves
+    // the item, and consults the credential lifecycle, and any of those can
+    // refuse a capability that is plainly present. Reporting `ok` off the
+    // recorded grant alone told callers a read would work while the API
+    // answered 403, so the decision is exercised here through the same
+    // predicates `/v1/items/read` uses.
+    let vault = load()?;
+    let allowed = token_allows_field_action(&vault, consumer, &bearer, "read", item, field)?;
+    let managed_refusal = field != "context"
+        && matches!(
+            crate::credential::managed_read(&vault, item, field, consumer)?,
+            crate::credential::ManagedRead::Refused
+        );
+    let refusal = if !allowed {
+        Some("consumer not authorized to read item field")
+    } else if managed_refusal {
+        Some("this revision is not readable by this consumer")
+    } else {
+        None
+    };
+
+    let mut answer = json!({
+        "ok": refusal.is_none(),
         "consumer": consumer,
         "capability": capability,
-        "status": "added",
-    }))
+        "status": status,
+        "effective": refusal.is_none(),
+    });
+    if let Some(reason) = refusal {
+        answer["refusal"] = json!(reason);
+    }
+    Ok(answer)
 }
 
 pub fn dispatch(
