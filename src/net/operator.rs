@@ -187,7 +187,11 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         }
         "/v1/operator/credential" => {
             let operation = text(parsed, "operation")?;
-            if !["status", "acquire", "rotate", "resume", "get", "set", "set-json", "totp"].contains(&operation.as_str()) {
+            if ![
+                "status", "acquire", "rotate", "resume", "get", "set", "set-json", "totp",
+            ]
+            .contains(&operation.as_str())
+            {
                 bail!(
                     "operator credential operation must be one of status, acquire, rotate, resume, get, set, set-json, totp"
                 );
@@ -196,14 +200,22 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
                 "status" | "acquire" | "rotate" | "resume" => {
                     // Always this vault file: the console reports on and drives the
                     // vault in view, never a canonical Skarbiec somewhere else.
-                    let mut call_flags = flags(parsed, &["provider", "consumer", "purpose", "account"]);
+                    let mut call_flags =
+                        flags(parsed, &["provider", "consumer", "purpose", "account"]);
                     call_flags.insert("local".to_string(), "true".to_string());
                     credential(&call_flags, &[operation, text(parsed, "item")?])
                 }
                 "get" => {
                     let call_flags = flags(parsed, &["field"]);
-                    crate::core::values::dispatch("credential", &call_flags, &["get".to_string(), text(parsed, "item")?].iter().map(|s| s.to_string()).collect::<Vec<_>>())?
-                        .context("get operation failed")
+                    crate::core::values::dispatch(
+                        "credential",
+                        &call_flags,
+                        &["get".to_string(), text(parsed, "item")?]
+                            .iter()
+                            .map(|s| s.to_string())
+                            .collect::<Vec<_>>(),
+                    )?
+                    .context("get operation failed")
                 }
                 "set" => {
                     let item_id = text(parsed, "item")?;
