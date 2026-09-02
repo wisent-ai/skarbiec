@@ -1,15 +1,30 @@
 #[path = "../support/mod.rs"]
 mod support;
 
-use support::{assert_success, CliFixture};
+use support::CliFixture;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-/// Start the broker against the vault and return its PID
-fn start_broker(fixture: &CliFixture) -> u32 {
+/// Guard that kills the broker process on drop, ensuring cleanup even on panic
+struct BrokerGuard {
+    pid: u32,
+}
+
+impl Drop for BrokerGuard {
+    fn drop(&mut self) {
+        let _ = Command::new("kill")
+            .arg(self.pid.to_string())
+            .output();
+    }
+}
+
+/// Start the broker against the vault on a specific port and return a guard
+fn start_broker(fixture: &CliFixture, port: u16) -> BrokerGuard {
     let pid = Command::new(env!("CARGO_BIN_EXE_skarbiec"))
         .arg("serve")
+        .arg("--port")
+        .arg(port.to_string())
         .env("SKARBIEC_VAULT_FILE", &fixture.vault)
         .env("GNUPGHOME", &fixture.gnupg)
         .env("HOME", &fixture.root)
@@ -21,20 +36,21 @@ fn start_broker(fixture: &CliFixture) -> u32 {
     
     // Wait for broker to be ready
     thread::sleep(Duration::from_millis(1500));
-    pid
+    BrokerGuard { pid }
 }
 
-/// Make HTTP request to broker and return response text
-fn request_credential(operation: &str, item: &str, extra: &str) -> String {
+/// Make HTTP request to broker on a specific port and return response text
+fn request_credential(port: u16, operation: &str, item: &str, extra: &str) -> String {
     let mut body = format!(r#"{{"operation": "{}", "item": "{}""#, operation, item);
     if !extra.is_empty() {
         body.push(',');
         body.push_str(extra);
     }
     body.push('}');
-
+    
+    let url = format!("http://127.0.0.1:{}/v1/operator/credential", port);
     let output = Command::new("curl")
-        .args(&["-s", "-X", "POST", "http://127.0.0.1:8787/v1/operator/credential"])
+        .args(&["-s", "-X", "POST", &url])
         .args(&["-H", "Content-Type: application/json"])
         .args(&["-d", &body])
         .output()
@@ -51,24 +67,18 @@ fn operator_http_get_returns_full_item_and_fields() {
     // Add test item
     fixture.run(&["set", "test-item", "username=alice", "password=secret123", "totp_secret=SEED"]);
     
-    // Start broker
-    let broker_pid = start_broker(&fixture);
+    // Start broker on unique port, guard ensures cleanup on drop
+    let _broker = start_broker(&fixture, 8788);
     
     // Test: GET returns full item
-    let response = request_credential("get", "test-item", "");
+    let response = request_credential(8788, "get", "test-item", "");
     assert!(response.contains("\"value\""), "response should have value field");
     assert!(response.contains("alice"), "response should contain username");
     assert!(response.contains("secret123"), "response should contain password");
     
     // Test: GET specific field
-    let response = request_credential("get", "test-item", r#""field": "username""#);
+    let response = request_credential(8788, "get", "test-item", r#""field": "username""#);
     assert!(response.contains("alice"), "field value should be returned");
-    
-    // Cleanup
-    std::process::Command::new("kill")
-        .arg(broker_pid.to_string())
-        .output()
-        .ok();
 }
 
 #[test]
@@ -77,22 +87,17 @@ fn operator_http_set_preserves_existing_fields() {
     fixture.init("HTTP Test <http@test.local>");
     
     fixture.run(&["set", "cred", "username=bob", "password=pass", "totp_secret=KEY"]);
-    let broker_pid = start_broker(&fixture);
+    let _broker = start_broker(&fixture, 8789);
     
     // SET with new password
     let body = r#""username": "bob", "password": "newpass", "totp_secret": "KEY""#;
-    let _response = request_credential("set", "cred", body);
+    let _response = request_credential(8789, "set", "cred", body);
     
     // Verify all fields survived
-    let response = request_credential("get", "cred", "");
+    let response = request_credential(8789, "get", "cred", "");
     assert!(response.contains("bob"), "username should be preserved");
     assert!(response.contains("newpass"), "password should be updated");
     assert!(response.contains("KEY"), "totp_secret should be preserved");
-    
-    std::process::Command::new("kill")
-        .arg(broker_pid.to_string())
-        .output()
-        .ok();
 }
 
 #[test]
@@ -102,20 +107,16 @@ fn operator_http_totp_reports_seed_status() {
     
     fixture.run(&["set", "with-totp", "username=user", "password=pass", "totp_secret=SEED"]);
     fixture.run(&["set", "no-totp", "username=user", "password=pass"]);
-    let broker_pid = start_broker(&fixture);
+    let _broker = start_broker(&fixture, 8790);
     
     // With seed
-    let response = request_credential("totp", "with-totp", "");
+    let response = request_credential(8790, "totp", "with-totp", "");
+
     assert!(response.contains("has_seed"), "should report has_seed field");
     
     // Without seed
-    let response = request_credential("totp", "no-totp", "");
+    let response = request_credential(8790, "totp", "no-totp", "");
     assert!(response.contains("has_seed"), "should report has_seed field even when false");
-    
-    std::process::Command::new("kill")
-        .arg(broker_pid.to_string())
-        .output()
-        .ok();
 }
 
 #[test]
@@ -123,21 +124,13 @@ fn operator_http_unknown_operation_refused_with_contract_message() {
     let fixture = CliFixture::new("operator-http");
     fixture.init("HTTP Test <http@test.local>");
     fixture.run(&["set", "item", "username=test", "password=test"]);
-    let broker_pid = start_broker(&fixture);
+    let _broker = start_broker(&fixture, 8791);
     
-    let response = request_credential("unknown", "item", "");
-    assert!(response.contains("error"), "should return error");
-    assert!(response.contains("status"), "error should name status operation");
-    assert!(response.contains("acquire"), "error should name acquire operation");
-    assert!(response.contains("rotate"), "error should name rotate operation");
-    assert!(response.contains("resume"), "error should name resume operation");
-    assert!(response.contains("get"), "error should name get operation");
-    assert!(response.contains("set"), "error should name set operation");
-    assert!(response.contains("set-json"), "error should name set-json operation");
-    assert!(response.contains("totp"), "error should name totp operation");
-    
-    std::process::Command::new("kill")
-        .arg(broker_pid.to_string())
-        .output()
-        .ok();
+    let response = request_credential(8791, "unknown", "item", "");
+    let expected_message = "operator credential operation must be one of status, acquire, rotate, resume, get, set, set-json, totp";
+    assert!(
+        response.contains(expected_message),
+        "error message should contain full contract: {}",
+        response
+    );
 }

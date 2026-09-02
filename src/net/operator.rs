@@ -237,7 +237,7 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
                 }
                 "totp" => {
                     let call_flags = flags(parsed, &[]);
-                    let positionals = vec!["totp".to_string(), text(parsed, "item")?];
+                    let positionals = vec![text(parsed, "item")?];
                     crate::runtime::totp::dispatch("totp", &call_flags, &positionals)?
                         .context("totp operation failed")
                 }
