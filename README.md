@@ -367,6 +367,9 @@ python3 scripts/apple-ios-signing.py list                     # certificates, bu
 python3 scripts/apple-ios-signing.py mint-certificate         # once per certificate; refuses to overwrite
 python3 scripts/apple-ios-signing.py profile \
   --repository jeden-ios --bundle-id ai.wisent.jeden --app-name Jeden
+python3 scripts/apple-ios-signing.py app-record \
+  --bundle-id ai.wisent.jeden --app-name Jeden --sku jeden-ios
+python3 scripts/apple-ios-signing.py check-login              # one sign-in, nothing else
 python3 scripts/apple-ios-signing.py publish --repository jeden-ios
 ```
 
@@ -380,10 +383,19 @@ an SRP-6a sign-in at `idmsa.apple.com` with the Apple ID the vault holds
 (`weles-apple-control-account`), the second factor read from the trusted-device
 prompt on this Mac by Weles's `followup_ax_capture.swift` — the registry binds
 the Apple account to this host, so the prompt appears here — and then
-`iris/v1/apps`, the same request `fastlane produce` sends. `profile` runs it
-when the bundle id has no record; `app-record` runs it alone. The trusted
-session's cookies stay owner-only under `~/.stado/work`, so a second run inside
-Apple's trust window signs in without a prompt.
+`iris/v1/apps`, carrying the `appStoreVersionLocalizations` relationship iris
+refuses the create without. `profile` runs it when the bundle id has no record;
+`app-record` runs it alone. The trusted session's cookies stay owner-only under
+`~/.stado/work`, so a second run inside Apple's trust window signs in without a
+prompt. It has run: app `6807934112` for `ai.wisent.jeden` was created this way
+on 2026-09-02, and the first `jeden-ios` build reached TestFlight the same day.
+
+Three vault items hold this one Apple ID and two of them were stale, which is
+why the Weles Apple trajectory had never completed: a password nothing checks is
+a password nobody knows is wrong. `check-login` is that check — one sign-in and
+nothing else, with a throwaway cookie jar, because reusing the trusted session
+would answer "fine" without ever sending the password. All three items now carry
+the value that opens the account, verified through it.
 
 Development and distribution certificates are issued through the App Store
 Connect API with no browser at all. A Developer ID Application certificate is
