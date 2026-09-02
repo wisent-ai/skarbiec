@@ -57,6 +57,7 @@ from apple_asc import (
     vault_item,
     vault_set_bundle,
 )
+from apple_web import AppStoreConnectWebSession, WebSessionError, capture_second_factor
 
 CERTIFICATE_ITEM = "wisent-ios-distribution"
 CERTIFICATE_TYPE = "IOS_DISTRIBUTION"
@@ -66,6 +67,9 @@ CREATED_BY = "skarbiec/scripts/apple-ios-signing.py"
 # The vault item Stado's publisher bootstrap reads as the GitHub credential
 # (host_precheck_runner.rs: GITHUB_CREDENTIAL_ITEM), a token with `repo` scope.
 PACKAGES_TOKEN_ITEM = "GITHUB_TOKEN"
+# The Apple ID the account holder signs in with; the same item the Weles Apple
+# trajectories fill from. Used only where the public API refuses a write.
+ACCOUNT_ITEM = "weles-apple-control-account"
 USER_AGENT = "skarbiec-apple-ios-signing"
 
 
@@ -218,23 +222,36 @@ def existing_app(bearer: str, bundle_id: str) -> str | None:
     return None
 
 
-def create_app(bearer: str, bundle_id: str, bundle_record: str, name: str, sku: str) -> str:
+def create_app(bearer: str, bundle_id: str, name: str, sku: str, account_item: str) -> str:
     """The App Store Connect app record: `altool --upload-app` refuses a build for a
-    bundle id with no app behind it. Apple requires the name to be unused store-wide,
-    so its refusal is the operator's cue to choose another and rerun."""
-    created = call(
-        "/apps", bearer, "POST",
-        {
-            "data": {
-                "type": "apps",
-                "attributes": {"name": name, "primaryLocale": "en-US", "sku": sku, "bundleId": bundle_id},
-                "relationships": {"bundleId": {"data": {"type": "bundleIds", "id": bundle_record}}},
-            }
-        },
-        user_agent=USER_AGENT,
-    )
-    print(f"app record       {created['data']['id']}  {name} (created now)")
-    return created["data"]["id"]
+    bundle id with no app behind it.
+
+    The public API refuses to create one for any key (`POST /v1/apps` -> 403 "The
+    resource 'apps' does not allow 'CREATE'"), so this is the one write that goes
+    through the site's own session: SRP sign-in with the Apple ID the vault holds,
+    the second factor read from the prompt on this Mac, then `iris/v1/apps`. Apple
+    requires the name to be unused store-wide, so its refusal is the operator's cue
+    to choose another and rerun.
+    """
+    # Two item shapes hold this Apple ID: `weles-apple-control-account` (email,
+    # password) and `platform-admin-appstore` (username, password).
+    fields = vault_item(account_item).get("fields", {})
+    email = fields.get("email") or fields.get("username") or ""
+    password = fields.get("password") or ""
+    if not email or not password:
+        fail(f"{account_item} holds no Apple ID login: expected email/username and password")
+    session = AppStoreConnectWebSession(log=print)
+    try:
+        session.sign_in(email, password, capture_second_factor)
+        app_id = session.create_app(bundle_id, name, sku)
+    except WebSessionError as error:
+        fail(f"App Store Connect web session: {error}")
+        raise
+    listed = call(f"/apps?filter[bundleId]={quote(bundle_id, safe='')}&limit=10", bearer, user_agent=USER_AGENT).get("data", [])
+    if not any(item.get("id") == app_id for item in listed):
+        fail(f"iris answered app {app_id} but the App Store Connect API does not list it for {bundle_id}")
+    print(f"app record       {app_id}  {name} (created now, sku {sku})")
+    return app_id
 
 
 def vault_certificate_id() -> str:
@@ -341,7 +358,7 @@ def profile(bearer: str, args: argparse.Namespace) -> None:
     # Last, because it is the one step Apple may refuse on a name, and the profile
     # above is already usable for signing whatever the app ends up being called.
     if app_id is None and bundle_record is not None:
-        create_app(bearer, args.bundle_id, bundle_record, args.app_name, args.sku or args.repository)
+        create_app(bearer, args.bundle_id, args.app_name, args.sku or args.repository, args.account_item)
     print(f"next             apple-ios-signing.py publish --repository {args.repository}")
 
 
@@ -435,7 +452,14 @@ def main() -> int:
     prof.add_argument("--app-name", required=True, help="the App Store Connect app name; Apple requires it to be unused store-wide")
     prof.add_argument("--profile-name", help='defaults to "<app-name> CI AppStore", the name project.yml pins')
     prof.add_argument("--sku", help="defaults to the repository name")
+    prof.add_argument("--account-item", default=ACCOUNT_ITEM,
+                      help="vault item with the Apple ID email and password the app record is created under")
     prof.add_argument("--dry-run", action="store_true")
+    record = commands.add_parser("app-record", help="create the App Store Connect app record through the site's own session")
+    record.add_argument("--bundle-id", required=True)
+    record.add_argument("--app-name", required=True)
+    record.add_argument("--sku", required=True)
+    record.add_argument("--account-item", default=ACCOUNT_ITEM)
     pub = commands.add_parser("publish", help="set the GitHub Actions secrets of one repository from the vault")
     pub.add_argument("--repository", required=True)
     pub.add_argument("--without-signing", action="store_true",
@@ -450,6 +474,9 @@ def main() -> int:
         mint_certificate(bearer, key_id, args.dry_run, args.replace)
     elif args.command == "profile":
         profile(bearer, args)
+    elif args.command == "app-record":
+        if existing_app(bearer, args.bundle_id) is None:
+            create_app(bearer, args.bundle_id, args.app_name, args.sku, args.account_item)
     elif args.command == "publish":
         publish(args, key_id, issuer, private_key)
     return 0
