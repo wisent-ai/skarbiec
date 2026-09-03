@@ -13,14 +13,21 @@ static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
 /// Where fixture roots live.
 ///
-/// Deliberately neither `HOME` nor `TMPDIR`. `HOME` is the operator's own
-/// configuration - `~/.stado` holds the live vault, the routes table and the
-/// service unlock file - and a fixture that both writes and `remove_dir_all`s
-/// below it is one typo away from taking real state with it. `TMPDIR` is
-/// rejected for a duller reason: GnuPG binds sockets under `GNUPGHOME`, macOS
-/// caps `sun_path` at 104 bytes, and the per-user `TMPDIR` spends forty of
-/// them before this fixture adds a name.
-const TEMP_BASE: &str = "/tmp/skarbiec-tests";
+/// Deliberately neither `HOME` itself nor `TMPDIR` nor `/tmp`. Bare `HOME` is
+/// the operator's own configuration - `~/.stado` holds the live vault, the
+/// routes table and the service unlock file - and a fixture that both writes
+/// and `remove_dir_all`s below it is one typo away from taking real state with
+/// it, so this names one directory inside it and never its parent. `/tmp` is
+/// worse than either: it is swept by hand and by the system, and a fixture
+/// root that vanishes mid-run fails a test for a reason that has nothing to do
+/// with the vault. `TMPDIR` is rejected for a duller reason, and it is the
+/// same reason this path is kept short: GnuPG binds sockets under `GNUPGHOME`,
+/// macOS caps `sun_path` at 104 bytes, and the per-user `TMPDIR` spends forty
+/// of them before this fixture adds a name.
+fn temp_base() -> PathBuf {
+    let home = std::env::var_os("HOME").expect("tests need HOME to place their fixture roots");
+    PathBuf::from(home).join(".stado").join("work").join("skt")
+}
 
 /// How long a spawned broker may take to bind its port before the test that
 /// asked for it fails. Generous: a cold fixture pays for gpg-agent's startup.
@@ -44,7 +51,7 @@ impl CliFixture {
         let sequence = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
         // GnuPG places sockets below GNUPGHOME. Keep this path short enough
         // for macOS AF_UNIX while making parallel fixtures distinct.
-        let root = PathBuf::from(TEMP_BASE).join(format!(
+        let root = temp_base().join(format!(
             "{area}-{:x}{:08x}{sequence:x}",
             std::process::id(),
             unique & 0xffff_ffff
@@ -110,9 +117,21 @@ impl CliFixture {
     /// the real vault. Here a broker that never listens fails the test that
     /// asked for it instead.
     pub fn serve(&self) -> Broker {
+        self.serve_with_env(&[])
+    }
+
+    /// Same, with extra environment for the broker process only.
+    ///
+    /// A test that has to observe how the broker drives `gpg` supplies its own
+    /// `PATH` here: the crypto seam resolves each tool through `PATH` first,
+    /// so a scripted stand-in placed there is what the broker actually runs.
+    pub fn serve_with_env(&self, env: &[(&str, &str)]) -> Broker {
         let port = self.port.to_string();
-        let child = self
-            .command(&["serve", "--port", &port])
+        let mut command = self.command(&["serve", "--port", &port]);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let child = command
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
