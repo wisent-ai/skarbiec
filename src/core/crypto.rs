@@ -79,7 +79,7 @@ static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
 });
 static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 static CRYPTO_PROGRAMS: LazyLock<HashMap<&'static str, PathBuf>> = LazyLock::new(|| {
-    ["gpg", "gpgconf", "openssl", "shasum", "oathtool"]
+    ["gpg", "gpgconf", "openssl", "shasum", "oathtool", "pkill"]
         .into_iter()
         .map(|program| (program, resolve_program_path(program)))
         .collect()
@@ -155,9 +155,26 @@ fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if recovery_generation == Some(*current_generation) {
-        recover_gpg_daemons()
-            .context("recover gpg daemons after cryptographic operation failed")?;
+        // The generation advances because recovery was ATTEMPTED, not because
+        // it reported success. On 2026-09-03 a wedged keyboxd on the always-on
+        // Mac made `gpgconf --launch` time out, `recover_gpg_daemons` returned
+        // the error, and this function propagated it without retrying — so
+        // every later read repeated the identical failing sequence and the
+        // whole vault answered 503 until a person intervened. A recovery that
+        // cannot complete must still let the next request try something else.
+        let recovery = recover_gpg_daemons();
         *current_generation = current_generation.wrapping_add(1);
+        drop(current_generation);
+        if let Err(error) = recovery {
+            return run_once(program, args, input).with_context(|| {
+                format!(
+                    "gpg retry after incomplete daemon recovery ({error:#}); initial error: \
+                     {first_error}"
+                )
+            });
+        }
+    } else {
+        drop(current_generation);
     }
     run_once(program, args, input).with_context(|| {
         format!("gpg retry failed after daemon recovery; initial error: {first_error}")
@@ -178,12 +195,52 @@ fn recoverable_gpg_failure(detail: &str) -> bool {
     .any(|needle| detail.contains(needle))
 }
 
+/// Put the gpg daemons back into a state a fresh `gpg` can use.
+///
+/// `gpgconf` is asked first because it is the supported control surface, and
+/// it is not trusted to answer: a keyboxd stuck mid-request makes both
+/// `--kill` and `--launch` hit this seam's deadline, which is how one wedged
+/// daemon took a vault of 641 items offline. So every `gpgconf` call is
+/// best-effort and the escalation below signals the daemons directly.
+///
+/// Nothing is launched at the end on purpose. `gpg` starts `gpg-agent` and
+/// `keyboxd` on demand, so a kill is a complete repair, while waiting on
+/// `--launch` reintroduces exactly the timeout this escalation exists to get
+/// past. The error case is narrow by design: it means neither control surface
+/// could even be spawned.
 fn recover_gpg_daemons() -> Result<()> {
     let _ = run_once("gpgconf", &["--kill", "keyboxd"], None);
     let _ = run_once("gpgconf", &["--kill", "gpg-agent"], None);
-    run_once("gpgconf", &["--launch", "keyboxd"], None)?;
-    run_once("gpgconf", &["--launch", "gpg-agent"], None)?;
-    Ok(())
+    let mut escalation_errors = Vec::new();
+    let mut signalled = false;
+    for signal in ["-TERM", "-KILL"] {
+        for daemon in ["keyboxd", "gpg-agent", "scdaemon"] {
+            // `pkill` exits 1 when nothing matched, which is the common case
+            // and not a failure: the daemon this call was meant to remove is
+            // already gone. No `-u` filter is needed and none is passed —
+            // an unprivileged process cannot signal another account's
+            // daemons, so the kernel is the filter.
+            match run_once("pkill", &[signal, "-x", daemon], None) {
+                Ok(_) => signalled = true,
+                Err(error) => {
+                    let detail = error.to_string();
+                    if detail.contains("spawn pkill") || detail.contains("timed out") {
+                        escalation_errors.push(format!("{daemon} {signal}: {detail}"));
+                    } else {
+                        signalled = true;
+                    }
+                }
+            }
+        }
+    }
+    let _ = run_once("gpgconf", &["--launch", "keyboxd"], None);
+    if signalled || escalation_errors.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "no gpg daemon control surface answered ({})",
+        escalation_errors.join("; ")
+    )
 }
 
 fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
