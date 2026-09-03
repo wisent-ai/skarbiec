@@ -181,7 +181,7 @@ dependencies = [
 
 [[package]]
 name = "skarbiec"
-version = "0.2.37"
+version = "0.2.38"
 dependencies = [
  "anyhow",
  "fs2",
