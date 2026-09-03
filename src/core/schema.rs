@@ -406,6 +406,18 @@ pub fn kind_allows_field(kind: &str, name: &str) -> bool {
         .unwrap_or_else(|| exact_component(name))
 }
 
+/// Whether a kind's own field list NAMES this field.
+///
+/// Deliberately distinct from [`kind_allows_field`], which answers "is this
+/// name permissible" and falls back to a syntactic check for any kind that
+/// declares no list at all — so a `bundle` *allows* `totp_secret` without ever
+/// declaring it. A diagnostic asking "does this row declare a seed field"
+/// needs the declaration, not the absence of a prohibition; treating the two
+/// as the same reported a bundle as a login row missing its seed.
+pub fn kind_declares_field(kind: &str, name: &str) -> bool {
+    allowed_fields(kind).is_some_and(|allowed| allowed.contains(&name))
+}
+
 pub fn allows_field(payload: &Value, name: &str) -> bool {
     if name == "context" {
         return true;

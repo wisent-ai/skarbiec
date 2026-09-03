@@ -97,7 +97,7 @@ pub fn seed_state(payload: &Value) -> SeedState {
     let declares = payload
         .get("kind")
         .and_then(Value::as_str)
-        .is_some_and(|kind| schema::kind_allows_field(kind, "totp_secret"));
+        .is_some_and(|kind| schema::kind_declares_field(kind, "totp_secret"));
     if declares {
         SeedState::DeclaredEmpty
     } else {
@@ -157,7 +157,10 @@ pub fn dispatch(
                             "item": id,
                             "kind": row.get("kind").cloned().unwrap_or(Value::Null),
                             "seed_state": state.as_str(),
-                            "repair": state.repair(),
+                            // The repair names the account it is for; a
+                            // command an operator has to edit before running
+                            // is a command they run wrong.
+                            "repair": state.repair().map(|repair| repair.replace("<login-item>", id)),
                         })
                     }
                     // A row this vault cannot open is reported as itself, not
