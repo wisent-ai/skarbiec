@@ -11,8 +11,8 @@ This module does the same thing in plain HTTP:
    with `rfc5054_enable()` and `no_username_in_x()`, the configuration pyicloud has
    proven against this endpoint), so the password itself never leaves the process;
 2. the trusted-device second factor, read from the sign-in prompt on this Mac by
-   Weles's `followup_ax_capture.swift` — the machine running this is the host the
-   registry binds the Apple account to, so the prompt appears here;
+   Stado's signed Apple challenge helper — the machine running this is the host
+   the registry binds the Apple account to, so the prompt appears here;
 3. `olympus/v1/session`, then `iris/v1/apps` with the CSRF pair the site's own
    responses hand out.
 
@@ -30,7 +30,6 @@ import json
 import os
 import secrets
 import subprocess
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,10 +41,10 @@ CONNECT = "https://appstoreconnect.apple.com"
 IRIS = f"{CONNECT}/iris/v1"
 SESSION_FILE = Path.home() / ".stado" / "work" / "apple-web-session.cookies"
 CODE_FILE = Path.home() / ".stado" / "work" / "apple-web-2fa-code.txt"
-CAPTURE_SCRIPT = (
-    Path.home() / "Documents" / "CodingProjects" / "Wisent" / "weles" / "scripts"
-    / "trajectories" / "apple" / "native_2fa" / "followup_ax_capture.swift"
+CAPTURE_HELPER = Path(
+    os.environ.get("STADO_APPLE_CHALLENGE_HELPER", "/usr/local/libexec/stado-apple-challenge-capture")
 )
+CAPTURE_HELPER_VERSION = "2"
 TWO_FACTOR_WAIT_SECONDS = 120
 
 # RFC 5054, appendix A: the 2048-bit group, generator 2. `idmsa` speaks this group
@@ -218,10 +217,18 @@ class AppStoreConnectWebSession:
             return False
         return status == 200 and bool(payload.get("user"))
 
-    def sign_in(self, account_name: str, password: str, second_factor: Callable[[], str]) -> None:
+    def sign_in(
+        self,
+        account_name: str,
+        password: str,
+        second_factor: Callable[[], str],
+        second_factor_preflight: Callable[[], None] | None = None,
+    ) -> None:
         if self.has_session():
             self.log("session          reused the trusted App Store Connect session on disk")
             return
+        if second_factor_preflight is not None:
+            second_factor_preflight()
         self._load_service_key()
         client = SrpClient(account_name)
         _, init, _ = self._call(
@@ -363,51 +370,72 @@ class AppStoreConnectWebSession:
 # --- the second factor, read from this Mac's prompt ------------------------------
 
 
-def capture_second_factor(script: Path = CAPTURE_SCRIPT, code_file: Path = CODE_FILE,
-                          wait_seconds: int = TWO_FACTOR_WAIT_SECONDS, log: Callable[[str], None] = print) -> str:
-    """Weles's `followup_ax_capture.swift`, the way `native_2fa.mjs` drives it: press
-    Allow on the trusted-device prompt, read the six digits, press Done, and take the
-    code from the owner-only file it writes. Accessibility must already trust the
-    terminal this runs in; the helper says so when it does not."""
-    if not script.is_file():
-        raise WebSessionError(f"the Apple prompt capture helper is absent: {script}")
-    code_file.parent.mkdir(parents=True, exist_ok=True)
+def _capture_helper_report(helper: Path, arguments: list[str], timeout: int) -> tuple[subprocess.CompletedProcess[str], dict]:
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        raise WebSessionError(f"Stado's Apple challenge helper is absent or not executable: {helper}")
+    result = subprocess.run(
+        [str(helper), *arguments],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+    try:
+        report = json.loads(result.stdout)
+    except (TypeError, ValueError):
+        report = {}
+    if report.get("version") != CAPTURE_HELPER_VERSION:
+        raise WebSessionError(
+            f"Stado's Apple challenge helper is version {report.get('version')!r}, "
+            f"expected {CAPTURE_HELPER_VERSION}"
+        )
+    return result, report
+
+
+def preflight_second_factor(helper: Path = CAPTURE_HELPER) -> None:
+    """Refuse before SRP sign-in if the signed helper cannot read this Aqua session."""
+    result, report = _capture_helper_report(helper, ["--preflight"], timeout=15)
+    if result.returncode != 0 or report.get("ok") is not True or report.get("accessibilityTrusted") is not True:
+        detail = str(report.get("error") or result.stderr.strip() or f"exit {result.returncode}")[:200]
+        raise WebSessionError(f"Stado's Apple challenge helper cannot use Accessibility: {detail}")
+
+
+def capture_second_factor(
+    helper: Path = CAPTURE_HELPER,
+    code_file: Path = CODE_FILE,
+    wait_seconds: int = TWO_FACTOR_WAIT_SECONDS,
+    log: Callable[[str], None] = print,
+) -> str:
+    """Read one trusted-device code with Stado's signed helper, then remove its file."""
+    if not isinstance(wait_seconds, int) or not 1 <= wait_seconds <= 120:
+        raise WebSessionError("Apple challenge wait must be a whole number from 1 to 120 seconds")
+    code_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(code_file.parent, 0o700)
     code_file.unlink(missing_ok=True)
-    deadline = time.monotonic() + wait_seconds
-    last = "no attempt yet"
-    seen: dict[str, str] = {}
-    while time.monotonic() < deadline:
-        for flags in (["--click-allow", "--click-done"], ["--click-done"]):
-            result = subprocess.run(
-                ["/usr/bin/swift", str(script), *flags],
-                env={**os.environ, "APPLE_2FA_CODE_FILE": str(code_file)},
-                capture_output=True, text=True, timeout=45,
-            )
-            try:
-                report = json.loads(result.stdout[result.stdout.find("{"):]) if result.stdout.strip() else {}
-            except ValueError:
-                report = {}
-            if report.get("accessibilityTrusted") is False:
-                raise WebSessionError("Accessibility does not trust this terminal, so the Apple prompt cannot be read")
-            last = str(report.get("error") or result.stderr.strip() or "swift exited %s" % result.returncode)[:200]
-            # Every Apple-looking window the helper saw, with its digits masked. A pass
-            # that finds no code has to say what it did see, or "found none" is the same
-            # silence for a prompt that never appeared and a prompt in a shape the
-            # matcher does not know.
-            for process in report.get("processes") or []:
-                preview = str(process.get("textPreview") or "")
-                if "apple" not in preview.lower():
-                    continue
-                key = f"{process.get('name')}#{process.get('windowIndex')}"
-                if seen.get(key) == preview:
-                    continue
-                seen[key] = preview
-                log(f"prompt           {key}: {preview}")
-            if code_file.is_file():
-                code = "".join(ch for ch in code_file.read_text() if ch.isdigit())[:6]
-                code_file.unlink(missing_ok=True)
-                if len(code) == 6:
-                    log(f"second factor    read from the prompt on this Mac (clicked {report.get('clicked') or []})")
-                    return code
-        time.sleep(1.5)
-    raise WebSessionError(f"no Apple verification code appeared on this Mac within {wait_seconds}s: {last}")
+    result, report = _capture_helper_report(
+        helper,
+        [
+            "--output-file",
+            str(code_file),
+            "--click-allow",
+            "--click-done",
+            "--wait-seconds",
+            str(wait_seconds),
+        ],
+        timeout=wait_seconds + 15,
+    )
+    for process in report.get("processes") or []:
+        preview = str(process.get("textPreview") or "")
+        if "apple" in preview.lower():
+            log(f"prompt           {process.get('name')}#{process.get('windowIndex')}: {preview}")
+    try:
+        if result.returncode != 0 or report.get("ok") is not True or not code_file.is_file():
+            detail = str(report.get("error") or result.stderr.strip() or f"exit {result.returncode}")[:200]
+            raise WebSessionError(f"Stado could not read the Apple verification code: {detail}")
+        code = code_file.read_text().strip()
+        if len(code) != 6 or not code.isdigit():
+            raise WebSessionError("Stado's Apple challenge helper returned an invalid code")
+        log(f"second factor    read from the prompt on this Mac (clicked {report.get('clicked') or []})")
+        return code
+    finally:
+        code_file.unlink(missing_ok=True)

@@ -382,8 +382,9 @@ the App Store Connect app record itself (`POST /v1/apps` answers "The resource
 that one write `scripts/apple_web.py` does what the site does, with no browser:
 an SRP-6a sign-in at `idmsa.apple.com` with the Apple ID the vault holds
 (`weles-apple-control-account`), the second factor read from the trusted-device
-prompt on this Mac by Weles's `followup_ax_capture.swift` — the registry binds
-the Apple account to this host, so the prompt appears here — and then
+prompt on this Mac by Stado's signed `stado-apple-challenge-capture` helper —
+preflighted before the password submit and installed for the GUI user the
+registry binds the account to — and then
 `iris/v1/apps`, carrying the `appStoreVersionLocalizations` relationship iris
 refuses the create without. `profile` runs it when the bundle id has no record;
 `app-record` runs it alone. The trusted session's cookies stay owner-only under
@@ -402,8 +403,9 @@ Development and distribution certificates are issued through the App Store
 Connect API with no browser at all. A Developer ID Application certificate is
 the exception Apple reserves for the Account Holder, and it has its own
 automated path through Weles: a tracked trajectory, one authorization per
-password submit, and a relay that captures the second factor on a Mac with a
-live GUI session.
+password submit, and a Stado relay that captures the second factor in the exact
+registered Aqua session and stores it in the execution host's one-use Skarbiec
+challenge.
 
 The whole procedure — both paths, the recorded provenance of a certificate the
 API already issued, and what still blocks a Developer ID run — is
