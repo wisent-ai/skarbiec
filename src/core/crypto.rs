@@ -391,6 +391,25 @@ fn run_opt(program: &str, args: &[&str], input: Option<&str>) -> Option<String> 
     run(program, args, input).ok()
 }
 
+/// Put the GnuPG daemons back into a usable state on demand.
+///
+/// The same repair [`run`] performs after a recoverable failure, reachable
+/// without one. A long-lived reader — the HTTP server, a browser host, an
+/// agent — holds no gpg state of its own, so a keyboxd that wedges under it
+/// is repaired for every one of them by the next `gpg` finding fresh daemons.
+/// Before this existed the only way to clear that was an inline `gpgconf`
+/// nobody could re-run or audit, or restarting the service and its keychain
+/// unlock with it.
+///
+/// The gpg capacity is drained first for the reason
+/// [`ExecutionLimit::acquire_exclusive`] gives: killing daemons beside a live
+/// decryption is what reports `Broken pipe` to a caller that asked for a
+/// credential.
+pub fn recover_daemons() -> Result<()> {
+    let _exclusive = GPG_LIMIT.acquire_exclusive();
+    recover_gpg_daemons()
+}
+
 pub fn executor_status() -> (usize, usize, usize, usize) {
     (
         CRYPTO_LIMIT.in_use(),

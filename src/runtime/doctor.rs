@@ -528,3 +528,22 @@ pub fn report() -> Result<Value> {
         "not_configured": tally(NOT_CONFIGURED),
     }))
 }
+
+/// Repair the GnuPG daemons and say what happened, as a receipt.
+///
+/// `doctor` reports; this acts, because the state it repairs is the one that
+/// makes every other check unreadable: a wedged keyboxd answers
+/// `keydb_search failed: Broken pipe` and the vault then refuses reads of
+/// items whose keys are present, which reads downstream as unreachable
+/// infrastructure. The receipt names the daemons, so a caller sees the same
+/// three names the escalation uses rather than a bare success.
+pub fn recover_daemons() -> Result<Value> {
+    let outcome = crate::core::crypto::recover_daemons();
+    let recovered = outcome.is_ok();
+    let detail = outcome.err().map(|error| format!("{error:#}"));
+    Ok(json!({
+        "recovered": recovered,
+        "daemons": ["keyboxd", "gpg-agent", "scdaemon"],
+        "detail": detail,
+    }))
+}
