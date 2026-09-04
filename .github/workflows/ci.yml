@@ -10,14 +10,10 @@ on:
 jobs:
   # Does the desktop client call an operation this broker does not serve?
   #
-  # Answering needs both trees and only one is reachable from here.
-  # `wisent-ai/skarbiec-desktop` is private, and this workflow's GITHUB_TOKEN is
-  # scoped to `wisent-ai/skarbiec` alone, so the second checkout answered
-  # `##[error]Not Found` in about forty seconds on every run from 29748ec
-  # onward. The credential is a named secret now, so the day it is provisioned
-  # this check starts working with no further edit; until then it says which
-  # credential is missing instead of dying inside a checkout that cannot
-  # explain itself.
+  # Answering needs both trees. `wisent-ai/skarbiec-desktop` is private, so
+  # this repository holds the private half of a read-only deploy key whose
+  # public half is registered on that sibling alone. The workflow refuses
+  # before checkout when that exact credential is absent.
   #
   # What it must never do again is gate anything. `needs:` carries an implicit
   # `success()`, so one unsatisfiable checkout did not fail the gates - it
@@ -30,35 +26,21 @@ jobs:
     steps:
       - name: Refuse to report on a contract this run cannot read
         env:
-          DESKTOP_CONTRACT_TOKEN: ${{ secrets.DESKTOP_CONTRACT_TOKEN }}
+          DESKTOP_CONTRACT_SSH_KEY: ${{ secrets.DESKTOP_CONTRACT_SSH_KEY }}
         run: |
           set -euo pipefail
-          if [ -n "$DESKTOP_CONTRACT_TOKEN" ]; then
-            printf '%s\n' "credential for the private sibling is present"
+          if [ -n "$DESKTOP_CONTRACT_SSH_KEY" ]; then
+            printf '%s\n' "read-only deploy key for the private sibling is present"
             exit 0
           fi
           printf '%s\n' \
             "This check compares the operations wisent-ai/skarbiec-desktop calls" \
             "against the ones src/net/operator.rs serves, so it has to read a" \
-            "private sibling repository. The workflow GITHUB_TOKEN reads" \
-            "wisent-ai/skarbiec and nothing else, which is why every run since" \
-            "29748ec died on 'Not Found' rather than on a contract violation." \
+            "private sibling repository." \
             "" \
-            "Missing, and it is one thing: a repository secret" \
-            "DESKTOP_CONTRACT_TOKEN holding a fine-grained personal access token" \
-            "or GitHub App installation token with Contents: read on" \
-            "wisent-ai/skarbiec-desktop." \
-            "" \
-            "No secret already on this repository is a substitute." \
-            "STADO_RELEASE_PUBLISHER_TOKEN publishes releases and" \
-            "RELEASE_BOOTSTRAP_TOKEN is a one-shot signing bootstrap; neither is" \
-            "a source-read credential for this sibling, and widening either one" \
-            "to be one is a decision for whoever owns them." \
-            "" \
-            "A checked-in copy of the client's operation list is not a" \
-            "substitute either: this check exists to catch the desktop tree" \
-            "drifting from this one, and a snapshot in this repository would" \
-            "only ever agree with itself." \
+            "Missing: repository secret DESKTOP_CONTRACT_SSH_KEY." \
+            "It must hold the private half of the read-only deploy key named" \
+            "skarbiec-broker-client-contract on wisent-ai/skarbiec-desktop." \
             "" \
             "This job fails alone. The Rust gates do not sit behind it."
           exit 1
@@ -69,7 +51,7 @@ jobs:
         with:
           repository: wisent-ai/skarbiec-desktop
           path: desktop
-          token: ${{ secrets.DESKTOP_CONTRACT_TOKEN }}
+          ssh-key: ${{ secrets.DESKTOP_CONTRACT_SSH_KEY }}
       - name: Validate broker-client contract
         run: |
           python3 broker/tools/check-broker-client-contract.py \
