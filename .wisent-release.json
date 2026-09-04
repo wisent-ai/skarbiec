@@ -67,7 +67,8 @@
     "minimum_stado_version": "0.6.1",
     "rollback_compatible_with": [
       "0.2.36",
-      "0.2.37"
+      "0.2.37",
+      "0.2.38"
     ]
   },
   "promotion": {
