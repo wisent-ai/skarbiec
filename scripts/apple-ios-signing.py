@@ -58,7 +58,12 @@ from apple_asc import (
     vault_item,
     vault_set_bundle,
 )
-from apple_web import AppStoreConnectWebSession, WebSessionError, capture_second_factor
+from apple_web import (
+    AppStoreConnectWebSession,
+    WebSessionError,
+    capture_second_factor,
+    preflight_second_factor,
+)
 
 CERTIFICATE_ITEM = "wisent-ios-distribution"
 CERTIFICATE_TYPE = "IOS_DISTRIBUTION"
@@ -258,7 +263,7 @@ def check_login(account_item: str) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         session = AppStoreConnectWebSession(session_file=Path(scratch) / "session.cookies", log=print)
         try:
-            session.sign_in(email, password, capture_second_factor)
+            session.sign_in(email, password, capture_second_factor, preflight_second_factor)
         except WebSessionError as error:
             stale_login(account_item, email, error)
     print(f"login            {email} opens App Store Connect; the app-record write can run")
@@ -278,7 +283,7 @@ def create_app(bearer: str, bundle_id: str, name: str, sku: str, account_item: s
     email, password = apple_login(account_item)
     session = AppStoreConnectWebSession(log=print)
     try:
-        session.sign_in(email, password, capture_second_factor)
+        session.sign_in(email, password, capture_second_factor, preflight_second_factor)
     except WebSessionError as error:
         stale_login(account_item, email, error)
     try:
