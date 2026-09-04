@@ -43,6 +43,33 @@ impl ExecutionLimit {
         ExecutionPermit { limit: self }
     }
 
+    /// Take the whole limit, so that nothing holding it can be running while
+    /// this permit lives.
+    ///
+    /// Recovering the GnuPG daemons is not an operation on this process: it
+    /// kills and relaunches host daemons that every concurrent `gpg` child is
+    /// already talking to over a socket. Doing that beside a live decryption
+    /// takes that child's agent away mid-operation, and the child reports the
+    /// lost socket -- `gpg: public key decryption failed: Broken pipe` -- to a
+    /// caller that asked for nothing but a credential read. That is how one
+    /// slow read turned into `503 infra_down` for a release publisher, a
+    /// capability broker and an agent reading the same vault at once. The
+    /// recovery now waits for the gpg capacity to drain instead.
+    fn acquire_exclusive(&self) -> ExclusivePermit<'_> {
+        let mut active = self
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        while *active > 0 {
+            active = self
+                .available
+                .wait(active)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+        *active = self.maximum;
+        ExclusivePermit { limit: self }
+    }
+
     fn in_use(&self) -> usize {
         *self
             .active
@@ -63,7 +90,26 @@ impl Drop for ExecutionPermit<'_> {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *active = active.saturating_sub(1);
-        self.limit.available.notify_one();
+        // Every waiter, not one: an exclusive waiter only proceeds once the
+        // count reaches zero, and waking a single ordinary waiter instead can
+        // leave it parked behind capacity it would never be told about.
+        self.limit.available.notify_all();
+    }
+}
+
+struct ExclusivePermit<'a> {
+    limit: &'a ExecutionLimit,
+}
+
+impl Drop for ExclusivePermit<'_> {
+    fn drop(&mut self) {
+        let mut active = self
+            .limit
+            .active
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *active = 0;
+        self.limit.available.notify_all();
     }
 }
 
@@ -155,14 +201,22 @@ fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     if recovery_generation == Some(*current_generation) {
-        // The generation advances because recovery was ATTEMPTED, not because
-        // it reported success. On 2026-09-03 a wedged keyboxd on the always-on
-        // Mac made `gpgconf --launch` time out, `recover_gpg_daemons` returned
-        // the error, and this function propagated it without retrying — so
-        // every later read repeated the identical failing sequence and the
-        // whole vault answered 503 until a person intervened. A recovery that
-        // cannot complete must still let the next request try something else.
-        let recovery = recover_gpg_daemons();
+        // Drain the gpg capacity first. `recover_gpg_daemons` kills daemons
+        // that any concurrent `gpg` child holds an open socket to, so running
+        // it beside a live decryption is what produced the reported
+        // `gpg: public key decryption failed: Broken pipe`.
+        //
+        // The generation then advances because recovery was ATTEMPTED, not
+        // because it reported success. On 2026-09-03 a wedged keyboxd on the
+        // always-on Mac made `gpgconf --launch` time out, this call returned
+        // the error, and `?` propagated it without retrying — so every later
+        // read repeated the identical failing sequence and a 641-item vault
+        // answered 503 until a person intervened. A recovery that cannot
+        // complete must still let the next request try something else.
+        let recovery = {
+            let _exclusive = GPG_LIMIT.acquire_exclusive();
+            recover_gpg_daemons()
+        };
         *current_generation = current_generation.wrapping_add(1);
         drop(current_generation);
         if let Err(error) = recovery {
@@ -181,6 +235,16 @@ fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
     })
 }
 
+/// Failures where killing and relaunching the GnuPG daemons is worth one retry.
+///
+/// The daemon-lost shapes matter as much as the daemon-missing ones. When
+/// `gpg-agent` or `keyboxd` goes away while a child is mid-operation, the
+/// child does not report a key problem: it reports the socket it lost, as
+/// `Broken pipe`, `End of file` or `IPC connect call failed`. Those were not
+/// listed, so the one failure this recovery exists for -- a daemon that died
+/// under a live read -- was the one failure that never got recovered, and left
+/// instead as `503 infra_down` for the caller to read as unreachable
+/// infrastructure.
 fn recoverable_gpg_failure(detail: &str) -> bool {
     let detail = detail.to_ascii_lowercase();
     [
@@ -190,6 +254,9 @@ fn recoverable_gpg_failure(detail: &str) -> bool {
         "no keybox daemon running",
         "resource temporarily unavailable",
         "too many open files",
+        "broken pipe",
+        "end of file",
+        "ipc connect call failed",
     ]
     .iter()
     .any(|needle| detail.contains(needle))
@@ -287,21 +354,36 @@ fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String>
             bail!("{program} timed out");
         }
     };
-    input_writer
+    let written = input_writer
         .join()
-        .map_err(|_| anyhow::anyhow!("{program} stdin writer panicked"))??;
+        .map_err(|_| anyhow::anyhow!("{program} stdin writer panicked"))?;
     let stdout = stdout_reader
         .join()
         .map_err(|_| anyhow::anyhow!("{program} stdout reader panicked"))??;
     let stderr = stderr_reader
         .join()
         .map_err(|_| anyhow::anyhow!("{program} stderr reader panicked"))??;
+    // A child that failed explains itself; the broken stdin pipe is only the
+    // consequence of it having stopped reading. Reporting the write error
+    // first replaced every such diagnosis with a bare `Broken pipe`, which
+    // told the operator nothing and hid the very text
+    // `recoverable_gpg_failure` classifies on -- so the retry could not fire
+    // either.
     if !status.success() {
-        bail!(
-            "{program} failed: {}",
-            String::from_utf8_lossy(&stderr).trim()
-        );
+        let said = String::from_utf8_lossy(&stderr).trim().to_owned();
+        if said.is_empty() {
+            return match written {
+                Err(error) => Err(anyhow::anyhow!(
+                    "{program} failed ({status}) and stopped reading stdin: {error}"
+                )),
+                Ok(()) => Err(anyhow::anyhow!(
+                    "{program} failed ({status}) without output"
+                )),
+            };
+        }
+        bail!("{program} failed: {said}");
     }
+    written.with_context(|| format!("write {program} stdin"))?;
     Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
