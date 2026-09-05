@@ -111,16 +111,23 @@ fn seed_of(payload: &Value) -> Option<&str> {
         .filter(|seed| !seed.is_empty())
 }
 
-/// TOTP seeds in this product are Base32 text, optionally followed by standard
-/// `=` padding. Sixteen data characters is the shortest supported seed (80
-/// bits); 128 keeps diagnostic work bounded.
+/// Sixteen Base32 data characters carry the minimum 80 bits expected of a
+/// TOTP seed. The upper bound prevents malformed input from making diagnostics
+/// hand unbounded arguments to the external TOTP consumer.
+const MIN_TOTP_SEED_BASE32_CHARS: usize = 16;
+const MAX_TOTP_SEED_BASE32_CHARS: usize = 128;
+/// RFC 4648 Base32 uses eight-character blocks and at most six `=` characters
+/// to pad the final block.
+const BASE32_BLOCK_CHARS: usize = 8;
+const MAX_BASE32_PADDING_CHARS: usize = 6;
+
+/// TOTP seeds are Base32 text, optionally followed by standard `=` padding.
 fn base32_seed_shape(seed: &str) -> bool {
     let data = seed.trim_end_matches('=');
     let padding = seed.len().saturating_sub(data.len());
-    ("16".parse::<usize>().unwrap_or_default()..="128".parse().unwrap_or(usize::MAX))
-        .contains(&data.len())
-        && padding <= 6
-        && (padding == usize::MIN || seed.len() % 8 == usize::MIN)
+    (MIN_TOTP_SEED_BASE32_CHARS..=MAX_TOTP_SEED_BASE32_CHARS).contains(&data.len())
+        && padding <= MAX_BASE32_PADDING_CHARS
+        && (padding == 0 || seed.len().is_multiple_of(BASE32_BLOCK_CHARS))
         && data
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || matches!(byte, b'2'..=b'7'))
