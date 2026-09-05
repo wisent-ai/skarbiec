@@ -3,6 +3,7 @@
 // (access, runtime, net) build on these.
 
 pub mod crypto;
+pub mod importer;
 pub mod inbox;
 pub mod items;
 pub mod migrate;

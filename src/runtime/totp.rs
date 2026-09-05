@@ -122,7 +122,7 @@ const BASE32_BLOCK_CHARS: usize = 8;
 const MAX_BASE32_PADDING_CHARS: usize = 6;
 
 /// TOTP seeds are Base32 text, optionally followed by standard `=` padding.
-fn base32_seed_shape(seed: &str) -> bool {
+pub(crate) fn base32_seed_shape(seed: &str) -> bool {
     let data = seed.trim_end_matches('=');
     let padding = seed.len().saturating_sub(data.len());
     (MIN_TOTP_SEED_BASE32_CHARS..=MAX_TOTP_SEED_BASE32_CHARS).contains(&data.len())

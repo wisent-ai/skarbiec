@@ -1,6 +1,6 @@
 [package]
 name = "skarbiec"
-version = "0.2.40"
+version = "0.3.0"
 edition = "2021"
 description = "Self-contained vault for sensitive values: at-rest encryption, multi-recipient sharing, scoped access grants, tamper-evident audit, and runtime injection. GPG owns encryption and key custody; bounded subprocess execution and in-process audit hashing keep the broker available under load."
 license-file = "LICENSE"
@@ -68,3 +68,7 @@ wait-timeout = "0.2"
 # only 200, 400, 401, 403, 404, 409, 410 and 503, so no caller classifying its
 # replies can meet a 501 or a 505 either.
 wisent-errors = { git = "https://github.com/wisent-ai/wisent-errors", rev = "92da74a839b5d3202183f0a850745f6fc205ed12" }
+csv = "1.3"
+base64 = "0.22"
+zip = { version = "2.4", default-features = false, features = ["deflate"] }
+form_urlencoded = "1.2"

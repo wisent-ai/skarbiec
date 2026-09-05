@@ -12,6 +12,9 @@ const STATE_SCHEMA: &str = "skarbiec.onboarding-state.v1";
 const FALLBACK: &str = include_str!("onboarding_first_use.json");
 
 pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
+    if let Some(path) = flags.get("import") {
+        return crate::core::importer::run(flags, std::slice::from_ref(path));
+    }
     let definition = canonical_definition()?;
     let reset = flags.get("reset").is_some_and(|value| value == "true");
     let revision = format!("skarbiec-{}", env!("CARGO_PKG_VERSION"));
@@ -49,6 +52,15 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
                         "status": "awaiting_vault",
                         "resume": "skarbiec onboarding"
                     }));
+                }
+                if !flags.get("yes").is_some_and(|value| value == "true") {
+                    print!("Export file to import (Enter keeps the optional note walkthrough): ");
+                    io::stdout().flush()?;
+                    let mut source = String::new();
+                    io::stdin().read_line(&mut source)?;
+                    if !source.trim().is_empty() {
+                        return crate::core::importer::run(flags, &[source.trim().to_string()]);
+                    }
                 }
                 if !confirmed(
                     flags,

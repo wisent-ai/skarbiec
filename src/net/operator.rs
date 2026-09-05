@@ -34,6 +34,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
     matches!(
         path,
         "/v1/operator/vaults/create"
+            | "/v1/operator/items/import"
             | "/v1/operator/items/trash"
             | "/v1/operator/items/reclaim"
             | "/v1/operator/items/restore"
@@ -136,6 +137,10 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/vaults/create" => {
             crate::cmd_init(&no_flags, &positionals(parsed, &["owner"])?)
         }
+        "/v1/operator/items/import" => core::importer::run(
+            &flags(parsed, &["format", "conflict"]),
+            &positionals(parsed, &["path"])?,
+        ),
         "/v1/operator/items/trash" => crate::cmd_delete(&positionals(parsed, &["id"])?),
         "/v1/operator/items/reclaim" => crate::cmd_reclaim(&positionals(parsed, &["id"])?),
         "/v1/operator/items/restore" => crate::cmd_restore(&positionals(parsed, &["id"])?),

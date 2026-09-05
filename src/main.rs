@@ -389,9 +389,6 @@ fn cmd_generate(flags: &HashMap<String, String>) -> Result<()> {
     emit(&json!({"password": value}))
 }
 
-// Lossless migration lives in core::items::import_json (moved so this entry
-// point stays under the per-file line budget).
-
 // Bridge for consumers that read a JSON-array file (via an env-configured path):
 // decrypt every live item and write the array
 // to an owner-only file. The vault stays the source of truth; this materializes
@@ -477,7 +474,7 @@ fn main() -> Result<()> {
         "purge" => emit(&cmd_purge(&positionals)?),
         "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
-        "import" => emit(&items::import_json(&positionals)?),
+        "import" => emit(&core::importer::run(&flags, &positionals)?),
         "migrate" => emit(&items::migrate_vault(&flags)?),
         "migrate-v2" => emit(&items::migrate_v2(&flags)?),
         "export" => cmd_export(&flags, &positionals),

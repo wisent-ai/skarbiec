@@ -21,6 +21,15 @@ pub struct Vault {
     doc: Value,
     base_generation: u64,
 }
+pub(crate) struct ItemWrite<'a> {
+    pub id: &'a str,
+    pub kind: &'a str,
+    pub payload: &'a Value,
+    pub recipients: &'a [String],
+    pub tags: &'a [String],
+    pub import_source: Option<&'a str>,
+}
+
 #[derive(Clone, Copy)]
 pub struct ManagedWrite<'a> {
     pub controller: &'a str,
@@ -622,6 +631,57 @@ impl Vault {
         (parent_pid, program)
     }
 
+    pub(crate) fn set_items_atomic(&mut self, writes: &[ItemWrite<'_>]) -> Result<()> {
+        if writes.is_empty() {
+            return Ok(());
+        }
+        let mut ids = std::collections::HashSet::with_capacity(writes.len());
+        let mut prepared = Vec::with_capacity(writes.len());
+        for write in writes {
+            if !ids.insert(write.id) {
+                bail!("duplicate item in import: {}", write.id);
+            }
+            let (mut entry, audit) = self.prepare_item_with_writer(
+                write.id,
+                write.kind,
+                write.payload,
+                write.recipients,
+                write.tags,
+                WritePolicy::default(),
+            )?;
+            if let Some(source) = write.import_source {
+                entry["import_source"] = json!(source);
+            }
+            prepared.push((write.id.to_string(), entry, audit));
+        }
+        let mut previous = Vec::with_capacity(prepared.len());
+        let mut audits = Vec::with_capacity(prepared.len());
+        let items = obj_mut(&mut self.doc, "items");
+        for (id, entry, audit) in prepared {
+            let old = items.insert(id.clone(), entry);
+            previous.push((id, old));
+            audits.push(audit);
+        }
+        if let Err(error) = self.save() {
+            let items = obj_mut(&mut self.doc, "items");
+            for (id, old) in previous {
+                match old {
+                    Some(entry) => {
+                        items.insert(id, entry);
+                    }
+                    None => {
+                        items.remove(&id);
+                    }
+                }
+            }
+            return Err(error);
+        }
+        for audit in audits {
+            crate::runtime::audit::append_sync("item-write", &audit).ok();
+        }
+        Ok(())
+    }
+
     fn set_item_with_writer(
         &mut self,
         id: &str,
@@ -631,6 +691,34 @@ impl Vault {
         tags: &[String],
         policy: WritePolicy<'_>,
     ) -> Result<()> {
+        let (entry, audit) =
+            self.prepare_item_with_writer(id, item_kind, payload, recipient_uids, tags, policy)?;
+        let previous = obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        if let Err(error) = self.save() {
+            let items = obj_mut(&mut self.doc, "items");
+            match previous {
+                Some(entry) => {
+                    items.insert(id.to_string(), entry);
+                }
+                None => {
+                    items.remove(id);
+                }
+            }
+            return Err(error);
+        }
+        crate::runtime::audit::append_sync("item-write", &audit).ok();
+        Ok(())
+    }
+
+    fn prepare_item_with_writer(
+        &self,
+        id: &str,
+        item_kind: &str,
+        payload: &Value,
+        recipient_uids: &[String],
+        tags: &[String],
+        policy: WritePolicy<'_>,
+    ) -> Result<(Value, Value)> {
         let writer = policy.writer;
         let requested_management = policy
             .managed
@@ -786,7 +874,7 @@ impl Vault {
             .unwrap_or_else(|| json!(stamp));
         let written_by = writer.unwrap_or_else(|| self.owner_uid()).to_string();
         let stored_tags = effective_tags.len();
-        let entry = json!({
+        let mut entry = json!({
             "format": current_envelope(),
             "item_uid": item_uid,
             "kind": item_kind,
@@ -807,7 +895,9 @@ impl Vault {
             },
             "history": history,
         });
-        obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        if let Some(source) = previous.as_ref().and_then(|item| item.get("import_source")) {
+            entry["import_source"] = source.clone();
+        }
         // Who wrote this, in the journal, not only which owner key signed it.
         // Two subscription items lost their enumeration tags repeatedly while
         // every writer anyone could name preserved them, and the vault recorded
@@ -829,22 +919,18 @@ impl Vault {
         // mutating operation, and this file's own rule is that those journal
         // synchronously.
         let (parent_pid, parent_process) = Self::parent_process();
-        crate::runtime::audit::append_sync(
-            "item-write",
-            &json!({
-                "item": id,
-                "kind": item_kind,
-                "revision": revision,
-                "tags": stored_tags,
-                "tags_requested": tags.len(),
-                "pid": std::process::id(),
-                "process": std::env::args().next().unwrap_or_default(),
-                "parent_pid": parent_pid,
-                "parent_process": parent_process,
-            }),
-        )
-        .ok();
-        self.save()
+        let audit = json!({
+            "item": id,
+            "kind": item_kind,
+            "revision": revision,
+            "tags": stored_tags,
+            "tags_requested": tags.len(),
+            "pid": std::process::id(),
+            "process": std::env::args().next().unwrap_or_default(),
+            "parent_pid": parent_pid,
+            "parent_process": parent_process,
+        });
+        Ok((entry, audit))
     }
 
     /// Replace one item's tags without touching its payload.

@@ -170,7 +170,33 @@ sh scripts/install.sh
 
 ## Quick start
 
-The canonical quick start is executable rather than a transcript that can drift.
+Start with the credentials you already have. Select an existing vault with
+`SKARBIEC_VAULT_FILE`, or create one with `skarbiec init <owner-uid>`, then import
+your password-manager or browser export:
+
+```sh
+skarbiec import "$HOME/Downloads/1PasswordExport.1pux" --format 1password
+# Alternatively, import during setup:
+skarbiec onboarding --import "$HOME/Downloads/bitwarden.json" --format bitwarden
+```
+
+The importer accepts 1Password 1PUX v3/JSON/CSV, unencrypted Bitwarden JSON/CSV,
+browser CSV, and canonical Skarbiec JSON rows. The default `--conflict keep`
+preserves existing values; `replace` is explicit and `error` refuses a changed
+existing record before any write. A repeated source identity reuses the saved
+item even after a local rename. The complete accepted batch is encrypted before
+one generation-checked vault save; the source export is never changed.
+
+Desktop offers the same operation in first use and **Items → Import existing
+items**, including vault selection or creation, counts, warnings, and access to
+the actual saved records and attachments. The CLI offers an export-file prompt
+before the optional walkthrough, or the explicit `onboarding --import` command
+above. See [formats, retained fields, limits and refusals](https://skarbiec.wisent.com/docs/import)
+for the complete `0.3.0` source contract.
+
+### Optional acquisition walkthrough
+
+The acquisition walkthrough is executable rather than a transcript that can drift.
 From a source checkout with `skarbiec` installed, it creates a disposable vault,
 an isolated GPG keyring, and an Ed25519 workload identity. It stores only the
 literal non-secret value `not-a-secret`.
