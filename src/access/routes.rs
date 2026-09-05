@@ -131,7 +131,7 @@ pub fn dispatch(
                 "routes reconcile",
                 "routes verify [<consumer>]",
             ],
-            "usage": "routes reconcile derives capability routes from what vault items declare -- the brama:provider:/brama:id: tags an operator wrote on a credential, and the id/agent_auth_secret fields an internal-authority item carries -- never from how an item happens to be named; an item that declares nothing is mapped by hand with routes add. routes list [<consumer>] prints every route with the vault's answer for it; routes verify [<consumer>] exits non-zero when a route cannot serve a usable credential -- an item that is missing, renamed away, in the trash or will not open on this host, a field the item does not carry, and a field that is present but empty, which is a broken credential and not a working one; routes add is idempotent, keeps the previous table beside the new one, and requires --reason. The optional <consumer> argument matches resource text and is presentation only: it narrows what is printed and grants nothing, because redemption is authorised by the live vault token that registers a workload's Ed25519 key, never by this table.",
+            "usage": "routes reconcile derives capability routes from what vault items declare -- the brama:provider:/brama:id: tags an operator wrote on a credential, and the id/agent_auth_secret fields an internal-authority item carries -- never from how an item happens to be named; an item that declares nothing is mapped by hand with routes add. routes list [<consumer>] prints every route with the vault's answer for it; routes verify [<consumer>] exits non-zero when a route cannot serve a usable credential -- an item that is missing, renamed away, in the trash or will not open on this host, a field the item does not carry, and a field that is empty or contains an uppercase placeholder, neither of which is a working credential; routes add is idempotent, keeps the previous table beside the new one, and requires --reason. The optional <consumer> argument matches resource text and is presentation only: it narrows what is printed and grants nothing, because redemption is authorised by the live vault token that registers a workload's Ed25519 key, never by this table.",
             "table": routes_path().display().to_string(),
         }),
         other => bail!("unknown routes command: {other}"),
@@ -192,13 +192,12 @@ fn selected<'a>(
 
 /// Whether a field holds nothing a consumer could authenticate with.
 ///
-/// Emptiness is asked of the text redemption would hand out, not of the
-/// value's shape: a string is served verbatim and a structured field is served
-/// as its canonical JSON text, so an empty string, a string of nothing but
-/// whitespace, and a container whose every leaf is one of those all reduce to
-/// a credential with no credential in it. `{}` and `[]` are that same nothing
-/// written as a container -- `all` over no elements is true, which is exactly
-/// the answer wanted here.
+/// Emptiness is asked of the text redemption would hand out. A string is
+/// served verbatim and a structured field as canonical JSON, so blank text and
+/// a container whose every leaf is blank both carry no credential. Placeholder
+/// recognition is deliberately separate in `coordinate`: a non-empty
+/// uppercase identifier can still be an explicit statement that the real
+/// credential has not been provisioned.
 ///
 /// A bool or a number is never blank: it is short, not absent.
 fn blank(value: &Value) -> bool {
@@ -297,6 +296,11 @@ pub(crate) fn coordinate(
                 Ok(Value::Null) => {
                     problem = Some(format!(
                         "vault item {item} field {field} is not a text value"
+                    ))
+                }
+                Ok(Value::String(text)) if schema::is_placeholder(text.trim()) => {
+                    problem = Some(format!(
+                        "vault item {item} field {field} contains an uppercase placeholder, not a usable credential"
                     ))
                 }
                 Ok(value) if blank(value) => {

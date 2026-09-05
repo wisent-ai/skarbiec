@@ -277,6 +277,28 @@ Run `skarbiec status` for the vault path and non-sensitive counts,
 `skarbiec key-doctor` for key and decryptability diagnosis, `/livez` for process
 liveness, and `/readyz` (or compatibility alias `/health`) for readiness.
 
+### TOTP diagnostics
+
+`skarbiec totp-seed-state [<item-id>]` validates `totp_secret` through the same
+Base32-to-six-digit-code path used by `skarbiec totp`; it does not equate a
+non-empty field with a working second factor and never emits the seed or the
+computed code. Every row includes `seed_state`, a `description` of what was
+found, and a state-specific `repair` when the vault can name the next action:
+
+| State | Meaning |
+| --- | --- |
+| `present` | The field has the supported Base32 shape and the TOTP consumer produced a six-digit code. This does not prove that the account still has that seed enrolled. |
+| `placeholder` | The field contains an uppercase underscore-delimited placeholder such as `WELES_ADMIN_GOOGLE_TOTP_SECRET`, not a secret. Replace the placeholder account values with a real account before enrolling and storing TOTP. |
+| `invalid` | The field is non-empty but is not usable Base32 TOTP material or cannot produce a six-digit code. |
+| `declared_empty` | The item kind declares `totp_secret`, but no non-blank text is stored in the field. |
+| `field_absent` | The item kind does not declare a `totp_secret` field and must be stored as a `login` before it can carry one. |
+| `unreadable` | The item could not be opened; the output includes the read error rather than guessing a seed state. |
+
+`skarbiec totp` reports `has_seed: true` only for `present`; placeholder and
+invalid values return no code. The shared credential resolver also rejects
+uppercase placeholders, so `routes verify`, the `doctor` credentials check,
+and `capability-issue` cannot call placeholder text a usable credential.
+
 ### Ownership by concern
 
 | Concern | Current owner and contract |

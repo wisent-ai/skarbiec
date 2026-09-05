@@ -410,3 +410,51 @@ fn token_mint_refuses_grants_that_mix_incompatible_actions() {
     assert!(stderr(&output)
         .contains("acquire capabilities cannot share a grant with direct capabilities"));
 }
+
+#[test]
+fn routes_verify_refuses_placeholder_credentials() {
+    let fixture = CliFixture::new("grants");
+    fixture.init("Skarbiec route test <skarbiec-route-test@example.invalid>");
+    let stored = fixture.run(&[
+        "set",
+        "placeholder-provider",
+        "--type",
+        "api-key",
+        "api_key=PROVIDER_API_KEY",
+    ]);
+    assert_success("store placeholder provider item", &stored);
+    let added = fixture.run(&[
+        "routes",
+        "add",
+        "--resource",
+        "provider:placeholder",
+        "--item",
+        "placeholder-provider",
+        "--field",
+        "api_key",
+        "--reason",
+        "test placeholder diagnosis",
+    ]);
+    assert_success("add placeholder route", &added);
+
+    let refused = fixture.run(&["routes", "verify"]);
+    assert!(!refused.status.success());
+    assert!(stderr(&refused).contains(
+        "vault item placeholder-provider field api_key contains an uppercase placeholder, not a usable credential"
+    ));
+
+    let replaced = fixture.run(&[
+        "set",
+        "placeholder-provider",
+        "--type",
+        "api-key",
+        "api_key=real-provider-secret",
+    ]);
+    assert_success("replace placeholder in isolated fixture", &replaced);
+    let verified = fixture.run(&["routes", "verify"]);
+    assert_success("verify real provider credential", &verified);
+    let report: Value =
+        serde_json::from_slice(&verified.stdout).expect("parse route verification report");
+    assert_eq!(report["checked"], 1);
+    assert_eq!(report["broken"], serde_json::json!([]));
+}

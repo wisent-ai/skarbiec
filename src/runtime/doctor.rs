@@ -334,10 +334,10 @@ fn grants_check() -> Value {
 /// each time and the cause recorded never.
 ///
 /// The verdict comes from `routes verify`'s own resolver, not a second opinion
-/// about what a usable credential is: item present, not trashed, opens, field
-/// present, field non-empty.
+/// about what a usable credential is: the item is live and readable, and the
+/// field is neither blank nor an uppercase placeholder.
 ///
-/// Unlike `grants` this one decrypts, because emptiness is not a question the
+/// Unlike `grants` this one decrypts, because content is not a question the
 /// cleartext envelope can answer. That is one gpg per distinct item, and the
 /// resolver opens each item once however many resources map onto it.
 fn credentials_check() -> Value {

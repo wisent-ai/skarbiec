@@ -26,23 +26,23 @@ pub const SEED_REPAIR_COMMAND: &str = "printf '%s' '<seed from the authenticator
 
 /// What the vault can prove about one login row's authenticator seed.
 ///
-/// `Present` is deliberately NOT "good": a seed that is present and stale
-/// looks exactly like a seed that is present and correct from inside the
-/// vault. Splitting present from good needs submitted-code evidence.
+/// `Present` is deliberately NOT "current": a valid seed that is stale looks
+/// exactly like a valid seed that still matches the enrolment from inside the
+/// vault. Splitting those states needs submitted-code evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SeedState {
-    /// A non-empty seed. Whether it still matches the enrolment is unknown
-    /// here.
+    /// A Base32 value accepted by the real TOTP consumer, which produced one
+    /// six-digit code.
     Present,
+    /// A non-empty uppercase underscore-delimited placeholder, not a secret.
+    Placeholder,
+    /// A non-empty value that is not usable as a Base32 TOTP seed.
+    Invalid,
     /// The row's kind declares `totp_secret`, and the row carries no usable
-    /// value for it — absent, empty, blank, or not a string. This is the
-    /// condition earlier probing saw as `has_seed: false` on accounts that
-    /// declare the field, and its repair is the same as a stale seed's:
-    /// enrol, then store.
+    /// value for it — absent, empty, blank, or not a string.
     DeclaredEmpty,
-    /// The row's kind has no `totp_secret` field at all, so no sign-in of it
-    /// was ever going to answer an authenticator prompt. Storing a seed here
-    /// is refused by the schema; the row's kind is the thing that is wrong.
+    /// The row's kind has no `totp_secret` field at all. Storing a seed here is
+    /// refused by the schema; the row's kind is the thing that is wrong.
     FieldAbsent,
 }
 
@@ -50,16 +50,45 @@ impl SeedState {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Present => "present",
+            Self::Placeholder => "placeholder",
+            Self::Invalid => "invalid",
             Self::DeclaredEmpty => "declared_empty",
             Self::FieldAbsent => "field_absent",
         }
     }
 
-    /// The repair for the states the vault can already settle. `Present` has
-    /// none from here: the run history decides whether it needs one.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Present => {
+                "totp_secret contains a usable Base32 seed that produced a six-digit TOTP code; whether it still matches the account enrolment is unknown"
+            }
+            Self::Placeholder => {
+                "totp_secret contains an uppercase underscore-delimited placeholder, not a TOTP seed; no usable second-factor secret is stored"
+            }
+            Self::Invalid => {
+                "totp_secret is non-empty but is not a usable Base32 TOTP seed and did not produce a six-digit code; no usable second-factor secret is stored"
+            }
+            Self::DeclaredEmpty => {
+                "this item kind declares totp_secret, but the field is absent, empty, blank, or not text; no second-factor secret is stored"
+            }
+            Self::FieldAbsent => {
+                "this item kind does not declare a totp_secret field; the item cannot store a TOTP second factor in its current shape"
+            }
+        }
+    }
+
+    /// Every settled failure carries the first correct operator action.
     pub fn repair(self) -> Option<&'static str> {
         match self {
             Self::Present => None,
+            Self::Placeholder => Some(
+                "replace the placeholder account values with a real account first; then enrol TOTP and store its Base32 seed with \
+                 printf '%s' '<seed from the authenticator app>' | ACCOUNT=<login-item> skarbiec/scripts/store-login-totp-seed.sh",
+            ),
+            Self::Invalid => Some(
+                "replace the invalid totp_secret with the real Base32 seed from the account's authenticator enrolment using \
+                 printf '%s' '<seed from the authenticator app>' | ACCOUNT=<login-item> skarbiec/scripts/store-login-totp-seed.sh",
+            ),
             Self::DeclaredEmpty => Some(SEED_REPAIR_COMMAND),
             Self::FieldAbsent => Some(
                 "this row's kind declares no totp_secret field; \
@@ -73,36 +102,78 @@ fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-/// The seed, if the row carries a usable one.
-///
-/// A field holding an empty or blank string is NOT a seed. It used to answer
-/// `has_seed: true` here and then hand `oathtool` nothing, so an account with
-/// a hollow field reported the same shape as a working one — which is part of
-/// why a seed nobody could use went six days without being noticed.
-fn seed_of(payload: &Value) -> Option<String> {
+/// The non-blank text stored in `totp_secret`, if there is any.
+fn seed_of(payload: &Value) -> Option<&str> {
     schema::field(payload, "totp_secret")
         .ok()
         .and_then(Value::as_str)
         .map(str::trim)
         .filter(|seed| !seed.is_empty())
-        .map(str::to_string)
 }
 
-/// Classify one canonical item payload. Reads the seed only to ask whether it
-/// is there; the value never leaves this function.
+/// TOTP seeds in this product are Base32 text, optionally followed by standard
+/// `=` padding. Sixteen data characters is the shortest supported seed (80
+/// bits); 128 keeps diagnostic work bounded.
+fn base32_seed_shape(seed: &str) -> bool {
+    let data = seed.trim_end_matches('=');
+    let padding = seed.len().saturating_sub(data.len());
+    ("16".parse::<usize>().unwrap_or_default()..="128".parse().unwrap_or(usize::MAX))
+        .contains(&data.len())
+        && padding <= 6
+        && (padding == usize::MIN || seed.len() % 8 == usize::MIN)
+        && data
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || matches!(byte, b'2'..=b'7'))
+}
+
+struct SeedInspection {
+    state: SeedState,
+    code: Option<String>,
+}
+
+/// Classify one canonical item payload against the same TOTP consumer used by
+/// `totp`. The seed never leaves this function; only the six-digit result can.
+fn inspect_seed(payload: &Value) -> SeedInspection {
+    let Some(seed) = seed_of(payload) else {
+        let declares = payload
+            .get("kind")
+            .and_then(Value::as_str)
+            .is_some_and(|kind| schema::kind_declares_field(kind, "totp_secret"));
+        return SeedInspection {
+            state: if declares {
+                SeedState::DeclaredEmpty
+            } else {
+                SeedState::FieldAbsent
+            },
+            code: None,
+        };
+    };
+    if schema::is_placeholder(seed) {
+        return SeedInspection {
+            state: SeedState::Placeholder,
+            code: None,
+        };
+    }
+    if !base32_seed_shape(seed) {
+        return SeedInspection {
+            state: SeedState::Invalid,
+            code: None,
+        };
+    }
+    match crypto::totp_code(seed) {
+        Some(code) => SeedInspection {
+            state: SeedState::Present,
+            code: Some(code),
+        },
+        None => SeedInspection {
+            state: SeedState::Invalid,
+            code: None,
+        },
+    }
+}
+
 pub fn seed_state(payload: &Value) -> SeedState {
-    if seed_of(payload).is_some() {
-        return SeedState::Present;
-    }
-    let declares = payload
-        .get("kind")
-        .and_then(Value::as_str)
-        .is_some_and(|kind| schema::kind_declares_field(kind, "totp_secret"));
-    if declares {
-        SeedState::DeclaredEmpty
-    } else {
-        SeedState::FieldAbsent
-    }
+    inspect_seed(payload).state
 }
 
 pub fn dispatch(
@@ -115,25 +186,20 @@ pub fn dispatch(
             let id = positionals.first().context("usage: totp <item-id>")?;
             let vault = load()?;
             let row = vault.get_item(id)?;
-            match seed_of(&row) {
-                Some(seed) => {
-                    let code = crypto::totp_code(&seed);
-                    let note = if code.is_none() {
-                        json!("install oath-toolkit (oathtool) to compute codes")
-                    } else {
-                        Value::Null
-                    };
-                    Ok(Some(
-                        json!({"item": id, "has_seed": true, "code": code, "note": note}),
-                    ))
-                }
-                None => Ok(Some(json!({"item": id, "has_seed": false}))),
-            }
+            let inspected = inspect_seed(&row);
+            let state = inspected.state;
+            Ok(Some(json!({
+                "item": id,
+                "has_seed": state == SeedState::Present,
+                "seed_state": state.as_str(),
+                "description": state.description(),
+                "code": inspected.code,
+                "repair": state.repair().map(|repair| repair.replace("<login-item>", id)),
+            })))
         }
-        // The seed-state read a diagnostic can call. Deliberately separate
-        // from `totp`: `totp` computes and returns a live one-time code, and a
-        // fleet-wide sweep that only wants to know whether a seed exists must
-        // not mint codes into a control plane's output to find out.
+        // The seed-state diagnostic validates the stored value through the same
+        // real TOTP computation as `totp`, but never returns the short-lived
+        // code or the seed itself.
         "totp-seed-state" => {
             let vault = load()?;
             // One item, or every login row in one vault open. The sweep form
@@ -157,6 +223,7 @@ pub fn dispatch(
                             "item": id,
                             "kind": row.get("kind").cloned().unwrap_or(Value::Null),
                             "seed_state": state.as_str(),
+                            "description": state.description(),
                             // The repair names the account it is for; a
                             // command an operator has to edit before running
                             // is a command they run wrong.

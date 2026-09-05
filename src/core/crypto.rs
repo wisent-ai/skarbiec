@@ -698,10 +698,12 @@ pub fn export_public_key(fingerprint: &str) -> Result<String> {
     run("gpg", &["--armor", "--export", fingerprint], None)
 }
 
-/// Current time-based one-time code for a base32 seed, when the standard oath
-/// toolkit is installed. None means "install oath-toolkit to compute codes"; the
-/// seed itself is still stored and emitted for the consumer.
+/// Current six-digit time-based one-time code for a Base32 seed, when the
+/// standard oath toolkit accepts the seed. Tool absence, malformed Base32 and
+/// output that is not exactly the six digits a TOTP consumer accepts all return
+/// `None`; callers must not describe any of those states as a usable seed.
 pub fn totp_code(secret_base32: &str) -> Option<String> {
     run_opt("oathtool", &["--totp", "--base32", secret_base32], None)
         .map(|code| code.trim().to_string())
+        .filter(|code| code.len() == 6 && code.bytes().all(|byte| byte.is_ascii_digit()))
 }

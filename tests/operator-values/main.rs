@@ -85,28 +85,42 @@ fn operator_set_creates_or_updates_item_with_preserved_fields() {
 }
 
 #[test]
-fn operator_totp_generates_code_when_seed_exists() {
+fn operator_totp_generates_only_a_real_six_digit_code() {
     let fixture = CliFixture::new("operator-values");
     fixture.init("Test Vault <test@example.com>");
 
     fixture.run(&[
         "set",
-        "test-2fa",
+        "real-2fa",
         "username=diana",
         "password=pass999",
         "totp_secret=JBSWY3DPEHPK3PXP",
     ]);
+    fixture.run(&[
+        "set",
+        "placeholder-2fa",
+        "username=WELES_ADMIN_GOOGLE_EMAIL",
+        "password=WELES_ADMIN_GOOGLE_PASSWORD",
+        "totp_secret=WELES_ADMIN_GOOGLE_TOTP_SECRET",
+    ]);
 
-    // Get TOTP code
-    let output = fixture.run(&["totp", "test-2fa"]);
-    assert_success("generate totp code", &output);
+    let real = fixture.run(&["totp", "real-2fa"]);
+    assert_success("generate totp code", &real);
+    let real: serde_json::Value =
+        serde_json::from_slice(&real.stdout).expect("totp output must be JSON");
+    let code = real["code"].as_str().expect("real seed must produce a code");
+    assert_eq!(code.len(), 6);
+    assert!(code.bytes().all(|byte| byte.is_ascii_digit()));
+    assert_eq!(real["has_seed"], true);
+    assert_eq!(real["seed_state"], "present");
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("has_seed") && stdout.contains("true"),
-        "should indicate seed exists"
-    );
-    // Code may be present depending on oathtool availability
+    let placeholder = fixture.run(&["totp", "placeholder-2fa"]);
+    assert_success("refuse placeholder as totp seed", &placeholder);
+    let placeholder: serde_json::Value =
+        serde_json::from_slice(&placeholder.stdout).expect("totp output must be JSON");
+    assert_eq!(placeholder["has_seed"], false);
+    assert_eq!(placeholder["seed_state"], "placeholder");
+    assert!(placeholder["code"].is_null());
 }
 
 #[test]
@@ -124,6 +138,63 @@ fn operator_totp_indicates_no_seed_when_field_missing() {
         stdout.contains("has_seed") && stdout.contains("false"),
         "should indicate no seed"
     );
+}
+
+#[test]
+fn operator_totp_seed_state_separates_reality_from_nonempty_text() {
+    let fixture = CliFixture::new("operator-values");
+    fixture.init("Test Vault <test@example.com>");
+    fixture.run(&[
+        "set",
+        "real-seed",
+        "username=real@example.com",
+        "totp_secret=JBSWY3DPEHPK3PXP",
+    ]);
+    fixture.run(&[
+        "set",
+        "placeholder-seed",
+        "username=WELES_ADMIN_GOOGLE_EMAIL",
+        "totp_secret=WELES_ADMIN_GOOGLE_TOTP_SECRET",
+    ]);
+    fixture.run(&[
+        "set",
+        "invalid-seed",
+        "username=invalid@example.com",
+        "totp_secret=NOT-BASE32",
+    ]);
+    fixture.run(&[
+        "set",
+        "empty-seed",
+        "username=empty@example.com",
+        "password=account-password",
+    ]);
+
+    let cases = [
+        ("real-seed", "present"),
+        ("placeholder-seed", "placeholder"),
+        ("invalid-seed", "invalid"),
+        ("empty-seed", "declared_empty"),
+    ];
+    for (item, expected) in cases {
+        let output = fixture.run(&["totp-seed-state", item]);
+        assert_success(item, &output);
+        let row: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("seed-state output must be JSON");
+        assert_eq!(row["seed_state"], expected, "wrong state for {item}");
+        let description = row["description"]
+            .as_str()
+            .expect("every state must explain what was found");
+        assert!(!description.is_empty());
+    }
+
+    let placeholder = fixture.run(&["totp-seed-state", "placeholder-seed"]);
+    let placeholder: serde_json::Value =
+        serde_json::from_slice(&placeholder.stdout).expect("seed-state output must be JSON");
+    let repair = placeholder["repair"]
+        .as_str()
+        .expect("placeholder state must name its repair");
+    assert!(repair.contains("replace the placeholder account values with a real account first"));
+    assert!(repair.contains("ACCOUNT=placeholder-seed"));
 }
 
 #[test]

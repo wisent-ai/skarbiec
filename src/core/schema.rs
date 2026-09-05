@@ -70,6 +70,19 @@ pub fn exact_token(value: &str, max: usize) -> bool {
         && !value.contains('\n')
         && !value.contains('\r')
 }
+/// Whether one stored string is an operator placeholder rather than a
+/// credential. Placeholders in imported fleet data are uppercase identifiers
+/// joined with underscores (`WELES_ADMIN_GOOGLE_PASSWORD`); requiring the
+/// underscore keeps ordinary all-uppercase secrets and Base32 TOTP seeds out
+/// of this class.
+pub fn is_placeholder(value: &str) -> bool {
+    value.contains('_')
+        && value.starts_with(|character: char| character.is_ascii_uppercase())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
 
 /// One registered tag namespace, and the two shapes a namespace comes in.
 ///
