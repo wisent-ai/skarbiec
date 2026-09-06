@@ -53,19 +53,29 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
                         "resume": "skarbiec onboarding"
                     }));
                 }
-                if !flags.get("yes").is_some_and(|value| value == "true") {
-                    print!("Export file to import (Enter keeps the optional note walkthrough): ");
-                    io::stdout().flush()?;
-                    let mut source = String::new();
-                    io::stdin().read_line(&mut source)?;
-                    if !source.trim().is_empty() {
-                        return crate::core::importer::run(flags, &[source.trim().to_string()]);
-                    }
-                }
+                // The question the published journey declares for this
+                // screen, asked first and answered as a yes/no.
+                //
+                // An export-file prompt used to come before it, and a bare
+                // `n` -- the ordinary answer to a `[y/N]` question -- was
+                // read as the name of a file to import. So an operator
+                // declining the walkthrough got the importer pointed at a
+                // file called `n`, and `skarbiec onboarding` never reached
+                // the screen the journey publishes: the first-use journey
+                // timed out waiting for `"status": "paused"` while the
+                // process sat on a prompt no published screen mentions.
+                // Import has its own entry points, `skarbiec import` and
+                // `skarbiec onboarding --import <export-file>`, and this
+                // screen names the second one instead of consuming an answer
+                // meant for the question above it.
                 if !confirmed(
                     flags,
                     "Write and read one non-secret onboarding note? [y/N] ",
                 )? {
+                    println!(
+                        "\nAlready hold credentials elsewhere? \
+                         `skarbiec onboarding --import <export-file>` brings them in."
+                    );
                     return Ok(json!({
                         "ok": true,
                         "status": "paused",
