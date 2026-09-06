@@ -299,6 +299,21 @@ model and should not be used for new machine integrations.
 | `SKARBIEC_CRYPTO_TIMEOUT_SECONDS` | Deadline after which a cryptographic child is killed and reaped; default 30 |
 | `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
 
+The two concurrency limits are nested, and the narrow one is taken first: a
+`gpg` process claims a GnuPG slot and only then a general cryptographic slot,
+so a decryption waiting its turn on the keyring holds no capacity anything
+else needs. Taken the other way round, eight parked `gpg` children own the
+whole general pool and every cheap tool queues behind them — `shasum`, which
+verifies the bearer on every authenticated route, and `openssl`, which mints a
+token. On 2026-09-05 a fleet host's four verifier sweeps read 48 mapped items
+through one broker while a queue agent asked it for the metadata of its own
+grant: that call decrypts nothing and took 14.4s, `GET /readyz` on the same
+broker took 9.7s, and the fleet's own check reported the broker unmeasured
+while it answered every request with 200.
+
+`/readyz` decrypts its canaries, so it waits for GnuPG capacity by design;
+`/livez` and the metadata routes do not.
+
 Run `skarbiec status` for the vault path and non-sensitive counts,
 `skarbiec key-doctor` for key and decryptability diagnosis, `/livez` for process
 liveness, and `/readyz` (or compatibility alias `/health`) for readiness.

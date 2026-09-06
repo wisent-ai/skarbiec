@@ -311,8 +311,26 @@ fn recover_gpg_daemons() -> Result<()> {
 }
 
 fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
-    let _capacity = CRYPTO_LIMIT.acquire();
+    // The narrow permit FIRST, then the general one.
+    //
+    // Taken the other way round, a `gpg` child that is waiting for one of the
+    // two GnuPG slots sits on a general crypto slot while doing no work, and
+    // eight of those hold the whole pool. Every cheap tool then queues behind
+    // decryptions it has nothing to do with: `shasum`, which is how a bearer
+    // is verified on EVERY authenticated route, and `openssl`, which is how a
+    // token is minted. On 2026-09-05 the fleet's four verifier sweeps read 48
+    // mapped items through one broker while the queue agent asked it for the
+    // metadata of its own grant — a call that decrypts nothing — and that
+    // metadata call took 14.4s, `GET /readyz` on the same broker 9.7s, and
+    // Stado's `agent-skarbiec` check reported `not measured` about a broker
+    // answering every request with 200.
+    //
+    // One order everywhere, so the two limits cannot deadlock against each
+    // other: `acquire_exclusive` on the GnuPG limit is also taken before any
+    // general permit, and nothing acquires the general permit before the
+    // GnuPG one.
     let _gpg_capacity = (program == "gpg").then(|| GPG_LIMIT.acquire());
+    let _capacity = CRYPTO_LIMIT.acquire();
     let mut child = Command::new(crypto_program(program).as_ref())
         .args(args)
         .stdin(if input.is_some() {
