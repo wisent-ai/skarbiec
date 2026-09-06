@@ -108,7 +108,9 @@ fn operator_totp_generates_only_a_real_six_digit_code() {
     assert_success("generate totp code", &real);
     let real: serde_json::Value =
         serde_json::from_slice(&real.stdout).expect("totp output must be JSON");
-    let code = real["code"].as_str().expect("real seed must produce a code");
+    let code = real["code"]
+        .as_str()
+        .expect("real seed must produce a code");
     assert_eq!(code.len(), 6);
     assert!(code.bytes().all(|byte| byte.is_ascii_digit()));
     assert_eq!(real["has_seed"], true);
