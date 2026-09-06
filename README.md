@@ -189,9 +189,10 @@ one generation-checked vault save; the source export is never changed.
 
 Desktop offers the same operation in first use and **Items → Import existing
 items**, including vault selection or creation, counts, warnings, and access to
-the actual saved records and attachments. The CLI offers an export-file prompt
-before the optional walkthrough, or the explicit `onboarding --import` command
-above. See [formats, retained fields, limits and refusals](https://skarbiec.wisent.com/docs/import)
+the actual saved records and attachments. On the CLI the entry points are
+`skarbiec import` and `skarbiec onboarding --import` above; the first-use
+walkthrough names them and asks nothing that could be mistaken for a file
+name. See [formats, retained fields, limits and refusals](https://skarbiec.wisent.com/docs/import)
 for the complete `0.3.0` source contract.
 
 ### Optional acquisition walkthrough
