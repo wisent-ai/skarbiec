@@ -42,7 +42,8 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/items/share"
             | "/v1/operator/items/revoke"
             | "/v1/operator/recipients/add"
-            | "/v1/operator/grants/mint"
+            | "/v1/operator/grants/issue"
+            | "/v1/operator/grants/ensure"
             | "/v1/operator/grants/revoke"
             | "/v1/operator/donations/accept"
             | "/v1/operator/donations/reject"
@@ -111,7 +112,7 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         ),
         "/v1/operator/chain" => runtime("verify-chain", &flags(parsed, &["tail"]), &none),
         "/v1/operator/policy" => access("policy-get", &no_flags, &none),
-        "/v1/operator/grants" => access("tokens", &no_flags, &none),
+        "/v1/operator/grants" => grant("list", &no_flags, &none),
         "/v1/operator/doctor" => crate::runtime::doctor::report(),
         "/v1/operator/status" => crate::core::items::status_json(),
         "/v1/operator/vaults" => crate::runtime::vaults::inventory(),
@@ -156,9 +157,9 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["import", "role"]),
             &positionals(parsed, &["uid"])?,
         ),
-        "/v1/operator/grants/mint" => {
-            let mut report = access(
-                "token-mint",
+        "/v1/operator/grants/issue" => {
+            let mut report = grant(
+                "issue",
                 &flags(
                     parsed,
                     &[
@@ -179,11 +180,23 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             }
             Ok(report)
         }
-        "/v1/operator/grants/revoke" => access(
-            "token-revoke",
-            &no_flags,
-            &positionals(parsed, &["consumer"])?,
+        "/v1/operator/grants/ensure" => grant(
+            "ensure",
+            &flags(parsed, &["field", "token-file"]),
+            &positionals(parsed, &["consumer", "item"])?,
         ),
+        // `--token-file` and never `--token`: the command line offers both, and
+        // a loopback body is the one place a bearer must not travel, so a
+        // console proves possession through the same owner-only file the
+        // widening route already requires.
+        "/v1/operator/grants/verify" => grant(
+            "verify",
+            &flags(parsed, &["action", "field", "token-file"]),
+            &positionals(parsed, &["consumer", "item"])?,
+        ),
+        "/v1/operator/grants/revoke" => {
+            grant("revoke", &no_flags, &positionals(parsed, &["consumer"])?)
+        }
         "/v1/operator/donations/accept" => {
             inbox("donation-accept", &no_flags, &positionals(parsed, &["id"])?)
         }
@@ -309,6 +322,16 @@ fn answered(result: Result<Option<Value>>) -> Result<Value> {
 
 fn access(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     answered(crate::access::dispatch(command, flags, positionals))
+}
+
+/// One `grant` leaf: the subcommand this route stands for, in front of the
+/// positionals its body named. The group takes the leaf as its first
+/// positional, so a console and the command line reach the same dispatcher
+/// with the same argument list.
+fn grant(leaf: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+    let mut argv = vec![leaf.to_string()];
+    argv.extend_from_slice(positionals);
+    access("grant", flags, &argv)
 }
 
 fn runtime(

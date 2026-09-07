@@ -38,7 +38,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 
 // A resource is the broker's own vocabulary and carries separators; an item and a
-// field are vault names. The bounds are the ones `capability-issue` already
+// field are vault names. The bounds are the ones `grant capability` already
 // applies to a resource it refuses to issue.
 const MAX_RESOURCE_CHARS: usize = 512;
 const MAX_REASON_CHARS: usize = 512;
@@ -240,7 +240,7 @@ pub(crate) struct Coordinate {
 /// left quarantining its own release for a month with nothing naming why.
 ///
 /// This is the one question the whole table exists to answer, so every surface
-/// asks it here: `routes verify`, `doctor`, and `capability-issue` all call
+/// asks it here: `routes verify`, `doctor`, and `grant capability` all call
 /// this rather than carrying a second opinion about what a usable credential
 /// is.
 ///

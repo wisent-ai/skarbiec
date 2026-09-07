@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::net::TcpStream;
 use wisent_errors::{trim_detail, Code};
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{crypto, inbox, schema};
 
 // Shared request helpers, re-exported by net::http so handler call sites read
@@ -71,7 +71,7 @@ pub(crate) fn handle_tokens_introspect(
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_action(&vault, &consumer, &bearer, "introspect", "tokens")?
+        || !grant::token_allows_action(&vault, &consumer, &bearer, "introspect", "tokens")?
     {
         return http::write_response(
             stream,
@@ -79,7 +79,7 @@ pub(crate) fn handle_tokens_introspect(
             &json!({"error": "consumer not authorized to introspect tokens"}),
         );
     }
-    let answer = tokens::introspect(&vault, subject)?;
+    let answer = grant::introspect(&vault, subject)?;
     crate::runtime::audit::append(
         "http-token-introspected",
         &json!({
@@ -114,7 +114,7 @@ pub(crate) fn handle_items_read(
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_field_action(&vault, &consumer, &bearer, "read", id, field)?
+        || !grant::token_allows_field_action(&vault, &consumer, &bearer, "read", id, field)?
     {
         return http::write_response(
             stream,
@@ -276,7 +276,7 @@ pub(crate) fn handle_items_put(
                 );
             }
             if consumer.is_empty()
-                || !tokens::token_allows_field_action(
+                || !grant::token_allows_field_action(
                     &vault, &consumer, &bearer, "stage", id, field,
                 )?
             {
@@ -329,7 +329,7 @@ pub(crate) fn handle_items_put(
         }
         "stage" => {
             if consumer.is_empty()
-                || !tokens::token_allows_field_action(
+                || !grant::token_allows_field_action(
                     &vault, &consumer, &bearer, "stage", id, field,
                 )?
             {
@@ -473,7 +473,7 @@ pub(crate) fn handle_donation(
         .unwrap_or(header_consumer);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "donate", item_id)?
+        || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "donate", item_id)?
     {
         return http::write_response(
             stream,
@@ -529,7 +529,7 @@ fn lifecycle_authorized(headers: &HashMap<String, String>, item: &str) -> Result
         return Ok(false);
     }
     let vault = http::load()?;
-    tokens::token_allows_action(&vault, &consumer, &bearer, "lifecycle", item)
+    grant::token_allows_action(&vault, &consumer, &bearer, "lifecycle", item)
 }
 
 /// `POST /v1/credential/operations` — submit or resume one credential

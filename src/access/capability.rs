@@ -111,7 +111,6 @@ pub fn dispatch(
     _positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "capability-issue" => Ok(Some(issue(flags)?)),
         "capability-serve" => Ok(Some(serve(flags)?)),
         "apple-challenge-put" => Ok(Some(challenge_put(_positionals)?)),
         _ => Ok(None),
@@ -228,7 +227,7 @@ fn resolve_route(resource: &str) -> Result<Option<(String, String)>> {
 
 /// A refusal the caller can act on, on stdout as well as in the error.
 ///
-/// `capability-issue` is run as a subprocess by the gateway that needs the
+/// `grant capability` is run as a subprocess by the gateway that needs the
 /// credential, and a refusal is rendered by `anyhow` on stderr. A gateway
 /// reading the child's stdout therefore recorded `capability_issue_refused`
 /// with an empty detail -- seven providers refused at once, and the operator
@@ -248,7 +247,7 @@ fn refused(
 ) -> anyhow::Error {
     let document = json!({
         "status": "refused",
-        "command": "capability-issue",
+        "command": "grant capability",
         "resource": resource,
         "item": coordinate.map(|(item, _)| item),
         "field": coordinate.map(|(_, field)| field),
@@ -258,14 +257,14 @@ fn refused(
     if let Ok(text) = serde_json::to_string_pretty(&document) {
         println!("{text}");
     }
-    anyhow!("capability-issue refused for {resource}: {reason}; {remedy}")
+    anyhow!("grant capability refused for {resource}: {reason}; {remedy}")
 }
 
 // Each bound is refused separately and the error names the pair, so `x < low || x >
 // high` mirrors the sentence the caller reads back. A `contains` on a range says the
 // same thing about a set, which is not what is being explained here.
 #[allow(clippy::manual_range_contains)]
-fn issue(flags: &HashMap<String, String>) -> Result<Value> {
+pub(super) fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
     let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
     let resource = flags
@@ -274,10 +273,10 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
         .unwrap_or_default();
     let target = flags.get("target").map(String::as_str).unwrap_or_default();
     if !exact_token(agent, 128) || !exact_token(purpose, 128) || !exact_token(resource, 512) {
-        bail!("capability-issue requires exact --agent, --purpose, and --resource");
+        bail!("grant capability requires exact --agent, --purpose, and --resource");
     }
     if !exact_token(target, 64) {
-        bail!("capability-issue requires an exact --target");
+        bail!("grant capability requires an exact --target");
     }
     let ttl: u64 = flags
         .get("ttl")
@@ -353,7 +352,7 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!({"capability_id": capability_id, "status": "issued"}))
 }
 
-// Liveness matches tokens::active: a consumer entry carries no state field, only an
+// Liveness matches grant::active: a consumer entry carries no state field, only an
 // expiry. Checking for a "state" the vault never writes would deny every redemption
 // while looking like a working guard.
 fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {

@@ -22,7 +22,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use wisent_errors::Code;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{vault::Vault, vault_path};
 use crate::net::http;
 use crate::runtime;
@@ -316,8 +316,8 @@ pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Opti
     let vault = http::load()?;
     // Hash the bearer once: hashing shells out to `shasum`, so per-item
     // hashing turned this filter into one subprocess spawn per vault item.
-    let hash = tokens::presented_hash(&bearer)?;
-    if consumer.is_empty() || !tokens::token_valid_hash(&vault, &consumer, &hash) {
+    let hash = grant::presented_hash(&bearer)?;
+    if consumer.is_empty() || !grant::token_valid_hash(&vault, &consumer, &hash) {
         return Ok(None);
     }
     Ok(Some(
@@ -326,7 +326,7 @@ pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Opti
             .into_iter()
             .filter(|item| {
                 item.get("id").and_then(Value::as_str).is_some_and(|id| {
-                    tokens::token_allows_any_item_hash(&vault, &consumer, &hash, "read", id)
+                    grant::token_allows_any_item_hash(&vault, &consumer, &hash, "read", id)
                 })
             })
             .collect(),
