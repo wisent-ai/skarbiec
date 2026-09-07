@@ -182,45 +182,19 @@ fn grant_verify_answers_only_the_exact_consumer_field_and_grant() {
 
     // The exact binding — consumer, item, field, grant — is allowed.
     assert!(allowed(&[
-        "grant",
-        "verify",
-        CONSUMER,
-        ITEM,
-        "--field",
-        "api_key",
-        "--token",
-        token,
+        "grant", "verify", CONSUMER, ITEM, "--field", "api_key", "--token", token,
     ]));
     // A field-scoped grant answers item-level questions with a refusal.
     assert!(!allowed(&[
-        "grant",
-        "verify",
-        CONSUMER,
-        ITEM,
-        "--token",
-        token
+        "grant", "verify", CONSUMER, ITEM, "--token", token
     ]));
     // A wrong grant value is refused for the right consumer.
     assert!(!allowed(&[
-        "grant",
-        "verify",
-        CONSUMER,
-        ITEM,
-        "--field",
-        "api_key",
-        "--token",
-        "deadbeef",
+        "grant", "verify", CONSUMER, ITEM, "--field", "api_key", "--token", "deadbeef",
     ]));
     // The right grant value is refused for a different consumer.
     assert!(!allowed(&[
-        "grant",
-        "verify",
-        "other",
-        ITEM,
-        "--field",
-        "api_key",
-        "--token",
-        token,
+        "grant", "verify", "other", ITEM, "--field", "api_key", "--token", token,
     ]));
 }
 
@@ -242,14 +216,7 @@ fn grant_revoke_deletes_the_grant_and_stays_idempotent() {
 
     // The revoked grant no longer authorizes its previous exact binding.
     let output = fixture.run(&[
-        "grant",
-        "verify",
-        CONSUMER,
-        ITEM,
-        "--field",
-        "api_key",
-        "--token",
-        token,
+        "grant", "verify", CONSUMER, ITEM, "--field", "api_key", "--token", token,
     ]);
     assert_success("verify after revoke answers instead of erroring", &output);
     let verdict: Value = serde_json::from_slice(&output.stdout).expect("parse verify verdict");
@@ -277,14 +244,7 @@ fn grants_are_edited_by_rotation_replacement_or_ensure() {
 
     let allowed = |field: &str, token: &str| -> bool {
         let output = fixture.run(&[
-            "grant",
-            "verify",
-            CONSUMER,
-            ITEM,
-            "--field",
-            field,
-            "--token",
-            token,
+            "grant", "verify", CONSUMER, ITEM, "--field", field, "--token", token,
         ]);
         assert_success("verify answers instead of erroring", &output);
         let verdict: Value = serde_json::from_slice(&output.stdout).expect("parse verify verdict");
@@ -604,7 +564,9 @@ fn an_acquire_grant_returns_no_bearer_and_states_its_redemption() {
         path,
     ]);
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("workload public keys are valid only for acquire capabilities"));
+    assert!(
+        stderr(&output).contains("workload public keys are valid only for acquire capabilities")
+    );
 }
 
 fn write_workload_key(fixture: &CliFixture, public: &Path) {
@@ -679,8 +641,7 @@ fn grant_capability_refuses_an_unmapped_resource_and_issues_a_mapped_one() {
         "provider:demo",
     ]);
     assert_success("issue one bounded redemption", &output);
-    let issued: Value =
-        serde_json::from_slice(&output.stdout).expect("parse capability response");
+    let issued: Value = serde_json::from_slice(&output.stdout).expect("parse capability response");
     assert_eq!(issued["status"], "issued");
     assert_eq!(
         issued["capability_id"]

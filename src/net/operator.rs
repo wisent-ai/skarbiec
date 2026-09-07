@@ -194,11 +194,9 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["action", "field", "token-file"]),
             &positionals(parsed, &["consumer", "item"])?,
         ),
-        "/v1/operator/grants/revoke" => grant(
-            "revoke",
-            &no_flags,
-            &positionals(parsed, &["consumer"])?,
-        ),
+        "/v1/operator/grants/revoke" => {
+            grant("revoke", &no_flags, &positionals(parsed, &["consumer"])?)
+        }
         "/v1/operator/donations/accept" => {
             inbox("donation-accept", &no_flags, &positionals(parsed, &["id"])?)
         }
