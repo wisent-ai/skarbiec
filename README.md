@@ -270,12 +270,12 @@ workloads through acquisition rather than a legacy direct bearer.
 | --- | --- | --- | --- |
 | `skarbiec` CLI | Owner administration, diagnostics, and supervised automation | Public `0.2.x`; tracked by the versioned command surface | [CLI reference](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) |
 | Loopback HTTP broker | Service acquisition, compatibility item access, health, and ciphertext sync | Public `/v1`; acquisition is the default, direct scopes are compatibility-only | [Acquisition contract](https://skarbiec.wisent.com/docs/cli#service-account-grants) · [Examples](https://skarbiec.wisent.com/docs/examples) |
-| MCP server | Agent-safe metadata and audit, plus explicitly configured compatibility resolve | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](https://skarbiec.wisent.com/docs/security#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](https://skarbiec.wisent.com/docs/cli#servers) |
+| MCP server | Agent-safe metadata and audit, plus explicitly configured declared route resolution | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](https://skarbiec.wisent.com/docs/security#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](https://skarbiec.wisent.com/docs/cli#servers) |
 | Chrome native host | Origin-checked fill through the managed extension | Public managed integration; the extension never receives a vault bearer or private key | [Browser boundary](https://skarbiec.wisent.com/docs/security#the-browser-boundary) · [Managed installation](https://skarbiec.wisent.com/docs/install#managed-browser-installation-and-updates) |
 | Stado adapter | Preserve exact deployed Wisent consumer/item contracts over the broker | Compatibility interface outside the core binary | [Examples](https://skarbiec.wisent.com/docs/examples) |
 
 The MCP surface deliberately excludes raw item reads, minting, rotation, and
-export. Its compatibility `resolve` path writes a mode-0600 env file and returns
+export. Its `skarbiec_route_resolve` tool writes a mode-0600 env file and returns
 only the path and exported variable names. That path is not the acquisition
 model and should not be used for new machine integrations.
 
@@ -290,9 +290,9 @@ model and should not be used for new machine integrations.
 | `SKARBIEC_UNLOCK_FILE` | Owner-only file supplying a protected key's unlock phrase to a persistent service |
 | `SKARBIEC_UNLOCK` | Single-invocation unlock phrase, passed to `gpg` over stdin; prefer the file for services |
 | `SKARBIEC_ACQUISITION_TTL_SECONDS` | One-use capability TTL from 1 through 300 seconds; default 30 |
-| `SKARBIEC_MCP_CONSUMER` | Server-side consumer identity required to enable MCP resolve |
+| `SKARBIEC_MCP_CONSUMER` | Server-side consumer identity required to enable MCP route resolution |
 | `SKARBIEC_MCP_TOKEN_FILE` | Server-side compatibility grant file; never a tool argument |
-| `SKARBIEC_MCP_OUT_DIR` | Required absolute directory for mode-0600 MCP resolve output |
+| `SKARBIEC_MCP_OUT_DIR` | Required absolute directory for mode-0600 MCP route-resolution output |
 | `SKARBIEC_HTTP_WORKERS` | Maximum concurrent HTTP handlers; default 16 |
 | `SKARBIEC_HTTP_QUEUE` | Waiting HTTP requests before overload is refused; default 32 |
 | `SKARBIEC_CRYPTO_CONCURRENCY` | Maximum concurrent external cryptographic tools; default 8 |
@@ -338,7 +338,7 @@ found, and a state-specific `repair` when the vault can name the next action:
 
 `skarbiec totp` reports `has_seed: true` only for `present`; placeholder and
 invalid values return no code. The shared credential resolver also rejects
-uppercase placeholders, so `routes verify`, the `doctor` credentials check,
+uppercase placeholders, so `route verify`, the `doctor` credentials check,
 and `grant capability` cannot call placeholder text a usable credential.
 
 ### Ownership by concern
@@ -347,7 +347,7 @@ and `grant capability` cannot call placeholder text a usable credential.
 | --- | --- |
 | Configuration | Operator-owned environment variables and owner-only files; the supported settings and defaults are listed above. There is no configuration file and no reload: an explicit variable wins over the built-in default, and each invocation reads the environment it was given |
 | State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl`. State documents use mode-0600 temporary files, `fsync`, and `rename`, so a reader sees the old document or the new one and never a partial write. Acquisition updates serialize through the owner-only `<vault>.acquisitions.json.advisory.lock` file and a kernel lock that is released when the process exits; the operator chooses the durable filesystem and its backups |
-| Credentials | Values live in the vault only as per-recipient GPG ciphertext. Plaintext exists in exactly three places: the `gpg` child process and Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that the compatibility `resolve --emit` path writes on request. The protected-key path stages ciphertext — never plaintext — to a temporary file, and an unlock phrase reaches `gpg` over stdin rather than argv. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `rotate-owner`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `grant revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material |
+| Credentials | Values live in the vault only as per-recipient GPG ciphertext. Plaintext exists in exactly three places: the `gpg` child process and Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that `route resolve --emit` writes on request. The protected-key path stages ciphertext — never plaintext — to a temporary file, and an unlock phrase reaches `gpg` over stdin rather than argv. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `rotate-owner`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `grant revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material |
 | Networking | `serve` binds `127.0.0.1` only, on port 8787 unless `--port` says otherwise. A fixed worker set and bounded waiting queue cap connections; overload is refused before it can consume cryptographic or file-descriptor capacity. The one connection Skarbiec itself initiates outward is `breach-check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
 | Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. Hosted Hub pricing is not published because that service is not shipped |
 | Observability | Skarbiec provides `/livez`, `/readyz`, compatibility alias `/health`, `status`, `key-doctor`, `audit-query`, `audit-epoch-start`, and `verify-chain`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it |

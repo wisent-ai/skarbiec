@@ -244,7 +244,7 @@ fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<
 /// The references this does break -- capability routes, consumer grants,
 /// acquisition bearers in flight -- break loudly, which is the accepted
 /// tradeoff. What changes is that they are now traceable: the uid travels with
-/// the item, so `routes verify` reports a renamed item as renamed and names
+/// the item, so `route verify` reports a renamed item as renamed and names
 /// where it went, instead of reporting it as missing and leaving an operator
 /// unable to tell a rename from a purge.
 fn cmd_rename(positionals: &[String]) -> Result<()> {
@@ -483,7 +483,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","bond-add","bond-list","bond-remove","capability-serve","routes","credential","apple-challenge-put","version"]}),
+            &json!({"commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","route","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","bond-add","bond-list","bond-remove","capability-serve","credential","apple-challenge-put","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),

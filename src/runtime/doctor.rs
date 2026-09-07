@@ -15,7 +15,7 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::access::{grant, routes};
+use crate::access::{grant, route_resolution, route_table};
 use crate::core::{schema, vault::Vault, vault_path};
 use crate::credential;
 use crate::runtime::audit;
@@ -210,7 +210,7 @@ fn names_vault_item(action: &str) -> bool {
     )
 }
 
-/// One grant against the vault, in `routes verify`'s words.
+/// One grant against the vault, in `route verify`'s words.
 ///
 /// The first two problems are that command's own strings, because a broken
 /// grant and a broken route are the same failure seen from two tables and an
@@ -333,7 +333,7 @@ fn grants_check() -> Value {
 /// eighteen times over a month with "candidate did not become ready" recorded
 /// each time and the cause recorded never.
 ///
-/// The verdict comes from `routes verify`'s own resolver, not a second opinion
+/// The verdict comes from `route verify`'s own resolver, not a second opinion
 /// about what a usable credential is: the item is live and readable, and the
 /// field is neither blank nor an uppercase placeholder.
 ///
@@ -343,7 +343,7 @@ fn grants_check() -> Value {
 fn credentials_check() -> Value {
     // No table is a fresh install, exactly as no WORM receipt is: the broker
     // resolves nothing yet and there is no credential to be wrong about.
-    let path = routes::table_path();
+    let path = route_table::table_path();
     if !path.exists() {
         return check(
             "credentials",
@@ -351,7 +351,7 @@ fn credentials_check() -> Value {
             format!("no capability routes table at {}", path.display()),
         );
     }
-    let rows = match routes::verdicts(None) {
+    let rows = match route_resolution::verdicts(None) {
         Ok(rows) => rows,
         Err(error) => return check("credentials", FAIL, format!("{}: {error}", path.display())),
     };
@@ -417,7 +417,7 @@ const ROUTES_TABLE: &str = "capability-routes.json";
 /// - the vault was chosen by fallback while other vaults are visible, and
 /// - a vault sits at the default path with no routes table beside it, which
 ///   is a broker that resolves every resource to nothing and only says so
-///   when `routes verify` is finally run against it.
+///   when `route verify` is finally run against it.
 ///
 /// Nothing is decrypted and no item name is reported; the counts come from
 /// the same cleartext envelope `vaults` reads.
