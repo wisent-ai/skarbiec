@@ -76,7 +76,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 #     → the route is fine and the credential behind it is not, so every
 #       workload asking for that resource is refused while the table still
 #       looks correct. Write the value back with `skarbiec set`, then re-run.
-#       `skarbiec routes verify` asks the same question on its own and exits
+#       `skarbiec route verify` asks the same question on its own and exits
 #       non-zero, which is the form a provisioning sequence wants.
 #       The other problems this reports are `no vault item <item>` (purged),
 #       `vault item <item> was renamed to <new>`, `vault item <item> is in
@@ -84,7 +84,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 #       <item> does not open: ...` — that last one is this host's gpg, not the
 #       credential, and it will name every route at once.
 #
-# Next: docs/CLI.md for the full command surface,
+# Next: https://skarbiec.wisent.com/docs/cli for the full command surface,
 # docs/examples/operations/issue-a-capability.sh for the contract issuance
 # enforces against these same routes, and docs/examples/acquire-one-field.sh
 # for the workload-bound access path.

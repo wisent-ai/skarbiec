@@ -392,54 +392,6 @@ fn grant_issue_refuses_grants_that_mix_incompatible_actions() {
         .contains("acquire capabilities cannot share a grant with direct capabilities"));
 }
 
-#[test]
-fn routes_verify_refuses_placeholder_credentials() {
-    let fixture = CliFixture::new("grants");
-    fixture.init("Skarbiec route test <skarbiec-route-test@example.invalid>");
-    let stored = fixture.run(&[
-        "set",
-        "placeholder-provider",
-        "--type",
-        "api-key",
-        "api_key=PROVIDER_API_KEY",
-    ]);
-    assert_success("store placeholder provider item", &stored);
-    let added = fixture.run(&[
-        "routes",
-        "add",
-        "--resource",
-        "provider:placeholder",
-        "--item",
-        "placeholder-provider",
-        "--field",
-        "api_key",
-        "--reason",
-        "test placeholder diagnosis",
-    ]);
-    assert_success("add placeholder route", &added);
-
-    let refused = fixture.run(&["routes", "verify"]);
-    assert!(!refused.status.success());
-    assert!(stderr(&refused).contains(
-        "vault item placeholder-provider field api_key contains an uppercase placeholder, not a usable credential"
-    ));
-
-    let replaced = fixture.run(&[
-        "set",
-        "placeholder-provider",
-        "--type",
-        "api-key",
-        "api_key=real-provider-secret",
-    ]);
-    assert_success("replace placeholder in isolated fixture", &replaced);
-    let verified = fixture.run(&["routes", "verify"]);
-    assert_success("verify real provider credential", &verified);
-    let report: Value =
-        serde_json::from_slice(&verified.stdout).expect("parse route verification report");
-    assert_eq!(report["checked"], 1);
-    assert_eq!(report["broken"], serde_json::json!([]));
-}
-
 /// The bearer a declared grant hands back is the one the serving path
 /// accepts, and revoking the declaration stops that same read.
 ///
@@ -610,23 +562,12 @@ fn grant_capability_refuses_an_unmapped_resource_and_issues_a_mapped_one() {
     ]);
     assert!(!output.status.success());
     assert!(stderr(&output).contains(
-        "grant capability refused for provider:unmapped: no capability route maps provider:unmapped to a vault field"
+        "grant capability refused for provider:unmapped: nothing declares provider:unmapped and no capability route names it"
     ));
 
     assert_success(
-        "map the resource to a vault field",
-        &fixture.run(&[
-            "routes",
-            "add",
-            "--resource",
-            "provider:demo",
-            "--item",
-            ITEM,
-            "--field",
-            "api_key",
-            "--reason",
-            "declared consumer grant test",
-        ]),
+        "declare the resource on the item that answers it",
+        &fixture.run(&["retag", ITEM, "--tags=brama:provider:demo"]),
     );
     let output = fixture.run(&[
         "grant",

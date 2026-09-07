@@ -47,6 +47,10 @@ path = "tests/operator-values/main.rs"
 name = "operator-http"
 path = "tests/operator-http/main.rs"
 
+[[test]]
+name = "routes"
+path = "tests/routes/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"

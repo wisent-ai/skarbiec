@@ -1,11 +1,11 @@
-// Runtime layer: tamper-evident audit log, credential resolution + reference
-// expansion, and one-time-code / breach health helpers. Each submodule matches
-// its own commands and returns None otherwise; a real error propagates via `?`.
+// Runtime layer: tamper-evident audit log, and one-time-code / breach health
+// helpers. Each submodule matches its own commands and returns None otherwise;
+// a real error propagates via `?`. Credential resolution moved to
+// `access::route`, where the declaration that decides it lives.
 
 pub mod audit;
 pub mod breach;
 pub mod doctor;
-pub mod resolve;
 pub mod totp;
 pub mod vaults;
 
@@ -19,9 +19,6 @@ pub fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     if let Some(v) = audit::dispatch(command, flags, positionals)? {
-        return Ok(Some(v));
-    }
-    if let Some(v) = resolve::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
     if let Some(v) = totp::dispatch(command, flags, positionals)? {
