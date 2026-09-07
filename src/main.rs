@@ -8,7 +8,6 @@ mod bonds;
 mod browser;
 mod core;
 mod credential;
-mod invite;
 mod native_host;
 mod net;
 mod onboarding;
@@ -484,7 +483,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","token-mint","token-ensure-read","token-revoke","token-verify","tokens","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","invite","bond-add","bond-list","bond-remove","capability-issue","capability-serve","routes","credential","apple-challenge-put","version"]}),
+            &json!({"commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","resolve","expand","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","bond-add","bond-list","bond-remove","capability-serve","routes","credential","apple-challenge-put","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
@@ -499,8 +498,6 @@ fn main() -> Result<()> {
             } else if let Some(v) = net::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else if let Some(v) = bonds::dispatch(other, &flags, &positionals)? {
-                emit(&v)
-            } else if let Some(v) = invite::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)

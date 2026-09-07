@@ -11,7 +11,7 @@ use std::io::Write;
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{schema, vault::Vault, vault_path};
 
 const CONSUMER: &str = "skarbiec-browser-host";
@@ -101,14 +101,14 @@ fn mint_browser_token() -> Result<String> {
         bail!("no canonical login items are available for browser access");
     }
     let flags = HashMap::from([("capabilities".to_string(), capabilities.join(","))]);
-    let positionals = vec![CONSUMER.to_string()];
-    let minted = tokens::dispatch("token-mint", &flags, &positionals)?
-        .context("token-mint did not return a result")?;
+    let positionals = vec!["issue".to_string(), CONSUMER.to_string()];
+    let minted = grant::dispatch("grant", &flags, &positionals)?
+        .context("grant issue did not return a result")?;
     minted
         .get("token")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .context("token-mint did not return a bearer token")
+        .context("grant issue did not return a bearer token")
 }
 
 pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {

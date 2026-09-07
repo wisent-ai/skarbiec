@@ -1,6 +1,23 @@
-// Structured, exact consumer capabilities. Long-lived grants authenticate a
-// consumer; workload-bound `acquire` capabilities may only mint a short-lived,
-// field-bound, single-use bearer through the acquisition module.
+// The declared consumer grant: one capability, one grammar, six leaves.
+//
+// A grant is one declaration the v2 validator already enforces -- an action,
+// one item, an optional exact field, and, for `acquire`, the Ed25519 workload
+// public key that action requires. `grant issue` writes that declaration,
+// `grant capability` issues one bounded redemption of an existing one,
+// `grant ensure` widens one by a single exact field read, `grant list` reports
+// them, `grant verify` asks one exact question, and `grant revoke` withdraws.
+//
+// Six leaves replaced seven verbs -- `token-mint`, `token-ensure-read`,
+// `token-revoke`, `token-verify`, `tokens`, `capability-issue` and `invite` --
+// each of which restated this grammar by hand, so each was another place an
+// operator could be told a different answer to what a grant is. `invite` was
+// `token-mint` with one acquire capability spelled out in order to print a
+// redemption contract; that contract is what `grant issue` now answers with
+// whenever the grant it wrote is workload-bound.
+//
+// Long-lived grants authenticate a consumer; workload-bound `acquire`
+// capabilities may only mint a short-lived, field-bound, single-use bearer
+// through the acquisition module.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -322,7 +339,7 @@ fn parse_capabilities(
     preserved_capabilities: &[Value],
 ) -> Result<Vec<Value>> {
     if raw.trim().is_empty() {
-        bail!("token-mint requires --capabilities action:item[#field]");
+        bail!("grant issue requires --capabilities action:item[#field]");
     }
     let mut capabilities = Vec::new();
     for encoded in raw.split(',') {
@@ -481,7 +498,7 @@ pub fn acquisition_workload_public_key(
         .map(str::to_string)
 }
 
-fn mint_once(
+fn issue_once(
     consumer: &str,
     flags: &std::collections::HashMap<String, String>,
     attempt: u32,
@@ -519,7 +536,7 @@ fn mint_once(
             .is_some_and(|value| value == "true");
         if !same_capabilities && !replace_capabilities {
             bail!(
-                "token-mint refuses to change existing capabilities without --replace-capabilities"
+                "grant issue refuses to change existing capabilities without --replace-capabilities"
             );
         }
     }
@@ -611,7 +628,7 @@ fn mint_once(
         );
     vault.save()?;
     crate::runtime::audit::append(
-        "token-mint",
+        "grant-issued",
         &json!({
             "consumer": consumer,
             "capabilities": capabilities,
@@ -620,7 +637,7 @@ fn mint_once(
             "expires_at": expires_at,
         }),
     )?;
-    Ok(json!({
+    let mut answer = json!({
         "ok": true,
         "consumer": consumer,
         "capabilities": capabilities,
@@ -628,18 +645,27 @@ fn mint_once(
         "audience": audience,
         "expires_at": expires_at,
         "token": generated_token,
-    }))
+    });
+    // What `invite` existed to print. An acquire grant hands out no bearer, so
+    // an operator who has just declared one holds nothing and has no statement
+    // of what the workload does next, and answering it here keeps the
+    // declaration and its redemption contract one answer from one command.
+    let redeem = redemption_contract(consumer, &capabilities);
+    if !redeem.is_empty() {
+        answer["redeem"] = json!(redeem);
+    }
+    Ok(answer)
 }
 
 fn ensure_read_once(consumer: &str, item: &str, field: &str, token_file: &Path) -> Result<Value> {
     if !exact_component(consumer) || !exact_resource(item) || !exact_component(field) {
-        bail!("token-ensure-read requires exact consumer, item, and field names");
+        bail!("grant ensure requires exact consumer, item, and field names");
     }
     let mut vault = load()?;
     let mut requested = parse_capabilities(&vault, &format!("read:{item}#{field}"), &[])?;
     let capability = requested
         .pop()
-        .context("token-ensure-read produced no capability")?;
+        .context("grant ensure produced no capability")?;
     let bearer = read_fixed_token(token_file)?;
     let presented_hash = crypto::sha256_hex(&bearer)?;
     let existing = vault
@@ -673,7 +699,7 @@ fn ensure_read_once(consumer: &str, item: &str, field: &str, token_file: &Path) 
             .push(capability.clone());
         vault.save()?;
         crate::runtime::audit::append(
-            "token-ensure-read",
+            "grant-ensured-read",
             &json!({
                 "consumer": consumer,
                 "item": item,
@@ -815,12 +841,57 @@ pub fn dispatch(
                 "expires_at": expires_at,
             })))
         }
-        "token-ensure-read" => {
+        "grant" => group(flags, positionals),
+        _ => Ok(None),
+    }
+}
+
+/// Every workload-bound coordinate a grant declares, and how each is spent.
+///
+/// One row per `acquire` capability, because a grant may declare several and a
+/// caller has to be told the exact item and field its proof is signed over.
+fn redemption_contract(consumer: &str, capabilities: &[Value]) -> Vec<Value> {
+    capabilities
+        .iter()
+        .filter(|capability| {
+            capability.get("action").and_then(Value::as_str) == Some("acquire")
+        })
+        .filter_map(|capability| {
+            let item = capability.get("item").and_then(Value::as_str)?;
+            let field = capability.get("field").and_then(Value::as_str)?;
+            Some(json!({
+                "item": item,
+                "field": field,
+                "how": format!(
+                    "sign an acquisition proof, then run: skarbiec acquisition-request {consumer} {item} {field} --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX; consume its token once with acquisition-read"
+                ),
+            }))
+        })
+        .collect()
+}
+
+/// The six leaves of the `grant` group.
+///
+/// The subcommand is the first positional and every leaf reads the rest, so the
+/// argument list of a leaf is the one its replaced verb took: what moved is the
+/// name, not the grammar.
+fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+    let subcommand = positionals.first().map(String::as_str).unwrap_or("help");
+    let positionals = positionals
+        .get(std::iter::once(()).count()..)
+        .unwrap_or_default();
+    match subcommand {
+        // A bounded, use-counted redemption of a declaration that already
+        // exists: the resource resolves through the capability-route table and
+        // the workload key comes from the consumer grant, so nothing new is
+        // declared here. `capability-serve` is the surface that spends it.
+        "capability" => Ok(Some(super::capability::issue(flags)?)),
+        "ensure" => {
             let consumer = positionals.first().context(
-                "usage: token-ensure-read <consumer> <item> --field <field> --token-file <path>",
+                "usage: grant ensure <consumer> <item> --field <field> --token-file <path>",
             )?;
             let item = positionals.get(std::iter::once(()).count()).context(
-                "usage: token-ensure-read <consumer> <item> --field <field> --token-file <path>",
+                "usage: grant ensure <consumer> <item> --field <field> --token-file <path>",
             )?;
             let field = flags.get("field").context("--field is required")?;
             let token_file = flags
@@ -843,10 +914,10 @@ pub fn dispatch(
                 }
             }
         }
-        "token-mint" => {
+        "issue" => {
             let consumer = positionals
                 .first()
-                .context("usage: token-mint <consumer> --capabilities action:item[#field]")?;
+                .context("usage: grant issue <consumer> --capabilities action:item[#field]")?;
             if !exact_component(consumer) {
                 bail!("consumer must be one exact name");
             }
@@ -858,7 +929,7 @@ pub fn dispatch(
             let mut attempt = 0u32;
             loop {
                 attempt += 1;
-                match mint_once(consumer, flags, attempt) {
+                match issue_once(consumer, flags, attempt) {
                     Ok(report) => return Ok(Some(report)),
                     Err(error)
                         if error.to_string().contains("changed concurrently") && attempt < 5 =>
@@ -871,10 +942,10 @@ pub fn dispatch(
                 }
             }
         }
-        "token-revoke" => {
+        "revoke" => {
             let consumer = positionals
                 .first()
-                .context("usage: token-revoke <consumer>")?;
+                .context("usage: grant revoke <consumer>")?;
             let mut vault = load()?;
             vault
                 .doc_mut()
@@ -883,18 +954,23 @@ pub fn dispatch(
                 .context("tokens section")?
                 .remove(consumer);
             vault.save()?;
-            crate::runtime::audit::append("token-revoke", &json!({"consumer": consumer}))?;
+            crate::runtime::audit::append("grant-revoked", &json!({"consumer": consumer}))?;
             Ok(Some(json!({"ok": true, "consumer": consumer})))
         }
-        "token-verify" => {
+        "verify" => {
             let consumer = positionals.first().context(
-                "usage: token-verify <consumer> <item-id> --action read [--field field] --token T",
+                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer>",
             )?;
             let item = positionals.get(std::iter::once(()).count()).context(
-                "usage: token-verify <consumer> <item-id> --action read [--field field] --token T",
+                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer>",
             )?;
             let action = flags.get("action").map(String::as_str).unwrap_or("read");
-            let presented = flags.get("token").context("--token required")?;
+            let presented = &match (flags.get("token"), flags.get("token-file")) {
+                (Some(_), Some(_)) => bail!("grant verify takes --token or --token-file, not both"),
+                (Some(token), None) => token.to_string(),
+                (None, Some(path)) => read_fixed_token(Path::new(path))?,
+                (None, None) => bail!("grant verify requires --token or --token-file"),
+            };
             let allowed = match flags.get("field") {
                 Some(field) => {
                     token_allows_field_action(&load()?, consumer, presented, action, item, field)?
@@ -909,7 +985,7 @@ pub fn dispatch(
                 "allowed": allowed,
             })))
         }
-        "tokens" => {
+        "list" => {
             let vault = load()?;
             let listing: Vec<Value> = vault
                 .doc()
@@ -935,6 +1011,22 @@ pub fn dispatch(
                 .unwrap_or_default();
             Ok(Some(json!(listing)))
         }
-        _ => Ok(None),
+        "help" => Ok(Some(json!({
+            "commands": [
+                "grant issue <consumer> --capabilities <action:item[#field],...> [--workload-public-key-file <path>] [--token-file <path>] [--ttl-seconds <N>] [--audience <name>] [--replace-capabilities]",
+                "grant capability --agent <name> --purpose <text> --resource <resource> --target <name> [--ttl <seconds>] [--max-uses <1..16>] [--authorization-id <id>]",
+                "grant ensure <consumer> <item> --field <field> --token-file <path>",
+                "grant list",
+                "grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer> | --token-file <path>",
+                "grant revoke <consumer>",
+            ],
+            "usage": "A grant is one declaration: an action, one item, an optional exact field, and the Ed25519 workload public key an acquire capability requires. grant issue writes that declaration and rotates the bearer of that consumer, refusing a changed capability set unless the call states --replace-capabilities; an acquire grant returns no bearer at all and answers instead with the acquisition redemption contract for every exact coordinate it names. grant capability issues one bounded, use-counted redemption of a grant already declared, against a resource the capability-route table maps to a vault field, and refuses at issue time when that route is missing or the credential behind it cannot serve; capability-serve is what redeems it. grant ensure widens an existing direct grant by one exact field read without rotating anything, the owner proving possession through a mode-0600 --token-file that must hash to the recorded bearer. grant list returns metadata only, never a bearer and never a workload public key. grant verify answers one exact action, item and optional field question about one presented bearer, taken from --token or from an owner-only --token-file. grant revoke drops the whole declaration and is idempotent.",
+            "actions": [
+                "read", "acquire", "stage", "rotate", "verify", "revoke", "share", "trash",
+                "purge", "admin", "sync", "enroll", "donate", "lifecycle", "reseal",
+                "introspect", "call",
+            ],
+        }))),
+        other => bail!("unknown grant command: {other}"),
     }
 }

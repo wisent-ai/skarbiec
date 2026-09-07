@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 struct StateLock(File);
@@ -398,7 +398,7 @@ pub fn issue(
         return Ok(None);
     }
     let vault = Vault::open(vault_path())?;
-    let Some(public_key) = tokens::acquisition_workload_public_key(&vault, consumer, item, field)
+    let Some(public_key) = grant::acquisition_workload_public_key(&vault, consumer, item, field)
     else {
         return Ok(None);
     };

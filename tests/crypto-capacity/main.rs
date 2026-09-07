@@ -119,7 +119,8 @@ fn a_metadata_call_does_not_wait_for_decryptions_it_has_nothing_to_do_with() {
         &fixture.run(&["set", ITEM, "--type", "api-key", "api_key=sekret-123"]),
     );
     let minted = fixture.run(&[
-        "token-mint",
+        "grant",
+        "issue",
         CONSUMER,
         "--capabilities",
         &format!("read:{ITEM}#api_key"),

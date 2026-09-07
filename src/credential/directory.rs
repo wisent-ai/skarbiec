@@ -7,7 +7,7 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::vault::Vault;
 use crate::runtime::audit;
 
@@ -215,7 +215,7 @@ pub(super) fn seal_directory(
     refuse_quarantined(&vault, credential_id, command)?;
     if reseal {
         let (consumer, token) = client_identity(flags)?;
-        if !tokens::token_allows_action(&vault, &consumer, &token, "reseal", credential_id)? {
+        if !grant::token_allows_action(&vault, &consumer, &token, "reseal", credential_id)? {
             bail!("{consumer} holds no reseal capability for {credential_id}");
         }
     } else if resolved_directory(&vault, credential_id)?.is_some() {

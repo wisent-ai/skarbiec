@@ -9,7 +9,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 
 "$SB" init 'skarbiec-host <host@example.com>'
 "$SB" set health-note --type note value=ready
-"$SB" token-mint local-operator --capabilities 'read:health-note'
+"$SB" grant issue local-operator --capabilities 'read:health-note'
 "$SB" serve --port "$PORT" &
 until curl -sf "http://localhost:$PORT/health" > /dev/null; do :; done
 echo "host up on port $PORT"

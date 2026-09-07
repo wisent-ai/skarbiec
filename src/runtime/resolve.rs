@@ -10,7 +10,7 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{schema, vault::Vault, vault_path};
 use crate::net::http;
 
@@ -95,7 +95,7 @@ pub fn handle_http_resolve(
                 .into_iter()
                 .find_map(|(field, exported)| (exported == name).then_some(field));
             field.is_some_and(|field| {
-                tokens::token_allows_field_action(&vault, &consumer, &bearer, "read", &id, field)
+                grant::token_allows_field_action(&vault, &consumer, &bearer, "read", &id, field)
                     .unwrap_or(false)
                     // An adopt candidate the provider has not confirmed is
                     // never resolved into a consumer's environment.
@@ -159,7 +159,7 @@ pub fn dispatch(
                         .into_iter()
                         .find_map(|(field, exported)| (exported == name).then_some(field));
                     field.is_some_and(|field| {
-                        tokens::token_allows_field_action(
+                        grant::token_allows_field_action(
                             &vault,
                             consumer,
                             presented.expect("presented token required"),

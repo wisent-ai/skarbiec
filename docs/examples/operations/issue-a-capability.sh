@@ -2,7 +2,7 @@
 # issue-a-capability.sh — map a resource onto a vault field and issue a finite
 # capability against it, and see what issuance refuses before it hands one out.
 #
-# Goal: understand the contract `capability-issue` enforces, which is stricter
+# Goal: understand the contract `grant capability` enforces, which is stricter
 # than "is this resource known": a non-`challenge:` resource must map to a
 # credential that can actually serve, and issuance proves that before it issues
 # rather than leaving the failure to redemption.
@@ -53,7 +53,7 @@ printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":""},"c
 
 # 3. Issue against the working credential. This succeeds and prints the
 #    capability id and its state.
-"$SB" capability-issue \
+"$SB" grant capability \
   --agent demo-agent --purpose example --target demo \
   --resource provider:demo-good --ttl 600 --max-uses 1
 
@@ -67,11 +67,11 @@ printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":""},"c
 #
 #    `challenge:` resources are the documented exception and skip this check
 #    entirely, because their value is written later by the relay.
-if "$SB" capability-issue \
+if "$SB" grant capability \
      --agent demo-agent --purpose example --target demo \
      --resource provider:demo-empty --ttl 600 --max-uses 1
 then
-  printf '%s\n' 'expected capability-issue to refuse the emptied credential'
+  printf '%s\n' 'expected grant capability to refuse the emptied credential'
   false
 fi
 
@@ -87,7 +87,7 @@ printf '%s\n' "demo state: $DEMO_DIR"
 # subprocess and reading its stdout:
 #
 #   {
-#     "command": "capability-issue",
+#     "command": "grant capability",
 #     "field": "api_key",
 #     "item": "demo-provider-empty",
 #     "reason": "vault item demo-provider-empty field api_key is present but empty",
@@ -98,7 +98,7 @@ printf '%s\n' "demo state: $DEMO_DIR"
 #
 # and on stderr it is the same sentence as an error, with a non-zero exit:
 #
-#   Error: capability-issue refused for provider:demo-empty: vault item
+#   Error: grant capability refused for provider:demo-empty: vault item
 #   demo-provider-empty field api_key is present but empty; inspect every route
 #   with: skarbiec routes verify, or skarbiec doctor
 #
@@ -108,12 +108,12 @@ printf '%s\n' "demo state: $DEMO_DIR"
 #
 # If it fails:
 #
-#   Error: capability-issue refused for <resource>: no capability route maps
+#   Error: grant capability refused for <resource>: no capability route maps
 #   <resource> to a vault field; map it with: skarbiec routes add ...
 #     → the resource is not in the table. `skarbiec routes add` maps it, or
 #       `skarbiec routes reconcile` derives it from what vault items declare.
 #
-#   Error: capability-issue refused for <resource>: vault item <item> does not
+#   Error: grant capability refused for <resource>: vault item <item> does not
 #   open: ...
 #     → this host cannot decrypt the item, which is a key or gpg fault rather
 #       than a credential fault. It will name every route at once; check

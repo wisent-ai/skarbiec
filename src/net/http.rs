@@ -16,7 +16,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
 use wisent_errors::Code;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{vault::Vault, vault_path};
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
 use crate::net::operator;
@@ -392,7 +392,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             );
         }
         if consumer.is_empty()
-            || !tokens::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
+            || !grant::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
         {
             return write_response(
                 &mut stream,
