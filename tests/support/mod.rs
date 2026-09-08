@@ -122,9 +122,12 @@ impl CliFixture {
 
     /// Same, with extra environment for the broker process only.
     ///
-    /// A test that has to observe how the broker drives `gpg` supplies its own
-    /// `PATH` here: the crypto seam resolves each tool through `PATH` first,
-    /// so a scripted stand-in placed there is what the broker actually runs.
+    /// This is how a test states the broker's own configuration - its
+    /// cryptographic and `gpg` capacity, its worker pool, its readiness
+    /// interval - when the behaviour under test is what those limits do. It
+    /// is not a seam for standing something else in front of the product: the
+    /// crypto seam resolves each tool through `PATH`, and a scripted `gpg`
+    /// placed there is a stub of the component the vault exists to drive.
     pub fn serve_with_env(&self, env: &[(&str, &str)]) -> Broker {
         let port = self.port.to_string();
         let mut command = self.command(&["serve", "--port", &port]);
