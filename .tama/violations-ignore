@@ -1,0 +1,13 @@
+# Audit exclusions for `tama find-violations`: generated output and paths
+# fixed by something outside this project.
+#
+# Resolved by cargo from Cargo.toml and committed because this crate ships a
+# binary. A person never edits it, and `cargo build` rewrites it whole.
+Cargo.lock
+# The repository root. Cargo reads Cargo.toml and Cargo.lock from here, git
+# reads .gitignore and .gitattributes, GitHub reads README.md, LICENSE and
+# NOTICE, and the pack's release and landing tooling reads
+# released-surface.json, platform-entitlements.json, .wisent-release.json,
+# .release-commit and the three landing.*.json files by that exact path from
+# other repositories. None of them can move into a sub-folder.
+.
