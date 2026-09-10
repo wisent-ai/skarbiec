@@ -11,22 +11,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
-/// Where fixture roots live.
-///
-/// Deliberately neither `HOME` itself nor `TMPDIR` nor `/tmp`. Bare `HOME` is
-/// the operator's own configuration - `~/.stado` holds the live vault, the
-/// routes table and the service unlock file - and a fixture that both writes
-/// and `remove_dir_all`s below it is one typo away from taking real state with
-/// it, so this names one directory inside it and never its parent. `/tmp` is
-/// worse than either: it is swept by hand and by the system, and a fixture
-/// root that vanishes mid-run fails a test for a reason that has nothing to do
-/// with the vault. `TMPDIR` is rejected for a duller reason, and it is the
-/// same reason this path is kept short: GnuPG binds sockets under `GNUPGHOME`,
-/// macOS caps `sun_path` at 104 bytes, and the per-user `TMPDIR` spends forty
-/// of them before this fixture adds a name.
+/// GnuPG needs a short product-owned fixture root: macOS limits Unix socket
+/// paths to 104 bytes. Drop removes each fixture and its keyring.
 fn temp_base() -> PathBuf {
     let home = std::env::var_os("HOME").expect("tests need HOME to place their fixture roots");
-    PathBuf::from(home).join(".stado").join("work").join("skt")
+    PathBuf::from(home).join(".skarbiec").join("test-runs")
 }
 
 /// How long a spawned broker may take to bind its port before the test that
@@ -52,7 +41,7 @@ impl CliFixture {
         // GnuPG places sockets below GNUPGHOME. Keep this path short enough
         // for macOS AF_UNIX while making parallel fixtures distinct.
         let root = temp_base().join(format!(
-            "{area}-{:x}{:08x}{sequence:x}",
+            "{area:.4}-{:x}{:08x}{sequence:x}",
             std::process::id(),
             unique & 0xffff_ffff
         ));
