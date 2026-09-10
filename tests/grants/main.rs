@@ -6,5 +6,6 @@
 mod support;
 
 mod declaration;
+mod edits;
 mod fixture;
 mod redemption;
