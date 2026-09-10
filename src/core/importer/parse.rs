@@ -6,7 +6,8 @@ use serde_json::Value;
 
 use crate::core::schema;
 
-use super::{bitwarden, csv, onepassword, ImportDocument, ImportRow};
+use super::providers::{bitwarden, csv, onepassword};
+use super::{ImportDocument, ImportRow};
 
 pub(super) fn parse(bytes: &[u8], format: &str) -> Result<ImportDocument> {
     if bytes.starts_with(b"PK\x03\x04") {

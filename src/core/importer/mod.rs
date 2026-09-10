@@ -1,10 +1,8 @@
 //! User-owned exports enter the same typed vault writer through CLI and GUI.
 //! Parsing and encryption finish before the single generation-checked save.
 
-mod bitwarden;
-mod csv;
-mod onepassword;
 mod parse;
+mod providers;
 mod write;
 
 use parse::parse;

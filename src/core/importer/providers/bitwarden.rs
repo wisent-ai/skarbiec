@@ -2,9 +2,9 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
-use super::{login_fields, source_row, text, ImportDocument};
+use super::super::{login_fields, source_row, text, ImportDocument};
 
-pub(super) fn document(mut value: Value) -> Result<ImportDocument> {
+pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocument> {
     if value
         .get("encrypted")
         .is_some_and(|encrypted| encrypted != &Value::Bool(false))

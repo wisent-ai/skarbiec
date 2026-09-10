@@ -2,9 +2,9 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 
-use super::{login_fields, source_row, ImportDocument};
+use super::super::{login_fields, source_row, ImportDocument};
 
-pub(super) fn document(bytes: &[u8], requested: &str) -> Result<ImportDocument> {
+pub(in crate::core::importer) fn document(bytes: &[u8], requested: &str) -> Result<ImportDocument> {
     let mut reader = ::csv::ReaderBuilder::new().from_reader(bytes);
     let original_headers = reader
         .headers()

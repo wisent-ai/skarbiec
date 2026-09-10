@@ -4,9 +4,9 @@ use serde_json::{json, Map, Value};
 use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
-use super::{login_fields, source_row, text, ImportDocument, MAX_IMPORT_BYTES};
+use super::super::{login_fields, source_row, text, ImportDocument, MAX_IMPORT_BYTES};
 
-pub(super) fn archive(bytes: &[u8]) -> Result<ImportDocument> {
+pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument> {
     let mut archive =
         ZipArchive::new(Cursor::new(bytes)).context("invalid 1Password 1PUX archive")?;
     let mut total = 0_u64;
@@ -90,7 +90,7 @@ pub(super) fn archive(bytes: &[u8]) -> Result<ImportDocument> {
     Ok(document)
 }
 
-fn read_member(archive: &mut ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<Vec<u8>> {
+pub(in crate::core::importer) fn read_member(archive: &mut ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     archive
         .by_name(name)
@@ -103,7 +103,7 @@ fn read_member(archive: &mut ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<Ve
     Ok(bytes)
 }
 
-pub(super) fn document(mut value: Value) -> Result<ImportDocument> {
+pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocument> {
     let accounts = value
         .get_mut("accounts")
         .and_then(Value::as_array_mut)
