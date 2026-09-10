@@ -1,23 +1,16 @@
-// Quarantine: freezing an item when nobody can say which password the provider
-// accepts, keeping the staged candidate that may now be live, and the operator
-// path back out.
+// Freezing an item when nobody can say which password the provider accepts,
+// and refusing the retry that would run against a value we no longer know.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::Path;
 
-use crate::access::grant;
 use crate::core::vault::Vault;
 use crate::runtime::audit;
 
-use super::common::{acquire_credential_operation_lock, client_identity, exact_name, now_iso};
-use super::state::{
-    context_block, live_item_exists, pending_matches_request, quarantine_active, request_item_id,
-    store_context, update_request,
-};
-use super::wire::request_payload;
-use super::{QUARANTINE_CONFIRMATION, QUARANTINE_TAG, STATE_QUARANTINED, STATE_UNMANAGED};
+use super::super::common::now_iso;
+use super::super::state::{live_item_exists, store_context};
+use super::super::{QUARANTINE_TAG, STATE_QUARANTINED};
 
 // The freeze marker lives in the plaintext envelope: it can be set while a
 // staged candidate exists, which is exactly when we must not re-encrypt the
@@ -33,7 +26,7 @@ use super::{QUARANTINE_CONFIRMATION, QUARANTINE_TAG, STATE_QUARANTINED, STATE_UN
 // `QUARANTINE_TAG` cannot introduce an unregistered namespace unnoticed. The
 // same rule applies as everywhere else -- only what this write introduces is
 // judged, so clearing the marker is never refused.
-pub(super) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> Result<()> {
+pub(in crate::credential) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> Result<()> {
     let entry = vault
         .doc_mut()
         .get_mut("items")
@@ -65,7 +58,7 @@ pub(super) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> 
 // We do not know which password the provider accepts. Freeze the item and the
 // operation record; the staged candidate, if any, is kept because it may be
 // the value that is now live.
-pub(super) fn quarantine_credential(
+pub(in crate::credential) fn quarantine_credential(
     vault_path: &Path,
     credential_id: &str,
     operation: &str,
@@ -124,7 +117,7 @@ pub(super) fn quarantine_credential(
 
 // A provider-side change or an unknown effect must never be retried blindly:
 // the same operation would run against a password we no longer know.
-pub(super) fn enforce_retry_barrier(
+pub(in crate::credential) fn enforce_retry_barrier(
     existing: &Value,
     credential_id: &str,
     operation: &str,
@@ -162,152 +155,12 @@ pub(super) fn enforce_retry_barrier(
     Ok(())
 }
 
-pub(super) fn resolve_quarantine(
-    vault_path: &Path,
-    flags: &HashMap<String, String>,
-    args: &[String],
-) -> Result<Value> {
-    let allowed = ["confirm", "staged", "as", "token-file", "local"];
-    let usage = format!(
-        "usage: credential resolve-quarantine <item-id> --confirm '{QUARANTINE_CONFIRMATION}' [--staged keep|activate|discard] --as <consumer> --token-file <path>"
-    );
-    if flags.keys().any(|key| !allowed.contains(&key.as_str())) {
-        bail!("{usage}");
-    }
-    let credential_id = args.first().context(usage.clone())?;
-    exact_name("credential item id", credential_id, "200".parse()?)?;
-    if flags.get("confirm").map(String::as_str) != Some(QUARANTINE_CONFIRMATION) {
-        bail!("{usage}");
-    }
-    let staged_decision = flags.get("staged").map(String::as_str).unwrap_or("keep");
-    if !["keep", "activate", "discard"].contains(&staged_decision) {
-        bail!("--staged must be keep, activate, or discard");
-    }
-    let _lock = acquire_credential_operation_lock(vault_path)?;
-    let mut vault = Vault::open(vault_path.to_path_buf())?;
-    if !quarantine_active(&vault, credential_id) {
-        bail!("{credential_id} is not quarantined");
-    }
-    let (consumer, token) = client_identity(flags)?;
-    // The item may not exist yet (a quarantined acquire), in which case the
-    // operation record is the only resource an admin capability can name.
-    let admin_target = if live_item_exists(&vault, credential_id) {
-        credential_id.to_string()
-    } else {
-        request_item_id(credential_id)
-    };
-    if !grant::token_allows_action(&vault, &consumer, &token, "admin", &admin_target)? {
-        bail!("{consumer} holds no admin capability for {admin_target}");
-    }
-    let request_item = request_item_id(credential_id);
-    let record = vault.get_item(&request_item).and_then(request_payload).ok();
-    let request_id = record
-        .as_ref()
-        .and_then(|record| record.get("request_id"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let field = record
-        .as_ref()
-        .and_then(|record| record.get("field"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let writer = record
-        .as_ref()
-        .and_then(|record| record.get("consumer"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let staged = !request_id.is_empty()
-        && pending_matches_request(&vault, credential_id, &request_id, &field, &writer);
-    if staged {
-        match staged_decision {
-            "activate" => {
-                vault.activate_staged_revision(credential_id, &request_id, &field, &writer)?;
-            }
-            "discard" => {
-                vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
-            }
-            _ => {}
-        }
-    } else if staged_decision != "keep" {
-        bail!("{credential_id} has no staged revision belonging to the quarantined operation");
-    }
-    let resolved_at = now_iso();
-    if live_item_exists(&vault, credential_id) {
-        mark_quarantine_tag(&mut vault, credential_id, false)?;
-        let has_staged = vault
-            .doc()
-            .get("items")
-            .and_then(|items| items.get(credential_id))
-            .and_then(|item| item.get("pending"))
-            .is_some();
-        if !has_staged {
-            let previous = context_block(&vault, credential_id, "quarantine");
-            store_context(
-                &mut vault,
-                credential_id,
-                &[
-                    (
-                        "quarantine",
-                        json!({
-                            "state": "resolved",
-                            "resolved_at": resolved_at,
-                            "resolved_by": consumer,
-                            "staged_decision": staged_decision,
-                            "previous": previous,
-                        }),
-                    ),
-                    (
-                        // Knowing the password again is an explicit act: the
-                        // item returns to unmanaged until adopt or verify
-                        // proves the value.
-                        "lifecycle",
-                        json!({
-                            "state": STATE_UNMANAGED,
-                            "operation": "resolve-quarantine",
-                            "request_id": request_id,
-                            "updated_at": resolved_at,
-                        }),
-                    ),
-                ],
-            )?;
-        }
-    }
-    if let Some(record) = record.as_ref() {
-        update_request(
-            vault_path,
-            &request_item,
-            record,
-            "quarantine_resolved",
-            None,
-        )?;
-    }
-    audit::append_sync(
-        "credential-quarantine-resolved",
-        &json!({
-            "credential": credential_id,
-            "request_id": request_id,
-            "resolved_by": consumer,
-            "staged_decision": staged_decision,
-        }),
-    )?;
-    Ok(json!({
-        "ok": true,
-        "status": STATE_UNMANAGED,
-        "credential": credential_id,
-        "staged_decision": staged_decision,
-        "resolved_at": resolved_at,
-    }))
-}
-
 // Freezes the item when nobody can say which password the provider accepts: an
 // unknown effect, a rollback that failed or was never proven, or a failed
 // operation that changed the password without a confirmed rollback. The last
 // case matters most: the provider may hold exactly the value we staged, so the
 // staged candidate must survive instead of being rolled back away.
-pub(super) fn enforce_provider_effect(
+pub(in crate::credential) fn enforce_provider_effect(
     vault_path: &Path,
     credential_id: &str,
     operation: &str,
