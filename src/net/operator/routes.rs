@@ -1,98 +1,16 @@
-// Operator routes of the loopback API: the surface a local operator console —
-// the desktop app — reads and drives instead of launching the backend as a
-// subprocess for every question it asks.
-//
-// Trust model: the listener is loopback-only, and every route here carries
-// exactly the authority that invoking the backend binary on this machine
-// already carries, because the local keyring decides what opens either way.
-// What this surface carries is every operation and value that the command
-// line offers: the operator console and the local vault CLI cannot drift.
-//
-// Every handler delegates to the same dispatcher the matching command uses,
-// so a console and an operator reading the same vault cannot drift. A request
-// names its vault in the body's optional `vault` member; the request-scoped
-// override in core applies it for exactly the thread answering here.
+// One operator route to one backend command. Every arm names a command that
+// exists, so a route that answers nothing is a bug in this table.
 
 use anyhow::{bail, Context, Result};
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
-use std::net::TcpStream;
-use std::path::PathBuf;
 
 use crate::core;
-use crate::net::http;
+use super::calls::{
+    access, bonds, credential, flags, grant, inbox, net, optional, positionals, runtime, text,
+};
 
-const OK_LINE: &str = "HTTP/1.1 200 OK";
-const BAD_LINE: &str = "HTTP/1.1 400 Bad Request";
-const ROUTE_PREFIX: &str = "/v1/operator/";
-
-/// The mutating operator routes, for the listener's write lock: a read stays
-/// parallel, while a read-modify-write on the vault file never interleaves
-/// with another writer. Credential calls are all here because a status read
-/// can commit or roll back a staged revision.
-pub(crate) fn is_mutation(path: &str) -> bool {
-    matches!(
-        path,
-        "/v1/operator/vaults/create"
-            | "/v1/operator/items/import"
-            | "/v1/operator/items/trash"
-            | "/v1/operator/items/reclaim"
-            | "/v1/operator/items/restore"
-            | "/v1/operator/items/purge"
-            | "/v1/operator/items/share"
-            | "/v1/operator/items/revoke"
-            | "/v1/operator/recipients/add"
-            | "/v1/operator/grants/issue"
-            | "/v1/operator/grants/ensure"
-            | "/v1/operator/grants/revoke"
-            | "/v1/operator/donations/accept"
-            | "/v1/operator/donations/reject"
-            | "/v1/operator/credential"
-            | "/v1/operator/emergency/grant"
-            | "/v1/operator/emergency/cancel"
-            | "/v1/operator/emergency/activate"
-            | "/v1/operator/recovery/drill"
-            | "/v1/operator/policy/set"
-            | "/v1/operator/sync/init"
-            | "/v1/operator/sync/push"
-            | "/v1/operator/sync/pull"
-            | "/v1/operator/route/declare"
-    )
-}
-
-/// Route one operator request; `false` when the path is not an operator
-/// route, so the listener falls through to its own table.
-pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &str) -> Result<bool> {
-    if !path.starts_with(ROUTE_PREFIX) {
-        return Ok(false);
-    }
-    if method != "POST" {
-        http::write_response(
-            stream,
-            BAD_LINE,
-            &json!({"error": "operator routes are POST with a JSON body"}),
-        )?;
-        return Ok(true);
-    }
-    let parsed = http::request_json(body);
-    let vault = parsed
-        .get("vault")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from);
-    let result = core::with_vault_override(vault, || answer(path, &parsed));
-    match result {
-        Ok(value) => http::write_response(stream, OK_LINE, &value)?,
-        Err(error) => http::write_response(
-            stream,
-            BAD_LINE,
-            &json!({"error": http::bounded_detail(&error.to_string())}),
-        )?,
-    }
-    Ok(true)
-}
-
-fn answer(path: &str, parsed: &Value) -> Result<Value> {
+pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
     let none: Vec<String> = Vec::new();
     let no_flags = HashMap::new();
     match path {
@@ -318,94 +236,4 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
         ),
         _ => bail!("unknown operator route: {path}"),
     }
-}
-
-/// One dispatcher's answer, with the no-match case named: a route here always
-/// stands for a real command, so `None` is a bug in this table, not an answer.
-fn answered(result: Result<Option<Value>>) -> Result<Value> {
-    result?.context("the backend produced no answer for an operator route")
-}
-
-fn access(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    answered(crate::access::dispatch(command, flags, positionals))
-}
-
-/// One `grant` leaf: the subcommand this route stands for, in front of the
-/// positionals its body named. The group takes the leaf as its first
-/// positional, so a console and the command line reach the same dispatcher
-/// with the same argument list.
-fn grant(leaf: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    let mut argv = vec![leaf.to_string()];
-    argv.extend_from_slice(positionals);
-    access("grant", flags, &argv)
-}
-
-fn runtime(
-    command: &str,
-    flags: &HashMap<String, String>,
-    positionals: &[String],
-) -> Result<Value> {
-    answered(crate::runtime::dispatch(command, flags, positionals))
-}
-
-fn net(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    answered(crate::net::dispatch(command, flags, positionals))
-}
-
-fn bonds(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    answered(crate::bonds::dispatch(command, flags, positionals))
-}
-
-fn inbox(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    answered(crate::core::inbox::dispatch(command, flags, positionals))
-}
-
-fn credential(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    answered(crate::credential::dispatch(
-        "credential",
-        flags,
-        positionals,
-        &core::vault_path(),
-    ))
-}
-
-/// A required body member, named when absent so the console learns which of
-/// its fields the route asked for.
-fn text(parsed: &Value, key: &str) -> Result<String> {
-    optional(parsed, key).with_context(|| format!("{key} required"))
-}
-
-fn optional(parsed: &Value, key: &str) -> Option<String> {
-    parsed
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
-/// The flags one dispatcher call gets, built from body members this route
-/// named: a console can narrow a question, never smuggle a flag past the
-/// route table. Strings pass through, numbers render, `true` sets a bare
-/// flag — the shapes the flag parser already understands.
-fn flags(parsed: &Value, keys: &[&str]) -> HashMap<String, String> {
-    let mut out = HashMap::new();
-    for key in keys {
-        match parsed.get(*key) {
-            Some(Value::String(value)) if !value.is_empty() => {
-                out.insert((*key).to_string(), value.clone());
-            }
-            Some(Value::Bool(true)) => {
-                out.insert((*key).to_string(), "true".to_string());
-            }
-            Some(value @ Value::Number(_)) => {
-                out.insert((*key).to_string(), value.to_string());
-            }
-            _ => {}
-        }
-    }
-    out
-}
-
-fn positionals(parsed: &Value, keys: &[&str]) -> Result<Vec<String>> {
-    keys.iter().map(|key| text(parsed, key)).collect()
 }
