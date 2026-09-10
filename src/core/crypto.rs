@@ -3,7 +3,6 @@
 //   gpg     : per-recipient public-key authenticated encryption + key material
 //   openssl : entropy (random tokens)
 //   shasum  : hashing (audit chain, breach k-anonymity)
-//   oathtool: optional time-based one-time codes
 // The per-recipient model (encrypt to each recipient's public key) is the same
 // shape 1Password/Bitwarden use for sharing.
 
@@ -125,7 +124,7 @@ static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
 });
 static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 static CRYPTO_PROGRAMS: LazyLock<HashMap<&'static str, PathBuf>> = LazyLock::new(|| {
-    ["gpg", "gpgconf", "openssl", "shasum", "oathtool", "pkill"]
+    ["gpg", "gpgconf", "openssl", "shasum", "pkill"]
         .into_iter()
         .map(|program| (program, resolve_program_path(program)))
         .collect()
@@ -714,14 +713,4 @@ pub fn import_key(armored: &str) -> Result<()> {
 /// Export a recipient's armored public key for sharing the vault.
 pub fn export_public_key(fingerprint: &str) -> Result<String> {
     run("gpg", &["--armor", "--export", fingerprint], None)
-}
-
-/// Current six-digit time-based one-time code for a Base32 seed, when the
-/// standard oath toolkit accepts the seed. Tool absence, malformed Base32 and
-/// output that is not exactly the six digits a TOTP consumer accepts all return
-/// `None`; callers must not describe any of those states as a usable seed.
-pub fn totp_code(secret_base32: &str) -> Option<String> {
-    run_opt("oathtool", &["--totp", "--base32", secret_base32], None)
-        .map(|code| code.trim().to_string())
-        .filter(|code| code.len() == 6 && code.bytes().all(|byte| byte.is_ascii_digit()))
 }

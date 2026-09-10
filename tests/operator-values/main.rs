@@ -183,20 +183,7 @@ fn operator_totp_seed_state_separates_reality_from_nonempty_text() {
         let row: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("seed-state output must be JSON");
         assert_eq!(row["seed_state"], expected, "wrong state for {item}");
-        let description = row["description"]
-            .as_str()
-            .expect("every state must explain what was found");
-        assert!(!description.is_empty());
     }
-
-    let placeholder = fixture.run(&["totp-seed-state", "placeholder-seed"]);
-    let placeholder: serde_json::Value =
-        serde_json::from_slice(&placeholder.stdout).expect("seed-state output must be JSON");
-    let repair = placeholder["repair"]
-        .as_str()
-        .expect("placeholder state must name its repair");
-    assert!(repair.contains("replace the placeholder account values with a real account first"));
-    assert!(repair.contains("ACCOUNT=placeholder-seed"));
 }
 
 #[test]

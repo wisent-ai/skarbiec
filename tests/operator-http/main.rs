@@ -1,6 +1,8 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod grants;
+
 use std::process::Command;
 use support::{Broker, CliFixture};
 

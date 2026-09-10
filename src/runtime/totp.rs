@@ -1,7 +1,6 @@
 // One-time-code helper. For a canonical login item that stores a base32 seed,
-// emit the CURRENT time-based code (via the standard oath toolkit) — like a
-// password manager's built-in authenticator. The seed value itself is never
-// emitted; only the short-lived code.
+// emit the CURRENT time-based code in process, like a built-in authenticator.
+// Only the short-lived code is emitted; the seed remains inside Skarbiec.
 //
 // This module also answers the vault's half of "is the stored authenticator
 // seed still the one the account has enrolled". The vault cannot answer the
@@ -15,14 +14,15 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::core::{crypto, schema, vault::Vault, vault_path};
+use crate::core::{schema, totp, vault::Vault, vault_path};
 
 /// The exact operator path that stores a seed. Named in the diagnostic's own
 /// output because a verdict an operator cannot act on is a verdict nobody
 /// acts on. The seed arrives on standard input — never in an argument, where
 /// it would sit in every process table on the host.
-pub const SEED_REPAIR_COMMAND: &str = "printf '%s' '<seed from the authenticator app>' \
-     | ACCOUNT=<login-item> skarbiec/scripts/store-login-totp-seed.sh";
+pub const SEED_REPAIR_COMMAND: &str =
+    "send the complete updated login JSON with totp_secret on stdin to \
+     skarbiec set-json <login-item> --type login; preserve the item's other fields";
 
 /// What the vault can prove about one login row's authenticator seed.
 ///
@@ -82,12 +82,10 @@ impl SeedState {
         match self {
             Self::Present => None,
             Self::Placeholder => Some(
-                "replace the placeholder account values with a real account first; then enrol TOTP and store its Base32 seed with \
-                 printf '%s' '<seed from the authenticator app>' | ACCOUNT=<login-item> skarbiec/scripts/store-login-totp-seed.sh",
+                "replace the placeholder account values with a real account first; then enrol TOTP and send the complete updated login JSON with totp_secret on stdin to skarbiec set-json <login-item> --type login",
             ),
             Self::Invalid => Some(
-                "replace the invalid totp_secret with the real Base32 seed from the account's authenticator enrolment using \
-                 printf '%s' '<seed from the authenticator app>' | ACCOUNT=<login-item> skarbiec/scripts/store-login-totp-seed.sh",
+                "replace the invalid totp_secret with the real Base32 seed from the account's authenticator enrolment; send the complete updated login JSON on stdin to skarbiec set-json <login-item> --type login",
             ),
             Self::DeclaredEmpty => Some(SEED_REPAIR_COMMAND),
             Self::FieldAbsent => Some(
@@ -111,9 +109,7 @@ fn seed_of(payload: &Value) -> Option<&str> {
         .filter(|seed| !seed.is_empty())
 }
 
-/// Sixteen Base32 data characters carry the minimum 80 bits expected of a
-/// TOTP seed. The upper bound prevents malformed input from making diagnostics
-/// hand unbounded arguments to the external TOTP consumer.
+/// Supported stored seeds contain 80 to 640 bits of Base32 data.
 const MIN_TOTP_SEED_BASE32_CHARS: usize = 16;
 const MAX_TOTP_SEED_BASE32_CHARS: usize = 128;
 /// RFC 4648 Base32 uses eight-character blocks and at most six `=` characters
@@ -167,7 +163,7 @@ fn inspect_seed(payload: &Value) -> SeedInspection {
             code: None,
         };
     }
-    match crypto::totp_code(seed) {
+    match totp::code(seed) {
         Some(code) => SeedInspection {
             state: SeedState::Present,
             code: Some(code),

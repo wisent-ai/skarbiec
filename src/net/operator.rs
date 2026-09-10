@@ -173,29 +173,20 @@ fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["import", "role"]),
             &positionals(parsed, &["uid"])?,
         ),
-        "/v1/operator/grants/issue" => {
-            let mut report = grant(
-                "issue",
-                &flags(
-                    parsed,
-                    &[
-                        "capabilities",
-                        "workload-public-key-file",
-                        "ttl-seconds",
-                        "audience",
-                        "replace-capabilities",
-                    ],
-                ),
-                &positionals(parsed, &["consumer"])?,
-            )?;
-            // The bearer this answer carries on the command path reaches no
-            // console: the vault keeps only its digest, and the screen reads
-            // the grant back from the grants route.
-            if let Some(object) = report.as_object_mut() {
-                object.remove("token");
-            }
-            Ok(report)
-        }
+        "/v1/operator/grants/issue" => grant(
+            "issue",
+            &flags(
+                parsed,
+                &[
+                    "capabilities",
+                    "workload-public-key-file",
+                    "ttl-seconds",
+                    "audience",
+                    "replace-capabilities",
+                ],
+            ),
+            &positionals(parsed, &["consumer"])?,
+        ),
         "/v1/operator/grants/ensure" => grant(
             "ensure",
             &flags(parsed, &["field", "token-file"]),

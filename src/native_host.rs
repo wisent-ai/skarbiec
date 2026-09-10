@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 
-use crate::core::crypto;
+use crate::core::totp;
 
 fn api_base() -> String {
     std::env::var("SKARBIEC_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".to_string())
@@ -141,7 +141,7 @@ fn fill_login(id: &str) -> Result<Value> {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         })
-        .and_then(|seed| crypto::totp_code(&seed));
+        .and_then(|seed| totp::code(&seed));
     Ok(json!({
         "ok": true,
         "username": username,
