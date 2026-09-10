@@ -11,7 +11,6 @@ use crate::core::vault_path;
 use super::args::{emit, flag_set};
 use super::items::ensure_owner_mutation_allowed;
 
-
 pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().context("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;

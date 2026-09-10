@@ -39,7 +39,6 @@ pub(super) fn check(name: &str, status: &str, detail: String) -> Value {
     json!({"check": name, "status": status, "detail": detail})
 }
 
-
 /// Every check, plus a tally an operator can read at a glance.
 pub fn report() -> Result<Value> {
     let checks = vec![

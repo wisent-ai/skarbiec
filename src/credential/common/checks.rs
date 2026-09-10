@@ -17,7 +17,11 @@ pub(in crate::credential) fn present(value: &Value, key: &str) -> bool {
     value.get(key).is_some_and(|found| !found.is_null())
 }
 
-pub(in crate::credential) fn checked_enum(value: &Value, key: &str, allowed: &[&str]) -> Result<Option<String>> {
+pub(in crate::credential) fn checked_enum(
+    value: &Value,
+    key: &str,
+    allowed: &[&str],
+) -> Result<Option<String>> {
     if !present(value, key) {
         return Ok(None);
     }
@@ -156,4 +160,3 @@ pub(in crate::credential) fn uuid_shaped(value: &str) -> Result<bool> {
                     .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         }))
 }
-

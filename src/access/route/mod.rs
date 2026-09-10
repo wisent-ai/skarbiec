@@ -24,12 +24,12 @@
 
 use std::collections::HashMap;
 
-use declaration::{AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX};
-use table::{self as route_table, MAX_REASON_CHARS, MAX_RESOURCE_CHARS};
-use values as route_values;
-use resolution as route_resolution;
 use crate::core::schema::{exact_token, MAX_NAME_CHARS};
 use crate::core::{vault::Vault, vault_path};
+use declaration::{AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX};
+use resolution as route_resolution;
+use table::{self as route_table, MAX_REASON_CHARS, MAX_RESOURCE_CHARS};
+use values as route_values;
 pub mod coordinate;
 pub mod declaration;
 pub mod resolution;

@@ -8,8 +8,7 @@ mod tags;
 
 pub use legacy::migrate_legacy;
 pub use payload::{
-    allows_field, field, fields, kind_allows_field, kind_declares_field, payload,
-    validate_payload,
+    allows_field, field, fields, kind_allows_field, kind_declares_field, payload, validate_payload,
 };
 pub use tags::ensure_registered_tags;
 
@@ -40,7 +39,6 @@ pub fn is_placeholder(value: &str) -> bool {
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-
 fn exact_component(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= "128".parse().unwrap_or(usize::MAX)
@@ -48,5 +46,3 @@ fn exact_component(value: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
 }
-
-

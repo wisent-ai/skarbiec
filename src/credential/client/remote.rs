@@ -126,7 +126,10 @@ pub(in crate::credential) fn remote_operation(
     )
 }
 
-pub(in crate::credential) fn remote_resume(flags: &HashMap<String, String>, args: &[String]) -> Result<Value> {
+pub(in crate::credential) fn remote_resume(
+    flags: &HashMap<String, String>,
+    args: &[String],
+) -> Result<Value> {
     let allowed = [
         "approval",
         "resume-token",
@@ -163,7 +166,10 @@ pub(in crate::credential) fn remote_resume(flags: &HashMap<String, String>, args
     )
 }
 
-pub(in crate::credential) fn remote_status(flags: &HashMap<String, String>, args: &[String]) -> Result<Value> {
+pub(in crate::credential) fn remote_status(
+    flags: &HashMap<String, String>,
+    args: &[String],
+) -> Result<Value> {
     let allowed = ["as", "token-file", "follow"];
     let usage = "usage: credential status <item-id> [--follow] --as <caller> --token-file <path>";
     if flags.keys().any(|key| !allowed.contains(&key.as_str())) {

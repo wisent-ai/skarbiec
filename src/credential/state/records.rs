@@ -18,7 +18,7 @@ pub(in crate::credential) fn request_item_id(credential_id: &str) -> String {
 
 // The sealed directory contract survives item absence: adopt and acquire copy
 // it into the item they create, and the item keeps it from then on.
-pub(in crate) fn seal_item_id(credential_id: &str) -> String {
+pub(crate) fn seal_item_id(credential_id: &str) -> String {
     format!("directory:credential/{credential_id}")
 }
 
@@ -40,7 +40,7 @@ pub(in crate) fn seal_item_id(credential_id: &str) -> String {
 // lifecycle owns it. A seal written before `SEAL_KIND` existed still carries
 // `REQUEST_KIND`, and it is owned exactly as much as one written today, so
 // testing for either is what keeps an existing seal protected.
-pub(in crate) fn lifecycle_owned_item(vault: &Vault, id: &str) -> bool {
+pub(crate) fn lifecycle_owned_item(vault: &Vault, id: &str) -> bool {
     let Some(item) = vault.doc().get("items").and_then(|items| items.get(id)) else {
         return false;
     };
@@ -81,13 +81,21 @@ fn save_record(vault_path: &Path, item: &str, kind: &str, record: &Value) -> Res
     )
 }
 
-pub(in crate::credential) fn save_request(vault_path: &Path, request_item: &str, request: &Value) -> Result<()> {
+pub(in crate::credential) fn save_request(
+    vault_path: &Path,
+    request_item: &str,
+    request: &Value,
+) -> Result<()> {
     save_record(vault_path, request_item, REQUEST_KIND, request)
 }
 
 // The sealed directory contract, declared as one. `seal_directory` is the only
 // caller: a seal is written by sealing and by resealing, and by nothing else.
-pub(in crate::credential) fn save_seal(vault_path: &Path, seal_item: &str, sealed: &Value) -> Result<()> {
+pub(in crate::credential) fn save_seal(
+    vault_path: &Path,
+    seal_item: &str,
+    sealed: &Value,
+) -> Result<()> {
     save_record(vault_path, seal_item, SEAL_KIND, sealed)
 }
 

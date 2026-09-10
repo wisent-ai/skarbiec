@@ -11,9 +11,7 @@ use crate::core::vault::Vault;
 use crate::runtime::audit;
 
 use super::super::adopt::{adopt_shape_of, trash_adopted_item, AdoptShape};
-use super::super::common::{
-    acquire_credential_operation_lock, exact_name, resume_handles,
-};
+use super::super::common::{acquire_credential_operation_lock, exact_name, resume_handles};
 use super::super::quarantine::enforce_provider_effect;
 use super::super::receipt::approval_expired;
 use super::super::state::{

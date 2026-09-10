@@ -197,6 +197,6 @@ pub(super) fn rows(
 
 mod report;
 
-pub(crate) use report::{coordinate_for, verdicts, verify_report};
 pub(in crate::access) use report::rows_for;
 pub(super) use report::walk;
+pub(crate) use report::{coordinate_for, verdicts, verify_report};

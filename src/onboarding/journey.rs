@@ -119,4 +119,3 @@ pub(super) fn evidence_satisfied(screen: &Value, evidence: &Map<String, Value>) 
         .context("canonical onboarding evidence rule has no expected value")?;
     Ok(evidence.get(fact) == Some(expected))
 }
-

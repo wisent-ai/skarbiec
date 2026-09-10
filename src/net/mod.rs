@@ -20,7 +20,6 @@ pub(crate) use api::identity::{handle_owner_pubkey, handle_tokens_introspect};
 pub(crate) use api::items::{handle_items_put, handle_items_read};
 pub(crate) use api::lifecycle::{handle_credential_operation_status, handle_credential_operations};
 
-
 // Shared request helpers, re-exported by net::http so handler call sites read
 // the same in every module.
 //
@@ -47,7 +46,6 @@ pub(crate) fn request_field(body: &Value) -> Option<&str> {
         .and_then(Value::as_str)
         .filter(|field| !field.is_empty())
 }
-
 
 pub fn dispatch(
     command: &str,

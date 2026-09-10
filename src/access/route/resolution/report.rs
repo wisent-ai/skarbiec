@@ -25,7 +25,10 @@ fn selected(names: Vec<String>, consumer: Option<&str>) -> Vec<String> {
 /// walks everything this vault resolves and reports the items whose
 /// declaration cannot be acted on beside it; with names, exactly those, in the
 /// order asked.
-pub(in crate::access) fn walk(asked: &[String], consumer: Option<&str>) -> Result<(Vec<Row>, Value)> {
+pub(in crate::access) fn walk(
+    asked: &[String],
+    consumer: Option<&str>,
+) -> Result<(Vec<Row>, Value)> {
     let vault = Vault::open(vault_path())?;
     let table = route_table::load()?;
     let whole = asked.is_empty();

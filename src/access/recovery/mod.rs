@@ -31,7 +31,10 @@ pub(super) fn now_iso() -> String {
         .unwrap_or_default()
 }
 
-pub(super) fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> &'a mut serde_json::Map<String, Value> {
+pub(super) fn ensure_section<'a>(
+    doc: &'a mut Value,
+    key: &str,
+) -> &'a mut serde_json::Map<String, Value> {
     let object = doc.as_object_mut().expect("vault doc is object");
     object.entry(key).or_insert_with(|| json!({}));
     object

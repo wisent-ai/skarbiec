@@ -15,7 +15,6 @@ impl Drop for CredentialOperationLock {
     }
 }
 
-
 pub(in crate::credential) fn acquire_credential_operation_lock(
     vault_path: &Path,
 ) -> Result<CredentialOperationLock> {

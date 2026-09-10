@@ -56,7 +56,6 @@ pub(super) const DIAGNOSTIC_KEYS: &[&str] = &[
     "approval",
 ];
 
-
 pub(super) fn request_payload(request: Value) -> Result<Value> {
     schema::field(&request, "value")
         .cloned()
@@ -114,4 +113,3 @@ pub(super) fn wire_request(
     }
     Ok(Value::Object(wire))
 }
-

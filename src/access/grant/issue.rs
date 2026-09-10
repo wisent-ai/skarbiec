@@ -7,8 +7,8 @@ use serde_json::{json, Value};
 
 use std::path::Path;
 
-use super::rules::capabilities::{parse_capabilities, redemption_contract};
 use super::lookup::{active, load, now_epoch, token_allows_field_action};
+use super::rules::capabilities::{parse_capabilities, redemption_contract};
 use super::rules::validation::{
     exact_component, exact_resource, read_fixed_token, read_workload_public_key,
 };

@@ -75,7 +75,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
 /// `doctor` needs the same three facts `declare-endpoint` reports - which
 /// file, which address, does it answer - and must not create a file while
 /// diagnosing the absence of one.
-pub(in crate) fn canonical_endpoint_report() -> Result<Value> {
+pub(crate) fn canonical_endpoint_report() -> Result<Value> {
     let path = forwards_dir()?.join(CANONICAL_FORWARD);
     let endpoint = canonical_endpoint()?;
     let authority = endpoint_authority(&endpoint)?;

@@ -120,5 +120,3 @@ pub(super) fn lifecycle_request(vault: &Vault, credential_id: &str) -> Option<St
         .and_then(Value::as_str)
         .map(str::to_string)
 }
-
-

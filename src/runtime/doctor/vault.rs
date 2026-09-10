@@ -1,10 +1,10 @@
 // What the vault itself answers: which file was selected, whether it opens,
 // and whether the journal beside it still links.
 
-use serde_json::{json, Value};
-use std::collections::HashMap;
 use crate::core::vault_path;
 use crate::runtime::{audit, vaults};
+use serde_json::{json, Value};
+use std::collections::HashMap;
 
 use super::{check, DIGEST_WINDOW, FAIL, NOT_CONFIGURED, PASS};
 
@@ -35,7 +35,6 @@ pub(super) fn vault_check() -> Value {
         Err(error) => check("vault", FAIL, format!("{}: {error}", path.display())),
     }
 }
-
 
 /// The hash chain, split the way `verify-chain` splits it.
 pub(super) fn audit_check() -> Value {

@@ -8,7 +8,6 @@ use super::kinds::{CERTIFICATE_FIELDS, OAUTH_CLIENT_FIELDS, PROXY_FIELDS};
 use super::payload::{payload, validate_payload};
 use super::ITEM_SCHEMA;
 
-
 fn take_alias(source: &mut Map<String, Value>, aliases: &[&str]) -> Option<Value> {
     let value = aliases.iter().find_map(|name| source.get(*name).cloned());
     for name in aliases {

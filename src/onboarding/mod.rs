@@ -120,4 +120,3 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
         }
     }
 }
-

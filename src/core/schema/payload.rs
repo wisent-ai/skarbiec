@@ -156,7 +156,6 @@ pub fn fields(payload: &Value) -> Result<&Map<String, Value>> {
         .context("canonical item has no fields object")
 }
 
-
 /// Whether a kind permits a field, asked of the kind alone.
 ///
 /// The envelope carries `kind` in cleartext beside the ciphertext, so a reader

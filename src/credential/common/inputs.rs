@@ -11,7 +11,10 @@ use super::checks::uuid_shaped;
 use super::lock::{effective_uid, exact_name};
 use super::TOKEN_FILE_ENV;
 
-pub(in crate::credential) fn lowercase_uuid(flag: &str, value: Option<&String>) -> Result<Option<String>> {
+pub(in crate::credential) fn lowercase_uuid(
+    flag: &str,
+    value: Option<&String>,
+) -> Result<Option<String>> {
     let Some(value) = value.map(|value| value.trim().to_string()) else {
         return Ok(None);
     };
@@ -21,7 +24,10 @@ pub(in crate::credential) fn lowercase_uuid(flag: &str, value: Option<&String>) 
     Ok(Some(value))
 }
 
-pub(in crate::credential) fn email_address(flag: &str, value: Option<&String>) -> Result<Option<String>> {
+pub(in crate::credential) fn email_address(
+    flag: &str,
+    value: Option<&String>,
+) -> Result<Option<String>> {
     let Some(value) = value.map(|value| value.trim().to_lowercase()) else {
         return Ok(None);
     };
@@ -72,7 +78,9 @@ pub(in crate::credential) fn read_secret_file(path: &Path) -> Result<String> {
     Ok(token)
 }
 
-pub(in crate::credential) fn client_identity(flags: &HashMap<String, String>) -> Result<(String, String)> {
+pub(in crate::credential) fn client_identity(
+    flags: &HashMap<String, String>,
+) -> Result<(String, String)> {
     let consumer = flags
         .get("as")
         .or_else(|| flags.get("consumer"))
@@ -97,7 +105,9 @@ pub(in crate::credential) fn client_identity(flags: &HashMap<String, String>) ->
 
 // The approval id is a handle; the resume token is capability material, so a
 // file keeps it out of argv when the operator has somewhere to put it.
-pub(in crate::credential) fn resume_handles(flags: &HashMap<String, String>) -> Result<(String, String)> {
+pub(in crate::credential) fn resume_handles(
+    flags: &HashMap<String, String>,
+) -> Result<(String, String)> {
     let approval_id = flags
         .get("approval")
         .context("--approval <id> is required")?

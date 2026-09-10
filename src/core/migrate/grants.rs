@@ -6,9 +6,7 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::items::canonical_item_id;
-use super::patterns::{
-    canonical_field, future_contract_field, glob_matches, supported_action,
-};
+use super::patterns::{canonical_field, future_contract_field, glob_matches, supported_action};
 
 fn expand_capability(
     raw_action: &str,

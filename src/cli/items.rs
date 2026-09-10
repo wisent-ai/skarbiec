@@ -11,7 +11,11 @@ use crate::core::{items, schema, vault_path};
 
 use super::args::emit;
 
-pub(super) fn ensure_owner_mutation_allowed(vault: &Vault, id: &str, operation: &str) -> Result<()> {
+pub(super) fn ensure_owner_mutation_allowed(
+    vault: &Vault,
+    id: &str,
+    operation: &str,
+) -> Result<()> {
     vault.ensure_owner_controlled(id).with_context(|| {
         format!("use the item's controlling lifecycle instead of direct owner {operation}")
     })

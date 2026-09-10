@@ -46,10 +46,7 @@ pub(crate) fn table_path() -> std::path::PathBuf {
 /// Resolution never reads one, so it is neither broken nor in use: dead weight
 /// an operator cannot otherwise see. Naming it is how a table written by the
 /// deleted reconciliation gets emptied instead of quietly kept.
-pub(super) fn shadowed(
-    table: &Map<String, Value>,
-    rows: &[super::declaration::Row],
-) -> Vec<Value> {
+pub(super) fn shadowed(table: &Map<String, Value>, rows: &[super::declaration::Row]) -> Vec<Value> {
     rows.iter()
         .filter(|row| row.declared_by != "table" && table.contains_key(&row.resource))
         .map(|row| json!({"resource": row.resource, "resolved_from": row.declared_by}))

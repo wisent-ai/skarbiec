@@ -3,7 +3,6 @@
 
 use std::fs;
 
-
 use crate::fixture::{fixture, mint, vault_tokens, CONSUMER, ITEM};
 use crate::support::{assert_success, stderr};
 

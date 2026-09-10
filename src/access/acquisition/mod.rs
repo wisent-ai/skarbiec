@@ -29,7 +29,6 @@ impl std::fmt::Display for AcquisitionFieldMissing {
 
 impl std::error::Error for AcquisitionFieldMissing {}
 
-
 pub struct IssuedAcquisition {
     pub token: String,
     pub expires_at: u64,
@@ -233,4 +232,3 @@ pub fn consume(
     save_state(&path, &state)?;
     Ok(Some(AcquiredField { value, provider }))
 }
-

@@ -9,9 +9,9 @@ use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::thread;
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::vault_path;
 
@@ -22,7 +22,6 @@ impl Drop for StateLock {
         let _ = self.0.unlock();
     }
 }
-
 
 pub(super) fn private_file_mode() -> Result<u32> {
     u32::from_str_radix("600", "8".parse()?).context("private file mode")
@@ -163,4 +162,3 @@ pub(super) fn ttl_seconds() -> Result<u64> {
     }
     Ok(ttl)
 }
-

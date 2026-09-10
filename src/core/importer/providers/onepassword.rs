@@ -90,7 +90,10 @@ pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument>
     Ok(document)
 }
 
-pub(in crate::core::importer) fn read_member(archive: &mut ZipArchive<Cursor<&[u8]>>, name: &str) -> Result<Vec<u8>> {
+pub(in crate::core::importer) fn read_member(
+    archive: &mut ZipArchive<Cursor<&[u8]>>,
+    name: &str,
+) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
     archive
         .by_name(name)

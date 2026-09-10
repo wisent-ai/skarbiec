@@ -6,9 +6,9 @@ use serde_json::{json, Value};
 
 use crate::core::vault::Vault;
 use crate::core::vault_path;
+use crate::runtime;
 use std::collections::HashMap;
 use std::path::Path;
-use crate::runtime;
 
 pub(super) fn schema(properties: Value, required: Vec<&str>) -> Value {
     json!({"type": "object", "properties": properties, "required": required})

@@ -5,9 +5,9 @@
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
+use crate::core::inbox;
 use crate::core::schema;
 use crate::core::vault::{ManagedWrite, Vault};
-use crate::core::inbox;
 
 use super::super::wire::{request_payload, WIRE_VERSION};
 use super::lifecycle::quarantine_active;
@@ -16,7 +16,11 @@ use super::records::{item_revision, live_item_exists, request_item_id};
 // Canonical context blocks are written through the item's own management
 // authority so the envelope keeps its provenance. A staged revision is never
 // silently dropped: metadata waits until the staging is resolved.
-pub(in crate::credential) fn store_context(vault: &mut Vault, id: &str, blocks: &[(&str, Value)]) -> Result<()> {
+pub(in crate::credential) fn store_context(
+    vault: &mut Vault,
+    id: &str,
+    blocks: &[(&str, Value)],
+) -> Result<()> {
     let entry = vault
         .doc()
         .get("items")
@@ -141,7 +145,7 @@ pub(in crate::credential) fn pending_matches_request(
 // answered here rather than obeyed. `-D warnings` in the release quality gate
 // means an unanswered lint is not a style note: it stops the product shipping.
 #[allow(clippy::too_many_arguments)]
-pub(in crate) fn authorize_managed_write(
+pub(crate) fn authorize_managed_write(
     vault: &Vault,
     credential_id: &str,
     field: &str,

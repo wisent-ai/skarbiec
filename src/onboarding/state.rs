@@ -52,7 +52,11 @@ pub(super) fn complete_state(
     Ok(true)
 }
 
-pub(super) fn load_or_start_state(definition: &Value, revision: &str, reset: bool) -> Result<Value> {
+pub(super) fn load_or_start_state(
+    definition: &Value,
+    revision: &str,
+    reset: bool,
+) -> Result<Value> {
     let path = state_path();
     if !reset && path.exists() {
         let existing: Value = serde_json::from_str(
@@ -124,7 +128,6 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
         .with_context(|| format!("replace onboarding state {}", path.display()))?;
     Ok(())
 }
-
 
 pub(super) fn subject_hash() -> Result<String> {
     let user = std::env::var("USER").unwrap_or_else(|_| "unknown-user".to_string());

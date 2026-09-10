@@ -24,8 +24,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
-
-
 mod issue;
 mod leaves;
 mod lookup;
@@ -42,7 +40,6 @@ use leaves::group;
 use lookup::{load, now_epoch};
 use rules::capabilities::{parse_capabilities, read_acquisition_catalog};
 use rules::validation::read_workload_public_key;
-
 
 pub fn dispatch(
     command: &str,
@@ -143,5 +140,3 @@ pub fn dispatch(
         _ => Ok(None),
     }
 }
-
-

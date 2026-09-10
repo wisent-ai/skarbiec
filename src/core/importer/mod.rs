@@ -94,8 +94,6 @@ pub fn import_file(path: &Path, format: &str, conflict: &str) -> Result<Value> {
     apply(document, conflict)
 }
 
-
-
 pub(super) fn source_row(
     provider: &'static str,
     identity: &[&str],

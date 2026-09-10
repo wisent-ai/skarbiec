@@ -48,7 +48,9 @@ fn one_malformed_line_is_reported_and_the_rest_of_the_journal_is_still_checked()
         "the report names the line that could not be parsed: {report}"
     );
     assert!(
-        malformed[0]["detail"].as_str().is_some_and(|detail| !detail.is_empty()),
+        malformed[0]["detail"]
+            .as_str()
+            .is_some_and(|detail| !detail.is_empty()),
         "the report says why the line could not be parsed: {report}"
     );
     assert_eq!(report["intact"], false, "{report}");

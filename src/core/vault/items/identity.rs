@@ -4,9 +4,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 
-use crate::core::vault::{
-    current_envelope, entry_item_uid, mint_item_uid, now, obj_mut, Vault,
-};
+use crate::core::vault::{current_envelope, entry_item_uid, mint_item_uid, now, obj_mut, Vault};
 use crate::core::{crypto, schema};
 
 impl Vault {

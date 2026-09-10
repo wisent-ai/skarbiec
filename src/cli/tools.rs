@@ -10,7 +10,6 @@ use crate::core::{items, vault_path};
 
 use super::args::{emit, flag_set};
 
-
 pub(crate) fn cmd_generate(flags: &HashMap<String, String>) -> Result<()> {
     if flag_set(flags, "passphrase") {
         let count: usize = flags

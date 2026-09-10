@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::TcpStream;
 
-
 use crate::access::grant;
 use crate::core::{inbox, schema};
 use crate::net::http;

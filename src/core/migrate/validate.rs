@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use super::items::revision_payload;
 use super::patterns::{exact_resource, future_contract_field, supported_action};
-use crate::core::vault::Vault;
 use crate::core::schema;
+use crate::core::vault::Vault;
 
 pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
     let items = vault

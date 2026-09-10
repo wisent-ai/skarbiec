@@ -14,8 +14,6 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-
-
 pub struct Vault {
     pub path: PathBuf,
     doc: Value,

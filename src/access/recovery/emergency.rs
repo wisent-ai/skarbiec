@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-
 use super::{ensure_section, load, now_iso};
 
 pub(super) fn dispatch(

@@ -7,8 +7,8 @@ use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
 
-use crate::access::capability::state::{now_epoch, state_path, write_private_file};
 use crate::access::capability::openssl_bin;
+use crate::access::capability::state::{now_epoch, state_path, write_private_file};
 use crate::core::{crypto, vault::Vault};
 
 // Liveness matches grant::active: a consumer entry carries no state field, only an

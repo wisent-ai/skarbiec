@@ -134,4 +134,3 @@ pub(in crate::access::capability) fn save_state(state: &Value) -> Result<()> {
     fs::rename(&staging, &path)?;
     Ok(())
 }
-

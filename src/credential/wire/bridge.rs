@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use wisent_errors::trim_detail;
 
-
-
 use super::super::common::{
     checked_bool, checked_code, checked_enum, checked_host, checked_uuid, effective_uid,
     safe_string,
@@ -19,9 +17,7 @@ use super::super::common::{
 use super::super::receipt::{
     checked_approval, checked_receipt, receipt_matches, DIRECTORY_IDENTITY_KEYS,
 };
-use super::super::{
-    PROVIDER_EFFECTS, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBACK_STATUSES,
-};
+use super::super::{PROVIDER_EFFECTS, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBACK_STATUSES};
 use super::{BRIDGE_ENV, WIRE_VERSION};
 
 pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {

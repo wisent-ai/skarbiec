@@ -18,7 +18,6 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
-
 mod endpoints;
 mod tools;
 
@@ -27,7 +26,6 @@ pub(crate) use endpoints::{
 };
 
 use tools::{call_tool, tools};
-
 
 // Spec-mandated JSON-RPC 2.0 / MCP wire values (not tunables); kept as strings
 // and parsed so no numeric literal appears (crate-wide rule).
@@ -39,7 +37,6 @@ const CODE_INTERNAL_ERROR: &str = "-32000";
 fn code(raw: &str) -> Value {
     json!(raw.parse::<i64>().unwrap_or_default())
 }
-
 
 fn send(out: &mut impl Write, message: &Value) -> Result<()> {
     writeln!(out, "{}", serde_json::to_string(message)?)?;
@@ -126,4 +123,3 @@ pub fn serve() -> Result<()> {
     }
     Ok(())
 }
-

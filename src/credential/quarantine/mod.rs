@@ -5,7 +5,5 @@
 mod freeze;
 mod resolve;
 
-pub(super) use freeze::{
-    enforce_provider_effect, enforce_retry_barrier, quarantine_credential,
-};
+pub(super) use freeze::{enforce_provider_effect, enforce_retry_barrier, quarantine_credential};
 pub(super) use resolve::resolve_quarantine;

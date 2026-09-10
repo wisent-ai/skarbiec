@@ -29,7 +29,6 @@ pub fn build_item(item_kind: &str, fields: &[String]) -> Result<Value> {
     schema::payload(item_kind, map, Map::new())
 }
 
-
 /// Composite one-shot status: the operator picture in a single JSON,
 /// composed from the same reads the individual status commands do.
 pub fn status_json() -> Result<Value> {

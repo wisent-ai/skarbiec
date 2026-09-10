@@ -65,7 +65,6 @@ pub(super) fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<S
     })
 }
 
-
 pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
     // The narrow permit FIRST, then the general one.
     //

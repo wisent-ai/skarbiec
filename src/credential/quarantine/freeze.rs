@@ -26,7 +26,11 @@ use super::super::{QUARANTINE_TAG, STATE_QUARANTINED};
 // `QUARANTINE_TAG` cannot introduce an unregistered namespace unnoticed. The
 // same rule applies as everywhere else -- only what this write introduces is
 // judged, so clearing the marker is never refused.
-pub(in crate::credential) fn mark_quarantine_tag(vault: &mut Vault, id: &str, frozen: bool) -> Result<()> {
+pub(in crate::credential) fn mark_quarantine_tag(
+    vault: &mut Vault,
+    id: &str,
+    frozen: bool,
+) -> Result<()> {
     let entry = vault
         .doc_mut()
         .get_mut("items")

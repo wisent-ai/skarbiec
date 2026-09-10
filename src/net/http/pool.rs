@@ -3,9 +3,9 @@
 
 use anyhow::{Context, Result};
 use serde_json::json;
-use wisent_errors::Code;
 use std::net::TcpStream;
 use std::sync::{mpsc, Arc, Mutex};
+use wisent_errors::Code;
 
 use super::routes::handle;
 use super::{configured_usize, write_response, DEFAULT_HTTP_QUEUE, DEFAULT_HTTP_WORKERS};

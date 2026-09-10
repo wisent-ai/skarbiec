@@ -73,7 +73,8 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
                     "{credential_id} exists outside Weles management, and an item can only enter managed state at creation; adopt cannot take it over"
                 );
             }
-            if live && inbox::written_by(&vault, credential_id).as_deref() != Some(submission.consumer)
+            if live
+                && inbox::written_by(&vault, credential_id).as_deref() != Some(submission.consumer)
             {
                 bail!(
                     "{credential_id} is written by a different Weles consumer; credential adopt must name that exact --consumer"
@@ -91,7 +92,9 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
             );
         }
         "rotate" | "reset" | "verify" | "remove" if state != STATE_MANAGED => {
-            bail!("{credential_id} is {state}, not managed; finish the adoption before {operation}");
+            bail!(
+                "{credential_id} is {state}, not managed; finish the adoption before {operation}"
+            );
         }
         _ => {}
     }

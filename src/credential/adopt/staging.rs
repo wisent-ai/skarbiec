@@ -5,14 +5,12 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::path::Path;
 
-use crate::core::vault::{ManagedWrite, Vault};
 use crate::core::schema;
+use crate::core::vault::{ManagedWrite, Vault};
 use crate::runtime::audit;
 
 use super::super::common::now_iso;
-use super::super::state::{
-    context_block, item_revision, live_item_exists, store_context,
-};
+use super::super::state::{context_block, item_revision, live_item_exists, store_context};
 use super::super::STATE_ADOPTING;
 use super::{adopt_candidate_kind, lifecycle_request, AdoptShape};
 

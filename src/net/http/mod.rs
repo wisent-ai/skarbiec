@@ -11,8 +11,8 @@
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::net::{TcpListener, TcpStream};
 use std::io::Write;
+use std::net::{TcpListener, TcpStream};
 
 use crate::core::{vault::Vault, vault_path};
 
@@ -23,7 +23,6 @@ mod routes;
 
 use pool::RequestPool;
 use readiness::start_readiness_monitor;
-
 
 const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
@@ -55,7 +54,6 @@ pub(crate) fn presented_identity(headers: &HashMap<String, String>) -> (String, 
     (consumer, bearer)
 }
 
-
 /// Operator-facing failure text, length-capped.
 ///
 /// A gpg failure names key ids and recipient uids, which is exactly what an
@@ -78,7 +76,6 @@ pub(crate) fn write_response(
 // read-modify-write on the vault file must never interleave with another
 // writer. Read-only routes stay parallel.
 static WRITE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-
 
 pub fn dispatch(
     command: &str,

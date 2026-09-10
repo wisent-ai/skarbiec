@@ -223,5 +223,4 @@ impl Vault {
         crate::runtime::audit::append_sync("item-write", &audit).ok();
         Ok(())
     }
-
 }

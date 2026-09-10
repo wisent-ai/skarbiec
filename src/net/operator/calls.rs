@@ -14,7 +14,11 @@ pub(super) fn answered(result: Result<Option<Value>>) -> Result<Value> {
     result?.context("the backend produced no answer for an operator route")
 }
 
-pub(super) fn access(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(super) fn access(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     answered(crate::access::dispatch(command, flags, positionals))
 }
 
@@ -22,7 +26,11 @@ pub(super) fn access(command: &str, flags: &HashMap<String, String>, positionals
 /// positionals its body named. The group takes the leaf as its first
 /// positional, so a console and the command line reach the same dispatcher
 /// with the same argument list.
-pub(super) fn grant(leaf: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(super) fn grant(
+    leaf: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     let mut argv = vec![leaf.to_string()];
     argv.extend_from_slice(positionals);
     access("grant", flags, &argv)
@@ -36,15 +44,27 @@ pub(super) fn runtime(
     answered(crate::runtime::dispatch(command, flags, positionals))
 }
 
-pub(super) fn net(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(super) fn net(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     answered(crate::net::dispatch(command, flags, positionals))
 }
 
-pub(super) fn bonds(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(super) fn bonds(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     answered(crate::bonds::dispatch(command, flags, positionals))
 }
 
-pub(super) fn inbox(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(super) fn inbox(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     answered(crate::core::inbox::dispatch(command, flags, positionals))
 }
 

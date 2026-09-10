@@ -31,7 +31,10 @@ pub(super) fn now_iso() -> String {
 pub(super) fn lines() -> Result<Vec<Value>> {
     let (entries, malformed) = lines_with_faults()?;
     if let Some(fault) = malformed.first() {
-        let line = fault.get("line").and_then(Value::as_u64).unwrap_or_default();
+        let line = fault
+            .get("line")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
         let detail = fault
             .get("error")
             .and_then(Value::as_str)
@@ -219,4 +222,3 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     }
     Ok(())
 }
-

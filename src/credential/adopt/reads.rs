@@ -45,7 +45,7 @@ pub(in crate::credential) fn staged_field_value(
 // the exact verification path: an active adopt for this item, that request id,
 // that field, and that presenting consumer. Outside that window a candidate
 // sitting as the current revision is unreadable.
-pub(in crate) fn managed_read(
+pub(crate) fn managed_read(
     vault: &Vault,
     credential_id: &str,
     field: &str,
@@ -97,7 +97,7 @@ pub(in crate) fn managed_read(
 // True when this caller may not see the item's current value because an
 // unconfirmed adopt candidate is sitting in it. A read that cannot be judged
 // is hidden too.
-pub(in crate) fn candidate_hidden(
+pub(crate) fn candidate_hidden(
     vault: &Vault,
     credential_id: &str,
     field: &str,

@@ -10,7 +10,6 @@ use super::issue::{ensure_read_once, issue_once};
 use super::lookup::{load, token_allows_action, token_allows_field_action};
 use super::rules::validation::{exact_component, read_fixed_token};
 
-
 /// The six leaves of the `grant` group.
 ///
 /// The subcommand is the first positional and every leaf reads the rest, so the

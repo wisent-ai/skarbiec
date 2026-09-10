@@ -12,10 +12,8 @@ mod messages;
 
 pub use execution::{executor_status, recover_daemons};
 pub use keys::{
-    export_public_key, fingerprint_for, generate_key, import_key, keygrips_for,
-    secret_key_present,
+    export_public_key, fingerprint_for, generate_key, import_key, keygrips_for, secret_key_present,
 };
 pub use messages::{
-    clearsign, decrypt, encrypt_to, random_token, sha1_hex_upper, sha256_hex,
-    verify_clearsigned,
+    clearsign, decrypt, encrypt_to, random_token, sha1_hex_upper, sha256_hex, verify_clearsigned,
 };

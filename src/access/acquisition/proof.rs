@@ -98,7 +98,11 @@ pub(super) fn openssl_bin() -> String {
     "openssl".to_string()
 }
 
-pub(super) fn verify_workload_proof(public_key: &str, payload: &[u8], signature: &str) -> Result<bool> {
+pub(super) fn verify_workload_proof(
+    public_key: &str,
+    payload: &[u8],
+    signature: &str,
+) -> Result<bool> {
     let Some(signature) = decode_signature(signature) else {
         return Ok(false);
     };

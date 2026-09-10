@@ -204,4 +204,3 @@ fn grants_are_edited_by_rotation_replacement_or_ensure() {
     assert!(!output.status.success());
     assert!(stderr(&output).contains("token file must be an owner-controlled regular file"));
 }
-

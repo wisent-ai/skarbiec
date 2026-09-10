@@ -34,7 +34,6 @@ fn vault_path() -> PathBuf {
     core::vault_path()
 }
 
-
 pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let owner = positionals
         .first()
@@ -55,7 +54,6 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
         json!({"ok": true, "vault": vault.path.display().to_string(), "owner_fpr": owner_fpr, "recovery_fpr": recovery_fpr}),
     )
 }
-
 
 fn main() -> Result<()> {
     let mut argv = std::env::args();

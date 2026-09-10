@@ -197,4 +197,3 @@ pub fn token_allows_vault_action(
 ) -> Result<bool> {
     token_allows_action(vault, consumer, presented, action, resource)
 }
-

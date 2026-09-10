@@ -16,7 +16,9 @@ use super::super::state::{
     update_request,
 };
 use super::super::wire::{request_payload, run_weles, wire_request, WIRE_VERSION};
-use super::super::{ACCOUNT_PROVIDER, IDENTITY_PROVIDER, STATE_MANAGED, STATE_QUARANTINED, STATE_UNMANAGED};
+use super::super::{
+    ACCOUNT_PROVIDER, IDENTITY_PROVIDER, STATE_MANAGED, STATE_QUARANTINED, STATE_UNMANAGED,
+};
 use super::commit::{settle, Record};
 use super::snapshot::emit;
 
