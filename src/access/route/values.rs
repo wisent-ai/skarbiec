@@ -17,9 +17,10 @@ use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::route_declaration::Row;
-use super::route_resolution::{rows_for, targets};
-use super::{grant, route_table};
+use super::declaration::Row;
+use super::resolution::{rows_for, targets};
+use super::super::grant;
+use super::table as route_table;
 use crate::core::{schema, vault::Vault, vault_path};
 use crate::net::http;
 

@@ -9,12 +9,12 @@
 
 use std::collections::HashMap;
 
-use super::route_coordinate::coordinate;
-use super::route_declaration::{
+use super::coordinate::coordinate;
+use super::declaration::{
     agent_items, ambiguous, credential_field, login_targets, provider_items, Row, Target,
     AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX,
 };
-use super::route_table;
+use super::table as route_table;
 use crate::core::{vault::Vault, vault_path};
 use anyhow::Result;
 use serde_json::{json, Map, Value};

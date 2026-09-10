@@ -18,7 +18,7 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 use std::process::Command;
 
-use super::capability::{routes_path, write_private_file};
+use super::super::capability::{routes_path, write_private_file};
 use crate::core::vault::Vault;
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
@@ -48,7 +48,7 @@ pub(crate) fn table_path() -> std::path::PathBuf {
 /// deleted reconciliation gets emptied instead of quietly kept.
 pub(super) fn shadowed(
     table: &Map<String, Value>,
-    rows: &[super::route_declaration::Row],
+    rows: &[super::declaration::Row],
 ) -> Vec<Value> {
     rows.iter()
         .filter(|row| row.declared_by != "table" && table.contains_key(&row.resource))

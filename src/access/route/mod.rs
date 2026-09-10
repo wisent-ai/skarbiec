@@ -24,12 +24,18 @@
 
 use std::collections::HashMap;
 
-use super::route_declaration::{AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX};
-use super::route_resolution;
-use super::route_table::{self, MAX_REASON_CHARS, MAX_RESOURCE_CHARS};
-use super::route_values;
+use declaration::{AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX};
+use table::{self as route_table, MAX_REASON_CHARS, MAX_RESOURCE_CHARS};
+use values as route_values;
+use resolution as route_resolution;
 use crate::core::schema::{exact_token, MAX_NAME_CHARS};
 use crate::core::{vault::Vault, vault_path};
+pub mod coordinate;
+pub mod declaration;
+pub mod resolution;
+pub mod table;
+pub mod values;
+
 use anyhow::{anyhow, bail, Result};
 use serde_json::{json, Value};
 

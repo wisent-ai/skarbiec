@@ -138,7 +138,7 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         );
     }
 
-    let coordinate = match crate::access::route_resolution::coordinate_for(&resource)? {
+    let coordinate = match crate::access::route::resolution::coordinate_for(&resource)? {
         Ok((item, field)) => (item, field),
         Err(_) => (challenge_item(&resource), "value".to_string()),
     };

@@ -66,7 +66,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/route/verify" => {
             // The report is the answer, broken rows included: a console came
             // for exactly the routes a bare refusal would throw away.
-            crate::access::route_resolution::verify_report(optional(parsed, "consumer").as_deref())
+            crate::access::route::resolution::verify_report(optional(parsed, "consumer").as_deref())
         }
         // Mutations, one route per verb, bodies naming exact targets.
         "/v1/operator/vaults/create" => {

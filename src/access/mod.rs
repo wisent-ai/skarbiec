@@ -10,11 +10,6 @@ pub mod policy;
 pub mod recipients;
 pub mod recovery;
 pub mod route;
-pub mod route_coordinate;
-pub mod route_declaration;
-pub mod route_resolution;
-pub mod route_table;
-pub mod route_values;
 
 use anyhow::Result;
 use serde_json::Value;

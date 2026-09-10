@@ -3,7 +3,8 @@
 // credential it resolves to.
 
 use serde_json::{json, Value};
-use crate::access::{grant, route_resolution, route_table};
+use crate::access::grant;
+use crate::access::route::{resolution as route_resolution, table as route_table};
 use crate::core::vault::Vault;
 use crate::core::{schema, vault_path};
 

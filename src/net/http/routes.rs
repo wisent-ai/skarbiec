@@ -268,7 +268,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         return crate::net::handle_credential_operation_status(&mut stream, &headers, item);
     }
     if method == "POST" && path == "/v1/route/resolve" {
-        return crate::access::route_values::handle_http_resolve(&mut stream, &headers, &body);
+        return crate::access::route::values::handle_http_resolve(&mut stream, &headers, &body);
     }
     // Bond endpoints (docs/design/bond.md): replica pull channel + p2p donations.
     if method == "GET" && path == "/v1/vault" {

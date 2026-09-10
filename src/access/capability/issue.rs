@@ -98,7 +98,7 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
     // `route verify`'s words.
     if !resource.starts_with("challenge:") {
         let (item, field) =
-            match crate::access::route_resolution::coordinate_for(resource)? {
+            match crate::access::route::resolution::coordinate_for(resource)? {
                 Ok(coordinate) => coordinate,
                 Err(problem) => return Err(refused(
                     resource,
@@ -111,7 +111,7 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
         let vault = Vault::open(vault_path())?;
         let mut opened = HashMap::new();
         if let Some(problem) =
-            crate::access::route_coordinate::coordinate(&vault, &mut opened, &item, &field, None)
+            crate::access::route::coordinate::coordinate(&vault, &mut opened, &item, &field, None)
                 .problem
         {
             return Err(refused(
