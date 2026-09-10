@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::vault::Vault;
 use crate::runtime::audit;
 
@@ -196,7 +196,7 @@ pub(super) fn resolve_quarantine(
     } else {
         request_item_id(credential_id)
     };
-    if !tokens::token_allows_action(&vault, &consumer, &token, "admin", &admin_target)? {
+    if !grant::token_allows_action(&vault, &consumer, &token, "admin", &admin_target)? {
         bail!("{consumer} holds no admin capability for {admin_target}");
     }
     let request_item = request_item_id(credential_id);

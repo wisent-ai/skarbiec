@@ -83,7 +83,6 @@ pub fn is_placeholder(value: &str) -> bool {
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-
 /// One registered tag namespace, and the two shapes a namespace comes in.
 ///
 /// The shapes are not interchangeable and flattening them into one prefix test

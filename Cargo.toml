@@ -47,6 +47,19 @@ path = "tests/operator-values/main.rs"
 name = "operator-http"
 path = "tests/operator-http/main.rs"
 
+[[test]]
+name = "routes"
+path = "tests/routes/main.rs"
+
+# Every suite is named here on purpose. Cargo also auto-discovers
+# `tests/<dir>/main.rs`, and the two suites this manifest never named were
+# exactly the two nobody noticed were built on scripted `gpg` and `gpgconf`
+# stand-ins: `crypto-recovery` is deleted, and this is the other one, rebuilt
+# on real contention.
+[[test]]
+name = "crypto-capacity"
+path = "tests/crypto-capacity/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"

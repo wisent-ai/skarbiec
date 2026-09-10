@@ -32,7 +32,7 @@ WORKLOAD_ID=quickstart-workload
 openssl genpkey -algorithm ED25519 -out "$WORKLOAD_PRIVATE_KEY"
 openssl pkey -in "$WORKLOAD_PRIVATE_KEY" -pubout -out "$WORKLOAD_PUBLIC_KEY"
 
-"$SB" token-mint "$CONSUMER" \
+"$SB" grant issue "$CONSUMER" \
   --capabilities "acquire:$ITEM#$FIELD" \
   --workload-public-key-file "$WORKLOAD_PUBLIC_KEY"
 

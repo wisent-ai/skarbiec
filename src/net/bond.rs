@@ -13,7 +13,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::process::Command;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{crypto, inbox, vault_path};
 use crate::net::http;
 
@@ -83,7 +83,7 @@ pub(crate) fn handle_vault_pull(
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "sync", "pull")?
+        || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "sync", "pull")?
     {
         return http::write_response(
             stream,
@@ -131,7 +131,7 @@ pub(crate) fn handle_enroll(
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
     if consumer.is_empty()
-        || !tokens::token_allows_vault_action(&vault, &consumer, &bearer, "enroll", uid)?
+        || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "enroll", uid)?
     {
         return http::write_response(
             stream,

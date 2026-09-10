@@ -5,11 +5,16 @@
 
 pub mod acquisition;
 pub mod capability;
+pub mod grant;
 pub mod policy;
 pub mod recipients;
 pub mod recovery;
-pub mod routes;
-pub mod tokens;
+pub mod route;
+pub mod route_coordinate;
+pub mod route_declaration;
+pub mod route_resolution;
+pub mod route_table;
+pub mod route_values;
 
 use anyhow::Result;
 use serde_json::Value;
@@ -29,10 +34,10 @@ pub fn dispatch(
     if let Some(v) = capability::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
-    if let Some(v) = routes::dispatch(command, flags, positionals)? {
+    if let Some(v) = route::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
-    if let Some(v) = tokens::dispatch(command, flags, positionals)? {
+    if let Some(v) = grant::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
     if let Some(v) = recovery::dispatch(command, flags, positionals)? {

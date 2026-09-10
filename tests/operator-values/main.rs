@@ -108,7 +108,9 @@ fn operator_totp_generates_only_a_real_six_digit_code() {
     assert_success("generate totp code", &real);
     let real: serde_json::Value =
         serde_json::from_slice(&real.stdout).expect("totp output must be JSON");
-    let code = real["code"].as_str().expect("real seed must produce a code");
+    let code = real["code"]
+        .as_str()
+        .expect("real seed must produce a code");
     assert_eq!(code.len(), 6);
     assert!(code.bytes().all(|byte| byte.is_ascii_digit()));
     assert_eq!(real["has_seed"], true);
@@ -216,7 +218,8 @@ fn update_credential_fields_preserves_all_original_fields() {
     assert_success("read for update", &get_output);
     let item_json = String::from_utf8_lossy(&get_output.stdout);
 
-    // Now update password via stdin (simulating set-json)
+    // Now update the password and write the whole document back through the
+    // real `set-json`, over the real binary's stdin, exactly as a client does.
     let updated_json = item_json.replace("pass222", "newpass222").to_string();
 
     let set_output = fixture.run_with_stdin(&["set-json", "user-account"], &updated_json);

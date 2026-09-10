@@ -111,7 +111,6 @@ pub fn dispatch(
     _positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "capability-issue" => Ok(Some(issue(flags)?)),
         "capability-serve" => Ok(Some(serve(flags)?)),
         "apple-challenge-put" => Ok(Some(challenge_put(_positionals)?)),
         _ => Ok(None),
@@ -131,7 +130,7 @@ fn state_path() -> PathBuf {
     vault.with_file_name(name)
 }
 
-/// The one path the broker resolves resources through. `routes` reads and writes
+/// The one path the broker resolves resources through. `route_table` reads and writes
 /// exactly this file, so an operator's table is never written where nothing looks
 /// for it -- a table beside the vault while the broker reads beside its state
 /// file resolves nothing and says nothing about why.
@@ -204,31 +203,9 @@ fn save_state(state: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Resource vocabularies meet vault coordinates only here. A resource with no route
-/// is refused rather than guessed: a wrong guess hands out a credential the operator
-/// never authorised for that purpose.
-fn resolve_route(resource: &str) -> Result<Option<(String, String)>> {
-    let path = routes_path();
-    if !path.exists() {
-        return Ok(None);
-    }
-    let raw = fs::read_to_string(&path).context("read capability routes")?;
-    let parsed: Value = serde_json::from_str(&raw).context("parse capability routes")?;
-    let Some(entry) = parsed.get(resource) else {
-        return Ok(None);
-    };
-    match (
-        entry.get("item").and_then(Value::as_str),
-        entry.get("field").and_then(Value::as_str),
-    ) {
-        (Some(item), Some(field)) => Ok(Some((item.to_string(), field.to_string()))),
-        _ => bail!("capability route for {resource} must name an item and a field"),
-    }
-}
-
 /// A refusal the caller can act on, on stdout as well as in the error.
 ///
-/// `capability-issue` is run as a subprocess by the gateway that needs the
+/// `grant capability` is run as a subprocess by the gateway that needs the
 /// credential, and a refusal is rendered by `anyhow` on stderr. A gateway
 /// reading the child's stdout therefore recorded `capability_issue_refused`
 /// with an empty detail -- seven providers refused at once, and the operator
@@ -237,7 +214,7 @@ fn resolve_route(resource: &str) -> Result<Option<(String, String)>> {
 /// every time and the cause never.
 ///
 /// So the reason goes to stdout as a document too, naming the coordinate and
-/// the command that would repair it, exactly as `routes verify` prints its
+/// the command that would repair it, exactly as `route verify` prints its
 /// report before failing. The coordinate is configuration, not a secret, and
 /// no value is ever read into it.
 fn refused(
@@ -248,7 +225,7 @@ fn refused(
 ) -> anyhow::Error {
     let document = json!({
         "status": "refused",
-        "command": "capability-issue",
+        "command": "grant capability",
         "resource": resource,
         "item": coordinate.map(|(item, _)| item),
         "field": coordinate.map(|(_, field)| field),
@@ -258,14 +235,14 @@ fn refused(
     if let Ok(text) = serde_json::to_string_pretty(&document) {
         println!("{text}");
     }
-    anyhow!("capability-issue refused for {resource}: {reason}; {remedy}")
+    anyhow!("grant capability refused for {resource}: {reason}; {remedy}")
 }
 
 // Each bound is refused separately and the error names the pair, so `x < low || x >
 // high` mirrors the sentence the caller reads back. A `contains` on a range says the
 // same thing about a set, which is not what is being explained here.
 #[allow(clippy::manual_range_contains)]
-fn issue(flags: &HashMap<String, String>) -> Result<Value> {
+pub(super) fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
     let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
     let resource = flags
@@ -274,10 +251,10 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
         .unwrap_or_default();
     let target = flags.get("target").map(String::as_str).unwrap_or_default();
     if !exact_token(agent, 128) || !exact_token(purpose, 128) || !exact_token(resource, 512) {
-        bail!("capability-issue requires exact --agent, --purpose, and --resource");
+        bail!("grant capability requires exact --agent, --purpose, and --resource");
     }
     if !exact_token(target, 64) {
-        bail!("capability-issue requires an exact --target");
+        bail!("grant capability requires an exact --target");
     }
     let ttl: u64 = flags
         .get("ttl")
@@ -306,30 +283,35 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     // submit. Refuse at issue time. `challenge:` is the documented exception: its
     // value is written later, by the relay.
     //
-    // The same argument reaches one step further, and until now it stopped short:
-    // a route can be present and the credential behind it still hold nothing, and
-    // that capability was issued too, redeemed, and refused at the far end. So the
-    // credential itself is checked here, in `routes verify`'s words.
+    // The resolution asked here is the capability's own, so a resource is resolved
+    // from what the vault declares -- including a provider whose item was renamed
+    // after the grant was written, which used to be issued against a stale table row
+    // and refused at the far end. A route can also resolve and the credential behind
+    // it still hold nothing, so the credential itself is checked here too, in
+    // `route verify`'s words.
     if !resource.starts_with("challenge:") {
-        let Some((item, field)) = resolve_route(resource)? else {
-            return Err(refused(
-                resource,
-                None,
-                &format!("no capability route maps {resource} to a vault field"),
-                "map it with: skarbiec routes add --resource <resource> --item <item> \
-                 --field <field> --reason <text>, or derive it with skarbiec routes reconcile",
-            ));
-        };
+        let (item, field) =
+            match crate::access::route_resolution::coordinate_for(resource)? {
+                Ok(coordinate) => coordinate,
+                Err(problem) => return Err(refused(
+                    resource,
+                    None,
+                    &problem,
+                    "declare it with: skarbiec route declare --resource <resource> --item <item> \
+                     --field <field> --reason <text>, or tag the item it should resolve from",
+                )),
+            };
         let vault = Vault::open(vault_path())?;
         let mut opened = HashMap::new();
         if let Some(problem) =
-            crate::access::routes::coordinate(&vault, &mut opened, &item, &field, None).problem
+            crate::access::route_coordinate::coordinate(&vault, &mut opened, &item, &field, None)
+                .problem
         {
             return Err(refused(
                 resource,
                 Some((&item, &field)),
                 &problem,
-                "inspect every route with: skarbiec routes verify, or skarbiec doctor",
+                "inspect every route with: skarbiec route verify, or skarbiec doctor",
             ));
         }
     }
@@ -353,7 +335,7 @@ fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!({"capability_id": capability_id, "status": "issued"}))
 }
 
-// Liveness matches tokens::active: a consumer entry carries no state field, only an
+// Liveness matches grant::active: a consumer entry carries no state field, only an
 // expiry. Checking for a "state" the vault never writes would deny every redemption
 // while looking like a working guard.
 fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {
@@ -699,9 +681,9 @@ fn handle(stream: &mut UnixStream) -> Result<()> {
         );
     }
 
-    let coordinate = match resolve_route(&resource)? {
-        Some((item, field)) => (item, field),
-        None => (challenge_item(&resource), "value".to_string()),
+    let coordinate = match crate::access::route_resolution::coordinate_for(&resource)? {
+        Ok((item, field)) => (item, field),
+        Err(_) => (challenge_item(&resource), "value".to_string()),
     };
     let secret = item_field(&vault, &coordinate.0, &coordinate.1);
     let Some(secret) = secret else {

@@ -5,7 +5,7 @@
 // then atomically consume it on the first successful single-field read.
 //
 // This file keeps the listener, route table, and shared helpers; the larger
-// handlers live in net (mod.rs), net::mcp, net::sync, and runtime::resolve
+// handlers live in net (mod.rs), net::mcp, net::sync, and access::route_values
 // because of the repository's per-file line budget. Behavior is unchanged.
 
 use anyhow::{Context, Result};
@@ -16,7 +16,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{mpsc, Arc, Mutex};
 use wisent_errors::Code;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{vault::Vault, vault_path};
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
 use crate::net::operator;
@@ -392,7 +392,7 @@ fn handle(mut stream: TcpStream) -> Result<()> {
             );
         }
         if consumer.is_empty()
-            || !tokens::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
+            || !grant::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
         {
             return write_response(
                 &mut stream,
@@ -434,8 +434,8 @@ fn handle(mut stream: TcpStream) -> Result<()> {
     if let Some(item) = credential_status_item(&method, &path) {
         return crate::net::handle_credential_operation_status(&mut stream, &headers, item);
     }
-    if method == "POST" && path == "/resolve" {
-        return crate::runtime::resolve::handle_http_resolve(&mut stream, &headers, &body);
+    if method == "POST" && path == "/v1/route/resolve" {
+        return crate::access::route_values::handle_http_resolve(&mut stream, &headers, &body);
     }
     // Bond endpoints (docs/design/bond.md): replica pull channel + p2p donations.
     if method == "GET" && path == "/v1/vault" {

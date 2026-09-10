@@ -22,7 +22,7 @@ use std::net::TcpStream;
 use std::path::Path;
 use wisent_errors::Code;
 
-use crate::access::tokens;
+use crate::access::grant;
 use crate::core::{vault::Vault, vault_path};
 use crate::net::http;
 use crate::runtime;
@@ -51,9 +51,9 @@ fn tools() -> Value {
         {"name": "skarbiec_list",
          "description": "List credential item metadata (ids, type, revision counts, tags). Never returns secret values.",
          "inputSchema": schema(json!({}), vec![])},
-        {"name": "skarbiec_resolve",
-         "description": "Resolve a platform's admin login the sanctioned way: policy- and token-gated; emits an owner-only env file and returns only its path plus the exported variable NAMES (ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_TOTP). Values are never returned. The server must be configured with SKARBIEC_MCP_CONSUMER, SKARBIEC_MCP_TOKEN (or SKARBIEC_MCP_TOKEN_FILE), and an absolute SKARBIEC_MCP_OUT_DIR; the token is never a tool argument.",
-         "inputSchema": schema(json!({"platform": {"type": "string", "description": "Platform / item id to resolve (e.g. github, or a stored item id)."}}), vec!["platform"])},
+        {"name": "skarbiec_route_resolve",
+         "description": "Resolve one declared route the sanctioned way: policy- and token-gated; emits an owner-only env file and returns only its path plus the exported variable NAMES (ADMIN_EMAIL/ADMIN_PASSWORD/ADMIN_TOTP). Values are never returned. The server must be configured with SKARBIEC_MCP_CONSUMER, SKARBIEC_MCP_TOKEN (or SKARBIEC_MCP_TOKEN_FILE), and an absolute SKARBIEC_MCP_OUT_DIR; the token is never a tool argument.",
+         "inputSchema": schema(json!({"name": {"type": "string", "description": "The resource name to resolve, as route resolve accepts it: login:<item> for one login item, provider:<provider>, agent:<agent>, or a hand-declared resource."}}), vec!["name"])},
         {"name": "skarbiec_audit",
          "description": "Return the tamper-evident audit journal (at/op/extra/prev/hash chain). Only operation names and non-sensitive identifiers are journalled; never values.",
          "inputSchema": schema(json!({}), vec![])},
@@ -100,7 +100,7 @@ fn configured_out_dir() -> Result<String> {
     let dir = std::env::var("SKARBIEC_MCP_OUT_DIR").ok()
         .map(|d| d.trim().to_string())
         .filter(|d| !d.is_empty())
-        .context("skarbiec_resolve is disabled: configure SKARBIEC_MCP_OUT_DIR to an absolute directory on the MCP server")?;
+        .context("skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_OUT_DIR to an absolute directory on the MCP server")?;
     if !Path::new(&dir).is_absolute() {
         anyhow::bail!("SKARBIEC_MCP_OUT_DIR must be an absolute path, got: {dir}");
     }
@@ -108,33 +108,33 @@ fn configured_out_dir() -> Result<String> {
 }
 
 fn resolve_tool(args: &Value) -> Result<Value> {
-    let platform = args
-        .get("platform")
+    let name = args
+        .get("name")
         .and_then(Value::as_str)
-        .filter(|p| !p.is_empty())
-        .context("skarbiec_resolve requires a non-empty 'platform'")?;
+        .filter(|value| !value.is_empty())
+        .context("skarbiec_route_resolve requires a non-empty 'name'")?;
     // Mandatory server-side auth; refuse before opening the vault.
     let consumer = configured_consumer().context(
-        "skarbiec_resolve is disabled: configure SKARBIEC_MCP_CONSUMER on the MCP server",
+        "skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_CONSUMER on the MCP server",
     )?;
     let bearer = configured_token()
-        .context("skarbiec_resolve is disabled: configure SKARBIEC_MCP_TOKEN or SKARBIEC_MCP_TOKEN_FILE on the MCP server")?;
+        .context("skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_TOKEN or SKARBIEC_MCP_TOKEN_FILE on the MCP server")?;
     let out_dir = configured_out_dir()?;
-    // Same path as `resolve <p> --consumer c --token t --emit --out dir`.
+    // Same path as `route resolve <name> --consumer c --token t --emit --out dir`.
     let mut flags: HashMap<String, String> = HashMap::new();
     flags.insert("consumer".to_string(), consumer);
     flags.insert("token".to_string(), bearer);
     flags.insert("emit".to_string(), "true".to_string());
     flags.insert("out".to_string(), out_dir);
-    runtime::resolve::dispatch("resolve", &flags, &[platform.to_string()])?
-        .context("resolve produced no result")
+    crate::access::route::dispatch("route", &flags, &["resolve".to_string(), name.to_string()])?
+        .context("route resolve produced no result")
 }
 
 fn call_tool(name: &str, args: &Value) -> Result<Value> {
     match name {
         "skarbiec_health" => Ok(text_result(&json!({"ok": true, "service": "skarbiec"}))),
         "skarbiec_list" => Ok(text_result(&json!(Vault::open(vault_path())?.list(false)))),
-        "skarbiec_resolve" => Ok(text_result(&resolve_tool(args)?)),
+        "skarbiec_route_resolve" => Ok(text_result(&resolve_tool(args)?)),
         "skarbiec_audit" => {
             let empty: Vec<String> = Vec::new();
             Ok(text_result(
@@ -316,8 +316,8 @@ pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Opti
     let vault = http::load()?;
     // Hash the bearer once: hashing shells out to `shasum`, so per-item
     // hashing turned this filter into one subprocess spawn per vault item.
-    let hash = tokens::presented_hash(&bearer)?;
-    if consumer.is_empty() || !tokens::token_valid_hash(&vault, &consumer, &hash) {
+    let hash = grant::presented_hash(&bearer)?;
+    if consumer.is_empty() || !grant::token_valid_hash(&vault, &consumer, &hash) {
         return Ok(None);
     }
     Ok(Some(
@@ -326,7 +326,7 @@ pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Opti
             .into_iter()
             .filter(|item| {
                 item.get("id").and_then(Value::as_str).is_some_and(|id| {
-                    tokens::token_allows_any_item_hash(&vault, &consumer, &hash, "read", id)
+                    grant::token_allows_any_item_hash(&vault, &consumer, &hash, "read", id)
                 })
             })
             .collect(),

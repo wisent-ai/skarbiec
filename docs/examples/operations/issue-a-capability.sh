@@ -1,8 +1,9 @@
 #!/bin/sh
-# issue-a-capability.sh — map a resource onto a vault field and issue a finite
-# capability against it, and see what issuance refuses before it hands one out.
+# issue-a-capability.sh — resolve a resource name through what a vault item
+# declares, issue a finite capability against it, and see what issuance refuses
+# before it hands one out.
 #
-# Goal: understand the contract `capability-issue` enforces, which is stricter
+# Goal: understand the contract `grant capability` enforces, which is stricter
 # than "is this resource known": a non-`challenge:` resource must map to a
 # credential that can actually serve, and issuance proves that before it issues
 # rather than leaving the failure to redemption.
@@ -35,48 +36,49 @@ chmod u=rwx,go= "$GNUPGHOME"
 
 # 1. Two credentials: one that holds a value and one that does not. An emptied
 #    credential is the case this example exists for — it is indistinguishable
-#    from a working one in the route table, and only opening it tells them
-#    apart.
-"$SB" set demo-provider-good --type api-key api_key=not-a-secret
+#    from a working one until something opens it.
+#
+#    Each declares the provider it belongs to, and that declaration is what a
+#    resource name resolves through: rename either item and the same name still
+#    reaches the same credential.
+"$SB" set demo-provider-good --type api-key \
+  --tags=brama:provider:demo-good api_key=not-a-secret
 printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":""},"context":{}}' \
   | "$SB" set-json demo-provider-empty --type api-key
+"$SB" retag demo-provider-empty --tags=brama:provider:demo-empty
 
-# 2. Map each onto a resource. The table maps names to coordinates and
-#    authorises nothing: whether a workload may redeem a resource is decided at
-#    redemption by the live vault token registering its Ed25519 key.
-"$SB" routes add --resource provider:demo-good \
-  --item demo-provider-good --field api_key \
-  --reason "example: a credential that holds a value"
-"$SB" routes add --resource provider:demo-empty \
-  --item demo-provider-empty --field api_key \
-  --reason "example: a credential that was emptied"
+# 2. Nothing has to be mapped. A declaration is not an authorization either:
+#    whether a workload may redeem a resource is decided at redemption by the
+#    live grant registering its Ed25519 key.
+"$SB" route resolve provider:demo-good provider:demo-empty
 
 # 3. Issue against the working credential. This succeeds and prints the
 #    capability id and its state.
-"$SB" capability-issue \
+"$SB" grant capability \
   --agent demo-agent --purpose example --target demo \
   --resource provider:demo-good --ttl 600 --max-uses 1
 
-# 4. Issue against the emptied one. This refuses. Issuance resolves the route,
-#    opens the item it names, and applies exactly the rules `routes verify`
-#    applies — so a missing, renamed, trashed or unopenable item, a field the
-#    item does not carry, and a field that is present but empty are all refused
-#    here rather than at redemption. Opening the item means issuing a
-#    non-`challenge:` capability may decrypt the item the route names; no value
-#    is ever printed, and only the coordinate appears in the refusal.
+# 4. Issue against the emptied one. This refuses. Issuance resolves the name
+#    through the declaration, opens the item it reaches, and applies exactly the
+#    rules `route verify` applies — so a missing, renamed, trashed or unopenable
+#    item, a field the item does not carry, and a field that is present but
+#    empty are all refused here rather than at redemption. Opening the item
+#    means issuing a non-`challenge:` capability may decrypt the item the name
+#    reaches; no value is ever printed, and only the coordinate appears in the
+#    refusal.
 #
 #    `challenge:` resources are the documented exception and skip this check
 #    entirely, because their value is written later by the relay.
-if "$SB" capability-issue \
+if "$SB" grant capability \
      --agent demo-agent --purpose example --target demo \
      --resource provider:demo-empty --ttl 600 --max-uses 1
 then
-  printf '%s\n' 'expected capability-issue to refuse the emptied credential'
+  printf '%s\n' 'expected grant capability to refuse the emptied credential'
   false
 fi
 
-# 5. The same question asked of the whole table at once.
-"$SB" routes verify || true
+# 5. The same question asked of everything this vault resolves.
+"$SB" route verify || true
 
 printf '%s\n' "demo state: $DEMO_DIR"
 
@@ -87,20 +89,20 @@ printf '%s\n' "demo state: $DEMO_DIR"
 # subprocess and reading its stdout:
 #
 #   {
-#     "command": "capability-issue",
+#     "command": "grant capability",
 #     "field": "api_key",
 #     "item": "demo-provider-empty",
 #     "reason": "vault item demo-provider-empty field api_key is present but empty",
-#     "remedy": "inspect every route with: skarbiec routes verify, or skarbiec doctor",
+#     "remedy": "inspect every route with: skarbiec route verify, or skarbiec doctor",
 #     "resource": "provider:demo-empty",
 #     "status": "refused"
 #   }
 #
 # and on stderr it is the same sentence as an error, with a non-zero exit:
 #
-#   Error: capability-issue refused for provider:demo-empty: vault item
+#   Error: grant capability refused for provider:demo-empty: vault item
 #   demo-provider-empty field api_key is present but empty; inspect every route
-#   with: skarbiec routes verify, or skarbiec doctor
+#   with: skarbiec route verify, or skarbiec doctor
 #
 # A refusal that names neither the coordinate nor the reason is what let a
 # gateway record `capability_issue_refused` with an empty detail for a month
@@ -108,12 +110,13 @@ printf '%s\n' "demo state: $DEMO_DIR"
 #
 # If it fails:
 #
-#   Error: capability-issue refused for <resource>: no capability route maps
-#   <resource> to a vault field; map it with: skarbiec routes add ...
-#     → the resource is not in the table. `skarbiec routes add` maps it, or
-#       `skarbiec routes reconcile` derives it from what vault items declare.
+#   Error: grant capability refused for <resource>: nothing declares <resource>
+#   and no capability route names it; declare it with: skarbiec route declare ...
+#     → no item declares the resource and the table does not name it either.
+#       Tag the item that should answer it, or state a route the vault cannot
+#       declare for itself with `skarbiec route declare`.
 #
-#   Error: capability-issue refused for <resource>: vault item <item> does not
+#   Error: grant capability refused for <resource>: vault item <item> does not
 #   open: ...
 #     → this host cannot decrypt the item, which is a key or gpg fault rather
 #       than a credential fault. It will name every route at once; check
