@@ -46,9 +46,10 @@ pub(in crate::access::capability) fn acquire_state_lock() -> Result<StateLock> {
     bail!("timed out acquiring capability state lock")
 }
 
-/// Apple ships LibreSSL as `openssl`, and LibreSSL has no Ed25519 in `pkeyutl`, so on
-/// a stock Mac every proof would fail verification for a reason that looks like a bad
-
+/// Where the capability records live: `SKARBIEC_CAPABILITY_FILE` when an
+/// operator names one, and otherwise the vault's own path with
+/// `.capabilities.json` beside it, so a second vault never shares the first
+/// one's records.
 pub(in crate::access::capability) fn state_path() -> PathBuf {
     if let Ok(path) = std::env::var("SKARBIEC_CAPABILITY_FILE") {
         return PathBuf::from(path);

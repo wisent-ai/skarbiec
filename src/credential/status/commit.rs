@@ -42,7 +42,7 @@ pub(super) struct Record<'a> {
 /// after this returns as it did before the split.
 pub(super) fn settle(
     record: &Record<'_>,
-    mut vault: &mut Vault,
+    vault: &mut Vault,
     request: &mut Value,
     current_status: String,
 ) -> Result<(bool, String)> {
@@ -81,16 +81,16 @@ pub(super) fn settle(
                     .and_then(|weles| weles.get("rollback_status"))
                     .and_then(Value::as_str),
             )?;
-            update_request(vault_path, &request_item, &request, STATE_QUARANTINED, None)?;
+            update_request(vault_path, request_item, request, STATE_QUARANTINED, None)?;
             current_status = STATE_QUARANTINED.to_string();
         } else {
             confirmed = match operation.as_str() {
                 "acquire" => {
-                    inbox::managed_by_weles(&vault, credential_id)
-                        && inbox::written_by(&vault, credential_id).as_deref()
+                    inbox::managed_by_weles(vault, credential_id)
+                        && inbox::written_by(vault, credential_id).as_deref()
                             == Some(writer.as_str())
                         && item_matches_request(
-                            &vault,
+                            vault,
                             credential_id,
                             &request_id,
                             &operation,
@@ -100,10 +100,10 @@ pub(super) fn settle(
                 // adopt commits the operator's own value: the staged candidate
                 // is activated, or the item this adopt created is promoted out
                 // of the adopting state.
-                "adopt" => match adopt_shape_of(&request)? {
+                "adopt" => match adopt_shape_of(request)? {
                     AdoptShape::Staged => {
                         if !pending_matches_request(
-                            &vault,
+                            vault,
                             credential_id,
                             &request_id,
                             &field,
@@ -121,11 +121,11 @@ pub(super) fn settle(
                         }
                     }
                     AdoptShape::Created => {
-                        inbox::managed_by_weles(&vault, credential_id)
-                            && inbox::written_by(&vault, credential_id).as_deref()
+                        inbox::managed_by_weles(vault, credential_id)
+                            && inbox::written_by(vault, credential_id).as_deref()
                                 == Some(writer.as_str())
                             && item_matches_request(
-                                &vault,
+                                vault,
                                 credential_id,
                                 &request_id,
                                 &operation,
@@ -136,7 +136,7 @@ pub(super) fn settle(
                 // reset commits the same way as rotate: the staged provider value
                 // becomes current only after Weles reports the change landed.
                 "rotate" | "reset" => {
-                    if !pending_matches_request(&vault, credential_id, &request_id, &field, &writer)
+                    if !pending_matches_request(vault, credential_id, &request_id, &field, &writer)
                     {
                         false
                     } else {
@@ -160,7 +160,7 @@ pub(super) fn settle(
                         == Some(true);
                     if !same
                         || !pending_matches_request(
-                            &vault,
+                            vault,
                             credential_id,
                             &request_id,
                             &field,
@@ -182,16 +182,16 @@ pub(super) fn settle(
                     vault.trash_managed_item(credential_id, "weles", &writer)?;
                     true
                 }
-                "reauth" => named_subscription_present(&vault, credential_id),
+                "reauth" => named_subscription_present(vault, credential_id),
                 _ => false,
             };
             if confirmed {
                 // The receipt is persisted with the revision it proves, so
                 // `credential status` answers "was exactly this principal
                 // rotated" without reading a mailbox.
-                if live_item_exists(&vault, credential_id) {
+                if live_item_exists(vault, credential_id) {
                     store_context(
-                        &mut vault,
+                        vault,
                         credential_id,
                         &[
                             ("receipt", receipt.clone().unwrap_or(Value::Null)),
@@ -207,7 +207,7 @@ pub(super) fn settle(
                         ],
                     )?;
                 }
-                update_request(vault_path, &request_item, &request, "completed", None)?;
+                update_request(vault_path, request_item, request, "completed", None)?;
                 audit::append_sync(
                     "credential-operation-completed",
                     &json!({
@@ -222,9 +222,9 @@ pub(super) fn settle(
                 )?;
                 current_status = "completed".to_string();
                 *vault = Vault::open(vault_path.to_path_buf())?;
-                *request = vault.get_item(&request_item).and_then(request_payload)?;
+                *request = vault.get_item(request_item).and_then(request_payload)?;
             } else {
-                update_request(vault_path, &request_item, &request, "inconsistent", None)?;
+                update_request(vault_path, request_item, request, "inconsistent", None)?;
                 current_status = "inconsistent".to_string();
             }
         }
@@ -232,7 +232,7 @@ pub(super) fn settle(
         // "failed" is the legacy spelling recorded by submit/resume paths that
         // never reached Weles; records carrying it predate the unified
         // "operation_failed" vocabulary and settle through the same rollback.
-        let staged = pending_matches_request(&vault, credential_id, &request_id, &field, &writer);
+        let staged = pending_matches_request(vault, credential_id, &request_id, &field, &writer);
         if staged {
             vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
             audit::append_sync(
@@ -246,16 +246,16 @@ pub(super) fn settle(
             )?;
         }
         if operation == "adopt" {
-            match adopt_shape_of(&request)? {
+            match adopt_shape_of(request)? {
                 // The item this adopt created goes away entirely; a
                 // pre-existing item can never reach this branch.
                 AdoptShape::Created => {
-                    trash_adopted_item(&mut vault, credential_id, &request_id, &writer)?;
+                    trash_adopted_item(vault, credential_id, &request_id, &writer)?;
                 }
                 AdoptShape::Staged => {
-                    if live_item_exists(&vault, credential_id) {
+                    if live_item_exists(vault, credential_id) {
                         store_context(
-                            &mut vault,
+                            vault,
                             credential_id,
                             &[(
                                 "lifecycle",
