@@ -71,6 +71,19 @@ impl CliFixture {
         command.output().expect("run real skarbiec binary")
     }
 
+    /// Same as [`CliFixture::run`], with extra environment for that one
+    /// command. This is how a test states the host the command runs on — the
+    /// deadline one crypto child may take, the `PATH` its tools resolve
+    /// through — when the behaviour under test is what the product does when
+    /// that host misbehaves.
+    pub fn run_with_env(&self, env: &[(&str, &str)], args: &[&str]) -> Output {
+        let mut command = self.command(args);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command.output().expect("run real skarbiec binary")
+    }
+
     pub fn run_with_stdin(&self, args: &[&str], stdin: &str) -> Output {
         let mut child = self
             .command(args)
