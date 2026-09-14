@@ -207,15 +207,18 @@ pub(crate) fn handle_enroll(
 // configs are the replica's own relationships — they are carried across the
 // replace and stamped with the pull time so sync-status can report it.
 pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
-    let from = flags.get("from").context(
-        "usage: pull --from <base-url> --token <token> [--bond name] [--consumer name] [--force]",
-    )?;
-    let token = flags.get("token").context("--token required")?;
+    let usage =
+        "usage: pull --from <base-url> (--token <token> | --token-file <path>) [--bond name] [--consumer name] [--force]";
+    let from = flags.get("from").context(usage)?;
+    let token = match flags.get("token-file") {
+        Some(path) => crate::credential::read_secret_file(std::path::Path::new(path.trim()))?,
+        None => flags.get("token").context(usage)?.clone(),
+    };
     let consumer = flags
         .get("consumer")
         .map(String::as_str)
         .unwrap_or("replica");
-    let (status, pulled) = serve_request(from, "GET", "/v1/vault", consumer, token, None)?;
+    let (status, pulled) = serve_request(from, "GET", "/v1/vault", consumer, &token, None)?;
     if pulled.get("items").and_then(Value::as_object).is_none() || pulled.get("version").is_none() {
         bail!("remote did not return a vault document (status: {status}, body: {pulled})");
     }

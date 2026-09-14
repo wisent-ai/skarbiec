@@ -129,11 +129,27 @@ fn sigterm() -> c_int {
     "15".parse().unwrap_or_default()
 }
 
+/// The bearer a pull presents: `--token-file <path>` names an owner-only
+/// regular file holding exactly one token, `--token <bearer>` carries it on
+/// argv. A daemon a service manager keeps running has nowhere safe to put a
+/// bearer but a file - a unit definition is world-readable configuration,
+/// which is why every managed Skarbiec consumer binds `url + consumer +
+/// token_file` - so the file form is what a unit uses.
+fn bearer(flags: &HashMap<String, String>, usage: &str) -> Result<String> {
+    match flags.get("token-file") {
+        Some(path) => crate::credential::read_secret_file(std::path::Path::new(path.trim())),
+        None => flags
+            .get("token")
+            .cloned()
+            .with_context(|| usage.to_string()),
+    }
+}
+
 fn cmd_sync_daemon(flags: &HashMap<String, String>) -> Result<Value> {
-    let name = flags
-        .get("bond")
-        .context("usage: sync-daemon --bond <name> --token <t> [--consumer name]")?;
-    let token = flags.get("token").context("--token required")?;
+    let usage =
+        "usage: sync-daemon --bond <name> (--token <t> | --token-file <path>) [--consumer name]";
+    let name = flags.get("bond").context(usage)?;
+    let token = bearer(flags, usage)?;
     let consumer = flags
         .get("consumer")
         .map(String::as_str)

@@ -12,6 +12,7 @@ pub(super) use checks::{
     checked_bool, checked_code, checked_enum, checked_host, checked_timestamp, checked_uuid,
     hex_digest, present, safe_string, timestamp_shaped, uuid_shaped, zulu_seconds,
 };
+pub(crate) use inputs::read_secret_file;
 pub(super) use inputs::{
     client_identity, email_address, lowercase_uuid, opaque_handle, resume_handles,
 };

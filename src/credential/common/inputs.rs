@@ -56,7 +56,7 @@ pub(in crate::credential) fn opaque_handle(name: &str, value: &str, maximum: usi
 }
 
 // Bearer material is read from an owner-only file so it never appears in argv.
-pub(in crate::credential) fn read_secret_file(path: &Path) -> Result<String> {
+pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     if !path.is_absolute() {
         bail!("credential token file must be an absolute path");
     }
