@@ -25,7 +25,7 @@ mod state;
 mod status;
 mod wire;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -70,10 +70,16 @@ const IDENTITY_PROVIDER: &str = "microsoft_entra";
 const ACCOUNT_PROVIDER: &str = "microsoft";
 const IDENTITY_OPERATIONS: &[&str] = &["adopt", "rotate", "verify", "reset"];
 
-/// Where a Skarbiec serves when nobody said otherwise: `serve` binds this port
-/// by default, so it is the only address a fresh machine can be told to use
-/// without guessing.
-const LOCAL_CANONICAL_ENDPOINT: &str = "http://127.0.0.1:8787";
+/// What `declare-endpoint` says when asked to declare nothing: the marker it
+/// writes is the one Stado's service directory materializes from the
+/// registry, so the ordinary way it comes to exist is `stado service
+/// directory publish`, and an address the operator declares by hand is the
+/// operator's own word. Until 2026-09-14 the command guessed the loopback
+/// port `serve` binds by default, which on a machine whose Skarbiec is placed
+/// elsewhere declared an undeclared local process as the canonical one.
+const DECLARE_ENDPOINT_USAGE: &str = "usage: credential declare-endpoint <url> (or --url <url>): \
+     the canonical Skarbiec's address from this machine; `stado service directory publish` \
+     writes the same marker from the fleet's declaration";
 
 // Operations the canonical endpoint accepts. adopt is missing on purpose: the
 // current password is read from operator stdin and never travels.
@@ -213,7 +219,7 @@ pub fn dispatch(
                 .first()
                 .map(String::as_str)
                 .or_else(|| flags.get("url").map(String::as_str))
-                .unwrap_or(LOCAL_CANONICAL_ENDPOINT);
+                .context(DECLARE_ENDPOINT_USAGE)?;
             declare_canonical_endpoint(endpoint)?
         }
         "help" => json!({
