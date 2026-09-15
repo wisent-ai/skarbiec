@@ -20,3 +20,4 @@ vault.enc.json
 
 # Git worktrees checked out inside the repository; never repository content.
 .worktrees/
+/.build/
