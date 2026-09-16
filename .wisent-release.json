@@ -9,8 +9,8 @@
   },
   "inputs": {
     "weles-client": {
-      "uri": "stado://sources/skarbiec/weles-client/77687f319032b51cfdc60028dfee29daae6103e0659b1d34dd9364dcf3690fc1/weles-client.tgz",
-      "sha256": "77687f319032b51cfdc60028dfee29daae6103e0659b1d34dd9364dcf3690fc1",
+      "uri": "stado://sources/skarbiec/weles-client/74010851d4dabf83cf9864f9d0881379222f8a9448b36b734d0626acce1f068d/weles-client.tgz",
+      "sha256": "74010851d4dabf83cf9864f9d0881379222f8a9448b36b734d0626acce1f068d",
       "mount": "weles-client",
       "extract": true
     }
@@ -72,6 +72,7 @@
     "state_schema": 1,
     "minimum_stado_version": "0.6.1",
     "rollback_compatible_with": [
+      "0.3.8",
       "0.3.7",
       "0.3.6",
       "0.3.5",
