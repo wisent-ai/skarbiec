@@ -33,10 +33,7 @@ pub(crate) fn cmd_bond_add(
         .split_once(':')
         .context("channel must be <type:address>")?;
     if !CHANNEL_TYPES.contains(&channel_type) {
-        anyhow::bail!(
-            "channel type must be one of: {}",
-            CHANNEL_TYPES.join(", ")
-        );
+        anyhow::bail!("channel type must be one of: {}", CHANNEL_TYPES.join(", "));
     }
     let interval: Option<u64> = flags
         .get("interval")

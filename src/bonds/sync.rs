@@ -144,11 +144,7 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
 /// Both answers stay null when the channel is not a serve, when the source
 /// cannot be reached, or when no bearer was presented — a status report
 /// says what it observed, and an unreachable source is not a healthy one.
-fn remote_state(
-    channel: &Value,
-    consumer: &str,
-    token: Option<&String>,
-) -> (Value, Value) {
+fn remote_state(channel: &Value, consumer: &str, token: Option<&String>) -> (Value, Value) {
     let channel_type = channel.get("type").and_then(Value::as_str).unwrap_or("");
     if channel_type != "serve" {
         return (Value::Null, Value::Null);
@@ -162,14 +158,9 @@ fn remote_state(
         healthy = health.get("ok").cloned().unwrap_or(Value::Null);
     }
     if let Some(presented) = token {
-        if let Ok((_status, doc)) = crate::net::bond::serve_request(
-            address,
-            "GET",
-            "/v1/vault",
-            consumer,
-            presented,
-            None,
-        ) {
+        if let Ok((_status, doc)) =
+            crate::net::bond::serve_request(address, "GET", "/v1/vault", consumer, presented, None)
+        {
             remote_items = doc
                 .get("items")
                 .and_then(Value::as_object)

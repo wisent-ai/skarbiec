@@ -2,6 +2,7 @@
 //! edited or withdrawn.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 
 use crate::fixture::{fixture, mint, vault_tokens, CONSUMER, ITEM};
 use crate::support::{assert_success, stderr};
@@ -161,4 +162,45 @@ fn grant_issue_refuses_grants_that_mix_incompatible_actions() {
     assert!(!output.status.success());
     assert!(stderr(&output)
         .contains("acquire capabilities cannot share a grant with direct capabilities"));
+}
+
+#[test]
+fn lifecycle_grants_can_precede_creation_without_granting_value_access() {
+    let fixture = fixture();
+    let future = "future-provider";
+    let response = mint(&fixture, "lifecycle:future-provider");
+    let token_file = fixture.root.join("lifecycle-token");
+    fs::write(&token_file, response["token"].as_str().unwrap()).unwrap();
+    fs::set_permissions(&token_file, fs::Permissions::from_mode(0o600)).unwrap();
+
+    let stored: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&fixture.vault).unwrap()).unwrap();
+    assert!(
+        stored["items"].get(future).is_none(),
+        "authorizing acquisition must not create a credential or placeholder"
+    );
+
+    for (action, item, expected) in [
+        ("lifecycle", future, true),
+        ("lifecycle", ITEM, false),
+        ("read", future, false),
+        ("admin", future, false),
+    ] {
+        let output = fixture.run(&[
+            "grant",
+            "verify",
+            CONSUMER,
+            item,
+            "--action",
+            action,
+            "--token-file",
+            token_file.to_str().unwrap(),
+        ]);
+        assert_success("consume the exact lifecycle grant", &output);
+        let verdict: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            verdict["allowed"], expected,
+            "{action} on {item} must retain the declared boundary"
+        );
+    }
 }

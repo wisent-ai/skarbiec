@@ -70,6 +70,9 @@ pub(in crate::access::grant) fn parse_capabilities(
             capabilities.push(capability);
             continue;
         }
+        // Lifecycle scopes can name the item an acquire operation will create.
+        // They grant no value access; requiring an existing item here would
+        // make acquisition of a new credential through the canonical API impossible.
         if !preserved {
             if let Some(field) = field {
                 if field == "context" && action != "read" {
@@ -91,10 +94,7 @@ pub(in crate::access::grant) fn parse_capabilities(
                 } else if !matches!(action, "stage" | "acquire") {
                     bail!("capability names a missing item: {item}");
                 }
-            } else if matches!(
-                action,
-                "share" | "trash" | "purge" | "admin" | "lifecycle" | "reseal"
-            ) {
+            } else if matches!(action, "share" | "trash" | "purge" | "admin" | "reseal") {
                 vault
                     .doc()
                     .get("items")
