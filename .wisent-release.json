@@ -7,6 +7,14 @@
     "path": "Cargo.toml",
     "pattern": "(?m)^version\\s*=\\s*\"(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)\"\\s*$"
   },
+  "inputs": {
+    "weles-client": {
+      "uri": "stado://sources/skarbiec/weles-client/77687f319032b51cfdc60028dfee29daae6103e0659b1d34dd9364dcf3690fc1/weles-client.tgz",
+      "sha256": "77687f319032b51cfdc60028dfee29daae6103e0659b1d34dd9364dcf3690fc1",
+      "mount": "weles-client",
+      "extract": true
+    }
+  },
   "platforms": {
     "darwin-arm64": {
       "quality": [
@@ -23,6 +31,7 @@
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/bin/start": "bin/start",
+        "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
         "stage/LICENSE": "LICENSE",
         "stage/NOTICE": "NOTICE"
       },
@@ -46,6 +55,7 @@
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/bin/start": "bin/start",
+        "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
         "stage/share/skarbiec/browser/skarbiec-autofill.crx": "share/skarbiec/browser/skarbiec-autofill.crx",
         "stage/share/skarbiec/browser/skarbiec-autofill.xml": "share/skarbiec/browser/skarbiec-autofill.xml",
         "stage/LICENSE": "LICENSE",

@@ -21,14 +21,30 @@ use super::super::{PROVIDER_EFFECTS, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBAC
 use super::{BRIDGE_ENV, WIRE_VERSION};
 
 pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
-    let configured =
-        std::env::var(BRIDGE_ENV).with_context(|| format!("{BRIDGE_ENV} is not set"))?;
-    let path = Path::new(configured.trim());
+    let configured = match std::env::var(BRIDGE_ENV) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => return Err(error).context(format!("{BRIDGE_ENV} must be valid UTF-8")),
+    };
+    let path = match configured.as_deref() {
+        Some(value) => Path::new(value.trim()).to_path_buf(),
+        None => fs::canonicalize(
+            std::env::current_exe().context("locate the installed Skarbiec executable")?,
+        )
+        .context("resolve the installed Skarbiec release")?
+        .parent()
+        .context("installed Skarbiec executable has no containing directory")?
+        .join("../share/skarbiec/weles-client/bin/weles-skarbiec-acquire-admission.mjs"),
+    };
+    let source = match configured {
+        Some(_) => BRIDGE_ENV,
+        None => "packaged Weles credential bridge",
+    };
     if !path.is_absolute() {
-        bail!("{BRIDGE_ENV} must be an absolute path");
+        bail!("{source} must be an absolute path");
     }
-    let metadata = fs::symlink_metadata(path)
-        .with_context(|| format!("inspect {BRIDGE_ENV} executable {}", path.display()))?;
+    let metadata = fs::symlink_metadata(&path)
+        .with_context(|| format!("inspect {source} executable {}; install a complete Skarbiec release or configure {BRIDGE_ENV}", path.display()))?;
     let unsafe_bits = u32::from_str_radix("022", "8".parse()?)?;
     let owner_execute = u32::from_str_radix("100", "8".parse()?)?;
     if !metadata.file_type().is_file()
@@ -37,9 +53,9 @@ pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
         || metadata.permissions().mode() & unsafe_bits != u32::MIN
         || metadata.permissions().mode() & owner_execute == u32::MIN
     {
-        bail!("{BRIDGE_ENV} must be an owner-controlled executable regular file");
+        bail!("{source} must be an owner-controlled executable regular file");
     }
-    fs::canonicalize(path).with_context(|| format!("canonicalize {BRIDGE_ENV}"))
+    fs::canonicalize(path).with_context(|| format!("canonicalize {source}"))
 }
 
 pub(in crate::credential) fn sanitized_response(value: &Value) -> Result<Value> {

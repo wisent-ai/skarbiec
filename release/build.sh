@@ -47,6 +47,16 @@ SKARBIEC_RELEASE_COMMIT="$commit" CARGO_TARGET_DIR="$build_root" \
   cargo build --locked --release --bin skarbiec --manifest-path "$source_dir/Cargo.toml"
 install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
 install -m 0755 "$source_dir/release/launch.sh" "$stage/bin/start"
+bridge_package=${WISENT_INPUT_WELES_CLIENT_DIR:?WISENT_INPUT_WELES_CLIENT_DIR is required}/package
+bridge_stage="$stage/share/skarbiec/weles-client"
+test -f "$bridge_package/bin/weles-skarbiec-acquire-admission.mjs"
+mkdir -p "$bridge_stage"
+cp -R "$bridge_package/bin" "$bridge_package/src" "$bridge_stage/"
+install -m 0644 "$bridge_package/package.json" "$bridge_stage/package.json"
+install -m 0644 "$bridge_package/LICENSE" "$bridge_stage/LICENSE"
+chmod 0755 "$bridge_stage/bin/weles-skarbiec-acquire-admission.mjs"
+CARGO_TARGET_DIR="$build_root" cargo test --locked --manifest-path "$source_dir/Cargo.toml" \
+  --test credentials installed_symlink_uses_packaged_bridge_and_persists_missing_authority -- --ignored --nocapture
 install -m 0644 "$source_dir/LICENSE" "$stage/LICENSE"
 install -m 0644 "$source_dir/NOTICE" "$stage/NOTICE"
 
