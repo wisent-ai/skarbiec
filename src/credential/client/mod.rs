@@ -9,6 +9,10 @@ pub(crate) use endpoint::canonical_endpoint_report;
 pub(super) use endpoint::declare_canonical_endpoint;
 pub(super) use remote::{remote_operation, remote_resume, remote_status};
 
+pub(crate) fn canonical_authority() -> anyhow::Result<String> {
+    endpoint::endpoint_authority(&endpoint::canonical_endpoint()?)
+}
+
 // Canonical Skarbiec discovery: one Stado forward file, never an environment URL.
 pub(super) const FORWARDS_DIR_ENV: &str = "STADO_FORWARDS_DIR";
 pub(super) const CANONICAL_FORWARD: &str = "skarbiec.local";

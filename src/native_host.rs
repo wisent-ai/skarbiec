@@ -9,10 +9,6 @@ use std::io::{Read, Write};
 
 use crate::core::totp;
 
-fn api_base() -> String {
-    std::env::var("SKARBIEC_URL").unwrap_or_else(|_| "http://127.0.0.1:8787".to_string())
-}
-
 fn token_file() -> String {
     std::env::var("SKARBIEC_BROWSER_TOKEN_FILE").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -28,10 +24,7 @@ fn consumer() -> String {
 /// One POST against the loopback API; the reply body parsed as JSON. Raw
 /// TcpStream keeps the crate's dependency posture (no HTTP client library).
 fn api_post(path: &str, body: &Value) -> Result<Value> {
-    let base = api_base()
-        .trim_start_matches("http://")
-        .trim_end_matches('/')
-        .to_string();
+    let base = crate::credential::canonical_authority()?;
     let token = std::fs::read_to_string(token_file())
         .context("read browser-host grant (run `skarbiec browser-host-install`)")?;
     let payload = serde_json::to_string(body)?;

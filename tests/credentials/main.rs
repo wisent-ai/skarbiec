@@ -1,3 +1,4 @@
+mod native;
 mod packaged;
 #[path = "../support/mod.rs"]
 mod support;

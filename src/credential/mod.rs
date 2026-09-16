@@ -38,6 +38,7 @@ pub(crate) use state::{authorize_managed_write, lifecycle_owned_item};
 
 use client::{declare_canonical_endpoint, remote_operation, remote_resume, remote_status};
 
+pub(crate) use client::canonical_authority;
 pub(crate) use client::canonical_endpoint_report;
 use directory::seal_directory;
 use lifecycle::{resume, start_operation};
