@@ -14,6 +14,9 @@ static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 /// GnuPG needs a short product-owned fixture root: macOS limits Unix socket
 /// paths to 104 bytes. Drop removes each fixture and its keyring.
 fn temp_base() -> PathBuf {
+    if let Some(root) = std::env::var_os("SKARBIEC_TEST_ROOT") {
+        return PathBuf::from(root);
+    }
     let home = std::env::var_os("HOME").expect("tests need HOME to place their fixture roots");
     PathBuf::from(home).join(".skarbiec").join("test-runs")
 }

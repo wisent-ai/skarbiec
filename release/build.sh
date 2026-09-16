@@ -47,9 +47,21 @@ SKARBIEC_RELEASE_COMMIT="$commit" CARGO_TARGET_DIR="$build_root" \
   cargo build --locked --release --bin skarbiec --manifest-path "$source_dir/Cargo.toml"
 install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
 install -m 0755 "$source_dir/release/launch.sh" "$stage/bin/start"
-bridge_package=${WISENT_INPUT_WELES_CLIENT_DIR:?WISENT_INPUT_WELES_CLIENT_DIR is required}/package
+bridge_input=${WISENT_INPUT_WELES_CLIENT_DIR:?WISENT_INPUT_WELES_CLIENT_DIR is required}
+bridge_package="$bridge_input/package"
+if [[ ! -d "$bridge_package" ]]; then
+  bridge_package="$bridge_input"
+fi
 bridge_stage="$stage/share/skarbiec/weles-client"
-test -f "$bridge_package/bin/weles-skarbiec-acquire-admission.mjs"
+if [[ ! -f "$bridge_package/bin/weles-skarbiec-acquire-admission.mjs" ]]; then
+  printf 'Skarbiec build input weles-client is missing its bridge: %s/bin/weles-skarbiec-acquire-admission.mjs; WISENT_INPUT_WELES_CLIENT_DIR=%s must name Weles Client source or its extracted package, not Skarbiec source\n' "$bridge_package" "$bridge_input" >&2
+  exit 1
+fi
+package_name=$(npm pkg get name --prefix "$bridge_package")
+if [[ "$package_name" != '"@wisent-ai/weles-client"' ]]; then
+  printf 'Skarbiec build input weles-client has unexpected package identity: %s at %s\n' "$package_name" "$bridge_package" >&2
+  exit 1
+fi
 mkdir -p "$bridge_stage"
 cp -R "$bridge_package/bin" "$bridge_package/src" "$bridge_stage/"
 install -m 0644 "$bridge_package/package.json" "$bridge_stage/package.json"

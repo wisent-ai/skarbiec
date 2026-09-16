@@ -25,11 +25,16 @@ fn copy_tree(source: &Path, destination: &Path) {
 }
 
 #[test]
-#[ignore = "requires the pinned WISENT_INPUT_WELES_CLIENT_DIR release input"]
+#[ignore = "requires the WISENT_INPUT_WELES_CLIENT_DIR build input"]
 fn installed_symlink_uses_packaged_bridge_and_persists_missing_authority() {
     let input = std::env::var_os("WISENT_INPUT_WELES_CLIENT_DIR")
-        .expect("the actual pinned Weles client release input is required");
-    let input = Path::new(&input).join("package");
+        .expect("the actual Weles client build input is required");
+    let input = Path::new(&input);
+    let input = if input.join("package").is_dir() {
+        input.join("package")
+    } else {
+        input.to_path_buf()
+    };
     let source = Path::new(env!("CARGO_MANIFEST_DIR"));
     let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -41,7 +46,13 @@ fn installed_symlink_uses_packaged_bridge_and_persists_missing_authority() {
     let release = evidence.join("release");
     fs::create_dir_all(release.join("bin")).unwrap();
     fs::copy(env!("CARGO_BIN_EXE_skarbiec"), release.join("bin/skarbiec")).unwrap();
-    copy_tree(&input, &release.join("share/skarbiec/weles-client"));
+    let packaged = release.join("share/skarbiec/weles-client");
+    for member in ["bin", "src"] {
+        copy_tree(&input.join(member), &packaged.join(member));
+    }
+    for member in ["package.json", "LICENSE"] {
+        fs::copy(input.join(member), packaged.join(member)).unwrap();
+    }
     let installed = evidence.join("skarbiec");
     symlink(release.join("bin/skarbiec"), &installed).unwrap();
 
