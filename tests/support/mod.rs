@@ -87,6 +87,18 @@ impl CliFixture {
         command.output().expect("run real skarbiec binary")
     }
 
+    /// The command as an operator's or an agent's shell runs it: no
+    /// `SKARBIEC_VAULT_FILE`, so the product resolves the vault itself. `env`
+    /// states the host - `STADO_CONFIG` names the declaration Stado holds.
+    pub fn run_unpinned(&self, env: &[(&str, &str)], args: &[&str]) -> Output {
+        let mut command = self.command(args);
+        command.env_remove("SKARBIEC_VAULT_FILE");
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command.output().expect("run real skarbiec binary")
+    }
+
     pub fn run_with_stdin(&self, args: &[&str], stdin: &str) -> Output {
         let mut child = self
             .command(args)

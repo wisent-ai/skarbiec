@@ -101,12 +101,14 @@ const ROUTES_TABLE: &str = "capability-routes.json";
 ///
 /// Every other check reports on the vault it was handed. This one reports the
 /// handing over. `vault_path` resolves a request override first, then
-/// `SKARBIEC_VAULT_FILE`, then falls back to `$HOME/.local/share/skarbiec`,
-/// and the fallback is silent: a bare `skarbiec` on a host holding several
-/// vaults picks the first search path and says nothing about the others. That
-/// silence is how a vault written by an unpinned command becomes the default
-/// answer for every command afterwards, indistinguishable at the surface from
-/// the vault an operator believes they are running.
+/// `SKARBIEC_VAULT_FILE`, then the vault Stado declares for this machine,
+/// then falls back to `$HOME/.local/share/skarbiec`, and the fallback is
+/// silent: a bare `skarbiec` on a host holding several vaults and no
+/// declaration picks the first search path and says nothing about the
+/// others. That silence is how a vault written by an unpinned command
+/// becomes the default answer for every command afterwards,
+/// indistinguishable at the surface from the vault an operator believes they
+/// are running.
 ///
 /// Two conditions are worth an operator's attention, and both are reported as
 /// one because they have one remedy - name the vault explicitly:
@@ -120,12 +122,21 @@ const ROUTES_TABLE: &str = "capability-routes.json";
 /// the same cleartext envelope `vaults` reads.
 pub(super) fn selection_check() -> Value {
     let resolved = vault_path();
+    let declaration = crate::core::stado_config_file();
     let selected_by = if std::env::var_os("SKARBIEC_VAULT_FILE").is_some() {
-        "SKARBIEC_VAULT_FILE"
+        "SKARBIEC_VAULT_FILE".to_string()
+    } else if crate::core::stado_declared_vault().is_some() {
+        format!(
+            "Stado's declaration secrets.skarbiec.vault_file in {}",
+            declaration
+                .as_deref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_default()
+        )
     } else {
-        "the HOME fallback"
+        "the HOME fallback".to_string()
     };
-    let explicit = selected_by == "SKARBIEC_VAULT_FILE";
+    let explicit = selected_by != "the HOME fallback";
 
     let visible = vaults::inventory()
         .ok()
@@ -169,7 +180,7 @@ pub(super) fn selection_check() -> Value {
         ));
     }
     if ambiguous {
-        detail.push_str("; set SKARBIEC_VAULT_FILE to say which one is meant");
+        detail.push_str("; declare it: `stado config set secrets.skarbiec.vault_file <path>`, or set SKARBIEC_VAULT_FILE for one process");
     }
     if orphan_default {
         detail.push_str(&format!(
@@ -195,8 +206,5 @@ pub(super) fn selection_check() -> Value {
 
 /// The path `vault_path` falls back to, computed the same way it computes it.
 fn default_vault_path() -> std::path::PathBuf {
-    std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".local/share/skarbiec/skarbiec.vault.json")
+    crate::core::default_vault_path()
 }
