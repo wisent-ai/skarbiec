@@ -262,10 +262,8 @@ pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
             }
         }
     }
-    let staged = live.with_extension(format!("json.pull-{}", std::process::id()));
-    std::fs::write(&staged, serde_json::to_string_pretty(&doc)?)
-        .with_context(|| format!("stage pulled vault at {}", staged.display()))?;
-    std::fs::rename(&staged, &live).context("install pulled vault")?;
+    crate::core::vault::atomic_write(&live, serde_json::to_string_pretty(&doc)?.as_bytes())
+        .with_context(|| format!("install pulled vault at {}", live.display()))?;
     crate::runtime::audit::append(
         "pull",
         &json!({"from": from, "items_before": local_count, "items_after": remote_count}),

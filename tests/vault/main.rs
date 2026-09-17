@@ -131,3 +131,60 @@ fn a_bare_command_opens_the_vault_stado_declares() {
         "{selection}"
     );
 }
+
+/// A pulled replica is a vault file like any other: owner-only. Until
+/// 2026-09-16 the pull wrote it through the umask, so the declared replica on
+/// the operator's laptop sat world-readable and `stado secrets inspect-vault`
+/// refused it as "not an owner-only regular local file".
+#[test]
+fn a_pulled_replica_is_owner_only() {
+    let primary = CliFixture::new("prim");
+    primary.init("Primary <skarbiec-primary@example.invalid>");
+    let seeded = primary.run(&[
+        "set",
+        "shared-item",
+        "--type",
+        "note",
+        "value=ciphertext-only",
+    ]);
+    assert_success("seed the primary", &seeded);
+    let issued = primary.run(&["grant", "issue", "replica", "--capabilities", "sync:pull"]);
+    assert_success("issue the replica's pull grant", &issued);
+    let grant: serde_json::Value = serde_json::from_slice(&issued.stdout).expect("grant is JSON");
+    let token = grant["token"]
+        .as_str()
+        .expect("a sync grant hands out a bearer")
+        .to_string();
+    let broker = primary.serve();
+
+    let replica = CliFixture::new("repl");
+    replica.init("Replica <skarbiec-replica@example.invalid>");
+    fs::set_permissions(&replica.vault, fs::Permissions::from_mode(0o644))
+        .expect("loosen the replica first");
+    let pulled = replica.run(&[
+        "pull",
+        "--from",
+        &broker.url(""),
+        "--token",
+        &token,
+        "--consumer",
+        "replica",
+        "--force",
+    ]);
+    assert_success("pull the primary's document into the replica", &pulled);
+    let receipt: serde_json::Value = serde_json::from_slice(&pulled.stdout).expect("pull is JSON");
+    assert_eq!(receipt["ok"], true, "{receipt}");
+    assert_eq!(receipt["items_after"], 1, "{receipt}");
+    assert_eq!(
+        fs::metadata(&replica.vault)
+            .expect("replica vault")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600,
+        "a pulled vault must be owner-only"
+    );
+    let listed = replica.run(&["list", "--json"]);
+    assert_success("list the pulled replica", &listed);
+    assert!(String::from_utf8_lossy(&listed.stdout).contains("shared-item"));
+}
