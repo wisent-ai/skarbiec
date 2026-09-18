@@ -77,6 +77,55 @@ fn grant_revoke_deletes_the_grant_and_stays_idempotent() {
     assert_eq!(listing, serde_json::json!([]));
 }
 
+/// On 2026-09-18 `grant ensure stado-release-client jeden-desktop-release-publisher
+/// --field token` on the operator's vault answered `status: added, effective: true`,
+/// and `grant verify` answered `allowed: false` for the same binding while the
+/// vault file held no such capability. That widening went onto an item the
+/// consumer had never held. This case is that shape on an isolated vault: the
+/// answer, the vault file and `verify` have to agree.
+#[test]
+fn ensure_widens_to_an_item_the_consumer_never_held_and_the_vault_agrees() {
+    let fixture = fixture();
+    let second_item = "release-publisher";
+    let output = fixture.run(&[
+        "set", second_item, "--type", "token", "token=publisher-token",
+    ]);
+    assert_success("seed a second item", &output);
+
+    let minted = mint(&fixture, "read:brama-router#api_key");
+    let token = minted["token"].as_str().expect("grant value shown once").to_string();
+    let bearer_file = fixture.root.join("bearer.txt");
+    fs::write(&bearer_file, &token).expect("write bearer file");
+    fs::set_permissions(&bearer_file, fs::Permissions::from_mode(0o600))
+        .expect("protect bearer file");
+    let bearer_path = bearer_file.to_str().expect("utf-8 bearer path");
+
+    let output = fixture.run(&[
+        "grant", "ensure", CONSUMER, second_item, "--field", "token", "--token-file", bearer_path,
+    ]);
+    assert_success("ensure a read on an item the consumer never held", &output);
+    let widened: Value = serde_json::from_slice(&output.stdout).expect("parse ensure-read response");
+    assert_eq!(widened["status"], "added");
+    assert_eq!(widened["effective"], true);
+
+    // The vault file carries the capability the answer claims.
+    let capabilities = vault_tokens(&fixture)[CONSUMER]["capabilities"].clone();
+    let recorded = capabilities
+        .as_array()
+        .expect("capabilities array")
+        .iter()
+        .any(|capability| capability["item"] == second_item && capability["field"] == "token");
+    assert!(recorded, "the vault holds the ensured capability: {capabilities}");
+
+    // A fresh process reading that vault agrees with the answer.
+    let output = fixture.run(&[
+        "grant", "verify", CONSUMER, second_item, "--field", "token", "--token", &token,
+    ]);
+    assert_success("verify the ensured binding", &output);
+    let verdict: Value = serde_json::from_slice(&output.stdout).expect("parse verify verdict");
+    assert_eq!(verdict["allowed"], true, "{}", stderr(&output));
+}
+
 #[test]
 fn grants_are_edited_by_rotation_replacement_or_ensure() {
     let fixture = fixture();
