@@ -1,8 +1,11 @@
 // Cryptographic operations for the skarbiec vault, delegated to vetted local
 // tools — never hand-rolled:
 //   gpg     : per-recipient public-key authenticated encryption + key material
-//   openssl : entropy (random tokens)
-//   shasum  : hashing (audit chain, breach k-anonymity)
+// Everything else this module owns runs in process. Hashing (`sha2`, `sha1`),
+// entropy (`/dev/urandom`) and timestamps used to be `shasum`, `openssl` and
+// `date` children, and each one took a slot in the same bounded pool the gpg
+// decryptions use: on 2026-09-05 a grant metadata call that decrypts nothing
+// took 14.4s and `GET /readyz` 9.7s while four verifier sweeps ran.
 // The per-recipient model (encrypt to each recipient's public key) is the same
 // shape 1Password/Bitwarden use for sharing.
 

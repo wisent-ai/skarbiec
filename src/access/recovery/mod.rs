@@ -13,7 +13,6 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::process::Command;
 
 use crate::core::{vault::Vault, vault_path};
 
@@ -22,13 +21,7 @@ pub(super) fn load() -> Result<Vault> {
 }
 
 pub(super) fn now_iso() -> String {
-    Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    crate::core::clock::now_iso()
 }
 
 pub(super) fn ensure_section<'a>(

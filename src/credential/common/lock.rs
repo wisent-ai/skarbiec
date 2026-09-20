@@ -35,13 +35,7 @@ pub(in crate::credential) fn acquire_credential_operation_lock(
 }
 
 pub(in crate::credential) fn now_iso() -> String {
-    Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|value| value.trim().to_string())
-        .unwrap_or_default()
+    crate::core::clock::now_iso()
 }
 
 pub(in crate::credential) fn exact_name(name: &str, value: &str, maximum: usize) -> Result<()> {

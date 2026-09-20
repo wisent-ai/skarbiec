@@ -25,30 +25,41 @@ pub fn verify_clearsigned(signed: &str) -> Result<String> {
 }
 
 /// High-entropy random token (hex). Used for consumer service tokens.
+///
+/// `/dev/urandom` rather than `openssl rand`: minting a token used to spawn a
+/// process that queued behind live decryptions in the shared crypto pool, and
+/// a token is minted on paths that hold no secret at all.
 pub fn random_token() -> Result<String> {
-    Ok(run("openssl", &["rand", "-hex", "32"], None)?
-        .trim()
-        .to_string())
+    use std::io::Read;
+    let mut bytes = [u8::MIN; 32];
+    std::fs::File::open("/dev/urandom")
+        .context("open /dev/urandom")?
+        .read_exact(&mut bytes)
+        .context("read entropy for a service token")?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// Hex SHA-256 of the input. Used by the tamper-evident audit chain and the
 /// breach k-anonymity check.
+///
+/// In process, because this is how a bearer is verified on EVERY
+/// authenticated route. As a `shasum` child it took a slot in the same
+/// bounded pool the gpg decryptions use, so a request that hashes one string
+/// waited behind work it has nothing to do with: on 2026-09-05 a grant
+/// metadata call took 14.4s and `GET /readyz` 9.7s for exactly that reason,
+/// and verifying a 74,859-line audit chain cost one process per line.
 pub fn sha256_hex(input: &str) -> Result<String> {
-    let out = run("shasum", &["-a", "256", "-"], Some(input))?;
-    out.split_whitespace()
-        .next()
-        .map(str::to_string)
-        .context("empty sha256 output")
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(input.as_bytes());
+    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// SHA-1 (uppercase hex) — required only for the HaveIBeenPwned range API, which
 /// is defined over SHA-1 password hashes. Not used for any security decision.
 pub fn sha1_hex_upper(input: &str) -> Result<String> {
-    let out = run("shasum", &["-a", "1", "-"], Some(input))?;
-    out.split_whitespace()
-        .next()
-        .map(|h| h.to_uppercase())
-        .context("empty sha1 output")
+    use sha1::Digest;
+    let digest = sha1::Sha1::digest(input.as_bytes());
+    Ok(digest.iter().map(|byte| format!("{byte:02X}")).collect())
 }
 
 /// Encrypt plaintext to every recipient's public key (armored). Any recipient

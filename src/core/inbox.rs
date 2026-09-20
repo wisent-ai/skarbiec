@@ -17,13 +17,7 @@ use std::process::Command;
 use crate::core::{crypto, vault::Vault, vault_path};
 
 fn now_iso() -> String {
-    Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    crate::core::clock::now_iso()
 }
 
 fn inbox_path() -> PathBuf {

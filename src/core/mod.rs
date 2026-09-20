@@ -2,6 +2,7 @@
 // per-recipient vault document, and the typed item model. Sibling layers
 // (access, runtime, net) build on these.
 
+pub mod clock;
 pub mod crypto;
 pub mod importer;
 pub mod inbox;

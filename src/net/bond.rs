@@ -11,20 +11,13 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::process::Command;
 
 use crate::access::grant;
 use crate::core::{crypto, inbox, vault_path};
 use crate::net::http;
 
 fn now_iso() -> String {
-    Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    crate::core::clock::now_iso()
 }
 
 /// Minimal blocking HTTP client for a loopback serve: returns the status line

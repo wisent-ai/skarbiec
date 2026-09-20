@@ -46,6 +46,74 @@ fn a_declared_grant_reads_the_field_it_names_until_it_is_revoked() {
     );
 }
 
+/// The stored bearer hash is computed in process, and it is the same hash.
+///
+/// Verifying a bearer used to spawn `shasum` on EVERY authenticated route,
+/// into the bounded pool the gpg decryptions share. This crate's own source
+/// records the cost on 2026-09-05: four verifier sweeps reading 48 mapped
+/// items made a grant metadata call — which decrypts nothing — take 14.4s,
+/// and `GET /readyz` 9.7s. Minting spent `openssl rand` the same way.
+///
+/// Moving both in process is only safe if the bytes do not change, because
+/// every bearer already in a vault was hashed by `shasum`. The oracle is the
+/// system's own `shasum`, not a second copy of the implementation, and the
+/// bearer is then redeemed through the real broker to prove the stored hash
+/// still authenticates.
+#[test]
+fn the_stored_bearer_hash_is_the_hash_the_system_computes() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let fixture = fixture();
+    let issued = mint(&fixture, "read:brama-router#api_key");
+    let bearer = issued["token"]
+        .as_str()
+        .expect("bearer shown once")
+        .to_owned();
+    assert_eq!(bearer.len(), 64, "a minted bearer is 64 hex characters");
+
+    let mut child = Command::new("shasum")
+        .args(["-a", "256", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("the system hash is available as an oracle");
+    child
+        .stdin
+        .take()
+        .expect("oracle stdin")
+        .write_all(bearer.as_bytes())
+        .expect("feed the oracle");
+    let oracle = child.wait_with_output().expect("the oracle answers");
+    let expected = String::from_utf8_lossy(&oracle.stdout)
+        .split_whitespace()
+        .next()
+        .expect("shasum printed a digest")
+        .to_string();
+
+    let vault: Value =
+        serde_json::from_str(&fs::read_to_string(&fixture.vault).expect("read the vault state"))
+            .expect("the vault state is JSON");
+    assert_eq!(
+        vault["tokens"][CONSUMER]["hash"].as_str(),
+        Some(expected.as_str()),
+        "the in-process hash differs from the system's, so every bearer stored \
+         before today would stop authenticating"
+    );
+
+    let broker = fixture.serve();
+    let (status, payload) = read_field(
+        &broker.url("/v1/items/read"),
+        CONSUMER,
+        &bearer,
+        &format!(r#"{{"id":"{ITEM}","field":"api_key"}}"#),
+    );
+    assert_eq!(
+        status, 200,
+        "the stored hash refused its own bearer: {payload}"
+    );
+}
+
 fn read_field(url: &str, consumer: &str, bearer: &str, body: &str) -> (u32, String) {
     let output = Command::new("curl")
         .args([

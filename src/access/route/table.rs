@@ -16,7 +16,6 @@ use std::fs;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
-use std::process::Command;
 
 use super::super::capability::{routes_path, write_private_file};
 use crate::core::vault::Vault;
@@ -96,14 +95,15 @@ fn route_row(vault: &Vault, item: &str, field: &str) -> Value {
     Value::Object(row)
 }
 
+/// The two stamps this file writes, from the one in-process clock. A backup
+/// name and an audit line must not depend on a subprocess that competes with
+/// the vault's decryptions for the same bounded capacity.
 fn utc(format: &str) -> String {
-    Command::new("date")
-        .args(["-u", format])
-        .output()
-        .ok()
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .map(|text| text.trim().to_string())
-        .unwrap_or_default()
+    if format == STAMP_FORMAT {
+        crate::core::clock::now_stamp()
+    } else {
+        crate::core::clock::now_iso()
+    }
 }
 
 /// Publish a table only after the bytes on disk parse back as one.

@@ -383,6 +383,7 @@ dependencies = [
  "form_urlencoded",
  "fs2",
  "serde_json",
+ "sha1",
  "sha2",
  "time",
  "totp-rs",

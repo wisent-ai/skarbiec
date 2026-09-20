@@ -12,7 +12,6 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub struct Vault {
     pub path: PathBuf,
@@ -189,14 +188,7 @@ fn obj_mut<'a>(v: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
 }
 
 fn now() -> String {
-    // ISO-8601 via `date` — avoids a numeric time literal and needs no crate.
-    Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    crate::core::clock::now_iso()
 }
 
 mod document;

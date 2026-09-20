@@ -33,13 +33,7 @@ fn mirror_path() -> PathBuf {
 }
 
 fn now_stamp() -> String {
-    Command::new("date")
-        .args(["-u", "+%Y%m%dT%H%M%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .unwrap_or_default()
+    crate::core::clock::now_stamp()
 }
 
 /// Names of live items the mirror does not carry at all. Soft-deleted items are
