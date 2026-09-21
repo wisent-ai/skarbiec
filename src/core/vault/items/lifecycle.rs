@@ -60,6 +60,81 @@ impl Vault {
             .collect()
     }
 
+    /// How much of the vault the duplicate answer covers: active items, and
+    /// how many of them carry no payload fingerprint yet.
+    ///
+    /// An item written before 0.3.11 has no fingerprint, so it cannot be
+    /// compared with anything and an empty duplicate report over such a vault
+    /// means "nothing comparable", not "no duplicates". Saying so is the
+    /// difference between a report and a reassurance: on this fleet the vault
+    /// held 66 login rows, 29 of them describing 12 platforms, and every one
+    /// of them predates the fingerprint.
+    pub fn duplicate_coverage(&self) -> (usize, usize) {
+        let Some(items) = self.doc.get("items").and_then(Value::as_object) else {
+            return (0, 0);
+        };
+        let active: Vec<&Value> = items
+            .values()
+            .filter(|entry| entry.get("state").and_then(Value::as_str) == Some("active"))
+            .collect();
+        let unstamped = active
+            .iter()
+            .filter(|entry| entry.get(duplicates::FINGERPRINT_KEY).is_none())
+            .count();
+        (active.len(), unstamped)
+    }
+
+    /// Stamps the payload fingerprint onto every active item that has none,
+    /// so the duplicate report and the write refusal cover the whole vault
+    /// rather than only what was written after 0.3.11.
+    ///
+    /// Reads each item through the same decrypt-and-validate path `get_item`
+    /// uses. `apply` false reports what the pass would do and writes nothing.
+    /// The ciphertext, revision and history are untouched: the payload is
+    /// described, not rewritten, so no item gains a revision and no recipient
+    /// list changes.
+    pub fn stamp_fingerprints(&mut self, apply: bool) -> Result<Value> {
+        // A vault written before 0.3.11 carries no salt, and minting one is
+        // part of this pass rather than a reason to refuse it: the salt is
+        // what the fingerprints are taken under, and an existing one always
+        // wins, so a second pass never unlinks the first one's work.
+        self.ensure_fingerprint_salt()?;
+        let salt = self
+            .doc
+            .get(duplicates::SALT_KEY)
+            .and_then(Value::as_str)
+            .context("the vault has no fingerprint salt even after minting one")?
+            .to_string();
+        let items = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let planned = duplicates::stamp::plan(&items, &salt, |id| self.get_item(id));
+        let report = planned.report(apply);
+        if !apply || planned.prints.is_empty() {
+            return Ok(report);
+        }
+        let stored = self
+            .doc
+            .get_mut("items")
+            .and_then(Value::as_object_mut)
+            .context("vault document carries no items object")?;
+        for (id, print) in &planned.prints {
+            let entry = stored
+                .get_mut(id)
+                .and_then(Value::as_object_mut)
+                .with_context(|| format!("{id} left the vault during the pass"))?;
+            entry.insert(
+                duplicates::FINGERPRINT_KEY.to_string(),
+                Value::String(print.clone()),
+            );
+        }
+        self.save()?;
+        Ok(report)
+    }
+
     pub fn list(&self, include_deleted: bool) -> Vec<Value> {
         self.doc
             .get("items")

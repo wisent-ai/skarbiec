@@ -154,7 +154,7 @@ impl Vault {
     /// normal state of an old vault, and the first write is the moment the
     /// vault can carry one. Replacing it later would silently unlink every
     /// fingerprint already stored, so an existing salt always wins.
-    fn ensure_fingerprint_salt(&mut self) -> Result<()> {
+    pub(in crate::core::vault) fn ensure_fingerprint_salt(&mut self) -> Result<()> {
         if self
             .doc
             .get(duplicates::SALT_KEY)

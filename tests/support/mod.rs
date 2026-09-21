@@ -68,6 +68,23 @@ impl CliFixture {
             .expect("run real skarbiec binary")
     }
 
+    /// Rewrites this fixture's vault document in place.
+    ///
+    /// Only for putting a vault into a state the product no longer produces —
+    /// rows written before a field existed — so a pass over such a vault can
+    /// be driven through the real binary afterwards.
+    pub fn edit_vault<F>(&self, change: F)
+    where
+        F: FnOnce(&mut serde_json::Value),
+    {
+        let text = fs::read_to_string(&self.vault).expect("read the fixture vault");
+        let mut document: serde_json::Value =
+            serde_json::from_str(&text).expect("the fixture vault is JSON");
+        change(&mut document);
+        let encoded = serde_json::to_string_pretty(&document).expect("serialize the vault");
+        fs::write(&self.vault, format!("{encoded}\n")).expect("write the fixture vault");
+    }
+
     pub fn run_with_vault(&self, vault: &Path, args: &[&str]) -> Output {
         let mut command = self.command(args);
         command.env("SKARBIEC_VAULT_FILE", vault);

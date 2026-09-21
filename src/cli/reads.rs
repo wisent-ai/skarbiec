@@ -91,15 +91,41 @@ pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
 /// `platform-admin-oxylabs` and `weles-oxylabs-dashboard-login`. It decrypts
 /// nothing: the comparison is the fingerprint each envelope carries.
 pub(crate) fn cmd_duplicates() -> Result<Value> {
-    let groups = Vault::open(vault_path())?.duplicate_groups();
+    let vault = Vault::open(vault_path())?;
+    let groups = vault.duplicate_groups();
+    let (active, unstamped) = vault.duplicate_coverage();
     let items: usize = groups
         .iter()
         .filter_map(|group| group.get("items"))
         .filter_map(|ids| ids.as_array().map(Vec::len))
         .sum();
-    Ok(json!({
+    let mut report = json!({
         "groups": groups.len(),
         "items": items,
+        "active_items": active,
+        "compared": active - unstamped,
+        "without_fingerprint": unstamped,
         "duplicates": groups,
-    }))
+    });
+    if unstamped > 0 {
+        report["note"] = json!(format!(
+            "{unstamped} of {active} active items were written before payload fingerprints \
+             existed and cannot be compared with anything; each one is stamped by the next \
+             `skarbiec set` of that item, so an empty duplicate list over this vault means \
+             nothing comparable rather than nothing duplicated"
+        ));
+    }
+    Ok(report)
+}
+
+/// `skarbiec stamp-fingerprints [--apply]`: describe the items that predate
+/// the payload fingerprint so the duplicate report and the write refusal
+/// cover the whole vault.
+///
+/// Without `--apply` it reports what the pass would stamp and which items it
+/// cannot read. It never rewrites a payload: the ciphertext, the revision and
+/// the history of every item stay as they are.
+pub(crate) fn cmd_stamp_fingerprints(flags: &HashMap<String, String>) -> Result<Value> {
+    let apply = flags.contains_key("apply");
+    Vault::open(vault_path())?.stamp_fingerprints(apply)
 }

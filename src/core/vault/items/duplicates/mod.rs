@@ -20,6 +20,8 @@ use serde_json::{Map, Value};
 
 use crate::core::crypto;
 
+pub(in crate::core::vault) mod stamp;
+
 /// Where the salt lives in the vault document.
 pub(in crate::core::vault) const SALT_KEY: &str = "fingerprint_salt";
 /// Where a fingerprint lives in an item's cleartext envelope.
