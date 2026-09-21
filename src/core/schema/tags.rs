@@ -64,9 +64,9 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
     // Brama from the address the provider itself signed into the grant and
     // read back by its pool to count accounts. Without it the only things
     // that told an account apart were names — the member's id, its label and
-    // the login row it signs in through — and one Google login row backs both
-    // the Claude Code and the Codex subscription of one person, so a
-    // deployment holding five accounts reported three.
+    // the login row it signs in through — and one Google login row can back
+    // both a Claude Code and a Codex subscription of one person, so counting
+    // login rows reports two accounts as one.
     TagNamespace::Valued {
         prefix: "brama:account:",
         value: "account",
