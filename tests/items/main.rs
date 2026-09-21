@@ -46,9 +46,9 @@ fn get_reads_one_exact_field_and_refuses_unknown_paths() {
 /// as `brama:account:<address>`, read from the address the provider signed
 /// into the grant. The write is refused unless the namespace is registered,
 /// and it was not: `brama subscription attribute codex` reached this vault
-/// and every member came back with `tag
-/// `brama:account:controlyourai@gmail.com` claims a namespace that is not
-/// registered`, so a deployment holding five accounts kept reporting three.
+/// and every member came back with `tag `brama:account:<address>` claims a
+/// namespace that is not registered`, so a deployment holding five accounts
+/// kept reporting three.
 #[test]
 fn the_account_namespace_is_writable_and_unregistered_ones_are_not() {
     let fixture = CliFixture::new("items-account-tag");
