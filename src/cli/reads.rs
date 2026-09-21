@@ -82,3 +82,24 @@ pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
         Vault::open(vault_path())?.list(flag_set(flags, "all"))
     ))
 }
+
+/// `skarbiec duplicates`: which active items hold exactly the same payload.
+///
+/// A write now refuses a second holder of one payload, so this answers the
+/// question for everything written before that refusal existed — on this
+/// fleet, a vault where one platform appears as `oxylabs`,
+/// `platform-admin-oxylabs` and `weles-oxylabs-dashboard-login`. It decrypts
+/// nothing: the comparison is the fingerprint each envelope carries.
+pub(crate) fn cmd_duplicates() -> Result<Value> {
+    let groups = Vault::open(vault_path())?.duplicate_groups();
+    let items: usize = groups
+        .iter()
+        .filter_map(|group| group.get("items"))
+        .filter_map(|ids| ids.as_array().map(Vec::len))
+        .sum();
+    Ok(json!({
+        "groups": groups.len(),
+        "items": items,
+        "duplicates": groups,
+    }))
+}

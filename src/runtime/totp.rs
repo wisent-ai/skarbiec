@@ -179,6 +179,52 @@ pub fn seed_state(payload: &Value) -> SeedState {
     inspect_seed(payload).state
 }
 
+/// Where one item's second factor actually lives, and the payload to judge.
+///
+/// A platform login carries its own `totp_secret` only while the seed has
+/// nowhere better to be. When it names an identity in `context.identity`, the
+/// factor belongs to that identity: one Google account holds the authenticator
+/// and a dozen platform rows sign in as it. Resolving here rather than in each
+/// caller keeps `totp` and `totp-seed-state` answering about the same seed.
+struct Resolved {
+    payload: Value,
+    identity: Option<String>,
+}
+
+fn resolve(vault: &Vault, payload: Value) -> Resolved {
+    if seed_of(&payload).is_some() {
+        return Resolved {
+            payload,
+            identity: None,
+        };
+    }
+    let Some(reference) = payload
+        .get("context")
+        .and_then(|context| context.get(schema::IDENTITY_REFERENCE))
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return Resolved {
+            payload,
+            identity: None,
+        };
+    };
+    match vault.get_item(&reference) {
+        Ok(identity_payload) => Resolved {
+            payload: identity_payload,
+            identity: Some(reference),
+        },
+        // The write path refuses a reference to an item that is not there, so
+        // an unreadable identity is a key or envelope fault, not a dangling
+        // name. The login's own payload is judged and the identity is still
+        // named, so the report says which row could not be opened.
+        Err(_) => Resolved {
+            payload,
+            identity: Some(reference),
+        },
+    }
+}
+
 pub fn dispatch(
     command: &str,
     _flags: &HashMap<String, String>,
@@ -188,16 +234,18 @@ pub fn dispatch(
         "totp" => {
             let id = positionals.first().context("usage: totp <item-id>")?;
             let vault = load()?;
-            let row = vault.get_item(id)?;
-            let inspected = inspect_seed(&row);
+            let resolved = resolve(&vault, vault.get_item(id)?);
+            let inspected = inspect_seed(&resolved.payload);
             let state = inspected.state;
+            let repair_for = resolved.identity.clone().unwrap_or_else(|| id.to_string());
             Ok(Some(json!({
                 "item": id,
+                "identity": resolved.identity,
                 "has_seed": state == SeedState::Present,
                 "seed_state": state.as_str(),
                 "description": state.description(),
                 "code": inspected.code,
-                "repair": state.repair().map(|repair| repair.replace("<login-item>", id)),
+                "repair": state.repair().map(|repair| repair.replace("<login-item>", &repair_for)),
             })))
         }
         // The seed-state diagnostic validates the stored value through the same
@@ -205,15 +253,21 @@ pub fn dispatch(
         // code or the seed itself.
         "totp-seed-state" => {
             let vault = load()?;
-            // One item, or every login row in one vault open. The sweep form
-            // exists because the caller is a fleet diagnostic: asking per row
+            // One item, or every row that can carry a factor in one vault
+            // open: logins and the identities they sign in as. The sweep form
+            // exists because the caller is a fleet diagnostic; asking per row
             // over a host channel would open the vault once per account.
             let ids: Vec<String> = match positionals.first() {
                 Some(id) => vec![id.clone()],
                 None => vault
                     .list(false)
                     .iter()
-                    .filter(|row| row.get("kind").and_then(Value::as_str) == Some("login"))
+                    .filter(|row| {
+                        matches!(
+                            row.get("kind").and_then(Value::as_str),
+                            Some("login") | Some("identity")
+                        )
+                    })
                     .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
                     .collect(),
             };
@@ -221,16 +275,26 @@ pub fn dispatch(
                 .iter()
                 .map(|id| match vault.get_item(id) {
                     Ok(row) => {
-                        let state = seed_state(&row);
+                        let kind = row.get("kind").cloned().unwrap_or(Value::Null);
+                        let resolved = resolve(&vault, row);
+                        let state = seed_state(&resolved.payload);
+                        let repair_for =
+                            resolved.identity.clone().unwrap_or_else(|| id.to_string());
                         json!({
                             "item": id,
-                            "kind": row.get("kind").cloned().unwrap_or(Value::Null),
+                            "kind": kind,
+                            // Which row the factor was judged from: this one,
+                            // or the identity this one signs in as. Without it
+                            // a sweep reports the same seed once per platform
+                            // row and an operator counts one account many
+                            // times.
+                            "identity": resolved.identity,
                             "seed_state": state.as_str(),
                             "description": state.description(),
-                            // The repair names the account it is for; a
-                            // command an operator has to edit before running
-                            // is a command they run wrong.
-                            "repair": state.repair().map(|repair| repair.replace("<login-item>", id)),
+                            // The repair names the row that would carry the
+                            // seed; a command an operator has to edit before
+                            // running is a command they run wrong.
+                            "repair": state.repair().map(|repair| repair.replace("<login-item>", &repair_for)),
                         })
                     }
                     // A row this vault cannot open is reported as itself, not

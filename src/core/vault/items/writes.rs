@@ -1,10 +1,11 @@
 // Storing an item: the callers' entry points, the atomic multi-item write, and
 // the process attribution recorded beside each write.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
-use crate::core::vault::{obj_mut, ItemWrite, ManagedWrite, Vault, WritePolicy};
+use crate::core::vault::items::duplicates;
+use crate::core::vault::{mint_item_uid, obj_mut, ItemWrite, ManagedWrite, Vault, WritePolicy};
 
 impl Vault {
     // Store a validated canonical item. Administrative callers may replace the
@@ -145,10 +146,36 @@ impl Vault {
         (parent_pid, program)
     }
 
+    /// The salt this vault's payload fingerprints are taken under, minted on
+    /// first need and never replaced.
+    ///
+    /// Lazily rather than at `init`, because every vault that already exists
+    /// was created before fingerprints did: a vault with no salt is the
+    /// normal state of an old vault, and the first write is the moment the
+    /// vault can carry one. Replacing it later would silently unlink every
+    /// fingerprint already stored, so an existing salt always wins.
+    fn ensure_fingerprint_salt(&mut self) -> Result<()> {
+        if self
+            .doc
+            .get(duplicates::SALT_KEY)
+            .and_then(Value::as_str)
+            .is_some_and(|salt| !salt.is_empty())
+        {
+            return Ok(());
+        }
+        let salt = mint_item_uid()?;
+        self.doc
+            .as_object_mut()
+            .context("vault document is not an object")?
+            .insert(duplicates::SALT_KEY.to_string(), json!(salt));
+        Ok(())
+    }
+
     pub(crate) fn set_items_atomic(&mut self, writes: &[ItemWrite<'_>]) -> Result<()> {
         if writes.is_empty() {
             return Ok(());
         }
+        self.ensure_fingerprint_salt()?;
         let mut ids = std::collections::HashSet::with_capacity(writes.len());
         let mut prepared = Vec::with_capacity(writes.len());
         for write in writes {
@@ -205,6 +232,7 @@ impl Vault {
         tags: &[String],
         policy: WritePolicy<'_>,
     ) -> Result<()> {
+        self.ensure_fingerprint_salt()?;
         let (entry, audit) =
             self.prepare_item_with_writer(id, item_kind, payload, recipient_uids, tags, policy)?;
         let previous = obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);

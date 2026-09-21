@@ -2,6 +2,24 @@
 // can answer both from the cleartext envelope, without opening the item.
 
 const LOGIN_FIELDS: &[&str] = &["username", "password", "totp_secret", "recovery_codes"];
+// The person or robot an account belongs to, as its own item. A second factor
+// belongs to an identity and not to a platform: one Google account carries the
+// authenticator and the phone that answers it, while `platform-admin-google`,
+// `weles-google-sso-login`, `claude-wisent-google-sso` and a dozen other rows
+// are only logins performed AS that identity. Before this kind existed
+// `totp_secret` was a field of every login row, so the same seed had to be
+// copied per row, a re-enrolment silently invalidated every copy, and the
+// question "which of our accounts have a second factor" had no place to be
+// answered from. `phone` is part of it for the same reason: a sign-in that
+// falls back to a phone prompt rings a real person, and nothing recorded
+// whose phone that is.
+const IDENTITY_FIELDS: &[&str] = &[
+    "email",
+    "phone",
+    "password",
+    "totp_secret",
+    "recovery_codes",
+];
 // A fleet host's operating-system account is not a web login: it is consumed by
 // the host-placement and host-repair readers, never by a login trajectory. Those
 // readers iterate `login` items, so overloading `login` would hand a machine
@@ -30,6 +48,7 @@ pub fn supported_kind(kind: &str) -> bool {
     matches!(
         kind,
         "login"
+            | "identity"
             | "host-account"
             | "note"
             | "api-key"
@@ -61,6 +80,7 @@ pub(super) fn allowed_fields(kind: &str) -> Option<&'static [&'static str]> {
     match kind {
         "note" => Some(NOTE_FIELDS),
         "login" => Some(LOGIN_FIELDS),
+        "identity" => Some(IDENTITY_FIELDS),
         "host-account" => Some(HOST_ACCOUNT_FIELDS),
         "api-key" => Some(API_KEY_FIELDS),
         "access-key" => Some(ACCESS_KEY_FIELDS),

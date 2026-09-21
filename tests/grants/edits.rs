@@ -88,12 +88,19 @@ fn ensure_widens_to_an_item_the_consumer_never_held_and_the_vault_agrees() {
     let fixture = fixture();
     let second_item = "release-publisher";
     let output = fixture.run(&[
-        "set", second_item, "--type", "token", "token=publisher-token",
+        "set",
+        second_item,
+        "--type",
+        "token",
+        "token=publisher-token",
     ]);
     assert_success("seed a second item", &output);
 
     let minted = mint(&fixture, "read:brama-router#api_key");
-    let token = minted["token"].as_str().expect("grant value shown once").to_string();
+    let token = minted["token"]
+        .as_str()
+        .expect("grant value shown once")
+        .to_string();
     let bearer_file = fixture.root.join("bearer.txt");
     fs::write(&bearer_file, &token).expect("write bearer file");
     fs::set_permissions(&bearer_file, fs::Permissions::from_mode(0o600))
@@ -101,10 +108,18 @@ fn ensure_widens_to_an_item_the_consumer_never_held_and_the_vault_agrees() {
     let bearer_path = bearer_file.to_str().expect("utf-8 bearer path");
 
     let output = fixture.run(&[
-        "grant", "ensure", CONSUMER, second_item, "--field", "token", "--token-file", bearer_path,
+        "grant",
+        "ensure",
+        CONSUMER,
+        second_item,
+        "--field",
+        "token",
+        "--token-file",
+        bearer_path,
     ]);
     assert_success("ensure a read on an item the consumer never held", &output);
-    let widened: Value = serde_json::from_slice(&output.stdout).expect("parse ensure-read response");
+    let widened: Value =
+        serde_json::from_slice(&output.stdout).expect("parse ensure-read response");
     assert_eq!(widened["status"], "added");
     assert_eq!(widened["effective"], true);
 
@@ -115,11 +130,21 @@ fn ensure_widens_to_an_item_the_consumer_never_held_and_the_vault_agrees() {
         .expect("capabilities array")
         .iter()
         .any(|capability| capability["item"] == second_item && capability["field"] == "token");
-    assert!(recorded, "the vault holds the ensured capability: {capabilities}");
+    assert!(
+        recorded,
+        "the vault holds the ensured capability: {capabilities}"
+    );
 
     // A fresh process reading that vault agrees with the answer.
     let output = fixture.run(&[
-        "grant", "verify", CONSUMER, second_item, "--field", "token", "--token", &token,
+        "grant",
+        "verify",
+        CONSUMER,
+        second_item,
+        "--field",
+        "token",
+        "--token",
+        &token,
     ]);
     assert_success("verify the ensured binding", &output);
     let verdict: Value = serde_json::from_slice(&output.stdout).expect("parse verify verdict");

@@ -22,7 +22,8 @@ use std::path::PathBuf;
 use cli::args::{emit, parse_args};
 use cli::items::{cmd_backfill_item_uids, cmd_rename, cmd_retag, cmd_set, cmd_set_json};
 use cli::reads::{
-    cmd_delete, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore, cmd_restore_version,
+    cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore,
+    cmd_restore_version,
 };
 use cli::tools::{cmd_export, cmd_generate, cmd_version};
 use core::{crypto, items, vault::Vault};
@@ -73,6 +74,7 @@ fn main() -> Result<()> {
         "get" => cmd_get(&flags, &positionals),
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
+        "duplicates" => emit(&cmd_duplicates()?),
         "retag" => cmd_retag(&flags, &positionals),
         "rename" => cmd_rename(&positionals),
         "backfill-item-uids" => cmd_backfill_item_uids(),
@@ -92,7 +94,7 @@ fn main() -> Result<()> {
         // release classifier compares exactly this surface, so `version` had to
         // arrive here as well as in the dispatcher before docs could point at it.
         "help" => emit(
-            &json!({"groups": ["grant","route","credential"], "commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","route","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","bond-add","bond-list","bond-remove","capability-serve","credential","apple-challenge-put","version"]}),
+            &json!({"groups": ["grant","route","credential"], "commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","duplicates","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","route","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-daemon","sync-status","bond-add","bond-list","bond-remove","capability-serve","credential","apple-challenge-put","version"]}),
         ),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),

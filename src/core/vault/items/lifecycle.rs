@@ -4,6 +4,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
+use crate::core::vault::items::duplicates;
 use crate::core::vault::{current_envelope, now, obj_mut, Vault};
 use crate::core::{crypto, schema};
 
@@ -33,6 +34,30 @@ impl Vault {
         let payload: Value = serde_json::from_str(&plain).context("decrypted item is not JSON")?;
         schema::validate_payload(&payload, kind)?;
         Ok(payload)
+    }
+
+    /// Every set of active items that hold exactly the same payload.
+    ///
+    /// Answered from the cleartext envelope, so it decrypts nothing and works
+    /// on a host whose GnuPG is the fault. Each group carries the ids and the
+    /// kind they share; the fingerprint itself stays inside the vault, because
+    /// it is a digest of secret content.
+    pub fn duplicate_groups(&self) -> Vec<Value> {
+        let Some(items) = self.doc.get("items").and_then(Value::as_object) else {
+            return Vec::new();
+        };
+        duplicates::groups(items)
+            .into_iter()
+            .map(|(_, ids)| {
+                let kind = ids
+                    .first()
+                    .and_then(|id| items.get(id))
+                    .and_then(|entry| entry.get("kind"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                json!({"kind": kind, "items": ids})
+            })
+            .collect()
     }
 
     pub fn list(&self, include_deleted: bool) -> Vec<Value> {

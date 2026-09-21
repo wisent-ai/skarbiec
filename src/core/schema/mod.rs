@@ -14,6 +14,12 @@ pub use tags::ensure_registered_tags;
 
 pub const ITEM_SCHEMA: &str = "skarbiec.item.v2";
 
+/// The context key a platform login uses to name the identity it signs in as.
+/// One spelling, shared by the payload check, the vault write and every
+/// second-factor lookup, so a reference cannot be written under one name and
+/// read under another.
+pub const IDENTITY_REFERENCE: &str = "identity";
+
 /// The bound an exact name carries throughout this crate: non-empty, no longer
 /// than this many bytes, and free of the separators a name must never smuggle
 /// into a resource string, a route table row or a journal line.

@@ -4,6 +4,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
+use crate::core::vault::items::duplicates;
 use crate::core::vault::{
     current_envelope, entry_item_uid, mint_item_uid, now, Vault, WritePolicy,
 };
@@ -26,6 +27,33 @@ impl Vault {
         let preserve_metadata = policy.managed.is_some();
         let operation_id = policy.managed.and_then(|write| write.operation_id);
         schema::validate_payload(payload, item_kind)?;
+        // Whose account this login signs in as. A reference to an item that is
+        // not there would send every later second-factor lookup to nothing, so
+        // it is refused where the vault is known rather than at read time.
+        if let Some(reference) = payload
+            .get("context")
+            .and_then(|context| context.get(schema::IDENTITY_REFERENCE))
+            .and_then(Value::as_str)
+        {
+            let held = self
+                .doc
+                .get("items")
+                .and_then(Value::as_object)
+                .and_then(|items| items.get(reference));
+            match held {
+                Some(entry)
+                    if entry.get("state").and_then(Value::as_str) == Some("active")
+                        && entry.get("kind").and_then(Value::as_str) == Some("identity") => {}
+                Some(_) => bail!(
+                    "context.{} names {reference}, which is not an active identity item",
+                    schema::IDENTITY_REFERENCE
+                ),
+                None => bail!(
+                    "context.{} names {reference}, and this vault holds no such item",
+                    schema::IDENTITY_REFERENCE
+                ),
+            }
+        }
         let previous = self
             .doc
             .get("items")
@@ -174,6 +202,25 @@ impl Vault {
             .unwrap_or_else(|| json!(stamp));
         let written_by = writer.unwrap_or_else(|| self.owner_uid()).to_string();
         let stored_tags = effective_tags.len();
+        // What this item holds, as a fingerprint of its canonical payload
+        // under this vault's salt. Two purposes, both answerable without
+        // opening anything: a second item holding the same credential is
+        // refused here, and `duplicates` reports the pairs that predate the
+        // refusal.
+        let salt = self
+            .doc
+            .get(duplicates::SALT_KEY)
+            .and_then(Value::as_str)
+            .context("this vault has no fingerprint salt; a write must mint one first")?;
+        let print = duplicates::fingerprint(salt, payload)?;
+        if let Some(items) = self.doc.get("items").and_then(Value::as_object) {
+            if let Some(holder) = duplicates::holder_of(items, &print, id) {
+                bail!(
+                    "{holder} already holds exactly this payload; an exact duplicate is refused \
+                     (rename or delete one of them, or read `skarbiec duplicates`)"
+                );
+            }
+        }
         let mut entry = json!({
             "format": current_envelope(),
             "item_uid": item_uid,
@@ -185,6 +232,7 @@ impl Vault {
             "updated_at": stamp,
             "recipients": effective_recipients,
             "tags": effective_tags,
+            duplicates::FINGERPRINT_KEY: print,
             "current": {
                 "revision": revision,
                 "kind": item_kind,

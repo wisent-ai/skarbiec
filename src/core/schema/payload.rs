@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 
 use super::kinds::{allowed_fields, supported_kind};
+use super::IDENTITY_REFERENCE;
 use super::{exact_component, ITEM_SCHEMA};
 
 fn required(fields: &Map<String, Value>, names: &[&str], kind: &str) -> Result<()> {
@@ -89,6 +90,19 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
                 bail!("login payload requires at least one authentication factor");
             }
         }
+        // An identity is who an account belongs to, so it has to be nameable:
+        // an address, a phone number, or both. Its authentication factors are
+        // optional, because an identity is worth recording before its
+        // authenticator is enrolled — that gap is exactly what nothing could
+        // express while `totp_secret` lived only on platform rows.
+        "identity" => {
+            if !["email", "phone"]
+                .iter()
+                .any(|name| fields.contains_key(*name))
+            {
+                bail!("identity payload requires email or phone");
+            }
+        }
         // Both fields are required because a host account with only a username is
         // not a credential, and one with only a password cannot say who it is.
         "host-account" => required(fields, &["username", "password"], expected_kind)?,
@@ -124,6 +138,24 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
             .is_some_and(|reference| reference.contains('@'))
     {
         bail!("host-account payload requires context.account_ref naming <user>@<host>");
+    }
+    // `context.identity` is how a platform login says whose account it signs
+    // in as. It names an `identity` item id, so it is checked here for shape
+    // and in the vault write for existence: a reference to nothing would send
+    // every later second-factor lookup to a row that is not there.
+    if let Some(reference) = object
+        .get("context")
+        .and_then(|context| context.get(IDENTITY_REFERENCE))
+    {
+        let reference = reference
+            .as_str()
+            .with_context(|| format!("context.{IDENTITY_REFERENCE} must be an item id"))?;
+        if !exact_component(reference) {
+            bail!("context.{IDENTITY_REFERENCE} is not a valid item id: {reference}");
+        }
+        if expected_kind == "identity" {
+            bail!("an identity cannot name another identity in context.{IDENTITY_REFERENCE}");
+        }
     }
     if object
         .get("extensions")
