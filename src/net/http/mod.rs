@@ -97,18 +97,11 @@ pub fn dispatch(
             eprintln!("skarbiec API listening on http://{address} (loopback only)");
             for incoming in listener.incoming() {
                 match incoming {
-                    Ok(stream) => {
-                        let deadline =
-                            std::time::Duration::from_secs("30".parse().unwrap_or_default());
-                        if let Err(e) = stream
-                            .set_read_timeout(Some(deadline))
-                            .and_then(|()| stream.set_write_timeout(Some(deadline)))
-                        {
-                            eprintln!("request error: socket deadline: {e}");
-                            continue;
-                        }
-                        requests.submit(stream);
-                    }
+                    // A loopback caller is a program on this machine waiting
+                    // for a credential; its socket is closed when it is done
+                    // or when it goes away, and nothing here decides on its
+                    // behalf that a vault read took too long.
+                    Ok(stream) => requests.submit(stream),
                     Err(e) => eprintln!("accept error: {e}"),
                 }
             }

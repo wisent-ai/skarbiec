@@ -5,11 +5,10 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, LazyLock, Mutex};
-use std::time::Duration;
 
 const DEFAULT_CRYPTO_LIMIT: usize = 8;
 const DEFAULT_GPG_LIMIT: usize = 2;
-const DEFAULT_CRYPTO_TIMEOUT_SECONDS: u64 = 30;
+
 
 pub(super) struct ExecutionLimit {
     active: Mutex<usize>,
@@ -160,14 +159,7 @@ fn configured_limit(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-pub(super) fn execution_timeout() -> Duration {
-    let seconds = std::env::var("SKARBIEC_CRYPTO_TIMEOUT_SECONDS")
-        .ok()
-        .and_then(|raw| raw.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_CRYPTO_TIMEOUT_SECONDS);
-    Duration::from_secs(seconds)
-}
 
-// One bounded subprocess seam for every cryptographic tool. Output pipes are
-// drained concurrently, every child has a deadline, and timed-out children are
+// One subprocess seam for every cryptographic tool. Output pipes are drained
+// concurrently and every child is waited for until it exits; what bounds this
+// seam is the concurrency limit above, not a clock.

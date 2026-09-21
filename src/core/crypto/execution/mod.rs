@@ -4,12 +4,12 @@
 use anyhow::{bail, Context, Result};
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
-use wait_timeout::ChildExt;
+
 
 mod limits;
 mod recovery;
 
-use limits::{crypto_program, execution_timeout, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
+use limits::{crypto_program, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
 use recovery::{recover_gpg_daemons, recoverable_gpg_failure};
 
 // gpg daemon failure gets one serialized daemon recovery and one retry.
@@ -119,14 +119,11 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
         Ok(bytes)
     });
 
-    let status = match child.wait_timeout(execution_timeout())? {
-        Some(status) => status,
-        None => {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("{program} timed out");
-        }
-    };
+    // The tool's own exit is the answer. A gpg agent asking the keychain on a
+    // loaded host and a gpg agent that will never answer look the same to a
+    // clock, and killing the first one turns a credential that exists into a
+    // read this vault reports as failed.
+    let status = child.wait()?;
     let written = input_writer
         .join()
         .map_err(|_| anyhow::anyhow!("{program} stdin writer panicked"))?;

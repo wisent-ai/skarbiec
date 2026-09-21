@@ -73,7 +73,6 @@ sha2 = "0.10"
 # as SHA-256: a hash must not take a slot in the pool the decryptions use.
 sha1 = "0.10"
 time = { version = "0.3", features = ["formatting", "macros"] }
-wait-timeout = "0.2"
 
 # The fleet's failure vocabulary, and the trim rule that goes with it. Pinned to
 # a commit rather than a branch: a vault's `error_code` is what a caller reads to
