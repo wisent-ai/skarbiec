@@ -226,7 +226,8 @@ newline, or carriage return.
 | `brama:agent:<agent>` | valued | Which agent the subscription routes to |
 | `brama:provider:<provider>` | valued | Which provider the subscription is held with |
 | `brama:id:<id>` | valued | The subscription's own identifier |
-| `brama:login:<login>` | valued | Which login item a Codex subscription belongs to |
+| `brama:login:<login>` | valued | Which login item a subscription signs in through, for any provider it is held with |
+| `brama:account:<account>` | valued | Which provider account the credential belongs to, written from the address the provider signed into the grant |
 | `fleet:host-account` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
 | `fleet:target:<name>` | valued | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
 | `fleet:tailnet-tls` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |

@@ -138,11 +138,22 @@ pub(in crate::credential) fn provider_contract(
     directory: Option<&Value>,
 ) -> Result<&'static str> {
     if operation == "reauth" {
-        if provider != "codex" {
-            bail!("subscription reauth currently supports only provider codex");
+        // Every subscription provider, not one of them. Until 2026-09-21 this
+        // refused anything but `codex`, so the Claude Code and Kimi
+        // subscriptions in this very vault could not be reauthenticated at
+        // all: the router asked, Skarbiec answered that reauth supports only
+        // codex, and the account stayed dead until somebody signed it in by
+        // hand. A subscription is held with whatever provider its item
+        // declares; what is decided here is that the identity comes from the
+        // named login item and never from a caller's `--account` or a sealed
+        // directory block, which is true of every provider.
+        if !generic_provider(provider) {
+            bail!(
+                "subscription reauth signs a human login in, so it is not available for {provider}"
+            );
         }
         if directory.is_some() || account.is_some() {
-            bail!("codex subscription reauth takes its account identity from the named login item");
+            bail!("subscription reauth takes its account identity from the named login item");
         }
         return Ok("password");
     }

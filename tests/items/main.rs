@@ -41,3 +41,41 @@ fn get_reads_one_exact_field_and_refuses_unknown_paths() {
 
     fixture.assert_vault_exists();
 }
+
+/// Brama records which provider account a subscription credential belongs to
+/// as `brama:account:<address>`, read from the address the provider signed
+/// into the grant. The write is refused unless the namespace is registered,
+/// and it was not: `brama subscription attribute codex` reached this vault
+/// and every member came back with `tag
+/// `brama:account:controlyourai@gmail.com` claims a namespace that is not
+/// registered`, so a deployment holding five accounts kept reporting three.
+#[test]
+fn the_account_namespace_is_writable_and_unregistered_ones_are_not() {
+    let fixture = CliFixture::new("items-account-tag");
+    seed_login(&fixture);
+
+    let accounted = fixture.run(&[
+        "retag",
+        "example-login",
+        "--tags",
+        "brama:subscription,brama:provider:codex,brama:account:reader@example.invalid",
+    ]);
+    assert_success("record the account a credential belongs to", &accounted);
+
+    let listed = fixture.run(&["list"]);
+    assert_success("read the item's tags back", &listed);
+    assert!(
+        String::from_utf8_lossy(&listed.stdout).contains("brama:account:reader@example.invalid"),
+        "the recorded account survives the write: {}",
+        String::from_utf8_lossy(&listed.stdout)
+    );
+
+    let unregistered = fixture.run(&["retag", "example-login", "--tags", "brama:owner:nobody"]);
+    assert_eq!(unregistered.status.code(), Some(1));
+    assert!(
+        stderr(&unregistered).contains("claims a namespace that is not registered")
+            && stderr(&unregistered).contains("brama:account:<account>"),
+        "an unregistered namespace is refused and the registered ones are named: {}",
+        stderr(&unregistered)
+    );
+}

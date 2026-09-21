@@ -48,16 +48,28 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
         prefix: "brama:id:",
         value: "id",
     },
-    // Which login item a Codex subscription belongs to. `credential status
-    // <id> reauth` treats an item as that subscription only when it carries
-    // this tag alongside `brama:subscription` and `brama:provider:codex`
-    // (`credential::status::named_subscription_present`), so the product reads
-    // this namespace and decides on it. Leaving it unregistered meant the
-    // binary demanded a tag it refused to let anyone write: every other tag
-    // that workflow needs passed the gate and this one did not.
+    // Which login item a subscription signs in through, for any provider it
+    // is held with. `credential status <id> reauth` treats an item as that
+    // subscription only when it carries this tag alongside
+    // `brama:subscription` and a `brama:provider:` declaration
+    // (`credential::status::named_subscription_present`), so the product
+    // reads this namespace and decides on it. Leaving it unregistered meant
+    // the binary demanded a tag it refused to let anyone write: every other
+    // tag that workflow needs passed the gate and this one did not.
     TagNamespace::Valued {
         prefix: "brama:login:",
         value: "login",
+    },
+    // Which provider account a subscription credential belongs to, written by
+    // Brama from the address the provider itself signed into the grant and
+    // read back by its pool to count accounts. Without it the only things
+    // that told an account apart were names — the member's id, its label and
+    // the login row it signs in through — and one Google login row backs both
+    // the Claude Code and the Codex subscription of one person, so a
+    // deployment holding five accounts reported three.
+    TagNamespace::Valued {
+        prefix: "brama:account:",
+        value: "account",
     },
     TagNamespace::Exact("fleet:host-account"),
     TagNamespace::Valued {
