@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::core::{schema, totp, vault::Vault, vault_path};
+use crate::core::{schema, vault::Vault};
 
 /// The exact operator path that stores a seed. Named in the diagnostic's own
 /// output because a verdict an operator cannot act on is a verdict nobody
@@ -99,7 +99,7 @@ impl SeedState {
 mod seed;
 
 pub(crate) use seed::base32_seed_shape;
-use seed::{inspect_seed, load, seed_of};
+use seed::{inspect_seed, load, seed_of, seed_state};
 
 /// Where one item's second factor actually lives, and the payload to judge.
 ///

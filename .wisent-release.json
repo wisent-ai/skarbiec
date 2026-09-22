@@ -19,7 +19,7 @@
     "darwin-arm64": {
       "quality": [
         {"name": "fmt", "argv": ["cargo", "fmt", "--", "--check"]},
-        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]},
+        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]},
         {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
       ],
       "build": {
@@ -40,7 +40,7 @@
     "linux-amd64": {
       "quality": [
         {"name": "fmt", "argv": ["cargo", "fmt", "--", "--check"]},
-        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--", "-D", "warnings"]},
+        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]},
         {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
       ],
       "build": {
