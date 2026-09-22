@@ -9,7 +9,6 @@ use std::sync::{Condvar, LazyLock, Mutex};
 const DEFAULT_CRYPTO_LIMIT: usize = 8;
 const DEFAULT_GPG_LIMIT: usize = 2;
 
-
 pub(super) struct ExecutionLimit {
     active: Mutex<usize>,
     available: Condvar,
@@ -158,7 +157,6 @@ fn configured_limit(name: &str, default: usize) -> usize {
         .filter(|value| *value > 0)
         .unwrap_or(default)
 }
-
 
 // One subprocess seam for every cryptographic tool. Output pipes are drained
 // concurrently and every child is waited for until it exits; what bounds this
