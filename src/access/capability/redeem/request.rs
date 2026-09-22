@@ -23,6 +23,9 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
     let Ok(request) = serde_json::from_str::<Value>(line.trim_end()) else {
         return denied(stream);
     };
+    if request["version"] == super::super::status::VERSION && request["operation"] == "status" {
+        return reply(stream, super::super::status::observed()?, &[]);
+    }
 
     let field = |name: &str| -> String {
         request

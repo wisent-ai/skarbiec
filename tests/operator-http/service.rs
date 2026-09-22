@@ -31,6 +31,37 @@ fn http_and_capability_requests_share_the_service_process() {
         "persisted-secret"
     );
 
+    let status = fixture.run(&["capability-status", "--socket", socket_text]);
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("broker status JSON");
+    assert_eq!(status["status"], "listening");
+    assert_eq!(status["pid"], broker.pid());
+
+    let different_state = fixture.root.join("different-capabilities.json");
+    let mismatch = fixture.run_with_env(
+        &[(
+            "SKARBIEC_CAPABILITY_FILE",
+            different_state.to_str().unwrap(),
+        )],
+        &["capability-status", "--socket", socket_text],
+    );
+    assert!(!mismatch.status.success());
+    let diagnostic = String::from_utf8_lossy(&mismatch.stderr);
+    assert!(
+        diagnostic.contains("different state paths")
+            && diagnostic.contains(different_state.to_str().unwrap()),
+        "{diagnostic}"
+    );
+    assert!(
+        !different_state.exists(),
+        "inspection must not create replacement state"
+    );
+
     let mut stream = UnixStream::connect(&socket).expect("connect to capability listener");
     stream.write_all(b"{}\n").expect("send malformed request");
     stream.shutdown(Shutdown::Write).expect("finish request");

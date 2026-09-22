@@ -68,6 +68,7 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "capability-serve" => Ok(Some(serve(flags)?)),
+        "capability-status" => Ok(Some(status::inspect(flags)?)),
         "apple-challenge-put" => Ok(Some(challenge_put(_positionals)?)),
         _ => Ok(None),
     }
@@ -76,6 +77,7 @@ pub fn dispatch(
 mod issue;
 mod redeem;
 mod state;
+mod status;
 
 pub(super) use issue::issue;
 pub(super) use state::{routes_path, write_private_file};
