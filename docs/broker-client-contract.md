@@ -9,7 +9,7 @@ This check validates that the desktop client only calls credential operations th
 ## How It Works
 
 The check extracts:
-1. **Supported operations** from `src/net/operator.rs` — the broker's operation validation code
+1. **Supported operations** from `src/net/operator/routes.rs` — the broker's operation validation code
 2. **Called operations** from `Sources/SkarbiecDesktop/BackendClient.swift` — what the client sends
 
 It compares them and fails if the client calls any unsupported operation, naming:
@@ -41,7 +41,7 @@ The check fails, and CI cannot proceed until the contract is valid.
 
 ```bash
 python3 tools/check-broker-client-contract.py \
-  src/net/operator.rs \
+  src/net/operator/routes.rs \
   ../skarbiec-desktop/Sources/SkarbiecDesktop/BackendClient.swift
 ```
 

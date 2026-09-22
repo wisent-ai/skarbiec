@@ -3,7 +3,7 @@
 Validates that Swift client calls to /v1/operator/credential only use operations
 the Rust broker supports. Fails on mismatch, reporting precise locations.
 
-Extract broker-supported operations from src/net/operator.rs.
+Extract broker-supported operations from src/net/operator/routes.rs.
 Extract client-called operations from BackendClient.swift.
 Compare and fail if any client call is unsupported.
 """
@@ -15,7 +15,7 @@ from typing import Set, Dict, List, Tuple
 
 
 def extract_broker_operations(operator_rs: Path) -> Set[str]:
-    """Extract supported operations for /v1/operator/credential from operator.rs."""
+    """Extract supported operations for /v1/operator/credential from routes.rs."""
     content = operator_rs.read_text()
     
     # Pattern to match: if !["status", "acquire", "rotate", "resume", ...].contains(&operation.as_str())
@@ -38,7 +38,7 @@ def extract_broker_operations(operator_rs: Path) -> Set[str]:
         if ops:
             return set(ops)
     
-    raise ValueError("Could not find credential operation validation in operator.rs")
+    raise ValueError("Could not find credential operation validation in the operator routes source")
 
 
 def extract_client_operations(backend_client: Path) -> Dict[str, List[Tuple[int, str, str]]]:
@@ -106,7 +106,7 @@ def validate_contract(broker_ops: Set[str], client_calls: Dict[str, List[Tuple[i
 
 def main():
     if len(sys.argv) < 3:
-        print("Usage: check-broker-client-contract.py <operator.rs> <BackendClient.swift>")
+        print("Usage: check-broker-client-contract.py <src/net/operator/routes.rs> <BackendClient.swift>")
         sys.exit(1)
     
     operator_rs = Path(sys.argv[1])

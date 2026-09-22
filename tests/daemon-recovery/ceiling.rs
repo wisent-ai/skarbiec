@@ -44,7 +44,9 @@ const DEFAULT_CEILING_BYTES: u64 = 1024 * 1024 * 1024;
 /// daemon that is not running answers no data line.
 fn daemon_pid(fixture: &CliFixture, keyboxd: bool) -> Option<u32> {
     let mut command = Command::new("gpg-connect-agent");
-    command.env("GNUPGHOME", &fixture.gnupg).arg("--no-autostart");
+    command
+        .env("GNUPGHOME", &fixture.gnupg)
+        .arg("--no-autostart");
     if keyboxd {
         command.arg("--keyboxd");
     }
@@ -112,7 +114,10 @@ fn the_running_service_replaces_a_daemon_over_its_memory_ceiling() {
             "SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB",
             CEILING_EVERY_DAEMON_EXCEEDS_MB,
         ),
-        ("SKARBIEC_READINESS_INTERVAL_SECONDS", READINESS_INTERVAL_SECONDS),
+        (
+            "SKARBIEC_READINESS_INTERVAL_SECONDS",
+            READINESS_INTERVAL_SECONDS,
+        ),
     ]);
     let rows = await_recycle(&fixture, &mut broker);
     let first = &rows[0];
@@ -162,7 +167,10 @@ fn doctor_names_the_daemon_over_the_ceiling_and_recover_daemons_reports_what_it_
     let agent = daemon_pid(&fixture, false).expect("init left this keyring's gpg-agent running");
 
     let healthy = doctor_check(&fixture, &[], "gpg_daemons");
-    assert_eq!(healthy["status"], "pass", "under the default ceiling: {healthy}");
+    assert_eq!(
+        healthy["status"], "pass",
+        "under the default ceiling: {healthy}"
+    );
     let detail = healthy["detail"].as_str().unwrap_or_default();
     assert!(
         detail.contains("gpg-agent ") && detail.contains(&format!("(pid {agent})")),
@@ -203,7 +211,11 @@ fn doctor_names_the_daemon_over_the_ceiling_and_recover_daemons_reports_what_it_
         .iter()
         .find(|row| row["daemon"] == "gpg-agent")
         .unwrap_or_else(|| panic!("the receipt does not say what gpg-agent held: {receipt}"));
-    assert_eq!(agent_row["pid"].as_u64(), Some(u64::from(agent)), "{receipt}");
+    assert_eq!(
+        agent_row["pid"].as_u64(),
+        Some(u64::from(agent)),
+        "{receipt}"
+    );
     assert!(
         agent_row["bytes"].as_u64().is_some_and(|bytes| bytes > 0),
         "the receipt reports no footprint for the daemon it replaced: {receipt}"

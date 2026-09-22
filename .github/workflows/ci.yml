@@ -35,7 +35,7 @@ jobs:
           fi
           printf '%s\n' \
             "This check compares the operations wisent-ai/skarbiec-desktop calls" \
-            "against the ones src/net/operator.rs serves, so it has to read a" \
+            "against the ones src/net/operator/routes.rs serves, so it has to read a" \
             "private sibling repository." \
             "" \
             "Missing: repository secret DESKTOP_CONTRACT_SSH_KEY." \
@@ -55,7 +55,7 @@ jobs:
       - name: Validate broker-client contract
         run: |
           python3 broker/tools/check-broker-client-contract.py \
-            broker/src/net/operator.rs \
+            broker/src/net/operator/routes.rs \
             desktop/Sources/SkarbiecDesktop/BackendClient.swift
 
   # The gates are not spelled here any more. Four Rust repositories in this
