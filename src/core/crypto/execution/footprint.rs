@@ -130,14 +130,13 @@ fn physical_footprint(pid: u32) -> Result<u64> {
         status
             .lines()
             .filter_map(|line| line.strip_prefix(field))
-            .filter_map(|rest| {
+            .find_map(|rest| {
                 rest.trim()
                     .trim_end_matches("kB")
                     .trim()
                     .parse::<u64>()
                     .ok()
             })
-            .next()
             .unwrap_or_default()
     };
     Ok((kib("VmRSS:") + kib("VmSwap:")).saturating_mul(KIB))

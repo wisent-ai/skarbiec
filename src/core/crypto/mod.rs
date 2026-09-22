@@ -15,7 +15,7 @@ mod messages;
 
 pub use execution::{
     daemon_footprints, daemon_memory_limit_bytes, executor_status, human_size, recover_daemons,
-    recycle_oversized_daemons, DaemonFootprint, DaemonRecycle, DAEMON_MEMORY_LIMIT_SETTING,
+    recycle_oversized_daemons, DAEMON_MEMORY_LIMIT_SETTING,
 };
 pub use keys::{
     export_public_key, fingerprint_for, generate_key, import_key, keygrips_for, secret_key_present,
