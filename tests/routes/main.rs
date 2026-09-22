@@ -5,6 +5,7 @@
 //! nothing raised anywhere. Each test drives `CARGO_BIN_EXE_skarbiec` against an
 //! isolated vault and asserts the answer a consumer observes.
 
+mod concurrent;
 /// The refusals, in their own file: this area's stories and its refusal
 /// sentences are read for different reasons, and each file stays inside the
 /// repository's per-file line budget.
