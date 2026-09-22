@@ -2,14 +2,12 @@
 //! redeem an acquisition, and resolve one mapped capability resource.
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
-use std::path::Path;
 use std::process::Command;
 
 use serde_json::Value;
 
 use crate::fixture::{fixture, mint, CONSUMER, ITEM};
-use crate::support::{assert_success, stderr, CliFixture};
+use crate::support::assert_success;
 
 /// The bearer a declared grant hands back is the one the serving path
 /// accepts, and revoking the declaration stops that same read.

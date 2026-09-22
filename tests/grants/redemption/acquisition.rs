@@ -3,8 +3,11 @@
 //! issue time, and a widening of a declaration nobody ever wrote.
 
 use std::fs;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
+
+use serde_json::Value;
 
 use crate::fixture::{fixture, mint, CONSUMER, ITEM};
 use crate::support::{assert_success, stderr, CliFixture};
