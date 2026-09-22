@@ -221,6 +221,10 @@ pub struct Broker {
 }
 
 impl Broker {
+    pub fn pid(&self) -> u32 {
+        self.child.id()
+    }
+
     pub fn port(&self) -> u16 {
         self.port
     }

@@ -35,7 +35,9 @@ pub(super) fn serve(
     // component must not leave a still-listening but incomplete service behind.
     let (component, outcome) = exits.recv().context("service components disconnected")?;
     match outcome {
-        Ok(_) => Err(anyhow!("Skarbiec {component} component stopped unexpectedly")),
+        Ok(report) => Err(anyhow!(
+            "Skarbiec {component} component stopped unexpectedly: {report}"
+        )),
         Err(error) => Err(error.context(format!("Skarbiec {component} component failed"))),
     }
 }
@@ -48,8 +50,14 @@ fn start(
     std::thread::Builder::new()
         .name(format!("skarbiec-{name}"))
         .spawn(move || {
-            let outcome = catch_unwind(AssertUnwindSafe(run))
-                .unwrap_or_else(|_| Err(anyhow!("component panicked")));
+            let outcome = catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|panic| {
+                let reason = panic
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| panic.downcast_ref::<&str>().copied())
+                    .unwrap_or("non-text panic payload");
+                Err(anyhow!("component panicked: {reason}"))
+            });
             let _ = finished.send((name, outcome));
         })
         .with_context(|| format!("start Skarbiec {name} component"))?;

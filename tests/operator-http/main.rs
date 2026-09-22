@@ -2,6 +2,7 @@
 mod support;
 
 mod grants;
+mod service;
 
 use std::process::Command;
 use support::{Broker, CliFixture};
