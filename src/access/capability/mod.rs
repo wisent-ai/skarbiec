@@ -80,4 +80,5 @@ mod state;
 pub(super) use issue::issue;
 pub(super) use state::{routes_path, write_private_file};
 
+pub(crate) use redeem::CapabilityListener;
 use redeem::{challenge_put, serve};

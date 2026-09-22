@@ -20,6 +20,7 @@ mod pool;
 mod readiness;
 mod request;
 mod routes;
+mod service;
 
 use pool::RequestPool;
 use readiness::start_readiness_monitor;
@@ -95,17 +96,7 @@ pub fn dispatch(
             crate::runtime::audit::append("serve", &json!({"address": address}))?;
             start_readiness_monitor()?;
             eprintln!("skarbiec API listening on http://{address} (loopback only)");
-            for incoming in listener.incoming() {
-                match incoming {
-                    // A loopback caller is a program on this machine waiting
-                    // for a credential; its socket is closed when it is done
-                    // or when it goes away, and nothing here decides on its
-                    // behalf that a vault read took too long.
-                    Ok(stream) => requests.submit(stream),
-                    Err(e) => eprintln!("accept error: {e}"),
-                }
-            }
-            Ok(Some(json!({"ok": true})))
+            service::serve(listener, requests, flags).map(Some)
         }
         _ => Ok(None),
     }

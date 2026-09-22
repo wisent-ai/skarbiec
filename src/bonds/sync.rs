@@ -44,6 +44,12 @@ fn bearer(flags: &HashMap<String, String>, usage: &str) -> Result<String> {
 }
 
 pub(crate) fn cmd_sync_daemon(flags: &HashMap<String, String>) -> Result<Value> {
+    let _previous = unsafe { signal(sigterm(), on_term) };
+    run_sync(flags)
+}
+
+/// Run replication inside the owning service without replacing its signal policy.
+pub(crate) fn run_sync(flags: &HashMap<String, String>) -> Result<Value> {
     let usage =
         "usage: sync-daemon --bond <name> (--token <t> | --token-file <path>) [--consumer name]";
     let name = flags.get("bond").context(usage)?;
@@ -70,7 +76,6 @@ pub(crate) fn cmd_sync_daemon(flags: &HashMap<String, String>) -> Result<Value> 
         .and_then(|c| c.get("interval_seconds"))
         .and_then(Value::as_u64)
         .context("bond channel has no interval_seconds (set it with bond-add --interval)")?;
-    let _previous = unsafe { signal(sigterm(), on_term) };
     crate::runtime::audit::append(
         "sync-daemon-start",
         &json!({"bond": name, "address": address, "interval_seconds": interval}),
