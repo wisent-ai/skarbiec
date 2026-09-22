@@ -113,10 +113,17 @@ pub(super) static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| Executi
 });
 pub(super) static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 static CRYPTO_PROGRAMS: LazyLock<HashMap<&'static str, PathBuf>> = LazyLock::new(|| {
-    ["gpg", "gpgconf", "openssl", "shasum", "pkill"]
-        .into_iter()
-        .map(|program| (program, resolve_program_path(program)))
-        .collect()
+    [
+        "gpg",
+        "gpgconf",
+        "gpg-connect-agent",
+        "openssl",
+        "shasum",
+        "pkill",
+    ]
+    .into_iter()
+    .map(|program| (program, resolve_program_path(program)))
+    .collect()
 });
 
 fn resolve_program_path(program: &str) -> PathBuf {

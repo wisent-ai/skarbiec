@@ -5,8 +5,14 @@ use anyhow::{bail, Context, Result};
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 
+mod footprint;
 mod limits;
 mod recovery;
+
+pub use footprint::{
+    daemon_footprints, daemon_memory_limit_bytes, human_size, DaemonFootprint,
+    DAEMON_MEMORY_LIMIT_SETTING,
+};
 
 use limits::{crypto_program, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
 use recovery::{recover_gpg_daemons, recoverable_gpg_failure};
@@ -170,13 +176,68 @@ pub(super) fn run_opt(program: &str, args: &[&str], input: Option<&str>) -> Opti
 /// nobody could re-run or audit, or restarting the service and its keychain
 /// unlock with it.
 ///
-/// The gpg capacity is drained first for the reason
+/// The receipt carries what each daemon held before it was replaced, so an
+/// operator reading it learns whether the repair met a wedge or a bloat.
+pub fn recover_daemons() -> Result<Vec<DaemonFootprint>> {
+    let before = daemon_footprints().unwrap_or_default();
+    recover_exclusively()?;
+    Ok(before)
+}
+
+/// What one pass of the memory ceiling found and did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DaemonRecycle {
+    pub limit_bytes: u64,
+    pub footprints: Vec<DaemonFootprint>,
+    /// The daemons that stood above the ceiling, in the words the log carries.
+    pub over_limit: Vec<String>,
+    pub recycled: bool,
+}
+
+/// Replace the GnuPG daemons when one of them holds more than the ceiling.
+///
+/// This is the pass the readiness monitor runs between its checks. A daemon
+/// under the ceiling is left alone: killing daemons costs every reader the
+/// next `gpg` start, and the point is to stop a keyboxd from growing for
+/// twelve days, not to churn a healthy one. Above the ceiling the repair is
+/// the same serialized one a failed read earns, so no live decryption is
+/// beside it, and the retry generation advances so a `gpg` that loses its
+/// socket to this pass retries once instead of recovering a second time.
+pub fn recycle_oversized_daemons() -> Result<DaemonRecycle> {
+    let limit_bytes = daemon_memory_limit_bytes();
+    let footprints = daemon_footprints()?;
+    let over_limit: Vec<String> = footprints
+        .iter()
+        .filter(|footprint| footprint.bytes > limit_bytes)
+        .map(DaemonFootprint::describe)
+        .collect();
+    let recycled = !over_limit.is_empty();
+    if recycled {
+        recover_exclusively()?;
+    }
+    Ok(DaemonRecycle {
+        limit_bytes,
+        footprints,
+        over_limit,
+        recycled,
+    })
+}
+
+/// The daemon repair with the gpg capacity drained first, for the reason
 /// [`ExecutionLimit::acquire_exclusive`] gives: killing daemons beside a live
 /// decryption is what reports `Broken pipe` to a caller that asked for a
-/// credential.
-pub fn recover_daemons() -> Result<()> {
-    let _exclusive = GPG_LIMIT.acquire_exclusive();
-    recover_gpg_daemons()
+/// credential. The generation advances because a recovery was attempted, the
+/// same rule [`run`] applies to its own.
+fn recover_exclusively() -> Result<()> {
+    let mut generation = GPG_RECOVERY_GENERATION
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let outcome = {
+        let _exclusive = GPG_LIMIT.acquire_exclusive();
+        recover_gpg_daemons()
+    };
+    *generation = generation.wrapping_add(1);
+    outcome
 }
 
 pub fn executor_status() -> (usize, usize, usize, usize) {

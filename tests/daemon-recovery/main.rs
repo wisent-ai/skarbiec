@@ -25,6 +25,8 @@
 #[path = "../support/mod.rs"]
 mod support;
 
+mod ceiling;
+
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 

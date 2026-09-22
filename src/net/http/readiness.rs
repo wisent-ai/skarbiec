@@ -1,8 +1,10 @@
 // What `/health` proves: the audit journal is writable and one deterministic
-// canary item still opens with the key material on this host.
+// canary item still opens with the key material on this host. The monitor
+// that re-proves it also keeps the GnuPG daemons under their memory ceiling,
+// because a keyboxd nobody recycles is what took the vault's host down.
 
 use anyhow::{Context, Result};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::load;
 use crate::core::vault::Vault;
@@ -55,6 +57,34 @@ pub(super) fn readiness_check() -> Result<Vec<String>> {
     Ok(canaries)
 }
 
+/// One pass of the daemon memory ceiling, spoken to the log and the journal
+/// only when it changed something or could not measure: a monitor that
+/// prints every healthy minute buries the line that matters. The journal row
+/// names the daemons and their sizes, nothing secret, so `audit-query` can
+/// answer when and why the daemons were replaced.
+fn daemon_ceiling_pass() {
+    match crate::core::crypto::recycle_oversized_daemons() {
+        Ok(recycle) if recycle.recycled => {
+            let over_limit = recycle.over_limit.join(", ");
+            eprintln!(
+                "skarbiec readiness monitor: replaced GnuPG daemons over the {} ceiling: {over_limit}",
+                crate::core::crypto::human_size(recycle.limit_bytes)
+            );
+            if let Err(error) = crate::runtime::audit::append(
+                "daemon-recycle",
+                &json!({
+                    "limit_bytes": recycle.limit_bytes,
+                    "over_limit": recycle.over_limit,
+                }),
+            ) {
+                eprintln!("skarbiec readiness monitor: journal the daemon recycle: {error:#}");
+            }
+        }
+        Ok(_) => {}
+        Err(error) => eprintln!("skarbiec readiness monitor: GnuPG daemon ceiling: {error:#}"),
+    }
+}
+
 pub(super) fn start_readiness_monitor() -> Result<()> {
     let seconds = std::env::var("SKARBIEC_READINESS_INTERVAL_SECONDS")
         .ok()
@@ -64,6 +94,7 @@ pub(super) fn start_readiness_monitor() -> Result<()> {
     std::thread::Builder::new()
         .name("skarbiec-readiness".to_string())
         .spawn(move || loop {
+            daemon_ceiling_pass();
             if let Err(error) = readiness_check() {
                 eprintln!("skarbiec readiness monitor: {error:#}");
             }

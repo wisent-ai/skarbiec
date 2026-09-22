@@ -229,6 +229,13 @@ impl Broker {
         self.port
     }
 
+    /// Whether this broker has already exited, and how. A test waiting on the
+    /// broker's next action asks this so a broker that died is a failure now
+    /// rather than a wait that never ends.
+    pub fn exited(&mut self) -> Option<std::process::ExitStatus> {
+        self.child.try_wait().expect("read the broker's exit state")
+    }
+
     /// The absolute URL of one route on this broker.
     pub fn url(&self, path: &str) -> String {
         format!("http://{}:{}{path}", Ipv4Addr::LOCALHOST, self.port)

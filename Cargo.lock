@@ -374,7 +374,7 @@ checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
 name = "skarbiec"
-version = "0.3.13"
+version = "0.3.14"
 dependencies = [
  "anyhow",
  "base32",
@@ -382,6 +382,7 @@ dependencies = [
  "csv",
  "form_urlencoded",
  "fs2",
+ "libc",
  "serde_json",
  "sha1",
  "sha2",
