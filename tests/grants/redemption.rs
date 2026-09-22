@@ -146,6 +146,5 @@ fn read_field(url: &str, consumer: &str, bearer: &str, body: &str) -> (u32, Stri
     )
 }
 
-
 #[path = "redemption/acquisition.rs"]
 mod acquisition;

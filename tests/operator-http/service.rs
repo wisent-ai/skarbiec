@@ -26,7 +26,10 @@ fn http_and_capability_requests_share_the_service_process() {
         "{}",
         String::from_utf8_lossy(&stored.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&stored.stdout).trim(), "persisted-secret");
+    assert_eq!(
+        String::from_utf8_lossy(&stored.stdout).trim(),
+        "persisted-secret"
+    );
 
     let mut stream = UnixStream::connect(&socket).expect("connect to capability listener");
     stream.write_all(b"{}\n").expect("send malformed request");
@@ -47,7 +50,9 @@ fn http_and_capability_requests_share_the_service_process() {
     );
     let owned = String::from_utf8_lossy(&descriptors.stdout);
     assert!(
-        owned.lines().any(|line| line.strip_prefix('n') == Some(socket_text)),
+        owned
+            .lines()
+            .any(|line| line.strip_prefix('n') == Some(socket_text)),
         "HTTP process does not own the capability socket: {owned}"
     );
 }

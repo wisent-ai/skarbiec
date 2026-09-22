@@ -96,11 +96,10 @@ impl SeedState {
     }
 }
 
-
 mod seed;
 
-use seed::{inspect_seed, load, seed_of};
 pub(crate) use seed::base32_seed_shape;
+use seed::{inspect_seed, load, seed_of};
 
 /// Where one item's second factor actually lives, and the payload to judge.
 ///

@@ -125,6 +125,5 @@ fn a_login_naming_a_missing_identity_is_refused() {
     );
 }
 
-
 #[path = "cases/duplicates.rs"]
 mod duplicates;
