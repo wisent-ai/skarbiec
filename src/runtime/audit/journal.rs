@@ -222,3 +222,28 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     }
     Ok(())
 }
+
+/// Every loopback port a `unit-retired` entry says a retired unit answered on.
+///
+/// A host the one process converged before it kept those ports beside the
+/// vault has them here and nowhere else. Only lines naming that operation are
+/// parsed, so a long journal costs one pass of reading, once per host.
+pub fn retired_ports() -> std::collections::BTreeSet<u16> {
+    use std::io::BufRead;
+    let Ok(file) = File::open(audit_path()) else {
+        return std::collections::BTreeSet::new();
+    };
+    std::io::BufReader::new(file)
+        .lines()
+        .map_while(std::io::Result::ok)
+        .filter(|line| line.contains("\"op\":\"unit-retired\""))
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .flat_map(|entry| {
+            entry["extra"]["ports"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+        })
+        .filter_map(|port| port.as_u64().and_then(|port| u16::try_from(port).ok()))
+        .collect()
+}

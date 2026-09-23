@@ -10,7 +10,7 @@ use std::collections::HashMap;
 mod journal;
 mod reports;
 
-pub use journal::{append, append_sync};
+pub use journal::{append, append_sync, retired_ports};
 pub use reports::{chain_report, probe};
 
 use reports::{query, recent, start_epoch};

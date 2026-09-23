@@ -9,8 +9,10 @@
 //! every predecessor was listening on, boots each unit out and removes its
 //! launch agent, and then listens on those ports itself: a consumer still
 //! dialling an old port reaches the one process, and no install finds a plist
-//! to load again. A test or an operator running `serve` by hand retires
-//! nothing.
+//! to load again. The ports are kept beside the vault, so every later start of
+//! the declared unit answers on them too. Only a unit whose launch agent is in
+//! this user's `~/Library/LaunchAgents` is retired, and a test or an operator
+//! running `serve` by hand retires nothing.
 
 use std::collections::BTreeSet;
 
@@ -27,13 +29,25 @@ pub(crate) const PREDECESSORS: [&str; 4] = [
 ];
 
 /// Retire every predecessor present on this host when this process is the
-/// declared unit, and return the loopback ports they were listening on.
+/// declared unit, and return the loopback ports it answers on in their place:
+/// the ones retired now and the ones earlier starts inherited.
 pub(crate) fn take_over() -> BTreeSet<u16> {
     let declared = std::env::var("XPC_SERVICE_NAME").is_ok_and(|label| label == DECLARED_UNIT);
     if !declared {
         return BTreeSet::new();
     }
-    launchd::take_over()
+    let (mut ports, recorded) = super::inherited::remembered();
+    let retired = launchd::take_over();
+    let grown = !retired.is_subset(&ports);
+    ports.extend(retired);
+    if grown || !recorded {
+        if let Err(error) = super::inherited::remember(&ports) {
+            eprintln!(
+                "skarbiec serve: answering on the retired units' ports {ports:?}, but they are not kept for the next start: {error:#}"
+            );
+        }
+    }
+    ports
 }
 
 #[cfg(target_os = "macos")]
@@ -57,10 +71,14 @@ mod launchd {
         let mut ports = BTreeSet::new();
         for label in PREDECESSORS {
             let plist = agents.join(format!("{label}.plist"));
-            let pid = running_pid(&domain, label);
-            if pid.is_none() && !plist.exists() {
+            // Retiring a unit is removing this user's launch agent for it. A
+            // job with no launch agent here was loaded from somewhere this
+            // process does not own, and a fixture with its own HOME must never
+            // boot out the real host's jobs.
+            if !plist.exists() {
                 continue;
             }
+            let pid = running_pid(&domain, label);
             let arguments = program_arguments(&plist);
             if arguments.iter().any(|argument| argument == "sync-daemon") {
                 if let Err(error) = adopt_replica_bond(&arguments) {

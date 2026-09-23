@@ -11,6 +11,7 @@ use std::sync::Arc;
 use super::pool::RequestPool;
 
 mod accept;
+mod inherited;
 mod predecessors;
 
 pub(crate) use accept::survive as survive_accept;

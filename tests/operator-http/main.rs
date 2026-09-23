@@ -2,6 +2,7 @@
 mod support;
 
 mod grants;
+mod inherited;
 mod reset;
 mod service;
 
