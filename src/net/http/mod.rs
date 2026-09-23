@@ -100,13 +100,32 @@ pub fn dispatch(
                     .get("port")
                     .map(String::as_str)
                     .unwrap_or(DEFAULT_PORT);
+                // Started as its declared unit, the one process first retires
+                // the Skarbiec units it replaces, then answers on their ports.
+                let inherited = service::take_over_predecessors();
                 let address = format!("{LOOPBACK}:{port}");
                 let listener =
                     TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
+                let mut listeners = vec![listener];
+                for extra in inherited
+                    .into_iter()
+                    .filter(|extra| extra.to_string() != port)
+                {
+                    let taken = format!("{LOOPBACK}:{extra}");
+                    match TcpListener::bind(&taken) {
+                        Ok(listener) => {
+                            eprintln!("skarbiec API also listening on http://{taken}, a retired unit's port");
+                            listeners.push(listener);
+                        }
+                        Err(error) => eprintln!(
+                            "skarbiec serve: {taken}, a retired unit's port, is held by another process: {error}"
+                        ),
+                    }
+                }
                 let requests = RequestPool::new()?;
                 crate::runtime::audit::append("serve", &json!({"address": address}))?;
                 eprintln!("skarbiec API listening on http://{address} (loopback only)");
-                Some((listener, requests))
+                Some((listeners, requests))
             };
             start_readiness_monitor()?;
             service::serve(http, flags).map(Some)

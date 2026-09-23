@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 mod broker;
-pub use broker::Broker;
 use broker::reserve_port;
+pub use broker::Broker;
 
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 

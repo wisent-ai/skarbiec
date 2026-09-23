@@ -6,11 +6,19 @@ use std::collections::HashMap;
 use std::net::TcpListener;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, Sender};
+use std::sync::Arc;
 
 use super::pool::RequestPool;
 
+mod predecessors;
+
+pub(super) use predecessors::take_over as take_over_predecessors;
+
+/// Run the one Skarbiec process. `http` holds every loopback listener it
+/// answers on - its own port and the ports of the units it took over - and
+/// the one request pool they share.
 pub(super) fn serve(
-    http: Option<(TcpListener, RequestPool)>,
+    http: Option<(Vec<TcpListener>, RequestPool)>,
     flags: &HashMap<String, String>,
 ) -> Result<Value> {
     let (finished, exits) = mpsc::channel();
@@ -32,14 +40,19 @@ pub(super) fn serve(
             crate::bonds::run_sync(&bond)
         })?;
     }
-    if let Some((listener, requests)) = http {
-        start("http", finished, move || {
-            for incoming in listener.incoming() {
-                requests.submit(incoming.context("accept Skarbiec HTTP connection")?);
-            }
-            Err(anyhow!("HTTP listener stopped"))
-        })?;
+    if let Some((listeners, requests)) = http {
+        let requests = Arc::new(requests);
+        for listener in listeners {
+            let requests = Arc::clone(&requests);
+            start("http", finished.clone(), move || {
+                for incoming in listener.incoming() {
+                    requests.submit(incoming.context("accept Skarbiec HTTP connection")?);
+                }
+                Err(anyhow!("HTTP listener stopped"))
+            })?;
+        }
     }
+    drop(finished);
     // Returning from the command ends the process and all its threads. A dead
     // component must not leave a still-listening but incomplete service behind.
     let (component, outcome) = exits.recv().context("service components disconnected")?;
