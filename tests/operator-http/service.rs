@@ -144,3 +144,78 @@ fn atomic_socket_alias_handoff_reaches_the_new_broker_without_a_proxy() {
     let response = request_credential(&second, "get", "handoff", r#""field":"password""#);
     assert!(response.contains("shared-state"), "{response}");
 }
+
+/// A process the test started, killed when the test ends however it ends.
+struct Owned(std::process::Child);
+
+impl Drop for Owned {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A hardened capability host allows no TCP at all, and still runs the one
+/// Skarbiec process: `serve --no-http` answers on the capability socket and
+/// binds no port. Without a socket, or with a port, it refuses to start.
+#[test]
+fn serve_without_http_owns_only_the_capability_socket() {
+    let fixture = CliFixture::new("nohttp");
+    fixture.init("Capability Host <capability-host@test.local>");
+    let socket = fixture.root.join("cap.sock");
+    let socket_text = socket.to_str().expect("fixture socket path is UTF-8");
+    let mut service = Owned(fixture.spawn_with_env(
+        &[("SKARBIEC_CAP_SOCKET", socket_text)],
+        &["serve", "--no-http"],
+    ));
+    // Each status read is a real product run, which is what paces this wait;
+    // a service that exits first is the failure, with its exit status.
+    let status = loop {
+        let output = fixture.run(&["capability-status", "--socket", socket_text]);
+        if output.status.success() {
+            break output;
+        }
+        if let Some(exit) = service.0.try_wait().expect("read the service state") {
+            panic!("serve --no-http exited ({exit}) before its socket answered");
+        }
+    };
+    let status: serde_json::Value =
+        serde_json::from_slice(&status.stdout).expect("broker status JSON");
+    assert_eq!(status["status"], "listening");
+    assert_eq!(status["pid"], service.0.id());
+
+    let listeners = Command::new("lsof")
+        .args([
+            "-a",
+            "-p",
+            &service.0.id().to_string(),
+            "-iTCP",
+            "-sTCP:LISTEN",
+            "-Fn",
+        ])
+        .output()
+        .expect("inspect the service's TCP listeners");
+    assert!(
+        String::from_utf8_lossy(&listeners.stdout).trim().is_empty(),
+        "serve --no-http listens on TCP: {}",
+        String::from_utf8_lossy(&listeners.stdout)
+    );
+
+    let nothing = fixture.run(&["serve", "--no-http"]);
+    assert!(!nothing.status.success());
+    assert!(
+        String::from_utf8_lossy(&nothing.stderr).contains(
+            "serve --no-http requires --socket or SKARBIEC_CAP_SOCKET: it would serve nothing"
+        ),
+        "{}",
+        String::from_utf8_lossy(&nothing.stderr)
+    );
+    let port = fixture.run(&["serve", "--no-http", "--port", "1"]);
+    assert!(!port.status.success());
+    assert!(
+        String::from_utf8_lossy(&port.stderr)
+            .contains("serve --no-http binds no port; drop --port"),
+        "{}",
+        String::from_utf8_lossy(&port.stderr)
+    );
+}

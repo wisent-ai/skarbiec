@@ -181,6 +181,20 @@ impl CliFixture {
         broker
     }
 
+    /// Start a long-running command the test owns, with extra environment,
+    /// when the command is not the HTTP broker `serve_with_env` waits for.
+    pub fn spawn_with_env(&self, env: &[(&str, &str)], args: &[&str]) -> Child {
+        let mut command = self.command(args);
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        command
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("start real skarbiec process")
+    }
+
     fn command(&self, args: &[&str]) -> Command {
         let mut command = Command::new(env!("CARGO_BIN_EXE_skarbiec"));
         command.args(args);

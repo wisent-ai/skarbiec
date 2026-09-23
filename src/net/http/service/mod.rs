@@ -10,12 +10,17 @@ use std::sync::mpsc::{self, Sender};
 use super::pool::RequestPool;
 
 pub(super) fn serve(
-    listener: TcpListener,
-    requests: RequestPool,
+    http: Option<(TcpListener, RequestPool)>,
     flags: &HashMap<String, String>,
 ) -> Result<Value> {
     let (finished, exits) = mpsc::channel();
-    if flags.contains_key("socket") || std::env::var_os("SKARBIEC_CAP_SOCKET").is_some() {
+    let capability_socket =
+        flags.contains_key("socket") || std::env::var_os("SKARBIEC_CAP_SOCKET").is_some();
+    anyhow::ensure!(
+        http.is_some() || capability_socket,
+        "serve --no-http requires --socket or SKARBIEC_CAP_SOCKET: it would serve nothing"
+    );
+    if capability_socket {
         let capability = crate::access::capability::CapabilityListener::bind(flags)?;
         start("capability", finished.clone(), move || capability.serve())?;
     }
@@ -27,12 +32,14 @@ pub(super) fn serve(
             crate::bonds::run_sync(&bond)
         })?;
     }
-    start("http", finished, move || {
-        for incoming in listener.incoming() {
-            requests.submit(incoming.context("accept Skarbiec HTTP connection")?);
-        }
-        Err(anyhow!("HTTP listener stopped"))
-    })?;
+    if let Some((listener, requests)) = http {
+        start("http", finished, move || {
+            for incoming in listener.incoming() {
+                requests.submit(incoming.context("accept Skarbiec HTTP connection")?);
+            }
+            Err(anyhow!("HTTP listener stopped"))
+        })?;
+    }
     // Returning from the command ends the process and all its threads. A dead
     // component must not leave a still-listening but incomplete service behind.
     let (component, outcome) = exits.recv().context("service components disconnected")?;

@@ -85,18 +85,31 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "serve" => {
-            let port = flags
-                .get("port")
-                .map(String::as_str)
-                .unwrap_or(DEFAULT_PORT);
-            let address = format!("{LOOPBACK}:{port}");
-            let listener =
-                TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
-            let requests = RequestPool::new()?;
-            crate::runtime::audit::append("serve", &json!({"address": address}))?;
+            // A host whose workloads only redeem capabilities - a hardened
+            // capability deployment that allows no TCP at all - runs the same
+            // one process with its capability socket and bonds and no HTTP API.
+            let http = if flags.contains_key("no-http") {
+                anyhow::ensure!(
+                    !flags.contains_key("port"),
+                    "serve --no-http binds no port; drop --port"
+                );
+                crate::runtime::audit::append("serve", &json!({"address": null}))?;
+                None
+            } else {
+                let port = flags
+                    .get("port")
+                    .map(String::as_str)
+                    .unwrap_or(DEFAULT_PORT);
+                let address = format!("{LOOPBACK}:{port}");
+                let listener =
+                    TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
+                let requests = RequestPool::new()?;
+                crate::runtime::audit::append("serve", &json!({"address": address}))?;
+                eprintln!("skarbiec API listening on http://{address} (loopback only)");
+                Some((listener, requests))
+            };
             start_readiness_monitor()?;
-            eprintln!("skarbiec API listening on http://{address} (loopback only)");
-            service::serve(listener, requests, flags).map(Some)
+            service::serve(http, flags).map(Some)
         }
         _ => Ok(None),
     }
