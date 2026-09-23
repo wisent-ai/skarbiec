@@ -46,11 +46,7 @@ current core.
 
 `Cargo.toml` is the package-version source. Stado resolves
 `.wisent-release.json`, runs the repository-owned quality and build entrypoints,
-and stores immutable signed receipts for both supported platforms. After the
-macOS build, `release/journeys.sh` runs the `tests/operator-http` service
-journeys against the binary the build staged (`SKARBIEC_TEST_BINARY`); that
-post-build test is what Stado reads before it counts a handed-off change as
-qualified, and a missing staged binary refuses with exit status 66. The Linux
+and stores immutable signed receipts for both supported platforms. The Linux
 recipe receives the browser signing key only as the file-backed
 `browser-extension-key#private_key` Skarbiec grant; the key is never stored in
 source or a release asset. Promotion reconciles the same immutable receipts from

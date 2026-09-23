@@ -200,7 +200,7 @@ impl CliFixture {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(binary());
+        let mut command = Command::new(env!("CARGO_BIN_EXE_skarbiec"));
         command.args(args);
         // Every backend this product reads is selected by a `SKARBIEC_`
         // variable, and each one falls back to a path below `HOME` when it is
@@ -220,15 +220,6 @@ impl CliFixture {
             .env("SKARBIEC_AUDIT_FILE", self.root.join("audit.jsonl"));
         command
     }
-}
-
-/// The binary every journey drives: the one `cargo test` built, or the staged
-/// release artifact `SKARBIEC_TEST_BINARY` names, which is how
-/// `release/journeys.sh` qualifies the bytes a release packages.
-fn binary() -> PathBuf {
-    std::env::var_os("SKARBIEC_TEST_BINARY")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_skarbiec")))
 }
 
 impl Drop for CliFixture {

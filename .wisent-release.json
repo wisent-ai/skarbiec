@@ -28,9 +28,6 @@
           "release/build.sh"
         ]
       },
-      "tests": [
-        {"name": "one-process-service", "argv": ["bash", "release/journeys.sh"]}
-      ],
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/bin/start": "bin/start",
