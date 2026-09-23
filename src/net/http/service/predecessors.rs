@@ -28,12 +28,17 @@ pub(crate) const PREDECESSORS: [&str; 4] = [
     "com.wisent.compute.service.com.wisent.skarbiec-weles",
 ];
 
+/// Whether launchd started this process as the fleet's declared unit; a serve
+/// run by hand or by a test is not.
+pub(super) fn declared() -> bool {
+    std::env::var("XPC_SERVICE_NAME").is_ok_and(|label| label == DECLARED_UNIT)
+}
+
 /// Retire every predecessor present on this host when this process is the
 /// declared unit, and return the loopback ports it answers on in their place:
 /// the ones retired now and the ones earlier starts inherited.
 pub(crate) fn take_over() -> BTreeSet<u16> {
-    let declared = std::env::var("XPC_SERVICE_NAME").is_ok_and(|label| label == DECLARED_UNIT);
-    if !declared {
+    if !declared() {
         return BTreeSet::new();
     }
     let (mut ports, recorded) = super::inherited::remembered();

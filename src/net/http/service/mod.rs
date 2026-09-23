@@ -11,6 +11,7 @@ use std::sync::Arc;
 use super::pool::RequestPool;
 
 mod accept;
+mod image;
 mod inherited;
 mod predecessors;
 
@@ -45,16 +46,23 @@ pub(super) fn serve(
     }
     if let Some((listeners, requests)) = http {
         let requests = Arc::new(requests);
+        let image = image::Image::when_declared();
         for listener in listeners {
             let requests = Arc::clone(&requests);
+            let image = image.clone();
             start("http", finished.clone(), move || {
                 for incoming in listener.incoming() {
-                    match incoming {
-                        Ok(stream) => requests.submit(stream),
+                    let stream = match incoming {
+                        Ok(stream) => stream,
                         Err(error) => {
-                            survive_accept(error).context("accept Skarbiec HTTP connection")?
+                            survive_accept(error).context("accept Skarbiec HTTP connection")?;
+                            continue;
                         }
+                    };
+                    if let Some(image) = &image {
+                        image.unchanged()?;
                     }
+                    requests.submit(stream);
                 }
                 Err(anyhow!("HTTP listener stopped"))
             })?;

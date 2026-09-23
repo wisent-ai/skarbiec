@@ -167,8 +167,15 @@ impl CliFixture {
     /// crypto seam resolves each tool through `PATH`, and a scripted `gpg`
     /// placed there is a stub of the component the vault exists to drive.
     pub fn serve_with_env(&self, env: &[(&str, &str)]) -> Broker {
+        self.serve_program(Path::new(env!("CARGO_BIN_EXE_skarbiec")), env)
+    }
+
+    /// Same, running the product from `program` - an installed copy of the
+    /// binary this test run built - for a test about what the process does
+    /// when an install replaces the file it was started from.
+    pub fn serve_program(&self, program: &Path, env: &[(&str, &str)]) -> Broker {
         let port = self.port.to_string();
-        let mut command = self.command(&["serve", "--port", &port]);
+        let mut command = self.command_for(program, &["serve", "--port", &port]);
         for (key, value) in env {
             command.env(key, value);
         }
@@ -200,7 +207,11 @@ impl CliFixture {
     }
 
     fn command(&self, args: &[&str]) -> Command {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_skarbiec"));
+        self.command_for(Path::new(env!("CARGO_BIN_EXE_skarbiec")), args)
+    }
+
+    fn command_for(&self, program: &Path, args: &[&str]) -> Command {
+        let mut command = Command::new(program);
         command.args(args);
         // Every backend this product reads is selected by a `SKARBIEC_`
         // variable, and each one falls back to a path below `HOME` when it is

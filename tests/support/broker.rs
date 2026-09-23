@@ -23,6 +23,12 @@ impl Broker {
         self.child.try_wait().expect("read the broker's exit state")
     }
 
+    /// Wait for a broker the test has already shown is ending, and say how
+    /// it ended.
+    pub fn wait(&mut self) -> std::process::ExitStatus {
+        self.child.wait().expect("wait for the broker to exit")
+    }
+
     /// The absolute URL of one route on this broker.
     pub fn url(&self, path: &str) -> String {
         format!("http://{}:{}{path}", Ipv4Addr::LOCALHOST, self.port)
