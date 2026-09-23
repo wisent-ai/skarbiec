@@ -112,7 +112,18 @@ fn atomic_socket_alias_handoff_reaches_the_new_broker_without_a_proxy() {
     let stable = fixture.root.join("stable.sock");
     let staged = fixture.root.join("staged.sock");
     let first = fixture.serve_with_env(&[("SKARBIEC_CAP_SOCKET", first_socket.to_str().unwrap())]);
-    request_credential(&first, "set", "handoff", r#""password":"shared-state""#);
+    // A login item needs a username; one without it is refused, and a refused
+    // store would surface later as the second broker's "no item: handoff".
+    let stored = request_credential(
+        &first,
+        "set",
+        "handoff",
+        r#""username":"handoff","password":"shared-state""#,
+    );
+    assert!(
+        stored.contains("\"ok\":true"),
+        "the first broker must store the item: {stored}"
+    );
     assert_eq!(
         capability_owner(&fixture, &first_socket),
         u64::from(first.pid())
