@@ -18,9 +18,11 @@ fn the_declared_unit_answers_on_its_predecessors_ports_after_a_restart() {
     let fixture = CliFixture::new("ports");
     fixture.init("Ports Test <ports@test.local>");
     let inherited = free_port();
-    // What the previous release journaled when it retired the keychain unit.
+    // What the previous release journaled when it retired the keychain unit;
+    // `init` itself journals nothing, so the line may be the journal's first.
     let journal = fixture.root.join("audit.jsonl");
     let mut lines = OpenOptions::new()
+        .create(true)
         .append(true)
         .open(&journal)
         .expect("open the fixture's journal");
