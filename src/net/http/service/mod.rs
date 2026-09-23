@@ -1,4 +1,4 @@
-//! One process owns the HTTP API, capability socket and configured replica loop.
+//! One process owns the HTTP API, capability socket and every replication bond.
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;
@@ -19,10 +19,12 @@ pub(super) fn serve(
         let capability = crate::access::capability::CapabilityListener::bind(flags)?;
         start("capability", finished.clone(), move || capability.serve())?;
     }
-    if flags.contains_key("bond") {
-        let flags = flags.clone();
+    // Replication is configured by the vault's bonds, not by this command's
+    // arguments, so every host runs the same unit and a replica host needs no
+    // second process. A bond added later is pulled after the next start.
+    for bond in crate::bonds::pulled_bonds()? {
         start("replication", finished.clone(), move || {
-            crate::bonds::run_sync(&flags)
+            crate::bonds::run_sync(&bond)
         })?;
     }
     start("http", finished, move || {

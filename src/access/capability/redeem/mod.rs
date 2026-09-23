@@ -28,7 +28,7 @@ impl CapabilityListener {
             .get("socket")
             .cloned()
             .or_else(|| std::env::var("SKARBIEC_CAP_SOCKET").ok())
-            .context("capability-serve requires --socket or SKARBIEC_CAP_SOCKET")?;
+            .context("serve redeems capabilities only with --socket or SKARBIEC_CAP_SOCKET")?;
         let path = PathBuf::from(&socket);
         match fs::symlink_metadata(&path) {
             Ok(metadata) => {
@@ -67,8 +67,4 @@ impl CapabilityListener {
         }
         Ok(json!({"status": "stopped"}))
     }
-}
-
-pub(super) fn serve(flags: &HashMap<String, String>) -> Result<Value> {
-    CapabilityListener::bind(flags)?.serve()
 }

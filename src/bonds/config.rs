@@ -1,9 +1,10 @@
 // The bond configuration commands: what a bond is, in the vault.
 //
 // Only non-secret configuration lands here — modes, roles, addresses,
-// intervals and peer fingerprints. A mistyped mode, role or channel type
-// is refused against the schema in docs/design/bond.md rather than
-// written and discovered later by a daemon that cannot pull.
+// intervals, peer fingerprints and, for a bond this vault pulls, the path of
+// the owner-only file that holds its bearer. A mistyped mode, role or channel
+// type is refused against the schema in docs/design/bond.md rather than
+// written and discovered later by a replication component that cannot pull.
 
 use super::*;
 
@@ -18,7 +19,7 @@ pub(crate) fn cmd_bond_add(
     positionals: &[String],
 ) -> Result<Value> {
     let name = positionals.first().context(
-        "usage: bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval seconds]",
+        "usage: bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
     )?;
     let mode = flags.get("mode").context("--mode required")?;
     let role = flags.get("role").context("--role required")?;
@@ -47,10 +48,37 @@ pub(crate) fn cmd_bond_add(
         .get("peers")
         .map(|value| value.split(',').map(str::to_string).collect())
         .unwrap_or_default();
+    // A pulled bond names the owner-only file holding its bearer, never the
+    // bearer itself: the bond section is configuration, and the running
+    // `serve` reads the file on every pull. The file is read once here so a
+    // bond the service could not authenticate with is refused now.
+    let token_file = flags.get("token-file").map(|path| path.trim().to_string());
+    if let Some(path) = &token_file {
+        if channel_type != "serve" {
+            anyhow::bail!(
+                "--token-file applies only to a serve channel: only serve channels are pulled"
+            );
+        }
+        if interval.is_none() {
+            anyhow::bail!(
+                "--token-file requires --interval: serve pulls a bond on the bond's own interval"
+            );
+        }
+        crate::credential::read_secret_file(std::path::Path::new(path))
+            .with_context(|| format!("--token-file {path}"))?;
+    }
+    let consumer = flags.get("consumer");
+    if consumer.is_some() && token_file.is_none() {
+        anyhow::bail!("--consumer names who pulls and requires --token-file");
+    }
 
     let mut channel_json = json!({"type": channel_type, "address": address});
     if let Some(seconds) = interval {
         channel_json["interval_seconds"] = json!(seconds);
+    }
+    if let Some(path) = &token_file {
+        channel_json["token_file"] = json!(path);
+        channel_json["consumer"] = json!(consumer.map(String::as_str).unwrap_or("replica"));
     }
     let mut vault = Vault::open(vault_path())?;
     let doc = vault

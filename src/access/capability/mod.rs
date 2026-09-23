@@ -67,7 +67,8 @@ pub fn dispatch(
     _positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "capability-serve" => Ok(Some(serve(flags)?)),
+        // Redemption is served only by `skarbiec serve`, the host's one
+        // Skarbiec process; there is no standalone broker command.
         "capability-status" => Ok(Some(status::inspect(flags)?)),
         "apple-challenge-put" => Ok(Some(challenge_put(_positionals)?)),
         _ => Ok(None),
@@ -82,5 +83,5 @@ mod status;
 pub(super) use issue::issue;
 pub(super) use state::{routes_path, write_private_file};
 
+use redeem::challenge_put;
 pub(crate) use redeem::CapabilityListener;
-use redeem::{challenge_put, serve};

@@ -27,7 +27,7 @@ pub(in crate::access::grant) fn group(
         // A bounded, use-counted redemption of a declaration that already
         // exists: the resource resolves through the capability-route table and
         // the workload key comes from the consumer grant, so nothing new is
-        // declared here. `capability-serve` is the surface that spends it.
+        // declared here. `serve` spends it on the host's capability socket.
         "capability" => Ok(Some(crate::access::capability::issue(flags)?)),
         "ensure" => {
             let consumer = positionals.first().context(
