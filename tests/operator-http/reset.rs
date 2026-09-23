@@ -1,4 +1,5 @@
-//! A connection its client resets before the vault accepts it.
+//! Connections their clients reset: while they wait to be accepted, and in
+//! the middle of a request.
 
 use super::CliFixture;
 use std::io::{Read, Write};
@@ -10,6 +11,9 @@ use std::process::Command;
 const RESETS: usize = 8;
 /// Process-state reads allowed before the stop is taken as not having landed.
 const STOP_CHECKS: usize = 200;
+/// SKARBIEC_HTTP_WORKERS for the mid-request test: one worker handles the
+/// abandoned request strictly before the health request that follows it.
+const ONE_WORKER: &str = "1";
 
 /// A client that resets its connection while it still waits in the listen
 /// queue ends only that connection. The kernel reports it as ECONNABORTED
@@ -59,6 +63,41 @@ fn a_connection_reset_before_accept_leaves_the_vault_serving() {
     assert!(
         broker.exited().is_none(),
         "the vault exited after connections were reset before accept"
+    );
+}
+
+/// A request its client resets halfway through ends only that request. A
+/// request worker can now end the process - on EBADF for a socket the process
+/// itself just accepted - so a failure a client causes must never take that
+/// path: a vault that any caller could end by hanging up would be a denial of
+/// service against the whole fleet's credentials.
+#[test]
+fn a_request_reset_by_its_client_leaves_the_vault_serving() {
+    let fixture = CliFixture::new("request-reset");
+    fixture.init("Request Reset Test <request-reset@test.local>");
+    let mut broker = fixture.serve_with_env(&[("SKARBIEC_HTTP_WORKERS", ONE_WORKER)]);
+    let mut abandoned =
+        TcpStream::connect(("127.0.0.1", broker.port())).expect("reach the service");
+    abandoned
+        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\n")
+        .expect("send a request whose headers never end");
+    reset(abandoned);
+
+    let mut stream =
+        TcpStream::connect(("127.0.0.1", broker.port())).expect("reach the service again");
+    stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .expect("send a health request");
+    let mut answer = String::new();
+    let _ = stream.read_to_string(&mut answer);
+    assert!(
+        answer.starts_with("HTTP/1.1 ") && answer.contains("\"service\":\"skarbiec\""),
+        "the vault's only request worker did not answer after a client reset its request: \
+         {answer:?}"
+    );
+    assert!(
+        broker.exited().is_none(),
+        "the vault exited after a client reset its request"
     );
 }
 

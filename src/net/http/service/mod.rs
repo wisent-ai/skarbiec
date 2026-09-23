@@ -46,6 +46,13 @@ pub(super) fn serve(
     }
     if let Some((listeners, requests)) = http {
         let requests = Arc::new(requests);
+        // A worker that finds a just-accepted socket closed inside this process
+        // ends the process through this component, the same way a listener
+        // that stops accepting does.
+        let watched = Arc::clone(&requests);
+        start("requests", finished.clone(), move || {
+            watched.descriptor_loss()
+        })?;
         let image = image::Image::when_declared();
         for listener in listeners {
             let requests = Arc::clone(&requests);
