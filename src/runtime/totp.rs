@@ -124,6 +124,8 @@ fn resolve(vault: &Vault, payload: Value) -> Resolved {
         .get("context")
         .and_then(|context| context.get(schema::IDENTITY_REFERENCE))
         .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|seed| !seed.is_empty())
         .map(str::to_string)
     else {
         return Resolved {
@@ -144,6 +146,23 @@ fn resolve(vault: &Vault, payload: Value) -> Resolved {
             payload,
             identity: Some(reference),
         },
+    }
+}
+
+/// Classify one canonical item payload. Reads the seed only to ask whether it
+/// is there; the value never leaves this function.
+pub fn seed_state(payload: &Value) -> SeedState {
+    if seed_of(payload).is_some() {
+        return SeedState::Present;
+    }
+    let declares = payload
+        .get("kind")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| schema::kind_allows_field(kind, "totp_secret"));
+    if declares {
+        SeedState::DeclaredEmpty
+    } else {
+        SeedState::FieldAbsent
     }
 }
 
@@ -231,6 +250,54 @@ pub fn dispatch(
                 })
                 .collect();
             if !positionals.is_empty() {
+                return Ok(Some(rows.into_iter().next().unwrap_or(Value::Null)));
+            }
+            Ok(Some(json!({"rows": rows})))
+        }
+        // The seed-state read a diagnostic can call. Deliberately separate
+        // from `totp`: `totp` computes and returns a live one-time code, and a
+        // fleet-wide sweep that only wants to know whether a seed exists must
+        // not mint codes into a control plane's output to find out.
+        "totp-seed-state" => {
+            let vault = load()?;
+            // One item, or every login row in one vault open. The sweep form
+            // exists because the caller is a fleet diagnostic: asking per row
+            // over a host channel would open the vault once per account.
+            let ids: Vec<String> = match positionals.first() {
+                Some(id) => vec![id.clone()],
+                None => vault
+                    .list(false)
+                    .iter()
+                    .filter(|row| row.get("kind").and_then(Value::as_str) == Some("login"))
+                    .filter_map(|row| {
+                        row.get("id").and_then(Value::as_str).map(str::to_string)
+                    })
+                    .collect(),
+            };
+            let rows: Vec<Value> = ids
+                .iter()
+                .map(|id| match vault.get_item(id) {
+                    Ok(row) => {
+                        let state = seed_state(&row);
+                        json!({
+                            "item": id,
+                            "kind": row.get("kind").cloned().unwrap_or(Value::Null),
+                            "seed_state": state.as_str(),
+                            "repair": state.repair(),
+                        })
+                    }
+                    // A row this vault cannot open is reported as itself, not
+                    // silently dropped and not guessed at: "no seed" and "the
+                    // envelope is unreadable" have nothing in common.
+                    Err(error) => json!({
+                        "item": id,
+                        "kind": Value::Null,
+                        "seed_state": "unreadable",
+                        "error": error.to_string(),
+                    }),
+                })
+                .collect();
+            if positionals.first().is_some() {
                 return Ok(Some(rows.into_iter().next().unwrap_or(Value::Null)));
             }
             Ok(Some(json!({"rows": rows})))
