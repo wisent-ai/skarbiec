@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::io::Write;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
