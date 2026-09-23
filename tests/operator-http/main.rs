@@ -2,6 +2,7 @@
 mod support;
 
 mod grants;
+mod reset;
 mod service;
 
 use std::process::Command;

@@ -22,6 +22,8 @@ mod request;
 mod routes;
 mod service;
 
+pub(crate) use service::survive_accept;
+
 use pool::RequestPool;
 use readiness::start_readiness_monitor;
 

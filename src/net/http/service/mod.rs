@@ -10,8 +10,10 @@ use std::sync::Arc;
 
 use super::pool::RequestPool;
 
+mod accept;
 mod predecessors;
 
+pub(crate) use accept::survive as survive_accept;
 pub(super) use predecessors::take_over as take_over_predecessors;
 
 /// Run the one Skarbiec process. `http` holds every loopback listener it
@@ -46,7 +48,12 @@ pub(super) fn serve(
             let requests = Arc::clone(&requests);
             start("http", finished.clone(), move || {
                 for incoming in listener.incoming() {
-                    requests.submit(incoming.context("accept Skarbiec HTTP connection")?);
+                    match incoming {
+                        Ok(stream) => requests.submit(stream),
+                        Err(error) => {
+                            survive_accept(error).context("accept Skarbiec HTTP connection")?
+                        }
+                    }
                 }
                 Err(anyhow!("HTTP listener stopped"))
             })?;

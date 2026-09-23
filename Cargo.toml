@@ -1,6 +1,6 @@
 [package]
 name = "skarbiec"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 description = "Self-contained vault for sensitive values: at-rest encryption, multi-recipient sharing, scoped access grants, tamper-evident audit, and runtime injection. GPG owns encryption and key custody; bounded subprocess execution and in-process audit hashing keep the broker available under load."
 license-file = "LICENSE"
@@ -106,5 +106,6 @@ base32 = "0.5.1"
 # resident, compressed and swapped pages together. That is the number a host's
 # memory pressure is made of and the one `ps` cannot show: keyboxd read as
 # 327 MiB resident while holding 15 GiB. Linux reads the same from `/proc`.
-[target.'cfg(target_os = "macos")'.dependencies]
+# The accept errors that end one connection rather than a listener
+# (`src/net/http/service/accept.rs`) are named by errno on both platforms.
 libc = "0.2"

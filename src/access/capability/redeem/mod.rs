@@ -56,7 +56,14 @@ impl CapabilityListener {
 
     pub(crate) fn serve(self) -> Result<Value> {
         for incoming in self.listener.incoming() {
-            let mut stream = incoming.context("accept capability connection")?;
+            let mut stream = match incoming {
+                Ok(stream) => stream,
+                Err(error) => {
+                    crate::net::http::survive_accept(error)
+                        .context("accept capability connection")?;
+                    continue;
+                }
+            };
             if let Err(error) = handle(&mut stream) {
                 let _ = crate::runtime::audit::append_sync(
                     "capability-request-failed",
