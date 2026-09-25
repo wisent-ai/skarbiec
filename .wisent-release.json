@@ -19,8 +19,7 @@
     "darwin-arm64": {
       "quality": [
         {"name": "fmt", "argv": ["cargo", "fmt", "--", "--check"]},
-        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]},
-        {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
+        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]}
       ],
       "build": {
         "argv": [
@@ -28,6 +27,9 @@
           "release/build.sh"
         ]
       },
+      "tests": [
+        {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
+      ],
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/bin/start": "bin/start",
@@ -40,8 +42,7 @@
     "linux-amd64": {
       "quality": [
         {"name": "fmt", "argv": ["cargo", "fmt", "--", "--check"]},
-        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]},
-        {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
+        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]}
       ],
       "build": {
         "argv": [
@@ -49,6 +50,9 @@
           "release/build.sh"
         ]
       },
+      "tests": [
+        {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
+      ],
       "secret_env": {
         "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-key#private_key"
       },
