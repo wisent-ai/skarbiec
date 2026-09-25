@@ -2,7 +2,7 @@
 //! has since replaced it.
 //!
 //! An installer replaces `~/.stado/bin/skarbiec` by renaming a new file over
-//! it (wisent-products' `copy_installed`, Stado's `release install-local`),
+//! it (`stado product install`, Stado's `release install-local`),
 //! and the running process goes on executing the old image: `stado service
 //! ensure` then reads the same program path and the same unit and answers
 //! `already_correct`. On lukasz-macbook on 2026-09-23 the hourly CLI sweep
