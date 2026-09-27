@@ -127,20 +127,3 @@ pub(crate) fn resolve(vault: &Vault, payload: Value) -> Resolved {
         },
     }
 }
-
-/// Classify one canonical item payload. Reads the seed only to ask whether it
-/// is there; the value never leaves this function.
-pub fn seed_state(payload: &Value) -> SeedState {
-    if seed_of(payload).is_some() {
-        return SeedState::Present;
-    }
-    let declares = payload
-        .get("kind")
-        .and_then(Value::as_str)
-        .is_some_and(|kind| schema::kind_allows_field(kind, "totp_secret"));
-    if declares {
-        SeedState::DeclaredEmpty
-    } else {
-        SeedState::FieldAbsent
-    }
-}
