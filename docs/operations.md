@@ -234,6 +234,7 @@ newline, or carriage return.
 | `fleet:target:<name>` | valued | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
 | `fleet:tailnet-tls` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
 | `lifecycle:quarantined` | exact | Written and cleared by the credential lifecycle when it freezes or releases an item, and read back to decide whether an item is frozen |
+| `skrzynka:mailbox` | exact | Registered for Skrzynka, which lists its mailboxes by it: `skrzynka mailbox declare` writes it and `skrzynka mailbox undeclare` removes it; Skarbiec does not write it |
 
 Only what a write introduces is judged. A tag the item already carries is left
 alone, because writes deliberately preserve tags they do not mention and

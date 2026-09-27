@@ -83,6 +83,11 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
     // and belongs here; describing it as a gap elsewhere is not the same as
     // closing it.
     TagNamespace::Exact("lifecycle:quarantined"),
+    // The mailboxes Skrzynka operates: an item carrying it is a mailbox, and
+    // Skrzynka lists its accounts by this tag instead of keeping its own list
+    // of which item each mailbox uses. `skrzynka mailbox declare` writes it,
+    // `skrzynka mailbox undeclare` removes it, and every mailbox read filters on it.
+    TagNamespace::Exact("skrzynka:mailbox"),
 ];
 
 impl TagNamespace {
