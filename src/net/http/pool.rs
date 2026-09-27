@@ -109,11 +109,19 @@ impl RequestPool {
     }
 }
 
-/// EBADF anywhere in the failure's chain. Every other request failure belongs
-/// to its one connection and its client, and ends only that request.
+/// EBADF or ENOSPC anywhere in the failure's chain. Every other request
+/// failure belongs to its one connection and its client, and ends only that
+/// request.
+///
+/// ENOSPC joins EBADF because the process that met it did not recover: on
+/// charless-mac-mini on 2026-09-27 the disk filled, the vault answered every
+/// request with `No space left on device (os error 28)`, and it kept doing so
+/// after the disk had 19.6 GiB free again, so every Stado credential read in
+/// the fleet failed until the process was replaced. Ending it hands the
+/// restart to launchd, which starts a clean vault once there is room.
 fn descriptor_lost(error: &anyhow::Error) -> bool {
     error
         .chain()
         .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
-        .any(|cause| cause.raw_os_error() == Some(libc::EBADF))
+        .any(|cause| matches!(cause.raw_os_error(), Some(libc::EBADF | libc::ENOSPC)))
 }
