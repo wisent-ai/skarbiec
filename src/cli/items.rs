@@ -16,12 +16,39 @@ pub(super) fn ensure_owner_mutation_allowed(
     id: &str,
     operation: &str,
 ) -> Result<()> {
+    ensure_not_replica(vault, operation)?;
     vault.ensure_owner_controlled(id).with_context(|| {
         format!("use the item's controlling lifecycle instead of direct owner {operation}")
     })
 }
 
+/// A vault that replicates another is replaced by the next pull from its
+/// source, so a write here is lost within one pull interval: on lukasz-macbook
+/// a Skrzynka mailbox tag written with `retag` vanished and the mailbox read
+/// as undeclared. The write is refused and names the source to write on.
+fn ensure_not_replica(vault: &Vault, operation: &str) -> Result<()> {
+    let Some(bonds) = vault.doc().get("bond").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    for (name, bond) in bonds {
+        let text = |key: &str| bond.get(key).and_then(Value::as_str).unwrap_or_default();
+        if text("mode") == "replica" && text("role") == "replica" {
+            let source = bond
+                .get("channel")
+                .and_then(|channel| channel.get("address"))
+                .and_then(Value::as_str)
+                .unwrap_or("its source");
+            bail!(
+                "this vault replicates bond {name} from {source}; a direct {operation} here is \
+                 replaced by the next pull. Write it on the source vault."
+            );
+        }
+    }
+    Ok(())
+}
+
 fn ensure_owner_set_allowed(vault: &Vault, id: &str) -> Result<()> {
+    ensure_not_replica(vault, "set")?;
     let item_exists = vault
         .doc()
         .get("items")
