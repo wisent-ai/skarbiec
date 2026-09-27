@@ -226,24 +226,3 @@ jobs:
             || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --generate-notes \
             || gh release view "$GITHUB_REF_NAME" >/dev/null
           gh release upload "$GITHUB_REF_NAME" "$archive" "$checksum"
-      - name: Publish signed browser extension channel
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.platform == 'linux-amd64'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SKARBIEC_EXTENSION_PRIVATE_KEY_B64: ${{ secrets.SKARBIEC_EXTENSION_PRIVATE_KEY_B64 }}
-        run: |
-          if [ -z "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" ]; then
-            printf '%s\n' "SKARBIEC_EXTENSION_PRIVATE_KEY_B64 is required for tagged releases"
-            false
-          fi
-          private_key="$(mktemp)"
-          trap 'rm -f "$private_key"' EXIT
-          printf '%s' "$SKARBIEC_EXTENSION_PRIVATE_KEY_B64" | base64 --decode > "$private_key"
-          crx="skarbiec-autofill.crx"
-          update="skarbiec-autofill.xml"
-          codebase="https://github.com/wisent-ai/skarbiec/releases/latest/download/$crx"
-          version="${GITHUB_REF_NAME#v}"
-          extension_id="$(cat deploy/chrome-extension-id)"
-          python3 tools/package-crx3.py browser "$private_key" "$crx" "$update" "$codebase" "$version" "$extension_id"
-          sha256sum "$crx" > "$crx.sha256"
-          gh release upload "$GITHUB_REF_NAME" "$crx" "$crx.sha256" "$update"

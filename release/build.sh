@@ -82,7 +82,7 @@ if [[ "$platform" == linux-amd64 ]]; then
   mkdir -p "$browser_stage"
   codebase="https://stado.wisent.com/releases/skarbiec/$version/linux-amd64/skarbiec-autofill.crx"
   extension_id=$(tr -d '[:space:]' < "$source_dir/deploy/chrome-extension-id")
-  python3 "$source_dir/tools/package-crx3.py" "$source_dir/browser" "$extension_key" \
-    "$browser_stage/skarbiec-autofill.crx" "$browser_stage/skarbiec-autofill.xml" \
-    "$codebase" "$version" "$extension_id"
+  stado product crx3 --extension "$source_dir/browser" --key "$extension_key" \
+    --expected-id "$extension_id" --codebase "$codebase" --version "$version" \
+    --crx "$browser_stage/skarbiec-autofill.crx" --update-manifest "$browser_stage/skarbiec-autofill.xml"
 fi
