@@ -1,10 +1,13 @@
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
+use std::path::PathBuf;
 use std::process::Child;
 
 /// A broker owned by one test, stopped when that test ends however it ends.
 pub struct Broker {
     pub(super) child: Child,
     pub(super) port: u16,
+    /// Where the broker's standard error is written.
+    pub(super) log: PathBuf,
 }
 
 impl Broker {
@@ -27,6 +30,18 @@ impl Broker {
     /// it ended.
     pub fn wait(&mut self) -> std::process::ExitStatus {
         self.child.wait().expect("wait for the broker to exit")
+    }
+
+    /// How the broker stands and what it wrote to standard error, for an
+    /// assertion message: a broker that stopped answering says why.
+    pub fn account(&mut self) -> String {
+        let state = match self.child.try_wait() {
+            Ok(Some(status)) => format!("exited {status}"),
+            Ok(None) => "still running".to_string(),
+            Err(error) => format!("exit state unreadable: {error}"),
+        };
+        let written = std::fs::read_to_string(&self.log).unwrap_or_default();
+        format!("broker {state}; its stderr:\n{written}")
     }
 
     /// The absolute URL of one route on this broker.

@@ -179,14 +179,19 @@ impl CliFixture {
         for (key, value) in env {
             command.env(key, value);
         }
+        // The broker's own account of a failure is what a flaky assertion
+        // needs; discarding it left "did not answer: \"\"" and nothing else.
+        let log = self.root.join("broker.log");
+        let stderr = fs::File::create(&log).expect("create the broker log");
         let child = command
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(stderr)
             .spawn()
             .expect("start real skarbiec broker");
         let mut broker = Broker {
             child,
             port: self.port,
+            log,
         };
         broker.await_listening();
         broker

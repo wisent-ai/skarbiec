@@ -58,7 +58,9 @@ fn a_connection_reset_before_accept_leaves_the_vault_serving() {
     let _ = stream.read_to_string(&mut answer);
     assert!(
         answer.starts_with("HTTP/1.1 ") && answer.contains("\"service\":\"skarbiec\""),
-        "the vault did not answer after {RESETS} connections were reset before accept: {answer:?}"
+        "the vault did not answer after {RESETS} connections were reset before accept: \
+         {answer:?}; {}",
+        broker.account()
     );
     assert!(
         broker.exited().is_none(),
@@ -93,7 +95,8 @@ fn a_request_reset_by_its_client_leaves_the_vault_serving() {
     assert!(
         answer.starts_with("HTTP/1.1 ") && answer.contains("\"service\":\"skarbiec\""),
         "the vault's only request worker did not answer after a client reset its request: \
-         {answer:?}"
+         {answer:?}; {}",
+        broker.account()
     );
     assert!(
         broker.exited().is_none(),
