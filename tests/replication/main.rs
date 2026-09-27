@@ -134,6 +134,60 @@ fn one_serve_process_pulls_the_bond_its_vault_configures() {
 }
 
 #[test]
+fn an_owner_write_on_a_replica_is_refused_and_names_the_source() {
+    let (source, token) = source_with_one_item();
+    let source_service = source.serve();
+
+    let replica = CliFixture::new("rwrf");
+    replica.init("Replica <skarbiec-replica@example.invalid>");
+    let token_file = bearer_file(&replica, &token);
+    let channel = format!("serve:{}", source_service.url(""));
+    let added = replica.run(&[
+        "bond-add",
+        "source",
+        "--mode",
+        "replica",
+        "--role",
+        "replica",
+        "--channel",
+        &channel,
+        "--interval",
+        "3600",
+        "--token-file",
+        &token_file,
+        "--consumer",
+        "replica",
+    ]);
+    assert_success("configure the bond the replica pulls", &added);
+    let before = fs::read(&replica.vault).expect("read the replica's vault");
+
+    for args in [
+        &["set", "written-on-the-replica", "value=lost"][..],
+        &["retag", "replicated-item", "--tags", "lost"][..],
+    ] {
+        let refused = replica.run(args);
+        let message = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            !refused.status.success(),
+            "{args:?} was accepted: {refused:?}"
+        );
+        assert!(
+            message.contains("this vault replicates bond source from "),
+            "{args:?}: {message}"
+        );
+        assert!(
+            message.contains("Write it on the source vault."),
+            "{args:?}: {message}"
+        );
+    }
+    assert_eq!(
+        fs::read(&replica.vault).expect("read the replica's vault"),
+        before,
+        "a refused write changed the replica's vault"
+    );
+}
+
+#[test]
 fn a_pulled_bond_is_refused_before_it_is_written_when_the_service_could_not_pull_it() {
     let replica = CliFixture::new("brfs");
     replica.init("Replica <skarbiec-replica@example.invalid>");
