@@ -1,9 +1,26 @@
 // Running the crypto programs: one retry after a recoverable gpg daemon
 // failure, and the capacity and process rules the modules beside this own.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use std::io::{Read, Write};
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
+
+/// A crypto program that ran and exited unsuccessfully. The exit status is
+/// kept so a caller that knows the program's status table (pkill: 1 means
+/// nothing matched) can read it; the text is the program's own diagnosis.
+#[derive(Debug)]
+pub(super) struct ToolExit {
+    pub(super) status: ExitStatus,
+    detail: String,
+}
+
+impl std::fmt::Display for ToolExit {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.detail)
+    }
+}
+
+impl std::error::Error for ToolExit {}
 
 mod footprint;
 mod limits;
@@ -146,17 +163,14 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     // either.
     if !status.success() {
         let said = String::from_utf8_lossy(&stderr).trim().to_owned();
-        if said.is_empty() {
-            return match written {
-                Err(error) => Err(anyhow::anyhow!(
-                    "{program} failed ({status}) and stopped reading stdin: {error}"
-                )),
-                Ok(()) => Err(anyhow::anyhow!(
-                    "{program} failed ({status}) without output"
-                )),
-            };
-        }
-        bail!("{program} failed: {said}");
+        let detail = match (said.is_empty(), written) {
+            (false, _) => format!("{program} failed: {said}"),
+            (true, Err(error)) => {
+                format!("{program} failed ({status}) and stopped reading stdin: {error}")
+            }
+            (true, Ok(())) => format!("{program} failed ({status}) without output"),
+        };
+        return Err(ToolExit { status, detail }.into());
     }
     written.with_context(|| format!("write {program} stdin"))?;
     Ok(String::from_utf8_lossy(&stdout).into_owned())

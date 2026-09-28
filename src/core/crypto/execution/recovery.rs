@@ -3,7 +3,11 @@
 
 use anyhow::{bail, Result};
 
-use super::run_once;
+use super::{run_once, ToolExit};
+
+/// pkill's exit status for "nothing matched" (pgrep(1) EXIT STATUS: 1 no
+/// process matched, 2 syntax error, 3 fatal error).
+const PKILL_NO_MATCH: i32 = 1;
 
 /// Failures where killing and relaunching the GnuPG daemons is worth one retry.
 ///
@@ -70,14 +74,18 @@ pub(super) fn recover_gpg_daemons() -> Result<()> {
             match run_once("pkill", &[signal, "-x", daemon], None) {
                 Ok(_) => answered = true,
                 Err(error) => {
-                    // `pkill` that could not be started (or waited on) fails
-                    // with the operating system's I/O error; a `pkill` that
-                    // ran and matched nothing fails with its own exit status
-                    // and still answered. Told by the error's type, not its words.
-                    if error.downcast_ref::<std::io::Error>().is_some() {
-                        escalation_errors.push(format!("{daemon} {signal}: {error:#}"));
-                    } else {
+                    // Only pkill's own "nothing matched" status is an answer:
+                    // the daemon is already gone. A syntax or fatal status, a
+                    // pkill that could not start, or a reader that failed is
+                    // an escalation that did not happen. Read from the exit
+                    // status, not the words.
+                    let no_match = error
+                        .downcast_ref::<ToolExit>()
+                        .is_some_and(|exit| exit.status.code() == Some(PKILL_NO_MATCH));
+                    if no_match {
                         answered = true;
+                    } else {
+                        escalation_errors.push(format!("{daemon} {signal}: {error:#}"));
                     }
                 }
             }
