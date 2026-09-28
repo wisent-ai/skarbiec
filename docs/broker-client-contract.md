@@ -9,44 +9,31 @@ This check validates that the desktop client only calls credential operations th
 ## How It Works
 
 The check extracts:
-1. **Supported operations** from `src/net/operator/routes.rs` — the broker's operation validation code
-2. **Called operations** from `Sources/SkarbiecDesktop/BackendClient.swift` — what the client sends
+1. **Supported operations** from `src/net/operator/routes.rs` — the array the broker checks the operation against (`if ![...].contains(&operation.as_str())`)
+2. **Called operations** from every Swift file under `Sources/SkarbiecDesktop` — each literal `"operation": "<name>"` the client sends
 
-It compares them and fails if the client calls any unsupported operation, naming:
-- The operation name (e.g., `get`, `totp`)
-- The client function that sends it (e.g., `getFieldValue()`)
-- The exact file and line number
-- The request body context
-
-## Example: Today's Defect
-
-When the client calls `operation: "get"` but the broker only supports `["status", "acquire", "rotate", "resume"]`:
+It compares them and fails if the client calls any unsupported operation, naming the operation, the client function that sends it, and the file and line:
 
 ```
-❌ BROKER-CLIENT CONTRACT VIOLATION
-
-Unsupported operations in client code:
-
-  Operation: get
-    - getFieldValue() at line 325
-      var body: [String: Any] = ["operation": "get", "item": itemID]
-
-Broker supports: ['acquire', 'resume', 'rotate', 'status']
-Client calls:   ['get', 'resume', 'rotate', 'status']
+BROKER-CLIENT CONTRACT VIOLATION: the client sends operations the broker refuses
+  get: getFieldValue() at Sources/SkarbiecDesktop/BackendClient/BackendClient+Status.swift:112
+broker serves: acquire,resume,rotate,status
+client sends:  get,resume,rotate,status
 ```
 
-The check fails, and CI cannot proceed until the contract is valid.
+The check fails, and CI cannot proceed until the contract is valid. An operation the client passes as a variable (`["operation": operation, ...]`) is not a literal and is not counted.
 
 ## Running Locally
 
 ```bash
-python3 tools/check-broker-client-contract.py \
+tools/check-broker-client-contract.sh \
   src/net/operator/routes.rs \
-  ../skarbiec-desktop/Sources/SkarbiecDesktop/BackendClient.swift
+  ../skarbiec-desktop/Sources/SkarbiecDesktop
 ```
 
 Exit code 0 = all operations valid.  
-Exit code 1 = unsupported operations found.
+Exit code 1 = unsupported operations found.  
+Exit code 2 = an input is missing, or routes.rs holds no operation list in the expected shape.
 
 ## In CI
 

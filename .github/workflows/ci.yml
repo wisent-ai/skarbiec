@@ -54,9 +54,9 @@ jobs:
           ssh-key: ${{ secrets.DESKTOP_CONTRACT_SSH_KEY }}
       - name: Validate broker-client contract
         run: |
-          python3 broker/tools/check-broker-client-contract.py \
+          bash broker/tools/check-broker-client-contract.sh \
             broker/src/net/operator/routes.rs \
-            desktop/Sources/SkarbiecDesktop/BackendClient.swift
+            desktop/Sources/SkarbiecDesktop
 
   # The gates are not spelled here any more. Four Rust repositories in this
   # pack had four different gate sets, and a fix applied to one of them
