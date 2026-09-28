@@ -126,56 +126,8 @@ impl Vault {
                 .into_iter()
                 .filter(|uid| uid != &previous)
                 .collect();
-            let fprs = self.fprs_for(&uids);
-            let item = self
-                .doc
-                .get("items")
-                .and_then(|items| items.get(id))
-                .with_context(|| format!("no item: {id}"))?;
-            if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
-                bail!("{id} uses a legacy envelope; run migrate-v2 before rotating the owner");
-            }
-            let mut current = item
-                .get("current")
-                .and_then(Value::as_object)
-                .cloned()
-                .with_context(|| format!("item has no current revision: {id}"))?;
-            let current_cipher = current
-                .get("ciphertext")
-                .and_then(Value::as_str)
-                .with_context(|| format!("item has no current ciphertext: {id}"))?;
-            let rotated_current = Self::rewrap(&fprs, current_cipher)
-                .with_context(|| format!("rewrap current ciphertext: {id}"))?;
-            current.insert("ciphertext".to_string(), json!(rotated_current));
-            let history = item
-                .get("history")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            let mut rotated_history = Vec::new();
-            for version in history {
-                let mut version = version
-                    .as_object()
-                    .cloned()
-                    .with_context(|| format!("historical revision is not an object: {id}"))?;
-                let cipher = version
-                    .get("ciphertext")
-                    .and_then(Value::as_str)
-                    .with_context(|| format!("historical revision has no ciphertext: {id}"))?;
-                let rotated = Self::rewrap(&fprs, cipher)
-                    .with_context(|| format!("rewrap historical ciphertext: {id}"))?;
-                version.insert("ciphertext".to_string(), json!(rotated));
-                rotated_history.push(Value::Object(version));
-            }
-            versions = versions.saturating_add(rotated_history.len());
-
-            let entry = obj_mut(&mut self.doc, "items")
-                .get_mut(id)
-                .and_then(Value::as_object_mut)
-                .with_context(|| format!("no item: {id}"))?;
-            entry.insert("current".to_string(), Value::Object(current));
-            entry.insert("history".to_string(), json!(rotated_history));
-            entry.insert("recipients".to_string(), json!(uids));
+            let rewrapped = self.rewrap_item(id, &uids)?;
+            versions = versions.saturating_add(rewrapped);
         }
         self.save()?;
         Ok(json!({
@@ -187,6 +139,65 @@ impl Vault {
             "historical_versions": versions,
             "recovery_preserved": !self.recovery_fpr().is_empty(),
         }))
+    }
+
+    /// Re-encrypt every current and historical revision of one item onto
+    /// `uids` plus the always-present owner and recovery keys, and record
+    /// `uids` as the item's recipients. Only the in-memory document changes;
+    /// the caller saves once every item it touches has been rewrapped, so a
+    /// failure on any item leaves the file as it was. Returns how many
+    /// historical revisions were rewrapped.
+    pub(in crate::core::vault) fn rewrap_item(&mut self, id: &str, uids: &[String]) -> Result<usize> {
+        let fprs = self.fprs_for(uids);
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
+            bail!("{id} uses a legacy envelope; run migrate-v2 before changing who can read it");
+        }
+        let mut current = item
+            .get("current")
+            .and_then(Value::as_object)
+            .cloned()
+            .with_context(|| format!("item has no current revision: {id}"))?;
+        let current_cipher = current
+            .get("ciphertext")
+            .and_then(Value::as_str)
+            .with_context(|| format!("item has no current ciphertext: {id}"))?;
+        let rotated_current = Self::rewrap(&fprs, current_cipher)
+            .with_context(|| format!("rewrap current ciphertext: {id}"))?;
+        current.insert("ciphertext".to_string(), json!(rotated_current));
+        let history = item
+            .get("history")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let mut rotated_history = Vec::new();
+        for version in history {
+            let mut version = version
+                .as_object()
+                .cloned()
+                .with_context(|| format!("historical revision is not an object: {id}"))?;
+            let cipher = version
+                .get("ciphertext")
+                .and_then(Value::as_str)
+                .with_context(|| format!("historical revision has no ciphertext: {id}"))?;
+            let rotated = Self::rewrap(&fprs, cipher)
+                .with_context(|| format!("rewrap historical ciphertext: {id}"))?;
+            version.insert("ciphertext".to_string(), json!(rotated));
+            rotated_history.push(Value::Object(version));
+        }
+        let versions = rotated_history.len();
+        let entry = obj_mut(&mut self.doc, "items")
+            .get_mut(id)
+            .and_then(Value::as_object_mut)
+            .with_context(|| format!("no item: {id}"))?;
+        entry.insert("current".to_string(), Value::Object(current));
+        entry.insert("history".to_string(), json!(rotated_history));
+        entry.insert("recipients".to_string(), json!(uids));
+        Ok(versions)
     }
 
     pub fn item_recipient_uids(&self, id: &str) -> Vec<String> {

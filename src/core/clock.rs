@@ -32,3 +32,18 @@ pub fn now_stamp() -> String {
         .format(COMPACT)
         .unwrap_or_default()
 }
+
+/// UTC now, in whole seconds since the Unix epoch — the unit a schedule
+/// adds intervals to.
+pub fn now_epoch() -> i64 {
+    OffsetDateTime::now_utc().unix_timestamp()
+}
+
+/// `epoch` in the same `2026-09-20T03:14:15Z` shape as [`now_iso`]; empty
+/// when the second is outside the calendar the formatter knows.
+pub fn iso_at(epoch: i64) -> String {
+    OffsetDateTime::from_unix_timestamp(epoch)
+        .ok()
+        .and_then(|moment| moment.format(ISO).ok())
+        .unwrap_or_default()
+}

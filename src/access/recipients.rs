@@ -1,6 +1,7 @@
 // Per-user recipients and cryptographic sharing. Adding a user gives them a gpg
 // key; sharing an item re-encrypts it to include their key; revoking re-encrypts
-// to the remaining recipients (plus the always-present owner + recovery keys).
+// to the remaining recipients (plus the always-present owner + recovery keys);
+// removing a user does that for every item they can read, all at once.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -145,6 +146,32 @@ pub fn dispatch(
             Ok(Some(
                 json!({"ok": true, "item": id, "recipients": recipients}),
             ))
+        }
+        // A person leaving loses every item at once, not one `revoke` at a
+        // time. The rewrap stops future reads; values they already read are
+        // named, and the ones with a rotation policy are marked due now so the
+        // next `rotation run` replaces them at the provider.
+        "remove-user" => {
+            let uid = positionals.first().context("usage: remove-user <uid>")?;
+            let mut vault = Vault::open(vault_path())?;
+            crate::cli::items::ensure_not_replica(&vault, "remove-user")?;
+            let mut report = vault.remove_recipient(uid)?;
+            drop(vault);
+            let exposed: Vec<String> = report
+                .get("exposed")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|entry| entry.get("item").and_then(Value::as_str))
+                .map(str::to_string)
+                .collect();
+            let marked =
+                crate::credential::mark_due(&exposed, &format!("recipient {uid} was removed"))?;
+            let manual: Vec<&String> = exposed.iter().filter(|id| !marked.contains(*id)).collect();
+            report["rotation_marked_due"] = json!(marked);
+            report["rotate_manually"] = json!(manual);
+            crate::runtime::audit::append("remove-user", &report)?;
+            Ok(Some(report))
         }
         "users" => {
             let vault = Vault::open(vault_path())?;

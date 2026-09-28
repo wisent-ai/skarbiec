@@ -77,6 +77,23 @@ pub(super) fn credential(flags: &HashMap<String, String>, positionals: &[String]
     ))
 }
 
+/// One `rotation` leaf, reached through the same dispatcher the command line
+/// uses, with the leaf in front of the positionals its body named.
+pub(super) fn rotation(
+    leaf: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
+    let mut arguments = vec![leaf.to_string()];
+    arguments.extend_from_slice(positionals);
+    answered(crate::credential::dispatch(
+        "rotation",
+        flags,
+        &arguments,
+        &core::vault_path(),
+    ))
+}
+
 /// A required body member, named when absent so the console learns which of
 /// its fields the route asked for.
 pub(super) fn text(parsed: &Value, key: &str) -> Result<String> {

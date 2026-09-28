@@ -20,6 +20,8 @@ mod eligibility;
 mod lifecycle;
 mod quarantine;
 mod receipt;
+mod schedule;
+pub(crate) use schedule::mark_due;
 mod serve;
 mod state;
 mod status;
@@ -167,6 +169,9 @@ pub fn dispatch(
     positionals: &[String],
     vault_path: &Path,
 ) -> Result<Option<Value>> {
+    if command == "rotation" {
+        return schedule::dispatch(flags, positionals).map(Some);
+    }
     if command != "credential" {
         return Ok(None);
     }

@@ -6,7 +6,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::calls::{
-    access, bonds, credential, flags, grant, inbox, net, optional, positionals, runtime, text,
+    access, bonds, credential, flags, grant, inbox, net, optional, positionals, rotation,
+    runtime, text,
 };
 use crate::core;
 
@@ -31,6 +32,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/chain" => runtime("verify-chain", &flags(parsed, &["tail"]), &none),
         "/v1/operator/policy" => access("policy-get", &no_flags, &none),
         "/v1/operator/grants" => grant("list", &no_flags, &none),
+        "/v1/operator/rotation" => rotation("list", &no_flags, &none),
         "/v1/operator/doctor" => crate::runtime::doctor::report(),
         "/v1/operator/status" => crate::core::items::status_json(),
         "/v1/operator/vaults" => crate::runtime::vaults::inventory(),
@@ -91,6 +93,18 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["import", "role"]),
             &positionals(parsed, &["uid"])?,
         ),
+        "/v1/operator/recipients/remove" => {
+            access("remove-user", &no_flags, &positionals(parsed, &["uid"])?)
+        }
+        "/v1/operator/rotation/set" => rotation(
+            "set",
+            &flags(parsed, &["every-days", "provider", "consumer", "purpose"]),
+            &positionals(parsed, &["item"])?,
+        ),
+        "/v1/operator/rotation/remove" => {
+            rotation("remove", &no_flags, &positionals(parsed, &["item"])?)
+        }
+        "/v1/operator/rotation/run" => rotation("run", &flags(parsed, &["item"]), &none),
         "/v1/operator/grants/issue" => grant(
             "issue",
             &flags(

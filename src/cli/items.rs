@@ -26,7 +26,7 @@ pub(super) fn ensure_owner_mutation_allowed(
 /// source, so a write here is lost within one pull interval: on lukasz-macbook
 /// a Skrzynka mailbox tag written with `retag` vanished and the mailbox read
 /// as undeclared. The write is refused and names the source to write on.
-fn ensure_not_replica(vault: &Vault, operation: &str) -> Result<()> {
+pub(crate) fn ensure_not_replica(vault: &Vault, operation: &str) -> Result<()> {
     let Some(bonds) = vault.doc().get("bond").and_then(Value::as_object) else {
         return Ok(());
     };
