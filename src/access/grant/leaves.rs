@@ -46,9 +46,7 @@ pub(in crate::access::grant) fn group(
                 attempt += 1;
                 match ensure_read_once(consumer, item, field, token_file) {
                     Ok(report) => return Ok(Some(report)),
-                    Err(error)
-                        if error.to_string().contains("changed concurrently") && attempt < 5 =>
-                    {
+                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {
                         std::thread::sleep(std::time::Duration::from_millis(
                             150 * u64::from(attempt),
                         ));
@@ -74,9 +72,7 @@ pub(in crate::access::grant) fn group(
                 attempt += 1;
                 match issue_once(consumer, flags, attempt) {
                     Ok(report) => return Ok(Some(report)),
-                    Err(error)
-                        if error.to_string().contains("changed concurrently") && attempt < 5 =>
-                    {
+                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {
                         std::thread::sleep(std::time::Duration::from_millis(
                             150 * u64::from(attempt),
                         ));
@@ -172,4 +168,11 @@ pub(in crate::access::grant) fn group(
         }))),
         other => bail!("unknown grant command: {other}"),
     }
+}
+
+/// A save that lost to another writer, told by its type, not its sentence.
+fn is_concurrent_change(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<crate::core::vault::VaultChangedConcurrently>()
+        .is_some()
 }

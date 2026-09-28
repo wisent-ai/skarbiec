@@ -70,9 +70,12 @@ pub(super) fn recover_gpg_daemons() -> Result<()> {
             match run_once("pkill", &[signal, "-x", daemon], None) {
                 Ok(_) => answered = true,
                 Err(error) => {
-                    let detail = error.to_string();
-                    if detail.contains("spawn pkill") || detail.contains("timed out") {
-                        escalation_errors.push(format!("{daemon} {signal}: {detail}"));
+                    // `pkill` that could not be started (or waited on) fails
+                    // with the operating system's I/O error; a `pkill` that
+                    // ran and matched nothing fails with its own exit status
+                    // and still answered. Told by the error's type, not its words.
+                    if error.downcast_ref::<std::io::Error>().is_some() {
+                        escalation_errors.push(format!("{daemon} {signal}: {error:#}"));
                     } else {
                         answered = true;
                     }

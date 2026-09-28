@@ -8,6 +8,27 @@ use std::path::PathBuf;
 
 use super::{acquire_write_lock, atomic_write, document_generation, now, Vault};
 
+/// Another writer saved the vault after this copy was opened. A caller that
+/// can re-open and re-apply its change asks for this type with
+/// `downcast_ref`; the sentence is for the person reading the refusal.
+#[derive(Debug)]
+pub(crate) struct VaultChangedConcurrently {
+    loaded: u64,
+    persisted: u64,
+}
+
+impl std::fmt::Display for VaultChangedConcurrently {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "vault changed concurrently: loaded generation {}, persisted generation {}; reopen and retry",
+            self.loaded, self.persisted
+        )
+    }
+}
+
+impl std::error::Error for VaultChangedConcurrently {}
+
 impl Vault {
     pub fn create(
         path: PathBuf,
@@ -58,11 +79,11 @@ impl Vault {
                 .context("parse persisted vault under write lock")?;
             let persisted_generation = document_generation(&persisted);
             if persisted_generation != self.base_generation {
-                bail!(
-                    "vault changed concurrently: loaded generation {}, persisted generation {}; reopen and retry",
-                    self.base_generation,
-                    persisted_generation
-                );
+                return Err(VaultChangedConcurrently {
+                    loaded: self.base_generation,
+                    persisted: persisted_generation,
+                }
+                .into());
             }
         } else if self.base_generation != u64::MIN {
             bail!("vault disappeared before save; refusing to recreate it from stale state");

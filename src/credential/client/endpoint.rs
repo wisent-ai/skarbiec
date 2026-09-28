@@ -160,19 +160,9 @@ pub(in crate::credential) fn endpoint_authority(endpoint: &str) -> Result<String
     }
 }
 
+/// Whether a 409 reply names a stale service directory, read from its
+/// `error_code` alone. The sentence beside it is for the person reading; a
+/// reply that carries only a sentence is reported as the refusal it is.
 pub(in crate::credential) fn stale_service_directory(value: &Value) -> bool {
-    let text = format!(
-        "{} {}",
-        value
-            .get("error_code")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-        value
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-    )
-    .to_lowercase();
-    text.contains("service_directory_stale")
-        || (text.contains("service directory") && text.contains("stale"))
+    value.get("error_code").and_then(Value::as_str) == Some("service_directory_stale")
 }
