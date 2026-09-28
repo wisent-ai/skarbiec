@@ -7,7 +7,9 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use super::{STATE_LOCK_ATTEMPTS, STATE_LOCK_RETRY_MILLIS, STATE_LOCK_STALE_SECONDS};
+use super::{
+    NONCE_RETENTION_SECONDS, STATE_LOCK_ATTEMPTS, STATE_LOCK_RETRY_MILLIS, STATE_LOCK_STALE_SECONDS,
+};
 use crate::core::vault_path;
 
 pub(in crate::access::capability) struct StateLock {
@@ -122,7 +124,27 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
     {
         bail!("capability state is malformed");
     }
+    let mut parsed = parsed;
+    forget_stale(&mut parsed, now_epoch()?);
     Ok(parsed)
+}
+
+/// Drop every capability record and nonce past the replay window. A record
+/// outlives its expiry by `NONCE_RETENTION_SECONDS`, so a late redemption is
+/// still answered "expired" rather than "no such capability"; after that
+/// nothing reads it, and the audit log keeps what was issued and redeemed.
+/// Nothing removed records before: the broker Brama runs on the vault owner
+/// read and rewrote every capability ever issued on each request, and held
+/// 3 GiB after 31 hours on charless-mac-mini on 2026-09-28.
+fn forget_stale(state: &mut Value, now: u64) {
+    let live =
+        |until: Option<u64>| until.unwrap_or(0).saturating_add(NONCE_RETENTION_SECONDS) > now;
+    if let Some(capabilities) = state["capabilities"].as_object_mut() {
+        capabilities.retain(|_, record| live(record.get("expires_at").and_then(Value::as_u64)));
+    }
+    if let Some(nonces) = state["nonces"].as_object_mut() {
+        nonces.retain(|_, seen| live(seen.as_u64()));
+    }
 }
 
 pub(in crate::access::capability) fn save_state(state: &Value) -> Result<()> {
