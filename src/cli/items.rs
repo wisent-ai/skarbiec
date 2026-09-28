@@ -9,7 +9,7 @@ use std::io::Read;
 use crate::core::vault::Vault;
 use crate::core::{items, schema, vault_path};
 
-use super::args::emit;
+use super::args::{emit, flag_set};
 
 pub(super) fn ensure_owner_mutation_allowed(
     vault: &Vault,
@@ -131,14 +131,30 @@ pub(crate) fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -
     emit(&json!({"ok": true, "id": id, "kind": item_kind}))
 }
 
+/// `--if-absent` creates the item only when no live item has that id; an
+/// existing one is left untouched and reported as `created: false`. The check
+/// and the write share one opened vault, and `save` refuses when another
+/// writer changed the vault since it was opened, so two concurrent creators
+/// cannot both write: one wins, the other is refused and its caller reads the
+/// winner's value.
 pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: set-json <id> [--type <canonical-kind>]")?;
-    let mut vault = Vault::open(vault_path())?;
-    ensure_owner_set_allowed(&vault, id)?;
+        .context("usage: set-json <id> [--type <canonical-kind>] [--if-absent]")?;
+    // The payload is read first, so a caller writing it is never cut off by
+    // an early answer.
     let mut encoded = String::new();
     std::io::stdin().read_to_string(&mut encoded)?;
+    let mut vault = Vault::open(vault_path())?;
+    if flag_set(flags, "if-absent")
+        && vault
+            .list(false)
+            .iter()
+            .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id.as_str()))
+    {
+        return emit(&json!({"ok": true, "id": id, "created": false}));
+    }
+    ensure_owner_set_allowed(&vault, id)?;
     let payload: Value =
         serde_json::from_str(&encoded).context("stdin must be one canonical JSON payload")?;
     let payload_kind = payload
@@ -155,7 +171,7 @@ pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[Strin
     ensure_no_reserved_tags(&tags)?;
     let writer = vault.owner_uid().to_string();
     vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
-    emit(&json!({"ok": true, "id": id, "kind": item_kind}))
+    emit(&json!({"ok": true, "id": id, "kind": item_kind, "created": true}))
 }
 
 /// Replace one item's tags, leaving its payload untouched.
