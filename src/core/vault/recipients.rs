@@ -147,7 +147,11 @@ impl Vault {
     /// the caller saves once every item it touches has been rewrapped, so a
     /// failure on any item leaves the file as it was. Returns how many
     /// historical revisions were rewrapped.
-    pub(in crate::core::vault) fn rewrap_item(&mut self, id: &str, uids: &[String]) -> Result<usize> {
+    pub(in crate::core::vault) fn rewrap_item(
+        &mut self,
+        id: &str,
+        uids: &[String],
+    ) -> Result<usize> {
         let fprs = self.fprs_for(uids);
         let item = self
             .doc

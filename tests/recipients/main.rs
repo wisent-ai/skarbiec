@@ -44,7 +44,11 @@ fn gpg(home: &Path, args: &[&str], stdin: Option<&str>) -> Output {
 /// A keyring holding only the member's secret key, so a decryption there
 /// answers exactly one question: can the removed person still open this?
 fn member_only_keyring(fixture: &CliFixture) -> std::path::PathBuf {
-    let exported = gpg(&fixture.gnupg, &["--armor", "--export-secret-keys", MEMBER], None);
+    let exported = gpg(
+        &fixture.gnupg,
+        &["--armor", "--export-secret-keys", MEMBER],
+        None,
+    );
     assert_success("export the member's secret key", &exported);
     let home = fixture.root.join("mg");
     fs::create_dir_all(&home).expect("create the member keyring");

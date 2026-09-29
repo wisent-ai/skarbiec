@@ -6,8 +6,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use super::calls::{
-    access, bonds, credential, flags, grant, inbox, net, optional, positionals, rotation,
-    runtime, text,
+    access, bonds, credential, flags, grant, inbox, net, optional, positionals, rotation, runtime,
+    text,
 };
 use crate::core;
 

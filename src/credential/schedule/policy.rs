@@ -26,8 +26,14 @@ fn text<'a>(entry: &'a Value, key: &str) -> Option<&'a str> {
 /// When the policy next falls due: its interval after the last accepted
 /// rotation, or after the policy was declared when none has been accepted.
 pub(super) fn next_due_epoch(entry: &Value) -> i64 {
-    let anchor = entry.get("anchor_epoch").and_then(Value::as_i64).unwrap_or_default();
-    let every = entry.get("every_seconds").and_then(Value::as_i64).unwrap_or_default();
+    let anchor = entry
+        .get("anchor_epoch")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
+    let every = entry
+        .get("every_seconds")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
     anchor.saturating_add(every)
 }
 
@@ -38,7 +44,10 @@ pub(super) fn is_due(entry: &Value, now: i64) -> bool {
 }
 
 pub(super) fn view(id: &str, entry: &Value, now: i64) -> Result<Value> {
-    let every = entry.get("every_seconds").and_then(Value::as_i64).unwrap_or_default();
+    let every = entry
+        .get("every_seconds")
+        .and_then(Value::as_i64)
+        .unwrap_or_default();
     let submission = entry.get(SUBMISSION);
     let flag = |key: &str| submission.and_then(|flags| flags.get(key)).cloned();
     Ok(json!({
@@ -61,7 +70,9 @@ pub(super) fn view(id: &str, entry: &Value, now: i64) -> Result<Value> {
 
 pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Value> {
     let allowed = ["every-days", "provider", "consumer", "purpose"];
-    if flags.keys().any(|key| !allowed.contains(&key.as_str())) || args.len() != std::iter::once(()).count() {
+    if flags.keys().any(|key| !allowed.contains(&key.as_str()))
+        || args.len() != std::iter::once(()).count()
+    {
         bail!("{USAGE}");
     }
     let item = args.first().context(USAGE)?;

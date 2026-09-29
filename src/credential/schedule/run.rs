@@ -93,7 +93,12 @@ fn record(item: &str, outcome: &Result<Value>, now: i64) -> Result<Value> {
             let error = (!accepted).then(|| refusal(report));
             (accepted, status, report.get("request_id").cloned(), error)
         }
-        Err(error) => (false, "refused".to_string(), None, Some(format!("{error:#}"))),
+        Err(error) => (
+            false,
+            "refused".to_string(),
+            None,
+            Some(format!("{error:#}")),
+        ),
     };
     let request_id = request_id.unwrap_or(Value::Null);
     let stamp = now_iso();

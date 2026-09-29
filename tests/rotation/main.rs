@@ -39,7 +39,12 @@ fn an_empty_schedule_lists_nothing_runs_here_and_starts_nothing() {
     let help = answer(&fixture, &["rotation"]);
     assert_eq!(
         help["commands"],
-        json!(["rotation set", "rotation list", "rotation remove", "rotation run"])
+        json!([
+            "rotation set",
+            "rotation list",
+            "rotation remove",
+            "rotation run"
+        ])
     );
     let root = answer(&fixture, &["help"]);
     assert!(root["groups"]
