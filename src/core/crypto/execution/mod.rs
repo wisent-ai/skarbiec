@@ -12,6 +12,10 @@ use std::process::{Command, ExitStatus, Stdio};
 pub(super) struct ToolExit {
     pub(super) status: ExitStatus,
     detail: String,
+    /// The error values of gpg's `ERROR`/`FAILURE` status lines.
+    pub(super) gpg_errors: Vec<u32>,
+    /// The child stopped reading its input before it was all written.
+    pub(super) stdin_closed: bool,
 }
 
 impl std::fmt::Display for ToolExit {
@@ -32,7 +36,7 @@ pub use footprint::{
 };
 
 use limits::{crypto_program, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
-use recovery::{recover_gpg_daemons, recoverable_gpg_failure};
+use recovery::{gpg_status, recover_gpg_daemons, recoverable_gpg_failure};
 
 // gpg daemon failure gets one serialized daemon recovery and one retry.
 pub(super) fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
@@ -45,7 +49,7 @@ pub(super) fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<S
     let Err(first_error) = first else {
         return first;
     };
-    if program != "gpg" || !recoverable_gpg_failure(&first_error.to_string()) {
+    if program != "gpg" || !recoverable_gpg_failure(&first_error) {
         return Err(first_error);
     }
 
@@ -108,7 +112,15 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     // GnuPG one.
     let _gpg_capacity = (program == "gpg").then(|| GPG_LIMIT.acquire());
     let _capacity = CRYPTO_LIMIT.acquire();
+    // gpg reports what failed as machine status lines on stderr; that, not
+    // its prose, is what the recovery decision reads.
+    let status_args: &[&str] = if program == "gpg" {
+        &["--status-fd", "2"]
+    } else {
+        &[]
+    };
     let mut child = Command::new(crypto_program(program).as_ref())
+        .args(status_args)
         .args(args)
         .stdin(if input.is_some() {
             Stdio::piped()
@@ -157,12 +169,14 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
         .map_err(|_| anyhow::anyhow!("{program} stderr reader panicked"))??;
     // A child that failed explains itself; the broken stdin pipe is only the
     // consequence of it having stopped reading. Reporting the write error
-    // first replaced every such diagnosis with a bare `Broken pipe`, which
-    // told the operator nothing and hid the very text
-    // `recoverable_gpg_failure` classifies on -- so the retry could not fire
-    // either.
+    // first replaced every such diagnosis with a bare `Broken pipe`.
     if !status.success() {
-        let said = String::from_utf8_lossy(&stderr).trim().to_owned();
+        let (gpg_errors, said) = gpg_status(String::from_utf8_lossy(&stderr).trim());
+        let said = said.trim().to_owned();
+        let stdin_closed = matches!(
+            &written,
+            Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe
+        );
         let detail = match (said.is_empty(), written) {
             (false, _) => format!("{program} failed: {said}"),
             (true, Err(error)) => {
@@ -170,7 +184,13 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
             }
             (true, Ok(())) => format!("{program} failed ({status}) without output"),
         };
-        return Err(ToolExit { status, detail }.into());
+        return Err(ToolExit {
+            status,
+            detail,
+            gpg_errors,
+            stdin_closed,
+        }
+        .into());
     }
     written.with_context(|| format!("write {program} stdin"))?;
     Ok(String::from_utf8_lossy(&stdout).into_owned())
