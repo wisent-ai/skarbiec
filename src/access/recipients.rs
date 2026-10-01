@@ -151,11 +151,20 @@ pub fn dispatch(
         // A person leaving loses every item at once, not one `revoke` at a
         // time. The rewrap stops future reads; values they already read are
         // named, and the ones with a rotation policy are marked due now so the
-        // next `rotation run` replaces them at the provider.
+        // next `rotation run` replaces them at the provider. Every item and
+        // every saved version is rewritten without them and nothing restores
+        // that, so the CLI needs --yes; the desktop's Remove from vault sheet
+        // sends it.
         "remove-user" => {
-            let uid = positionals.first().or_usage("usage: remove-user <uid>")?;
+            let uid = positionals.first().or_usage("usage: remove-user <uid> --yes")?;
             let mut vault = Vault::open(vault_path())?;
             crate::cli::items::ensure_not_replica(&vault, "remove-user")?;
+            if vault.recipient_fpr(uid).is_some() && !crate::cli::args::flag_set(flags, "yes") {
+                anyhow::bail!(
+                    "remove-user would rewrite every item and every saved version without {uid}; nothing was changed. \
+                     Rerun with --yes to remove {uid}, or revoke single items with `skarbiec revoke <item-id> {uid}`"
+                );
+            }
             let mut report = vault.remove_recipient(uid)?;
             drop(vault);
             let exposed: Vec<String> = report

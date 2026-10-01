@@ -94,8 +94,10 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["import", "role"]),
             &positionals(parsed, &["uid"])?,
         ),
+        // The desktop's Remove from vault sheet is the confirmation it sends.
         "/v1/operator/recipients/remove" => {
-            access("remove-user", &no_flags, &positionals(parsed, &["uid"])?)
+            let confirmed = HashMap::from([("yes".to_string(), "true".to_string())]);
+            access("remove-user", &confirmed, &positionals(parsed, &["uid"])?)
         }
         "/v1/operator/rotation/set" => rotation(
             "set",

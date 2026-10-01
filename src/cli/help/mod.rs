@@ -53,7 +53,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("rotate-owner", "skarbiec rotate-owner <new-owner-uid>", "Replace the vault owner and rewrap every current and historical ciphertext to the new owner."),
     row("share", "skarbiec share <item-id> <uid>", "Give a registered recipient cryptographic access to one item."),
     row("revoke", "skarbiec revoke <item-id> <uid>", "Remove one recipient from one item's recipient set."),
-    row("remove-user", "skarbiec remove-user <uid>", "Remove one person from every item, every historical revision and the recipient registry."),
+    row("remove-user", "skarbiec remove-user <uid> --yes", "Remove one person from every item, every historical revision and the recipient registry; without --yes nothing changes."),
     row("users", "skarbiec users", "List the vault's registered recipients."),
     row("export-key", "skarbiec export-key <uid>", "Export one registered recipient's public key."),
     group("grant", "skarbiec grant help", "Issue, bound, widen, list, check and withdraw consumer grants; `skarbiec grant help` lists the subcommands."),
