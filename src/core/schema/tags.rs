@@ -77,6 +77,14 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
         value: "name",
     },
     TagNamespace::Exact("fleet:tailnet-tls"),
+    // What a secret is for, as a consumer of Stado asks for it: a release
+    // recipe, a job or an agent grant names the role and Stado selects the one
+    // live item that carries `stado:role:<role>`. The item's id then decides
+    // nothing, so renaming an item changes no behaviour anywhere.
+    TagNamespace::Valued {
+        prefix: "stado:role:",
+        value: "role",
+    },
     // Written by the credential lifecycle when it freezes an item, and read
     // back by `record_quarantined` to decide whether an item is frozen. The
     // product both writes and reads it, so it is a namespace this vault uses

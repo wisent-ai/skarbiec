@@ -233,6 +233,7 @@ newline, or carriage return.
 | `fleet:host-account` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
 | `fleet:target:<name>` | valued | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
 | `fleet:tailnet-tls` | exact | Registered for the fleet tooling that shares this vault; Skarbiec does not write it |
+| `stado:role:<role>` | valued | Registered for Stado: what a secret is for. A release recipe, job or agent grant asks for a role and Stado selects the one live item carrying this tag, so the item's id decides nothing; Skarbiec does not write it |
 | `lifecycle:quarantined` | exact | Written and cleared by the credential lifecycle when it freezes or releases an item, and read back to decide whether an item is frozen |
 | `skrzynka:mailbox` | exact | Registered for Skrzynka, which lists its mailboxes by it: `skrzynka mailbox declare` writes it and `skrzynka mailbox undeclare` removes it; Skarbiec does not write it |
 
