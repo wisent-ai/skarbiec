@@ -18,10 +18,10 @@ pub fn dispatch(
             let consumer = positionals.first().or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let item = positionals.get("1".parse::<usize>()?).or_usage(
+            let item = positionals.get(1).or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let field = positionals.get("2".parse::<usize>()?).or_usage(
+            let field = positionals.get(2).or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
             let workload_id = flags.get("workload-id").or_usage("--workload-id required")?;
@@ -76,12 +76,12 @@ pub fn dispatch(
             let consumer = positionals
                 .first()
                 .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
-            let item = positionals
-                .get("1".parse::<usize>()?)
-                .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
-            let field = positionals
-                .get("2".parse::<usize>()?)
-                .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
+            let item = positionals.get(1).or_usage(
+                "usage: acquisition-read <consumer> <item> <field> --token-file <path>",
+            )?;
+            let field = positionals.get(2).or_usage(
+                "usage: acquisition-read <consumer> <item> <field> --token-file <path>",
+            )?;
             let presented = &crate::credential::bearer_from_file(flags, "acquisition-read")?;
             let Some(acquired) = consume(consumer, presented, item, field)? else {
                 anyhow::bail!(

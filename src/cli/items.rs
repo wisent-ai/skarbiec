@@ -207,9 +207,7 @@ pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String])
 /// unable to tell a rename from a purge.
 pub(crate) fn cmd_rename(positionals: &[String]) -> Result<()> {
     let from = positionals.first().or_usage("usage: rename <id> <new-id>")?;
-    let to = positionals
-        .get("1".parse::<usize>()?)
-        .or_usage("usage: rename <id> <new-id>")?;
+    let to = positionals.get(1).or_usage("usage: rename <id> <new-id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, from, "rename")?;
     let item_uid = vault.rename_item(from, to)?;
