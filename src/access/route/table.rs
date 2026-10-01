@@ -228,11 +228,21 @@ pub(super) fn write_row(
                 "backup": Value::Null,
             }));
         }
-        bail!(
-            "capability route {resource} already maps {}#{}: repointing a live route is not a declaration",
-            if mapped("tag").is_empty() { mapped("item") } else { mapped("tag") },
-            mapped("field")
-        );
+        // An item row may become the tag row that answers with the very same
+        // item: that names the credential by role without repointing it.
+        let same_answer = key == "tag"
+            && mapped("field") == field
+            && vault.is_some_and(|vault| {
+                super::declaration::tagged_items(vault, value).as_slice()
+                    == [mapped("item").as_str()]
+            });
+        if !same_answer {
+            bail!(
+                "capability route {resource} already maps {}#{}: repointing a live route is not a declaration",
+                if mapped("tag").is_empty() { mapped("item") } else { mapped("tag") },
+                mapped("field")
+            );
+        }
     }
     // An item row carries the item's uid beside its name, so verification can
     // say where the item went rather than only that the name stopped
