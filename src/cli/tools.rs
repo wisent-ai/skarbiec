@@ -1,30 +1,30 @@
 // The commands that do not read one item: generating a value, exporting a
 // runtime view of the vault, and reporting which build this is.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use crate::core::vault::Vault;
 use crate::core::{items, vault_path};
 
-use super::args::{emit, flag_set};
+use super::args::{emit, flag_set, OrUsage};
 
 pub(crate) fn cmd_generate(flags: &HashMap<String, String>) -> Result<()> {
     if flag_set(flags, "passphrase") {
         let count: usize = flags
             .get("words")
-            .context("usage: generate --passphrase --words N")?
+            .or_usage("usage: generate --passphrase --words N")?
             .parse()
-            .context("--words must be a number")?;
+            .or_usage("--words must be a number")?;
         let sep = flags.get("separator").map(String::as_str).unwrap_or("-");
         return emit(&json!({"passphrase": items::generate_passphrase(count, sep)?}));
     }
     let length: usize = flags
         .get("length")
-        .context("usage: generate --length N [--symbols]")?
+        .or_usage("usage: generate --length N [--symbols]")?
         .parse()
-        .context("--length must be a number")?;
+        .or_usage("--length must be a number")?;
     let value = items::generate_password(
         length,
         flag_set(flags, "lower"),
@@ -43,7 +43,7 @@ pub(crate) fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]
     let out = positionals
         .first()
         .or_else(|| flags.get("out"))
-        .context("usage: export <out-file.json>")?;
+        .or_usage("usage: export <out-file.json>")?;
     let vault = Vault::open(vault_path())?;
     let mut rows: Vec<Value> = Vec::new();
     for entry in vault.list(false) {

@@ -9,6 +9,7 @@
 // identity; `from` is an unsigned claim carried for the owner's inspection.
 
 use anyhow::{Context, Result};
+use crate::cli::args::OrUsage;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -159,7 +160,7 @@ pub fn dispatch(
         "donation-accept" => {
             let donation_id = positionals
                 .first()
-                .context("usage: donation-accept <donation-id>")?;
+                .or_usage("usage: donation-accept <donation-id>")?;
             let mut inbox = load_inbox()?;
             let donation = take_donation(&mut inbox, donation_id)?;
             let item_id = donation
@@ -235,7 +236,7 @@ pub fn dispatch(
         "donation-reject" => {
             let donation_id = positionals
                 .first()
-                .context("usage: donation-reject <donation-id>")?;
+                .or_usage("usage: donation-reject <donation-id>")?;
             let mut inbox = load_inbox()?;
             let donation = take_donation(&mut inbox, donation_id)?;
             save_inbox(&inbox)?;

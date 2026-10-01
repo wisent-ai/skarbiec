@@ -9,7 +9,7 @@ use std::io::Read;
 use crate::core::vault::Vault;
 use crate::core::{items, schema, vault_path};
 
-use super::args::{emit, flag_set};
+use super::args::{emit, flag_set, OrUsage};
 
 pub(super) fn ensure_owner_mutation_allowed(
     vault: &Vault,
@@ -113,7 +113,7 @@ fn requested_or_existing(
 pub(crate) fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: set <id> [--type <canonical-kind>] k=v ...")?;
+        .or_usage("usage: set <id> [--type <canonical-kind>] k=v ...")?;
     let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_set_allowed(&vault, id)?;
@@ -140,7 +140,7 @@ pub(crate) fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -
 pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: set-json <id> [--type <canonical-kind>] [--if-absent]")?;
+        .or_usage("usage: set-json <id> [--type <canonical-kind>] [--if-absent]")?;
     // The payload is read first, so a caller writing it is never cut off by
     // an early answer.
     let mut encoded = String::new();
@@ -186,7 +186,7 @@ pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[Strin
 pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: retag <id> --tags tag[,tag...]")?;
+        .or_usage("usage: retag <id> --tags tag[,tag...]")?;
     let tags: Vec<String> = flags
         .get("tags")
         .map(|value| {
@@ -227,10 +227,10 @@ pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String])
 /// where it went, instead of reporting it as missing and leaving an operator
 /// unable to tell a rename from a purge.
 pub(crate) fn cmd_rename(positionals: &[String]) -> Result<()> {
-    let from = positionals.first().context("usage: rename <id> <new-id>")?;
+    let from = positionals.first().or_usage("usage: rename <id> <new-id>")?;
     let to = positionals
         .get("1".parse::<usize>()?)
-        .context("usage: rename <id> <new-id>")?;
+        .or_usage("usage: rename <id> <new-id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, from, "rename")?;
     let item_uid = vault.rename_item(from, to)?;

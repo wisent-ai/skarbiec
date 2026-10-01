@@ -1,4 +1,5 @@
 use super::*;
+use crate::cli::args::OrUsage;
 
 pub fn dispatch(
     command: &str,
@@ -7,7 +8,7 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "totp" => {
-            let id = positionals.first().context("usage: totp <item-id>")?;
+            let id = positionals.first().or_usage("usage: totp <item-id>")?;
             let vault = load()?;
             let resolved = resolve(&vault, vault.get_item(id)?);
             let inspected = inspect_seed(&resolved.payload);

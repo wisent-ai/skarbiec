@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use super::{ensure_section, load, now_iso};
+use crate::cli::args::OrUsage;
 
 pub(super) fn dispatch(
     command: &str,
@@ -16,10 +17,10 @@ pub(super) fn dispatch(
         "emergency-grant" => {
             let grantee = positionals
                 .first()
-                .context("usage: emergency-grant <grantee> --activate-after <iso>")?;
+                .or_usage("usage: emergency-grant <grantee> --activate-after <iso>")?;
             let activate_after = flags
                 .get("activate-after")
-                .context("--activate-after <iso8601> required")?;
+                .or_usage("--activate-after <iso8601> required")?;
             let mut vault = load()?;
             if vault.recipient_fpr(grantee).is_none() {
                 return Ok(Some(
@@ -47,7 +48,7 @@ pub(super) fn dispatch(
         "emergency-cancel" => {
             let grantee = positionals
                 .first()
-                .context("usage: emergency-cancel <grantee>")?;
+                .or_usage("usage: emergency-cancel <grantee>")?;
             let mut vault = load()?;
             ensure_section(vault.doc_mut(), "emergency").remove(grantee);
             vault.save()?;
@@ -67,7 +68,7 @@ pub(super) fn dispatch(
         "emergency-activate" => {
             let grantee = positionals
                 .first()
-                .context("usage: emergency-activate <grantee>")?;
+                .or_usage("usage: emergency-activate <grantee>")?;
             let mut vault = load()?;
             let activate_after = vault
                 .doc()

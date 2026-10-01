@@ -12,10 +12,11 @@
 // Consumer capabilities are a different surface, enforced by the tokens module.
 // Vocabulary here is deliberately neutral to keep policy metadata clear.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+use crate::cli::args::OrUsage;
 use crate::core::{vault::Vault, vault_path};
 
 fn load() -> Result<Vault> {
@@ -121,8 +122,8 @@ pub fn dispatch(
     match command {
         "policy-set" => {
             let mut args = positionals.iter();
-            let key = args.next().context("usage: policy-set <key> <value>")?;
-            let raw = args.next().context("usage: policy-set <key> <value>")?;
+            let key = args.next().or_usage("usage: policy-set <key> <value>")?;
+            let raw = args.next().or_usage("usage: policy-set <key> <value>")?;
             let value = coerce(raw);
             if let Err(refusal) = policy_refusal(key, raw, &value) {
                 anyhow::bail!("{refusal}");
@@ -136,7 +137,7 @@ pub fn dispatch(
         // The inverse of policy-set: withdraw one rule. A key that is not set
         // is the state asked for, reported rather than refused.
         "policy-unset" => {
-            let key = positionals.first().context("usage: policy-unset <key>")?;
+            let key = positionals.first().or_usage("usage: policy-unset <key>")?;
             let mut vault = load()?;
             let removed = ensure_section(vault.doc_mut(), "policy").remove(key.as_str()).is_some();
             if removed {
@@ -160,7 +161,7 @@ pub fn dispatch(
         "policy-check-length" => {
             let candidate = positionals
                 .first()
-                .context("usage: policy-check-length <candidate>")?;
+                .or_usage("usage: policy-check-length <candidate>")?;
             let vault = load()?;
             let length = candidate.chars().count();
             let verdict = match min_generated_length(&vault) {

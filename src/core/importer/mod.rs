@@ -55,7 +55,7 @@ pub fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Va
         }));
     }
     if positionals.len() != 1 {
-        bail!("usage: import <export-file> [--format auto|canonical|1password|bitwarden|browser-csv] [--conflict keep|replace|error]");
+        return Err(crate::cli::args::Usage("usage: import <export-file> [--format auto|canonical|1password|bitwarden|browser-csv] [--conflict keep|replace|error]".to_string()).into());
     }
     import_file(
         Path::new(&positionals[0]),

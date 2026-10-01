@@ -250,7 +250,7 @@ pub fn dispatch(
             "item_states": ITEM_STATES,
             "provider_effects": PROVIDER_EFFECTS,
         }),
-        other => bail!("unknown credential command: {other}"),
+        other => return Err(crate::cli::args::Usage(format!("unknown credential command: {other}; `skarbiec credential --help` lists them")).into()),
     };
     Ok(Some(value))
 }

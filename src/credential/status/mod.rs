@@ -5,7 +5,7 @@
 // What one poll does lives in `poll`; what a finished operation does to the
 // vault lives in `commit`; what a caller reads lives in `snapshot`.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
@@ -39,7 +39,7 @@ pub(super) fn status(
     args: &[String],
 ) -> Result<Value> {
     if flags.keys().any(|key| key != "local") {
-        bail!("usage: credential status <item-id> [--local]; it reads once and reports settled");
+        return Err(crate::cli::args::Usage("usage: credential status <item-id> [--local]; it reads once and reports settled".to_string()).into());
     }
     with_settled(status_once(vault_path, args)?)
 }

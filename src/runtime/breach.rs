@@ -4,6 +4,7 @@
 // leaves this host. Reports whether it appears in known breach corpora.
 
 use anyhow::{Context, Result};
+use crate::cli::args::OrUsage;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::Command;
@@ -27,7 +28,7 @@ pub fn dispatch(
         "breach-check" => {
             let id = positionals
                 .first()
-                .context("usage: breach-check <item-id> [--field password]")?;
+                .or_usage("usage: breach-check <item-id> [--field password]")?;
             let field = flags.get("field").map(String::as_str).unwrap_or("password");
             let vault = load()?;
             let row = vault.get_item(id)?;

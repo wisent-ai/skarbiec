@@ -4,6 +4,7 @@
 // same Vault API so the operator console and the local vault cannot drift.
 
 use anyhow::{bail, Context, Result};
+use crate::cli::args::OrUsage;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -19,7 +20,7 @@ pub fn dispatch(
         ("credential", "get") => {
             let id = positionals
                 .get(1)
-                .context("usage: credential get <id> [--field <field>]")?;
+                .or_usage("usage: credential get <id> [--field <field>]")?;
             let item = Vault::open(vault_path())?.get_item(id)?;
             if let Some(field) = flags.get("field") {
                 if field.is_empty() || field.chars().any(char::is_control) {
@@ -42,7 +43,7 @@ pub fn dispatch(
         ("credential", "set") => {
             let id = positionals
                 .get(1)
-                .context("usage: credential set <id> [--type <canonical-kind>] k=v ...")?;
+                .or_usage("usage: credential set <id> [--type <canonical-kind>] k=v ...")?;
             let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
             let mut vault = Vault::open(vault_path())?;
             ensure_owner_set_allowed(&vault, id)?;
@@ -58,7 +59,7 @@ pub fn dispatch(
         ("credential", "set-json") => {
             let id = positionals
                 .get(1)
-                .context("usage: credential set-json <id> [--type <canonical-kind>]")?;
+                .or_usage("usage: credential set-json <id> [--type <canonical-kind>]")?;
             let mut vault = Vault::open(vault_path())?;
             ensure_owner_set_allowed(&vault, id)?;
 

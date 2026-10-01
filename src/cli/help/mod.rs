@@ -5,7 +5,7 @@
 // running the command. Before this table `--help` printed a JSON array of bare
 // names, and `<command> --help` printed only where the docs were.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde_json::{json, Map, Value};
 
 pub(crate) struct CommandHelp {
@@ -144,7 +144,7 @@ pub(crate) fn print_overview() {
 /// `skarbiec <command> --help`: one command's usage, never its effect.
 pub(crate) fn print_command(name: &str) -> Result<()> {
     let Some(command) = COMMANDS.iter().find(|command| command.name == name) else {
-        bail!("unknown command: {name}; `skarbiec --help` lists every command");
+        return Err(super::args::Usage(format!("unknown command: {name}; `skarbiec --help` lists every command")).into());
     };
     println!("usage: {}\n\n{}\n\n{}", command.usage, command.summary, docs_url(command.name));
     Ok(())

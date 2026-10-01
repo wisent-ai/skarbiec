@@ -14,12 +14,12 @@ mod net;
 mod onboarding;
 mod runtime;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use cli::args::{emit, parse_args};
+use cli::args::{emit, parse_args, OrUsage, Usage};
 use cli::items::{cmd_backfill_item_uids, cmd_rename, cmd_retag, cmd_set, cmd_set_json};
 use cli::reads::{
     cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore,
@@ -40,7 +40,7 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
         .first()
         .or_else(|| flags.get("owner"))
         .map(String::as_str)
-        .context("usage: init <owner-uid>")?;
+        .or_usage("usage: init <owner-uid>")?;
     let recovery_uid = format!("skarbiec-recovery <{owner}>");
     let owner_fpr = match crypto::fingerprint_for(owner)? {
         Some(fpr) => fpr,
@@ -56,7 +56,19 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
     )
 }
 
-fn main() -> Result<()> {
+/// Prints a failure the way `anyhow` always did (`Error: ` and its causes)
+/// and exits with the documented status: 2 for a usage error, 1 otherwise.
+fn main() -> std::process::ExitCode {
+    match run() {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("Error: {error:?}");
+            cli::args::exit_code(&error)
+        }
+    }
+}
+
+fn run() -> Result<()> {
     let mut argv = std::env::args();
     argv.next();
     let command = argv.next().unwrap_or_else(|| "help".to_string());
@@ -138,7 +150,7 @@ fn main() -> Result<()> {
             } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else {
-                bail!("unknown command: {other}")
+                return Err(Usage(format!("unknown command: {other}; `skarbiec --help` lists every command")).into());
             }
         }
     }

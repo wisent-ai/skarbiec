@@ -40,6 +40,7 @@ use leaves::group;
 use lookup::{load, now_epoch};
 use rules::capabilities::{parse_capabilities, read_acquisition_catalog};
 use rules::validation::read_workload_public_key;
+use crate::cli::args::OrUsage;
 
 pub fn dispatch(
     command: &str,
@@ -48,7 +49,7 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "token-register-acquisitions" => {
-            let catalog = positionals.first().context(
+            let catalog = positionals.first().or_usage(
                 "usage: token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH [--ttl-seconds N] [--replace-capabilities]",
             )?;
             let allowed_flags = [
@@ -64,14 +65,14 @@ pub fn dispatch(
             }
             let public_key_path = flags
                 .get("workload-public-key-file")
-                .context("--workload-public-key-file is required")?;
+                .or_usage("--workload-public-key-file is required")?;
             let workload_public_key = read_workload_public_key(Path::new(public_key_path))?;
             let ttl_seconds: u64 = flags
                 .get("ttl-seconds")
                 .map(String::as_str)
                 .unwrap_or("2592000")
                 .parse()
-                .context("--ttl-seconds must be an integer")?;
+                .or_usage("--ttl-seconds must be an integer")?;
             if ttl_seconds == u64::MIN {
                 bail!("--ttl-seconds must be positive");
             }

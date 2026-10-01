@@ -5,12 +5,13 @@
 // verify later.
 
 use super::*;
+use crate::cli::args::OrUsage;
 
 pub(crate) fn cmd_enroll(flags: &HashMap<String, String>) -> Result<Value> {
-    let uid = flags.get("as").context(
+    let uid = flags.get("as").or_usage(
         "usage: enroll --as <uid> --to <base-url> --token-file <path> [--items a,b,c] [--consumer name]",
     )?;
-    let to = flags.get("to").context("--to required")?;
+    let to = flags.get("to").or_usage("--to required")?;
     let token = &crate::credential::bearer_from_file(flags, "enroll")?;
     let consumer = flags
         .get("consumer")

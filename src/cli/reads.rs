@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use crate::core::vault::Vault;
 use crate::core::vault_path;
 
-use super::args::{emit, flag_set};
+use super::args::{emit, flag_set, OrUsage};
 use super::items::ensure_owner_mutation_allowed;
 
 pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().context("usage: delete <id>")?;
+    let id = positionals.first().or_usage("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
     vault.delete_item(id)?;
@@ -20,14 +20,14 @@ pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
 }
 
 pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().context("usage: reclaim <id>")?;
+    let id = positionals.first().or_usage("usage: reclaim <id>")?;
     let mut vault = Vault::open(vault_path())?;
     vault.reclaim_item(id)?;
     Ok(json!({"ok": true, "id": id, "mode": "owner"}))
 }
 
 pub(crate) fn cmd_restore(positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().context("usage: restore <id>")?;
+    let id = positionals.first().or_usage("usage: restore <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "acquire")?;
     vault.restore_item(id)?;
@@ -35,7 +35,7 @@ pub(crate) fn cmd_restore(positionals: &[String]) -> Result<Value> {
 }
 
 pub(crate) fn cmd_purge(positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().context("usage: purge <id>")?;
+    let id = positionals.first().or_usage("usage: purge <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
     vault.purge_item(id)?;
@@ -45,10 +45,10 @@ pub(crate) fn cmd_purge(positionals: &[String]) -> Result<Value> {
 pub(crate) fn cmd_restore_version(positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: restore-version <id> <at>")?;
+        .or_usage("usage: restore-version <id> <at>")?;
     let at = positionals
         .get(std::iter::once(()).count())
-        .context("usage: restore-version <id> <at>")?;
+        .or_usage("usage: restore-version <id> <at>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     vault.restore_version(id, at)?;
@@ -58,7 +58,7 @@ pub(crate) fn cmd_restore_version(positionals: &[String]) -> Result<()> {
 pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let id = positionals
         .first()
-        .context("usage: get <id> [--field <field>]")?;
+        .or_usage("usage: get <id> [--field <field>]")?;
     let path = vault_path();
     let item = Vault::open(path.clone())?
         .get_item(id)

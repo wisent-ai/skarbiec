@@ -13,6 +13,7 @@
 // client) lives in net::bond — this module is the git channel only.
 
 use anyhow::{bail, Context, Result};
+use crate::cli::args::OrUsage;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -84,7 +85,7 @@ pub fn dispatch(
         "sync-init" => {
             let remote = positionals
                 .first()
-                .context("usage: sync-init <remote-url>")?;
+                .or_usage("usage: sync-init <remote-url>")?;
             std::fs::create_dir_all(sync_dir())?;
             let (ok, _o, e) = git(&["init"])?;
             if !ok {

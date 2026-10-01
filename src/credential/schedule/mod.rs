@@ -12,7 +12,7 @@
 mod policy;
 mod run;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
@@ -43,7 +43,7 @@ pub(super) fn dispatch(flags: &HashMap<String, String>, positionals: &[String]) 
             "commands": ["rotation set", "rotation list", "rotation remove", "rotation run"],
             "usage": USAGE,
         })),
-        other => bail!("unknown rotation command: {other}; {USAGE}"),
+        other => Err(crate::cli::args::Usage(format!("unknown rotation command: {other}; {USAGE}")).into()),
     }
 }
 

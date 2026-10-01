@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use crate::core::{crypto, vault_path};
 
 use super::load;
+use crate::cli::args::OrUsage;
 
 pub(super) fn dispatch(
     command: &str,
@@ -18,7 +19,7 @@ pub(super) fn dispatch(
         "recovery-drill" => {
             let expected = positionals
                 .first()
-                .context("usage: recovery-drill <recipient-uid|recovery>")?;
+                .or_usage("usage: recovery-drill <recipient-uid|recovery>")?;
             let vault = load()?;
             let expected_fingerprint = if expected == "recovery" {
                 vault.recovery_fpr().to_string()

@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use super::{consume, issue};
+use crate::cli::args::OrUsage;
 
 pub fn dispatch(
     command: &str,
@@ -14,27 +15,27 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "acquisition-request" => {
-            let consumer = positionals.first().context(
+            let consumer = positionals.first().or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let item = positionals.get("1".parse::<usize>()?).context(
+            let item = positionals.get("1".parse::<usize>()?).or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let field = positionals.get("2".parse::<usize>()?).context(
+            let field = positionals.get("2".parse::<usize>()?).or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let workload_id = flags.get("workload-id").context("--workload-id required")?;
+            let workload_id = flags.get("workload-id").or_usage("--workload-id required")?;
             let timestamp = flags
                 .get("workload-timestamp")
-                .context("--workload-timestamp required")?
+                .or_usage("--workload-timestamp required")?
                 .parse()
-                .context("--workload-timestamp must be an epoch integer")?;
+                .or_usage("--workload-timestamp must be an epoch integer")?;
             let nonce = flags
                 .get("workload-nonce")
-                .context("--workload-nonce required")?;
+                .or_usage("--workload-nonce required")?;
             let signature = flags
                 .get("workload-signature")
-                .context("--workload-signature required")?;
+                .or_usage("--workload-signature required")?;
             let Some(issued) = issue(
                 consumer,
                 item,
@@ -74,13 +75,13 @@ pub fn dispatch(
         "acquisition-read" => {
             let consumer = positionals
                 .first()
-                .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
+                .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
             let item = positionals
                 .get("1".parse::<usize>()?)
-                .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
+                .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
             let field = positionals
                 .get("2".parse::<usize>()?)
-                .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
+                .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
             let presented = &crate::credential::bearer_from_file(flags, "acquisition-read")?;
             let Some(acquired) = consume(consumer, presented, item, field)? else {
                 anyhow::bail!(

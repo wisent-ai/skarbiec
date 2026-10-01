@@ -7,6 +7,7 @@
 // written and discovered later by a pull that cannot run.
 
 use super::*;
+use crate::cli::args::OrUsage;
 
 /// Modes, roles and channel types a bond may declare, from
 /// docs/design/bond.md.
@@ -18,12 +19,12 @@ pub(crate) fn cmd_bond_add(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Value> {
-    let name = positionals.first().context(
+    let name = positionals.first().or_usage(
         "usage: bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
     )?;
-    let mode = flags.get("mode").context("--mode required")?;
-    let role = flags.get("role").context("--role required")?;
-    let channel = flags.get("channel").context("--channel required")?;
+    let mode = flags.get("mode").or_usage("--mode required")?;
+    let role = flags.get("role").or_usage("--role required")?;
+    let channel = flags.get("channel").or_usage("--channel required")?;
     if !MODES.contains(&mode.as_str()) {
         anyhow::bail!("mode must be one of: {}", MODES.join(", "));
     }
@@ -41,7 +42,7 @@ pub(crate) fn cmd_bond_add(
         .map(|value| {
             value
                 .parse::<u64>()
-                .context("--interval must be seconds (a number)")
+                .or_usage("--interval must be seconds (a number)")
         })
         .transpose()?;
     let peers: Vec<String> = flags
@@ -122,7 +123,7 @@ pub(crate) fn cmd_bond_list() -> Result<Value> {
 /// Remove one bond by name. A name that is not configured is an error,
 /// not a silent success — the caller asked to remove something.
 pub(crate) fn cmd_bond_remove(positionals: &[String]) -> Result<Value> {
-    let name = positionals.first().context("usage: bond-remove <name>")?;
+    let name = positionals.first().or_usage("usage: bond-remove <name>")?;
     let mut vault = Vault::open(vault_path())?;
     let removed = vault
         .doc_mut()

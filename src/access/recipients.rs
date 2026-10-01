@@ -7,6 +7,7 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+use crate::cli::args::OrUsage;
 use crate::core::{crypto, vault::Vault, vault_path};
 
 // Canonical item kind + tags as stored, so re-encryption preserves them.
@@ -44,7 +45,7 @@ pub fn dispatch(
             let mut args = positionals.iter();
             let uid = args
                 .next()
-                .context("usage: add-user <uid> [--import <pubkey-file>] [--role r]")?;
+                .or_usage("usage: add-user <uid> [--import <pubkey-file>] [--role r]")?;
             let role = flags.get("role").map(String::as_str).unwrap_or("member");
             // `add-user` registers a recipient and stops there: it does NOT
             // re-encrypt the items already in the vault. For a member that is
@@ -90,7 +91,7 @@ pub fn dispatch(
         }
         "rotate-owner" => {
             let mut args = positionals.iter();
-            let uid = args.next().context("usage: rotate-owner <new-owner-uid>")?;
+            let uid = args.next().or_usage("usage: rotate-owner <new-owner-uid>")?;
             // Deliberately no key generation. `add-user` generating a key for
             // an unknown uid is what turned one command into an outage: a key
             // minted here would be a key no ciphertext was ever encrypted to.
@@ -109,8 +110,8 @@ pub fn dispatch(
         }
         "share" => {
             let mut args = positionals.iter();
-            let id = args.next().context("usage: share <item-id> <uid>")?;
-            let uid = args.next().context("usage: share <item-id> <uid>")?;
+            let id = args.next().or_usage("usage: share <item-id> <uid>")?;
+            let uid = args.next().or_usage("usage: share <item-id> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
             if vault.recipient_fpr(uid).is_none() {
                 return Ok(Some(
@@ -131,8 +132,8 @@ pub fn dispatch(
         }
         "revoke" => {
             let mut args = positionals.iter();
-            let id = args.next().context("usage: revoke <item-id> <uid>")?;
-            let uid = args.next().context("usage: revoke <item-id> <uid>")?;
+            let id = args.next().or_usage("usage: revoke <item-id> <uid>")?;
+            let uid = args.next().or_usage("usage: revoke <item-id> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
             let (item_kind, tags) = item_meta(&vault, id)?;
             let payload = vault.get_item(id)?;
@@ -152,7 +153,7 @@ pub fn dispatch(
         // named, and the ones with a rotation policy are marked due now so the
         // next `rotation run` replaces them at the provider.
         "remove-user" => {
-            let uid = positionals.first().context("usage: remove-user <uid>")?;
+            let uid = positionals.first().or_usage("usage: remove-user <uid>")?;
             let mut vault = Vault::open(vault_path())?;
             crate::cli::items::ensure_not_replica(&vault, "remove-user")?;
             let mut report = vault.remove_recipient(uid)?;
@@ -183,7 +184,7 @@ pub fn dispatch(
             Ok(Some(users))
         }
         "export-key" => {
-            let uid = positionals.first().context("usage: export-key <uid>")?;
+            let uid = positionals.first().or_usage("usage: export-key <uid>")?;
             let vault = Vault::open(vault_path())?;
             let fpr = vault
                 .recipient_fpr(uid)
@@ -198,11 +199,11 @@ pub fn dispatch(
         // vault's owner key (fetched from its serve and imported here), then
         // POST it as a donation. The remote side queues it in the inbox.
         "donate" => {
-            let item_id = positionals.first().context(
+            let item_id = positionals.first().or_usage(
                 "usage: donate <item-id> --to <base-url> --consumer <name> --token-file <path>",
             )?;
-            let to = flags.get("to").context("--to required")?;
-            let consumer = flags.get("consumer").context("--consumer required")?;
+            let to = flags.get("to").or_usage("--to required")?;
+            let consumer = flags.get("consumer").or_usage("--consumer required")?;
             let token = &crate::credential::bearer_from_file(flags, "donate")?;
             let vault = Vault::open(vault_path())?;
             let payload = vault.get_item(item_id)?;

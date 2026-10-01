@@ -2,6 +2,7 @@
 // the item-by-item copy between two vault files.
 
 use anyhow::{bail, Context, Result};
+use crate::cli::args::OrUsage;
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
@@ -67,10 +68,10 @@ pub fn migrate_v2(flags: &std::collections::HashMap<String, String>) -> Result<V
 pub fn migrate_vault(flags: &std::collections::HashMap<String, String>) -> Result<Value> {
     let from = flags
         .get("from")
-        .context("usage: migrate --from <vault-file> --to <vault-file> [--force]")?;
+        .or_usage("usage: migrate --from <vault-file> --to <vault-file> [--force]")?;
     let to = flags
         .get("to")
-        .context("usage: migrate --from <vault-file> --to <vault-file> [--force]")?;
+        .or_usage("usage: migrate --from <vault-file> --to <vault-file> [--force]")?;
     if from == to {
         bail!("--from and --to must be different vault files");
     }

@@ -9,6 +9,7 @@ use std::path::Path;
 use super::issue::{ensure_read_once, issue_once};
 use super::lookup::{load, token_allows_action, token_allows_field_action};
 use super::rules::validation::{exact_component, read_fixed_token};
+use crate::cli::args::OrUsage;
 
 /// The six leaves of the `grant` group.
 ///
@@ -30,17 +31,17 @@ pub(in crate::access::grant) fn group(
         // declared here. `serve` spends it on the host's capability socket.
         "capability" => Ok(Some(crate::access::capability::issue(flags)?)),
         "ensure" => {
-            let consumer = positionals.first().context(
+            let consumer = positionals.first().or_usage(
                 "usage: grant ensure <consumer> <item> --field <field> --token-file <path>",
             )?;
-            let item = positionals.get(std::iter::once(()).count()).context(
+            let item = positionals.get(std::iter::once(()).count()).or_usage(
                 "usage: grant ensure <consumer> <item> --field <field> --token-file <path>",
             )?;
-            let field = flags.get("field").context("--field is required")?;
+            let field = flags.get("field").or_usage("--field is required")?;
             let token_file = flags
                 .get("token-file")
                 .map(Path::new)
-                .context("--token-file is required")?;
+                .or_usage("--token-file is required")?;
             let mut attempt = 0u32;
             loop {
                 attempt += 1;
@@ -56,7 +57,7 @@ pub(in crate::access::grant) fn group(
         "issue" => {
             let consumer = positionals
                 .first()
-                .context("usage: grant issue <consumer> --capabilities action:item[#field]")?;
+                .or_usage("usage: grant issue <consumer> --capabilities action:item[#field]")?;
             if !exact_component(consumer) {
                 bail!("consumer must be one exact name");
             }
@@ -78,7 +79,7 @@ pub(in crate::access::grant) fn group(
         "revoke" => {
             let consumer = positionals
                 .first()
-                .context("usage: grant revoke <consumer>")?;
+                .or_usage("usage: grant revoke <consumer>")?;
             let mut vault = load()?;
             vault
                 .doc_mut()
@@ -91,10 +92,10 @@ pub(in crate::access::grant) fn group(
             Ok(Some(json!({"ok": true, "consumer": consumer})))
         }
         "verify" => {
-            let consumer = positionals.first().context(
+            let consumer = positionals.first().or_usage(
                 "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
             )?;
-            let item = positionals.get(std::iter::once(()).count()).context(
+            let item = positionals.get(std::iter::once(()).count()).or_usage(
                 "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
             )?;
             let action = flags.get("action").map(String::as_str).unwrap_or("read");
@@ -105,7 +106,7 @@ pub(in crate::access::grant) fn group(
                 );
             }
             let presented = &read_fixed_token(Path::new(
-                flags.get("token-file").context(
+                flags.get("token-file").or_usage(
                     "grant verify requires --token-file <path to an owner-only file holding the bearer>",
                 )?,
             ))?;
@@ -165,7 +166,7 @@ pub(in crate::access::grant) fn group(
                 "introspect", "call",
             ],
         }))),
-        other => bail!("unknown grant command: {other}"),
+        other => Err(crate::cli::args::Usage(format!("unknown grant command: {other}; `skarbiec grant --help` lists them")).into()),
     }
 }
 
