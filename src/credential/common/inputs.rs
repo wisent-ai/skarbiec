@@ -78,6 +78,23 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     Ok(token)
 }
 
+/// The bearer `command` presents, read only from the owner-only file
+/// `--token-file` names. `--token <value>` is refused: a value in argv is
+/// readable by every process on the host and lands in shell history, so no
+/// command takes one.
+pub(crate) fn bearer_from_file(flags: &HashMap<String, String>, command: &str) -> Result<String> {
+    if flags.contains_key("token") {
+        bail!(
+            "{command} does not take --token: a bearer in argv is readable by every process on this host. \
+             Write it to an owner-only file (mode 0600) and pass --token-file <absolute path>"
+        );
+    }
+    let path = flags.get("token-file").with_context(|| {
+        format!("{command} requires --token-file <absolute path to an owner-only file holding the bearer>")
+    })?;
+    read_secret_file(Path::new(path.trim()))
+}
+
 pub(in crate::credential) fn client_identity(
     flags: &HashMap<String, String>,
 ) -> Result<(String, String)> {

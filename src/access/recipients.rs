@@ -199,11 +199,11 @@ pub fn dispatch(
         // POST it as a donation. The remote side queues it in the inbox.
         "donate" => {
             let item_id = positionals.first().context(
-                "usage: donate <item-id> --to <base-url> --consumer <name> --token <token>",
+                "usage: donate <item-id> --to <base-url> --consumer <name> --token-file <path>",
             )?;
             let to = flags.get("to").context("--to required")?;
             let consumer = flags.get("consumer").context("--consumer required")?;
-            let token = flags.get("token").context("--token required")?;
+            let token = &crate::credential::bearer_from_file(flags, "donate")?;
             let vault = Vault::open(vault_path())?;
             let payload = vault.get_item(item_id)?;
             let item_kind = vault

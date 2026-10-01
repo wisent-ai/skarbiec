@@ -69,14 +69,14 @@ pub fn dispatch(
         "acquisition-read" => {
             let consumer = positionals
                 .first()
-                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
+                .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
             let item = positionals
                 .get("1".parse::<usize>()?)
-                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
+                .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
             let field = positionals
                 .get("2".parse::<usize>()?)
-                .context("usage: acquisition-read <consumer> <item> <field> --token ACQUISITION")?;
-            let presented = flags.get("token").context("--token required")?;
+                .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
+            let presented = &crate::credential::bearer_from_file(flags, "acquisition-read")?;
             let Some(acquired) = consume(consumer, presented, item, field)? else {
                 return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
             };

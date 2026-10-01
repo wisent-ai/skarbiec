@@ -200,13 +200,9 @@ pub(crate) fn handle_enroll(
 // configs are the replica's own relationships — they are carried across the
 // replace and stamped with the pull time so sync-status can report it.
 pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
-    let usage =
-        "usage: pull --from <base-url> (--token <token> | --token-file <path>) [--bond name] [--consumer name] [--force]";
+    let usage = "usage: pull --from <base-url> --token-file <path> [--bond name] [--consumer name] [--force]";
     let from = flags.get("from").context(usage)?;
-    let token = match flags.get("token-file") {
-        Some(path) => crate::credential::read_secret_file(std::path::Path::new(path.trim()))?,
-        None => flags.get("token").context(usage)?.clone(),
-    };
+    let token = crate::credential::bearer_from_file(flags, "pull")?;
     let consumer = flags
         .get("consumer")
         .map(String::as_str)

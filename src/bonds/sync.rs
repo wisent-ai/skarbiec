@@ -40,16 +40,13 @@ fn pulled(doc: &Value) -> Vec<String> {
 /// used without a restart. A refused or failed pull is journalled as
 /// `replication-failed` and returned as the error.
 fn pull(name: &str, address: &str, token_file: &str, consumer: &str) -> Result<()> {
-    let outcome =
-        crate::credential::read_secret_file(std::path::Path::new(token_file)).and_then(|token| {
-            let flags = HashMap::from([
-                ("from".to_string(), address.to_string()),
-                ("token".to_string(), token),
-                ("consumer".to_string(), consumer.to_string()),
-                ("bond".to_string(), name.to_string()),
-            ]);
-            crate::net::bond::cmd_pull(&flags)
-        });
+    let flags = HashMap::from([
+        ("from".to_string(), address.to_string()),
+        ("token-file".to_string(), token_file.to_string()),
+        ("consumer".to_string(), consumer.to_string()),
+        ("bond".to_string(), name.to_string()),
+    ]);
+    let outcome = crate::net::bond::cmd_pull(&flags);
     let failure = match outcome {
         Ok(report) if report.get("ok").and_then(Value::as_bool) == Some(true) => return Ok(()),
         Ok(report) => report.to_string(),
@@ -97,6 +94,18 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
         .map(|items| items.len())
         .unwrap_or_default();
     let wanted = flags.get("bond");
+    if flags.contains_key("token") {
+        anyhow::bail!(
+            "sync-status does not take --token: a bearer in argv is readable by every process on this host. \
+             Write it to an owner-only file (mode 0600) and pass --token-file <absolute path>"
+        );
+    }
+    // An explicitly named bearer file is the operator's word: one that cannot
+    // be read fails the command instead of falling back to the bond's own.
+    let explicit = flags
+        .get("token-file")
+        .map(|path| crate::credential::read_secret_file(std::path::Path::new(path.trim())))
+        .transpose()?;
     let mut out = Vec::new();
     for (name, entry) in &bonds {
         if wanted.is_some_and(|w| w != name) {
@@ -108,10 +117,10 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
             .map(String::as_str)
             .or_else(|| channel.get("consumer").and_then(Value::as_str))
             .unwrap_or("replica");
-        // An explicit bearer wins. Otherwise the report reads the bond's own
-        // bearer file, the one the running service pulls with, so a file the
-        // service cannot read appears here with the error the service meets.
-        let (token, token_file_error) = match flags.get("token") {
+        // An explicit bearer file wins. Otherwise the report reads the bond's
+        // own bearer file, the one the running service pulls with, so a file
+        // the service cannot read appears here with the error the service meets.
+        let (token, token_file_error) = match &explicit {
             Some(token) => (Some(token.clone()), Value::Null),
             None => match channel.get("token_file").and_then(Value::as_str) {
                 Some(file) => match crate::credential::read_secret_file(std::path::Path::new(file))

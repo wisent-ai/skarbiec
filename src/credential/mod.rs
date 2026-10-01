@@ -14,7 +14,7 @@
 mod adopt;
 mod client;
 mod common;
-pub(crate) use common::read_secret_file;
+pub(crate) use common::{bearer_from_file, read_secret_file};
 mod directory;
 mod eligibility;
 mod lifecycle;

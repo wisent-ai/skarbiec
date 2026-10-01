@@ -92,18 +92,23 @@ pub(in crate::access::grant) fn group(
         }
         "verify" => {
             let consumer = positionals.first().context(
-                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer>",
+                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
             )?;
             let item = positionals.get(std::iter::once(()).count()).context(
-                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer>",
+                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
             )?;
             let action = flags.get("action").map(String::as_str).unwrap_or("read");
-            let presented = &match (flags.get("token"), flags.get("token-file")) {
-                (Some(_), Some(_)) => bail!("grant verify takes --token or --token-file, not both"),
-                (Some(token), None) => token.to_string(),
-                (None, Some(path)) => read_fixed_token(Path::new(path))?,
-                (None, None) => bail!("grant verify requires --token or --token-file"),
-            };
+            if flags.contains_key("token") {
+                bail!(
+                    "grant verify does not take --token: a bearer in argv is readable by every process on this host. \
+                     Write it to an owner-only file (mode 0600) and pass --token-file <path>"
+                );
+            }
+            let presented = &read_fixed_token(Path::new(
+                flags.get("token-file").context(
+                    "grant verify requires --token-file <path to an owner-only file holding the bearer>",
+                )?,
+            ))?;
             let allowed = match flags.get("field") {
                 Some(field) => {
                     token_allows_field_action(&load()?, consumer, presented, action, item, field)?

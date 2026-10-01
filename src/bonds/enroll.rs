@@ -8,10 +8,10 @@ use super::*;
 
 pub(crate) fn cmd_enroll(flags: &HashMap<String, String>) -> Result<Value> {
     let uid = flags.get("as").context(
-        "usage: enroll --as <uid> --to <base-url> --token <t> [--items a,b,c] [--consumer name]",
+        "usage: enroll --as <uid> --to <base-url> --token-file <path> [--items a,b,c] [--consumer name]",
     )?;
     let to = flags.get("to").context("--to required")?;
-    let token = flags.get("token").context("--token required")?;
+    let token = &crate::credential::bearer_from_file(flags, "enroll")?;
     let consumer = flags
         .get("consumer")
         .map(String::as_str)
