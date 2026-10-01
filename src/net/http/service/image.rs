@@ -5,9 +5,9 @@
 //! it (`stado product install`, Stado's `release install-local`),
 //! and the running process goes on executing the old image: `stado service
 //! ensure` then reads the same program path and the same unit and answers
-//! `already_correct`. On lukasz-macbook on 2026-09-23 the hourly CLI sweep
-//! installed skarbiec 0.4.2 while 0.3.16 kept serving, until a changed
-//! declaration made `service ensure` reload the unit. Started as its declared
+//! `already_correct`. A scheduled CLI sweep can install a new release while
+//! the old one keeps serving, until a changed declaration happens to make
+//! `service ensure` reload the unit. Started as its declared
 //! unit, the one process compares its image with the installed file before
 //! each connection it accepts and ends once they differ, so launchd starts
 //! the release that was installed.

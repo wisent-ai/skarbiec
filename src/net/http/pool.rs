@@ -55,11 +55,11 @@ impl RequestPool {
 
     /// Wait for the one request failure that ends this process, and return it.
     ///
-    /// charless-mac-mini's vault 0.3.12 printed `request error: Bad file
-    /// descriptor (os error 9)` for every request it accepted, for 20000 log
-    /// lines, while launchd and the health beacon kept reporting its unit
-    /// active: the fleet's credential route answered nothing and nothing
-    /// restarted it, because a process that keeps running is a process launchd
+    /// A vault can print `request error: Bad file descriptor (os error 9)`
+    /// for every request it accepts, for tens of thousands of log lines,
+    /// while launchd and the health beacon keep reporting its unit active:
+    /// the fleet's credential route answers nothing and nothing restarts it,
+    /// because a process that keeps running is a process launchd
     /// leaves alone. A client can reset, stall or abandon its connection; it
     /// cannot close a descriptor inside this process. So the first worker that
     /// meets EBADF on a socket this process just accepted hands the failure
@@ -113,12 +113,12 @@ impl RequestPool {
 /// failure belongs to its one connection and its client, and ends only that
 /// request.
 ///
-/// ENOSPC joins EBADF because the process that met it did not recover: on
-/// charless-mac-mini on 2026-09-27 the disk filled, the vault answered every
-/// request with `No space left on device (os error 28)`, and it kept doing so
-/// after the disk had 19.6 GiB free again, so every Stado credential read in
-/// the fleet failed until the process was replaced. Ending it hands the
-/// restart to launchd, which starts a clean vault once there is room.
+/// ENOSPC joins EBADF because the process that meets it does not recover:
+/// once the disk fills, the vault answers every request with `No space left
+/// on device (os error 28)` and keeps doing so after the disk has room again,
+/// so every Stado credential read in the fleet fails until the process is
+/// replaced. Ending it hands the restart to launchd, which starts a clean
+/// vault once there is room.
 fn descriptor_lost(error: &anyhow::Error) -> bool {
     error
         .chain()

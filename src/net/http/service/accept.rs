@@ -3,12 +3,11 @@
 //! A client that resets its connection while it still waits in the listen
 //! queue is reported by the kernel as ECONNABORTED from `accept`; Linux also
 //! hands back a pending network error of that one connection (EPROTO,
-//! EHOSTUNREACH, ...). charless-mac-mini's vault logged `accept error:
-//! Software caused connection abort (os error 53)` continuously on 2026-09-23
-//! and kept serving. The one Skarbiec process instead ended its HTTP
-//! component on the first such error, and a component that ends ends the
-//! process: one impatient client restarted every listener, the capability
-//! broker and replication. An error that belongs to one connection now ends
+//! EHOSTUNREACH, ...). A vault can log `accept error: Software caused
+//! connection abort (os error 53)` continuously and keep serving. Ending the
+//! HTTP component on the first such error would end the process: one
+//! impatient client would restart every listener, the capability broker and
+//! replication. An error that belongs to one connection now ends
 //! only that connection; any other error still ends the listener, and with it
 //! the process launchd restarts.
 

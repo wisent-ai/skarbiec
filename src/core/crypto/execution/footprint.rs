@@ -2,12 +2,12 @@
 // above which one of them is recycled instead of kept.
 //
 // `gpg` starts `keyboxd` and `gpg-agent` on demand and never stops them, and
-// `keyboxd` grows with every lookup it answers. On charless-mac-mini it had
-// answered a vault's reads for twelve days and held 15 GiB — 3.7 GiB of it in
-// the compressor and 6.4 GiB in swap — while `ps` reported 327 MiB resident,
-// which is why a resident-size reading is not the measurement here. The host
-// refused placement on memory pressure, and the only repair that existed
-// (`recover-daemons`) ran on a failed read, never on a healthy one.
+// `keyboxd` grows with every lookup it answers. After days of answering a
+// vault's reads it can hold many GiB — much of it in the compressor and in
+// swap — while `ps` reports a few hundred MiB resident, which is why a
+// resident-size reading is not the measurement here. The host then refuses
+// placement on memory pressure, and a repair that runs only on a failed read
+// never runs on a healthy one.
 
 use anyhow::{Context, Result};
 

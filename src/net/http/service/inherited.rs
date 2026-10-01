@@ -2,10 +2,10 @@
 //!
 //! The one process learns those ports from its predecessors' running
 //! processes, which exist only until the first take-over. Any start after
-//! that, whether an upgrade, a crash or a reboot, found no predecessor and
-//! stopped answering on them while consumers still dialled them: on
-//! lukasz-macbook `~/.stado/forwards/skarbiec.local` names 8787 and Stado's
-//! `agent_skarbiec_url` names 8799. The record makes every later start of the
+//! that, whether an upgrade, a crash or a reboot, would find no predecessor
+//! and stop answering on them while consumers still dial them — a forward
+//! marker and a Stado setting can each name a different inherited port. The
+//! record makes every later start of the
 //! declared unit answer where the first one did.
 
 use anyhow::{Context, Result};

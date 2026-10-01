@@ -253,16 +253,15 @@ the same commit that starts writing it; nothing else registers anything.
 ### An item lost from the live vault, still in a backup
 
 A host's vault document can be replaced by a sync that does not carry an item
-written locally on that host. Measured on charless-mac-mini on 2026-09-02:
-`weles-figma-personal-access-token`, acquired on 2026-08-12 and present in the
-2026-08-17 backup beside the vault, was absent from the live document with no
-delete, trash or purge entry in the audit journal, while its consumer grant
-survived — so every acquisition failed as `503 infra_down` instead of `401`,
-because a grant whose item is gone is an authority error, not a refusal. The
-backup is ciphertext for the same owner key, so only that host can read it.
+written locally on that host. The item is then absent from the live document
+with no delete, trash or purge entry in the audit journal, while its consumer
+grant survives — so every acquisition fails as `503 infra_down` instead of
+`401`, because a grant whose item is gone is an authority error, not a
+refusal. A backup beside the vault may still hold it; the backup is
+ciphertext for the same owner key, so only that host can read it.
 
 ```sh
-sh scripts/restore-item-from-backup.sh ~/.stado/skarbiec.vault.before-stado-local-agent-bearer-rotation.json weles-figma-personal-access-token
+sh scripts/restore-item-from-backup.sh ~/.stado/<vault backup>.json <item>
 ```
 
 It carries the item's kind, tags and recipients over from the backup envelope,

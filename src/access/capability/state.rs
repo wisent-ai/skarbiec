@@ -124,9 +124,9 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
 /// outlives its expiry by `NONCE_RETENTION_SECONDS`, so a late redemption is
 /// still answered "expired" rather than "no such capability"; after that
 /// nothing reads it, and the audit log keeps what was issued and redeemed.
-/// Nothing removed records before: the broker Brama runs on the vault owner
-/// read and rewrote every capability ever issued on each request, and held
-/// 3 GiB after 31 hours on charless-mac-mini on 2026-09-28.
+/// Without this the broker Brama runs on the vault owner would read and
+/// rewrite every capability ever issued on each request, and its state grows
+/// to GiBs within a day or two.
 fn forget_stale(state: &mut Value, now: u64) {
     let live =
         |until: Option<u64>| until.unwrap_or(0).saturating_add(NONCE_RETENTION_SECONDS) > now;
