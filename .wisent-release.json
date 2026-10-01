@@ -54,7 +54,7 @@
         {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
       ],
       "secret_env": {
-        "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-key#private_key"
+        "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-signing#private_key"
       },
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
