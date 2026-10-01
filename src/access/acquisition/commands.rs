@@ -45,7 +45,12 @@ pub fn dispatch(
                 signature,
             )?
             else {
-                return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
+                // A refusal is the command's failure, not a successful answer:
+                // a caller reading the exit status must not see 0 here. The
+                // proof's failed check is deliberately not named.
+                anyhow::bail!(
+                    "acquisition-request: unauthorized: {consumer} has no acquire grant for {item}#{field} that this workload proof satisfies"
+                );
             };
             crate::runtime::audit::append_sync(
                 "acquisition-issued",
@@ -78,7 +83,9 @@ pub fn dispatch(
                 .context("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
             let presented = &crate::credential::bearer_from_file(flags, "acquisition-read")?;
             let Some(acquired) = consume(consumer, presented, item, field)? else {
-                return Ok(Some(json!({"ok": false, "error": "unauthorized"})));
+                anyhow::bail!(
+                    "acquisition-read: unauthorized: the token is unknown, expired, already spent, or not bound to {consumer} {item}#{field}"
+                );
             };
             crate::runtime::audit::append_sync(
                 "acquisition-consumed",

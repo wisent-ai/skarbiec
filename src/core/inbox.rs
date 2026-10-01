@@ -186,9 +186,9 @@ pub fn dispatch(
                     "donation-accept-refused",
                     &json!({"donation": donation_id, "item": item_id, "status": rule}),
                 )?;
-                return Ok(Some(
-                    json!({"ok": false, "status": rule, "donation_id": donation_id, "id": item_id}),
-                ));
+                anyhow::bail!(
+                    "donation-accept: donation {donation_id} for item {item_id} from {from} was refused at merge: admission rule {rule}; the donation is removed from the inbox"
+                );
             }
             let plain = crypto::decrypt(armor).context("decrypt donation armor")?;
             let payload: Value =

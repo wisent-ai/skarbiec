@@ -223,13 +223,9 @@ pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
     };
     let local_count = item_count(&local);
     if remote_count < local_count && !flags.contains_key("force") {
-        return Ok(json!({
-            "ok": false,
-            "reason": "remote_has_fewer_items",
-            "items_before": local_count,
-            "items_after": remote_count,
-            "detail": "refusing to replace the local vault with a smaller one; re-run with --force to accept the loss"
-        }));
+        anyhow::bail!(
+            "pull: refusing to replace the local vault ({local_count} items) with the remote's {remote_count}; re-run with --force to accept the loss"
+        );
     }
     let mut doc = pulled;
     if let Some(bonds) = local.get("bond").cloned() {

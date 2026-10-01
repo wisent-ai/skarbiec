@@ -128,17 +128,16 @@ pub fn dispatch(
             let remote_ref = format!("HEAD:refs/heads/{branch}");
             let (ok, _o, e) = git(&["push", "origin", &remote_ref])?;
             crate::runtime::audit::append("sync-push", &json!({"branch": branch, "ok": ok}))?;
-            Ok(Some(
-                json!({"ok": ok, "branch": branch, "detail": e.trim()}),
-            ))
+            if !ok {
+                bail!("sync-push: git push origin {remote_ref} failed: {}", e.trim());
+            }
+            Ok(Some(json!({"ok": true, "branch": branch, "detail": e.trim()})))
         }
         "sync-pull" => {
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
             let (ok, _o, e) = git(&["pull", "--no-rebase", "origin", branch])?;
             if !ok {
-                return Ok(Some(
-                    json!({"ok": false, "reason": "git_pull_failed", "detail": e.trim()}),
-                ));
+                bail!("sync-pull: git pull origin {branch} failed: {}", e.trim());
             }
             let mirror = mirror_path();
             if !mirror.exists() {
@@ -153,14 +152,12 @@ pub fn dispatch(
                 backup = Some(path);
                 let missing = items_missing_from_mirror(&live, &mirror)?;
                 if !missing.is_empty() && !flags.contains_key("force") {
-                    return Ok(Some(json!({
-                        "ok": false,
-                        "reason": "local_only_items_would_be_lost",
-                        "branch": branch,
-                        "local_only_items": missing,
-                        "backup": backup.map(|p| p.display().to_string()),
-                        "detail": "push these items first, or re-run with --force to accept the loss"
-                    })));
+                    bail!(
+                        "sync-pull: {} local item(s) are not in the mirror and would be lost: {}; the live vault is unchanged and backed up at {}. Push them first, or re-run with --force to accept the loss",
+                        missing.len(),
+                        missing.join(", "),
+                        backup.map(|p| p.display().to_string()).unwrap_or_default()
+                    );
                 }
             }
             std::fs::copy(&mirror, &live).context("copy synced vault into place")?;
