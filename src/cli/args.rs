@@ -81,10 +81,13 @@ pub(crate) fn flag_set(flags: &HashMap<String, String>, name: &str) -> bool {
 /// A `OnceLock`, because the answer is runtime input, not a known initializer.
 static TEXT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-/// Remove `--text` from the command line and remember that it was there.
+/// Remove `--text` and `--json` from the command line and remember whether
+/// text was asked for. `--json` names the default form; left in, the flag
+/// parser would take the next word (`skarbiec get --json ITEM`) as its value
+/// and the command would run without its item.
 pub(crate) fn take_text_switch(rest: &mut Vec<String>) {
     let asked = rest.iter().any(|word| word == "--text");
-    rest.retain(|word| word != "--text");
+    rest.retain(|word| word != "--text" && word != "--json");
     let _ = TEXT.set(asked);
 }
 
