@@ -9,8 +9,6 @@ use std::io::Write;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::thread;
-use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::vault_path;
@@ -78,16 +76,10 @@ pub(super) fn acquire_lock(path: &Path) -> Result<StateLock> {
         .open(&lock)
         .with_context(|| format!("open acquisition state lock {}", lock.display()))?;
     validate_owned_regular(&lock)?;
-    let attempts: usize = "500".parse()?;
-    let pause = Duration::from_millis("10".parse()?);
-    for _ in std::iter::repeat_n((), attempts) {
-        match file.try_lock_exclusive() {
-            Ok(()) => return Ok(StateLock(file)),
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(pause),
-            Err(error) => return Err(error).context("lock acquisition state"),
-        }
-    }
-    bail!("acquisition state is locked")
+    // The kernel queues this process until the holder releases the lock or
+    // exits; a failure to lock is the error itself.
+    file.lock_exclusive().context("lock acquisition state")?;
+    Ok(StateLock(file))
 }
 
 pub(super) fn validate_owned_regular(path: &Path) -> Result<()> {

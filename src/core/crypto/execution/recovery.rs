@@ -89,7 +89,7 @@ pub(super) fn gpg_status(stderr: &str) -> (Vec<u32>, String) {
 ///
 /// Nothing is launched at the end on purpose. `gpg` starts `gpg-agent` and
 /// `keyboxd` on demand, so a kill is a complete repair, while waiting on
-/// `--launch` reintroduces exactly the timeout this escalation exists to get
+/// `--launch` reintroduces exactly the hang this escalation exists to get
 /// past.
 pub(super) fn recover_gpg_daemons() -> Result<()> {
     let mut answered = false;

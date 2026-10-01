@@ -2,23 +2,22 @@
 // keeps two redemptions from spending the same use.
 
 use anyhow::{bail, Context, Result};
+use fs2::FileExt;
 use serde_json::{json, Value};
-use std::fs;
+use std::fs::{self, File, OpenOptions};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
-use super::{
-    NONCE_RETENTION_SECONDS, STATE_LOCK_ATTEMPTS, STATE_LOCK_RETRY_MILLIS, STATE_LOCK_STALE_SECONDS,
-};
+use super::NONCE_RETENTION_SECONDS;
 use crate::core::vault_path;
 
-pub(in crate::access::capability) struct StateLock {
-    path: PathBuf,
-}
+/// The kernel owns this lock's lifetime: process exit releases it, so a
+/// crashed holder never leaves a stale lock behind.
+pub(in crate::access::capability) struct StateLock(File);
 
 impl Drop for StateLock {
     fn drop(&mut self) {
-        let _ = fs::remove_dir(&self.path);
+        let _ = self.0.unlock();
     }
 }
 
@@ -27,25 +26,17 @@ pub(in crate::access::capability) fn acquire_state_lock() -> Result<StateLock> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    for _ in 0..STATE_LOCK_ATTEMPTS {
-        match fs::create_dir(&path) {
-            Ok(()) => return Ok(StateLock { path }),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                let stale = fs::metadata(&path)
-                    .and_then(|metadata| metadata.modified())
-                    .ok()
-                    .and_then(|modified| modified.elapsed().ok())
-                    .is_some_and(|age| age.as_secs() > STATE_LOCK_STALE_SECONDS);
-                if stale {
-                    let _ = fs::remove_dir(&path);
-                    continue;
-                }
-                std::thread::sleep(std::time::Duration::from_millis(STATE_LOCK_RETRY_MILLIS));
-            }
-            Err(error) => return Err(error).context("create capability state lock"),
-        }
-    }
-    bail!("timed out acquiring capability state lock")
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .with_context(|| format!("open capability state lock {}", path.display()))?;
+    // The kernel queues this process until the holder releases the lock or
+    // exits; a failure to lock is the error itself.
+    file.lock_exclusive().context("lock capability state")?;
+    Ok(StateLock(file))
 }
 
 /// Where the capability records live: `SKARBIEC_CAPABILITY_FILE` when an

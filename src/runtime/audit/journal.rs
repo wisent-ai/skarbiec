@@ -117,7 +117,7 @@ pub(super) fn tail_hash() -> Result<String> {
 }
 
 /// The journal's cross-process critical section. The kernel owns lock lifetime:
-/// process exit releases it, so no stale file, timeout, or ownership stamp can
+/// process exit releases it, so no stale file, clock, or ownership stamp can
 /// let two writers share one predecessor.
 pub(super) struct AppendLock(File);
 

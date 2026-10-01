@@ -35,10 +35,6 @@ const MAX_REQUEST_BYTES: u64 = 8 * 1024;
 const MAX_TTL_SECONDS: u64 = 3600;
 const NONCE_RETENTION_SECONDS: u64 = 2 * MAX_TTL_SECONDS;
 
-const STATE_LOCK_STALE_SECONDS: u64 = 120;
-const STATE_LOCK_RETRY_MILLIS: u64 = 5;
-const STATE_LOCK_ATTEMPTS: usize = 6_000;
-
 /// The `openssl` this build verifies proofs with.
 ///
 /// Prefer an OpenSSL 3 build when one is installed, and let SKARBIEC_OPENSSL

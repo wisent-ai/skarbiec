@@ -46,11 +46,9 @@ pub(in crate::access::grant) fn group(
                 attempt += 1;
                 match ensure_read_once(consumer, item, field, token_file) {
                     Ok(report) => return Ok(Some(report)),
-                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {
-                        std::thread::sleep(std::time::Duration::from_millis(
-                            150 * u64::from(attempt),
-                        ));
-                    }
+                    // A concurrent writer won; the next attempt re-reads its
+                    // generation and applies on top of it.
+                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {}
                     Err(error) => return Err(error),
                 }
             }
@@ -72,11 +70,7 @@ pub(in crate::access::grant) fn group(
                 attempt += 1;
                 match issue_once(consumer, flags, attempt) {
                     Ok(report) => return Ok(Some(report)),
-                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {
-                        std::thread::sleep(std::time::Duration::from_millis(
-                            150 * u64::from(attempt),
-                        ));
-                    }
+                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {}
                     Err(error) => return Err(error),
                 }
             }
