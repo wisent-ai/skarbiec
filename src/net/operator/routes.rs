@@ -40,7 +40,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/emergency" => access("emergency-list", &no_flags, &none),
         "/v1/operator/recovery" => access("recovery-status", &no_flags, &none),
         "/v1/operator/key-doctor" => access("key-doctor", &no_flags, &none),
-        "/v1/operator/bonds" => bonds("bonds", &no_flags, &none),
+        "/v1/operator/bonds" => bonds("bond-list", &no_flags, &none),
         "/v1/operator/version" => crate::cmd_version(),
         "/v1/operator/route/resolve" => {
             let mut positionals = vec!["resolve".to_string()];

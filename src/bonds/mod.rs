@@ -33,7 +33,7 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "bond-add" => cmd_bond_add(flags, positionals).map(Some),
-        "bond-list" | "bonds" => cmd_bond_list().map(Some),
+        "bond-list" => cmd_bond_list().map(Some),
         "bond-remove" => cmd_bond_remove(positionals).map(Some),
         "enroll" => cmd_enroll(flags).map(Some),
         "sync-status" => cmd_sync_status(flags).map(Some),
