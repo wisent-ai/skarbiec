@@ -52,6 +52,7 @@ pub fn dispatch(
     let value = match subcommand {
         "resolve" => resolve(flags, &rest)?,
         "declare" => declare(flags)?,
+        "withdraw" => withdraw(flags)?,
         "verify" => verify(flags, &rest)?,
         "help" => help(),
         other => bail!("unknown route command: {other}"),
@@ -64,6 +65,7 @@ fn help() -> Value {
         "commands": [
             "route resolve [<name>...] [--consumer <c> --token <t>] [--emit --out <dir>] [--template <file> --out <file>]",
             "route declare --resource <resource> --item <item> --field <field> --reason <text>",
+            "route withdraw --resource <resource> --reason <text>",
             "route verify [<consumer>]",
         ],
         "names": [
@@ -148,7 +150,7 @@ fn resolve(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
 fn required<'a>(flags: &'a HashMap<String, String>, name: &str, max: usize) -> Result<&'a str> {
     let value = flags.get(name).map(String::as_str).unwrap_or_default();
     if !exact_token(value, max) {
-        bail!("route declare requires an exact --{name}");
+        bail!("route: --{name} is required and must be exact (non-empty, one line)");
     }
     Ok(value)
 }
@@ -179,6 +181,15 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
     // so an unreadable vault leaves the row exactly as it would have been.
     let vault = Vault::open(vault_path()).ok();
     route_table::write_row(resource, key, value, field, reason, vault.as_ref())
+}
+
+/// Withdraw one row `declare` wrote. The reason is required for the same
+/// reason a declaration's is: this table decides which credential a login form
+/// receives, so its history must say why a route stopped answering.
+fn withdraw(flags: &HashMap<String, String>) -> Result<Value> {
+    let resource = required(flags, "resource", MAX_RESOURCE_CHARS)?;
+    let reason = required(flags, "reason", MAX_REASON_CHARS)?;
+    route_table::remove_row(resource, reason)
 }
 
 /// Whether a name belongs to a vocabulary an item answers for itself: the

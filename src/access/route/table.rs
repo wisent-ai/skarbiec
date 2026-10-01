@@ -191,25 +191,7 @@ pub(super) fn write_row(
     vault: Option<&Vault>,
 ) -> Result<Value> {
     let path = routes_path();
-    // Consumers declare into one host-wide table. Serialize the complete
-    // read/modify/publish operation, not only its final atomic replacement.
-    let lock_path = path.with_extension("json.lock");
-    if let Some(parent) = lock_path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        fs::create_dir_all(parent).context("create capability route directory")?;
-    }
-    let lock = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .open(&lock_path)
-        .with_context(|| format!("open capability route lock {}", lock_path.display()))?;
-    lock.lock_exclusive()
-        .with_context(|| format!("lock capability route table {}", path.display()))?;
+    let _lock = lock_table(&path)?;
     let mut table = load()?;
     if let Some(existing) = table.get(resource) {
         let mapped = |name: &str| {
@@ -273,4 +255,34 @@ pub(super) fn write_row(
         "field": field,
         "backup": backup,
     }))
+}
+
+/// Consumers change one host-wide table: the complete read/modify/publish
+/// operation is serialized, not only its final atomic replacement.
+fn lock_table(path: &Path) -> Result<fs::File> {
+    let lock_path = path.with_extension("json.lock");
+    if let Some(parent) = lock_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).context("create capability route directory")?;
+    }
+    let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600)
+        .open(&lock_path)
+        .with_context(|| format!("open capability route lock {}", lock_path.display()))?;
+    lock.lock_exclusive().with_context(|| format!("lock capability route table {}", path.display()))?;
+    Ok(lock)
+}
+
+/// Withdraw one hand-declared row, the inverse of `write_row`, with the
+/// sentence that explains it. A row already absent is reported, not refused.
+pub(super) fn remove_row(resource: &str, reason: &str) -> Result<Value> {
+    let path = routes_path();
+    let _lock = lock_table(&path)?;
+    let mut table = load()?;
+    let Some(row) = table.remove(resource) else {
+        return Ok(json!({"withdrawn": false, "resource": resource, "backup": Value::Null}));
+    };
+    let backup = publish(&path, &Value::Object(table))?;
+    let record = json!({"at": utc(ISO_FORMAT), "resource": resource, "row": row, "reason": reason, "backup": backup});
+    append_beside(&path, &record)?;
+    crate::runtime::audit::append_sync("capability-route-withdrawn", &record)?;
+    Ok(json!({"withdrawn": true, "resource": resource, "row": row, "backup": backup}))
 }
