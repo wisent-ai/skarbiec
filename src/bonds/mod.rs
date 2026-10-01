@@ -1,14 +1,13 @@
 // Bond operations: the bond configuration commands (bond-add/bond-list/
 // bond-remove), the enroll client that registers a replica's key with a
-// source serve, the replication components `serve` runs for every bond this
-// vault pulls, and the sync-status report. There is no separate sync daemon
-// and no unit to create: the host's one `skarbiec serve` process replicates.
+// source serve, one pull of every bond this vault pulls (run by
+// `skarbiec maintain`), and the sync-status report.
 //
 // | part | what it owns |
 // |---|---|
 // | `config` | adding, listing and removing a bond in the vault |
 // | `enroll` | registering this replica's key with a source serve |
-// | `sync` | the replication component `serve` runs, and the status report |
+// | `sync` | one pull per pulled bond, and the status report |
 //
 // Every part opens with `use super::*;`, so the list below is this
 // module's single import list.

@@ -25,7 +25,7 @@ mod service;
 pub(crate) use service::survive_accept;
 
 use pool::RequestPool;
-use readiness::start_readiness_monitor;
+use readiness::maintenance_pass;
 
 const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
@@ -129,8 +129,36 @@ pub fn dispatch(
                 eprintln!("skarbiec API listening on http://{address} (loopback only)");
                 Some((listeners, requests))
             };
-            start_readiness_monitor()?;
             service::serve(http, flags).map(Some)
+        }
+        // One pass of the work `serve` no longer loops on: the GnuPG daemon
+        // ceiling, the readiness proof, and one pull of every pulled bond.
+        // A Stado schedule pinned to the host runs it (`stado schedule create
+        // --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'`). Every
+        // step runs; any failure makes the pass fail with every reason.
+        "maintain" => {
+            let mut failures: Vec<String> = Vec::new();
+            let canaries = match maintenance_pass() {
+                Ok(canaries) => canaries,
+                Err(error) => {
+                    failures.push(format!("readiness: {error:#}"));
+                    Vec::new()
+                }
+            };
+            let bonds = crate::bonds::pulled_bonds()?;
+            for bond in &bonds {
+                if let Err(error) = crate::bonds::pull_once(bond) {
+                    failures.push(format!("{error:#}"));
+                }
+            }
+            anyhow::ensure!(
+                failures.is_empty(),
+                "skarbiec maintain: {}",
+                failures.join("; ")
+            );
+            Ok(Some(
+                json!({"ok": true, "canaries": canaries, "pulled": bonds}),
+            ))
         }
         _ => Ok(None),
     }

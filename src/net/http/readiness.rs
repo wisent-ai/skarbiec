@@ -67,7 +67,7 @@ fn daemon_ceiling_pass() {
         Ok(recycle) if recycle.recycled => {
             let over_limit = recycle.over_limit.join(", ");
             eprintln!(
-                "skarbiec readiness monitor: replaced GnuPG daemons over the {} ceiling: {over_limit}",
+                "skarbiec maintain: replaced GnuPG daemons over the {} ceiling: {over_limit}",
                 crate::core::crypto::human_size(recycle.limit_bytes)
             );
             if let Err(error) = crate::runtime::audit::append(
@@ -77,29 +77,18 @@ fn daemon_ceiling_pass() {
                     "over_limit": recycle.over_limit,
                 }),
             ) {
-                eprintln!("skarbiec readiness monitor: journal the daemon recycle: {error:#}");
+                eprintln!("skarbiec maintain: journal the daemon recycle: {error:#}");
             }
         }
         Ok(_) => {}
-        Err(error) => eprintln!("skarbiec readiness monitor: GnuPG daemon ceiling: {error:#}"),
+        Err(error) => eprintln!("skarbiec maintain: GnuPG daemon ceiling: {error:#}"),
     }
 }
 
-pub(super) fn start_readiness_monitor() -> Result<()> {
-    let seconds = std::env::var("SKARBIEC_READINESS_INTERVAL_SECONDS")
-        .ok()
-        .and_then(|raw| raw.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(60);
-    std::thread::Builder::new()
-        .name("skarbiec-readiness".to_string())
-        .spawn(move || loop {
-            daemon_ceiling_pass();
-            if let Err(error) = readiness_check() {
-                eprintln!("skarbiec readiness monitor: {error:#}");
-            }
-            std::thread::sleep(std::time::Duration::from_secs(seconds));
-        })
-        .context("spawn Skarbiec readiness monitor")?;
-    Ok(())
+/// One maintenance pass: the GnuPG daemon ceiling, then the readiness proof.
+/// `skarbiec maintain` runs it once; a Stado schedule pinned to the vault host
+/// decides how often. A failed proof is the command's error.
+pub(crate) fn maintenance_pass() -> Result<Vec<String>> {
+    daemon_ceiling_pass();
+    readiness_check()
 }

@@ -4,7 +4,7 @@
 // intervals, peer fingerprints and, for a bond this vault pulls, the path of
 // the owner-only file that holds its bearer. A mistyped mode, role or channel
 // type is refused against the schema in docs/design/bond.md rather than
-// written and discovered later by a replication component that cannot pull.
+// written and discovered later by a pull that cannot run.
 
 use super::*;
 

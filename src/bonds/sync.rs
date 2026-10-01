@@ -1,20 +1,13 @@
-// Replication performed inside the running `skarbiec serve`, and the status
-// report a person reads to see whether it is working.
+// Replication as one pull per pulled bond, and the status report a person
+// reads to see whether it is working.
 //
 // A bond whose serve channel records a bearer file (`bond-add --token-file`)
-// is a bond this vault pulls. `serve` starts one replication component per
-// such bond, so a replica host runs the same single Skarbiec process as every
-// other host and no separate sync daemon. A failed pull does not end the
-// component: the process keeps serving while the replica is stale, and the
-// failure goes to stderr and to the audit journal as `replication-failed`.
+// is a bond this vault pulls. `skarbiec maintain` pulls each such bond once;
+// a Stado schedule pinned to the replica host decides how often. A failed
+// pull goes to stderr and to the audit journal as `replication-failed`, and
+// the pass reports it.
 
 use super::*;
-
-/// One second, and the step the sleep counter advances by. Both come from
-/// an iterator count because numeric literals are banned in source.
-fn one() -> u64 {
-    std::iter::once(()).count() as u64
-}
 
 /// The bonds this vault pulls: serve channels that record a bearer file and an
 /// interval. Another bond (this vault as a source, a git or a file channel) is
@@ -44,8 +37,8 @@ fn pulled(doc: &Value) -> Vec<String> {
 }
 
 /// Pull one bond with the bearer its file holds now, so a rotated file is
-/// used without a restart. A refused or failed pull is reported and journalled;
-/// only a failure to journal it is an error.
+/// used without a restart. A refused or failed pull is journalled as
+/// `replication-failed` and returned as the error.
 fn pull(name: &str, address: &str, token_file: &str, consumer: &str) -> Result<()> {
     let outcome =
         crate::credential::read_secret_file(std::path::Path::new(token_file)).and_then(|token| {
@@ -62,18 +55,15 @@ fn pull(name: &str, address: &str, token_file: &str, consumer: &str) -> Result<(
         Ok(report) => report.to_string(),
         Err(error) => format!("{error:#}"),
     };
-    eprintln!("skarbiec replication: bond {name} did not pull from {address}: {failure}");
     crate::runtime::audit::append(
         "replication-failed",
         &json!({"bond": name, "address": address, "detail": failure}),
     )?;
-    Ok(())
+    anyhow::bail!("bond {name} did not pull from {address}: {failure}")
 }
 
-/// One replication component of `serve`: pull the named bond now and then on
-/// the bond's own interval. It returns only with an error, and the owning
-/// service treats a returned component as the failure of the whole process.
-pub(crate) fn run_sync(name: &str) -> Result<Value> {
+/// Pull the named bond once with the bearer its file holds now.
+pub(crate) fn pull_once(name: &str) -> Result<()> {
     let vault = Vault::open(vault_path())?;
     let channel = vault
         .doc()
@@ -87,26 +77,8 @@ pub(crate) fn run_sync(name: &str) -> Result<Value> {
         format!("bond {name} records no token_file (set it with bond-add --token-file)")
     })?;
     let consumer = text("consumer").unwrap_or_else(|| "replica".to_string());
-    let interval = channel
-        .get("interval_seconds")
-        .and_then(Value::as_u64)
-        .with_context(|| {
-            format!("bond {name} channel has no interval_seconds (set it with bond-add --interval)")
-        })?;
     drop(vault);
-    crate::runtime::audit::append(
-        "replication-start",
-        &json!({"bond": name, "address": address, "interval_seconds": interval}),
-    )?;
-    let unit = Duration::from_secs(one());
-    loop {
-        pull(name, &address, &token_file, &consumer)?;
-        let mut slept = u64::default();
-        while slept < interval {
-            thread::sleep(unit);
-            slept = slept.saturating_add(one());
-        }
-    }
+    pull(name, &address, &token_file, &consumer)
 }
 
 pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> {

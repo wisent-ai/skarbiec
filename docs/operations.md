@@ -23,8 +23,17 @@ is and how to install it; this page covers running one.
 | `SKARBIEC_CRYPTO_CONCURRENCY` | Maximum concurrent external cryptographic tools; default 8 |
 | `SKARBIEC_GPG_CONCURRENCY` | Maximum concurrent `gpg` processes sharing the keyring; default 2 |
 | `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
-| `SKARBIEC_READINESS_INTERVAL_SECONDS` | How often the running service re-proves readiness and measures the GnuPG daemons; default 60 |
-| `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB` | Physical footprint above which the running service replaces `keyboxd` or `gpg-agent`; default 1024 |
+| `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB` | Physical footprint above which `skarbiec maintain` replaces `keyboxd` or `gpg-agent`; default 1024 |
+
+`skarbiec serve` answers requests and nothing else. The recurring work is one
+command, `skarbiec maintain`: it replaces GnuPG daemons over their memory
+ceiling, proves readiness by decrypting the canary items, and pulls every bond
+this vault pulls once. Every step runs; the command fails, naming every failed
+step, when any of them did. A Stado schedule pinned to the host runs it:
+
+```bash
+stado schedule create --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'
+```
 
 The two concurrency limits are nested, and the narrow one is taken first: a
 `gpg` process claims a GnuPG slot and only then a general cryptographic slot,
