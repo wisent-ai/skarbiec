@@ -22,7 +22,6 @@ is and how to install it; this page covers running one.
 | `SKARBIEC_HTTP_QUEUE` | Waiting HTTP requests before overload is refused; default 32 |
 | `SKARBIEC_CRYPTO_CONCURRENCY` | Maximum concurrent external cryptographic tools; default 8 |
 | `SKARBIEC_GPG_CONCURRENCY` | Maximum concurrent `gpg` processes sharing the keyring; default 2 |
-| `SKARBIEC_CRYPTO_TIMEOUT_SECONDS` | Deadline after which a cryptographic child is killed and reaped; default 30 |
 | `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
 | `SKARBIEC_READINESS_INTERVAL_SECONDS` | How often the running service re-proves readiness and measures the GnuPG daemons; default 60 |
 | `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB` | Physical footprint above which the running service replaces `keyboxd` or `gpg-agent`; default 1024 |
