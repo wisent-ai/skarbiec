@@ -59,20 +59,43 @@ pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -
     let id = positionals
         .first()
         .context("usage: get <id> [--field <field>]")?;
-    let item = Vault::open(vault_path())?.get_item(id)?;
+    let path = vault_path();
+    let item = Vault::open(path.clone())?
+        .get_item(id)
+        .with_context(|| format!("reading item {id} from the vault at {}", path.display()))?;
     let Some(field) = flags.get("field") else {
         return emit(&item);
     };
     if field.is_empty() || field.chars().any(char::is_control) {
-        bail!("get --field requires one exact field name");
+        bail!("get --field requires one exact field name, got {field:?}");
     }
-    let value = item
-        .get("fields")
-        .and_then(Value::as_object)
-        .and_then(|fields| fields.get(field))
-        .with_context(|| format!("item {id} has no field {field}"))?
-        .as_str()
-        .with_context(|| format!("item {id} field {field} is not text"))?;
+    let fields = item.get("fields").and_then(Value::as_object);
+    let Some(found) = fields.and_then(|fields| fields.get(field)) else {
+        let present: Vec<&str> = fields
+            .map(|fields| fields.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        bail!(
+            "item {id} has no field {field}; its fields are: {}",
+            if present.is_empty() {
+                "none".to_string()
+            } else {
+                present.join(", ")
+            }
+        );
+    };
+    let value = found.as_str().with_context(|| {
+        format!(
+            "item {id} field {field} holds {}, not text; read the whole item with `skarbiec get {id}`",
+            match found {
+                Value::Null => "null",
+                Value::Bool(_) => "a boolean",
+                Value::Number(_) => "a number",
+                Value::Array(_) => "a list",
+                Value::Object(_) => "an object",
+                Value::String(_) => "text",
+            }
+        )
+    })?;
     println!("{value}");
     Ok(())
 }

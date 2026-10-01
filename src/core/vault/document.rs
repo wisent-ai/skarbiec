@@ -62,8 +62,11 @@ impl Vault {
         if !path.exists() {
             bail!("vault not initialized at {} (run: init)", path.display());
         }
-        let doc: Value =
-            serde_json::from_str(&fs::read_to_string(&path)?).context("parse vault file")?;
+        let text = fs::read_to_string(&path)
+            .with_context(|| format!("read vault file {}", path.display()))?;
+        let doc: Value = serde_json::from_str(&text).with_context(|| {
+            format!("parse vault file {}: it is not the JSON document skarbiec writes", path.display())
+        })?;
         let base_generation = document_generation(&doc);
         Ok(Self {
             path,
