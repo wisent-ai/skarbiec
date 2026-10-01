@@ -96,6 +96,14 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
     // of which item each mailbox uses. `skrzynka mailbox declare` writes it,
     // `skrzynka mailbox undeclare` removes it, and every mailbox read filters on it.
     TagNamespace::Exact("skrzynka:mailbox"),
+    // Which kind of record Weles keeps in an item — a trajectory account, a
+    // service credential, a runtime setting, an email-domain status. Weles
+    // lists its records of one kind by this tag and matches the record's own
+    // sealed context, so an item's id is random and decides nothing.
+    TagNamespace::Valued {
+        prefix: "weles:record:",
+        value: "kind",
+    },
 ];
 
 impl TagNamespace {
