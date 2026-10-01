@@ -158,10 +158,16 @@ fn required<'a>(flags: &'a HashMap<String, String>, name: &str, max: usize) -> R
 /// A name the vault already declares is refused rather than written: a hand
 /// row beside a declaration is a second answer to one question, and the table
 /// is the copy that goes stale. That refusal is the whole reason
-/// reconciliation could be deleted instead of renamed.
+/// reconciliation could be deleted instead of renamed. A row names either the
+/// item (`--item`) or the tag the one answering item carries (`--tag`); a
+/// tagged row survives any rename and names nothing an operator chose.
 fn declare(flags: &HashMap<String, String>) -> Result<Value> {
     let resource = required(flags, "resource", MAX_RESOURCE_CHARS)?;
-    let item = required(flags, "item", MAX_NAME_CHARS)?;
+    let (key, value) = match (flags.contains_key("item"), flags.contains_key("tag")) {
+        (true, false) => ("item", required(flags, "item", MAX_NAME_CHARS)?),
+        (false, true) => ("tag", required(flags, "tag", MAX_NAME_CHARS)?),
+        _ => bail!("route declare takes exactly one of --item or --tag"),
+    };
     let field = required(flags, "field", MAX_NAME_CHARS)?;
     let reason = required(flags, "reason", MAX_REASON_CHARS)?;
     if declares_itself(resource) {
@@ -172,7 +178,7 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
     // Opportunistic on purpose: a row may be declared ahead of provisioning,
     // so an unreadable vault leaves the row exactly as it would have been.
     let vault = Vault::open(vault_path()).ok();
-    route_table::write_row(resource, item, field, reason, vault.as_ref())
+    route_table::write_row(resource, key, value, field, reason, vault.as_ref())
 }
 
 /// Whether a name belongs to a vocabulary an item answers for itself: the

@@ -125,6 +125,28 @@ fn declared_tags<'a>(record: &'a Value, prefix: &str) -> Vec<&'a str> {
         .unwrap_or_default()
 }
 
+/// Every live item carrying exactly `tag`, sorted. A capability route that
+/// names a tag instead of an item resolves through this, so no route row
+/// names an item and renaming one changes nothing.
+pub(super) fn tagged_items<'a>(vault: &'a Vault, tag: &str) -> Vec<&'a str> {
+    let Some(items) = items(vault) else {
+        return Vec::new();
+    };
+    let mut found: Vec<&str> = items
+        .iter()
+        .filter(|(_, record)| live(record))
+        .filter(|(_, record)| {
+            record
+                .get("tags")
+                .and_then(Value::as_array)
+                .is_some_and(|tags| tags.iter().any(|each| each.as_str() == Some(tag)))
+        })
+        .map(|(item, _)| item.as_str())
+        .collect();
+    found.sort();
+    found
+}
+
 /// Every item declaring exactly one provider, with the subscription id it
 /// declares when it declares one. An item declaring two of either is ambiguous
 /// and is reported by [`ambiguous`] rather than picked from.

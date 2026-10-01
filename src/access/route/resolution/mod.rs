@@ -11,8 +11,8 @@ use std::collections::HashMap;
 
 use super::coordinate::coordinate;
 use super::declaration::{
-    agent_items, ambiguous, credential_field, login_targets, provider_items, Row, Target,
-    AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX,
+    agent_items, ambiguous, credential_field, login_targets, provider_items, tagged_items, Row,
+    Target, AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX,
 };
 use crate::core::vault::Vault;
 use anyhow::Result;
@@ -79,12 +79,29 @@ pub(super) fn targets(
             "nothing declares {name} and no capability route names it"
         ));
     };
-    let (Some(item), Some(field)) = (
-        entry.get("item").and_then(Value::as_str),
-        entry.get("field").and_then(Value::as_str),
-    ) else {
+    let Some(field) = entry.get("field").and_then(Value::as_str) else {
         return Err(format!(
-            "capability route for {name} must name an item and a field"
+            "capability route for {name} must name an item or a tag, and a field"
+        ));
+    };
+    // A route may name the tag the one answering item carries rather than the
+    // item, so the row survives any rename and names nothing an operator chose.
+    if let Some(tag) = entry.get("tag").and_then(Value::as_str) {
+        return match tagged_items(vault, tag).as_slice() {
+            [item] => Ok(vec![declared(item, field, "tag")]),
+            [] => Err(format!(
+                "capability route for {name} names tag {tag} and no vault item carries it"
+            )),
+            several => Err(format!(
+                "{} vault items carry {tag}, the tag the capability route for {name} names: {}",
+                several.len(),
+                several.join(", ")
+            )),
+        };
+    }
+    let Some(item) = entry.get("item").and_then(Value::as_str) else {
+        return Err(format!(
+            "capability route for {name} must name an item or a tag, and a field"
         ));
     };
     Ok(vec![Target {

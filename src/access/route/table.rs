@@ -184,7 +184,8 @@ fn append_beside(path: &Path, entry: &Value) -> Result<()> {
 /// table and into the hash-chained one.
 pub(super) fn write_row(
     resource: &str,
-    item: &str,
+    key: &str,
+    value: &str,
     field: &str,
     reason: &str,
     vault: Option<&Vault>,
@@ -218,36 +219,37 @@ pub(super) fn write_row(
                 .unwrap_or_default()
                 .to_string()
         };
-        if mapped("item") == item && mapped("field") == field {
+        if mapped(key) == value && mapped("field") == field {
             return Ok(json!({
                 "declared": false,
                 "resource": resource,
-                "item": item,
+                key: value,
                 "field": field,
                 "backup": Value::Null,
             }));
         }
         bail!(
             "capability route {resource} already maps {}#{}: repointing a live route is not a declaration",
-            mapped("item"),
+            if mapped("tag").is_empty() { mapped("item") } else { mapped("tag") },
             mapped("field")
         );
     }
-    // The item's uid beside its name, so verification can say where the item
-    // went rather than only that the name stopped resolving. Opportunistic on
-    // purpose: a row may be declared ahead of provisioning, so an unreadable
-    // vault, an absent item or an item with no uid yet all leave the row
-    // exactly as it would have been written before.
-    let row = match vault {
-        Some(vault) => route_row(vault, item, field),
-        None => json!({"item": item, "field": field}),
+    // An item row carries the item's uid beside its name, so verification can
+    // say where the item went rather than only that the name stopped
+    // resolving. Opportunistic on purpose: a row may be declared ahead of
+    // provisioning, so an unreadable vault, an absent item or an item with no
+    // uid yet all leave the row exactly as it would have been written before.
+    // A tag row names no item at all.
+    let row = match (key, vault) {
+        ("item", Some(vault)) => route_row(vault, value, field),
+        _ => json!({key: value, "field": field}),
     };
     table.insert(resource.to_string(), row);
     let backup = publish(&path, &Value::Object(table))?;
     let record = json!({
         "at": utc(ISO_FORMAT),
         "resource": resource,
-        "item": item,
+        key: value,
         "field": field,
         "reason": reason,
         "backup": backup,
@@ -257,7 +259,7 @@ pub(super) fn write_row(
     Ok(json!({
         "declared": true,
         "resource": resource,
-        "item": item,
+        key: value,
         "field": field,
         "backup": backup,
     }))
