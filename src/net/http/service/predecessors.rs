@@ -20,13 +20,15 @@ use std::collections::BTreeSet;
 pub(crate) const DECLARED_UNIT: &str = "com.wisent.skarbiec";
 
 /// Units whose work runs inside the one process: the catalog's retired units
-/// of Skarbiec, in the same order.
+/// of Skarbiec, in the same order. The capability broker was a second
+/// Skarbiec serving only its capability socket under another account.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-pub(crate) const PREDECESSORS: [&str; 4] = [
+pub(crate) const PREDECESSORS: [&str; 5] = [
     "com.wisent.compute.service.skarbiec-replica-sync",
     "com.wisent.compute.service.skarbiec-control-plane",
     "com.wisent.always-on.skarbiec",
     "com.wisent.compute.service.com.wisent.skarbiec-weles",
+    "com.wisent.skarbiec-capability-broker",
 ];
 
 /// Whether launchd started this process as the fleet's declared unit; a serve
