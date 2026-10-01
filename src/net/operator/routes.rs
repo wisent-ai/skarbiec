@@ -127,6 +127,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["field", "token-file"]),
             &positionals(parsed, &["consumer", "item"])?,
         ),
+        "/v1/operator/grants/narrow" => grant(
+            "narrow",
+            &flags(parsed, &["field"]),
+            &positionals(parsed, &["consumer", "item"])?,
+        ),
         // `--token-file` and never `--token`: the command line offers both, and
         // a loopback body is the one place a bearer must not travel, so a
         // console proves possession through the same owner-only file the
@@ -241,6 +246,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &no_flags,
             &positionals(parsed, &["key", "value"])?,
         ),
+        "/v1/operator/policy/unset" => {
+            access("policy-unset", &no_flags, &positionals(parsed, &["key"])?)
+        }
         "/v1/operator/sync/init" => {
             net("sync-init", &no_flags, &positionals(parsed, &["endpoint"])?)
         }
@@ -250,6 +258,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             "route",
             &flags(parsed, &["resource", "item", "field", "reason"]),
             &["declare".to_string()],
+        ),
+        "/v1/operator/route/withdraw" => access(
+            "route",
+            &flags(parsed, &["resource", "reason"]),
+            &["withdraw".to_string()],
         ),
         _ => bail!("unknown operator route: {path}"),
     }

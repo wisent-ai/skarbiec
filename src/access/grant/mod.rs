@@ -4,8 +4,9 @@
 // one item, an optional exact field, and, for `acquire`, the Ed25519 workload
 // public key that action requires. `grant issue` writes that declaration,
 // `grant capability` issues one bounded redemption of an existing one,
-// `grant ensure` widens one by a single exact field read, `grant list` reports
-// them, `grant verify` asks one exact question, and `grant revoke` withdraws.
+// `grant ensure` widens one by a single exact field read, `grant narrow` takes
+// one such read out again, `grant list` reports them, `grant verify` asks one
+// exact question, and `grant revoke` withdraws.
 //
 // Six leaves replaced seven verbs -- `token-mint`, `token-ensure-read`,
 // `token-revoke`, `token-verify`, `tokens`, `capability-issue` and `invite` --
@@ -27,6 +28,7 @@ use std::path::Path;
 mod issue;
 mod leaves;
 mod lookup;
+mod narrow;
 mod rules;
 
 pub(crate) use lookup::live_grants;

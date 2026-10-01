@@ -56,7 +56,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("remove-user", "skarbiec remove-user <uid> --yes", "Remove one person from every item, every historical revision and the recipient registry; without --yes nothing changes."),
     row("users", "skarbiec users", "List the vault's registered recipients."),
     row("export-key", "skarbiec export-key <uid>", "Export one registered recipient's public key."),
-    group("grant", "skarbiec grant help", "Issue, bound, widen, list, check and withdraw consumer grants; `skarbiec grant help` lists the subcommands."),
+    group("grant", "skarbiec grant help", "Issue, bound, widen, narrow, list, check and withdraw consumer grants; `skarbiec grant help` lists the subcommands."),
     row("acquisition-request", "skarbiec acquisition-request <consumer> <item> <field> --workload-id <id> --workload-timestamp <epoch> --workload-nonce <nonce> --workload-signature <hex>", "Verify a workload's signed proof and issue a short-lived one-use capability for one field."),
     row("acquisition-read", "skarbiec acquisition-read <consumer> <item> <field> --token-file <path>", "Consume one acquisition token, read from an owner-only file, and return only its bound field."),
     row("key-doctor", "skarbiec key-doctor", "Report whether any key on this host can still open the vault, reading vault and keyring directly."),

@@ -47,6 +47,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/rotation/run"
             | "/v1/operator/grants/issue"
             | "/v1/operator/grants/ensure"
+            | "/v1/operator/grants/narrow"
             | "/v1/operator/grants/revoke"
             | "/v1/operator/donations/accept"
             | "/v1/operator/donations/reject"
@@ -56,10 +57,12 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/emergency/activate"
             | "/v1/operator/recovery/drill"
             | "/v1/operator/policy/set"
+            | "/v1/operator/policy/unset"
             | "/v1/operator/sync/init"
             | "/v1/operator/sync/push"
             | "/v1/operator/sync/pull"
             | "/v1/operator/route/declare"
+            | "/v1/operator/route/withdraw"
     )
 }
 

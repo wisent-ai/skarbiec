@@ -54,6 +54,23 @@ pub(in crate::access::grant) fn group(
                 }
             }
         }
+        "narrow" => {
+            let usage = "usage: grant narrow <consumer> <item> --field <field>";
+            let consumer = positionals.first().or_usage(usage)?;
+            let item = positionals.get(std::iter::once(()).count()).or_usage(usage)?;
+            let field = flags.get("field").or_usage("--field is required")?;
+            let mut attempt = 0u32;
+            loop {
+                attempt += 1;
+                match super::narrow::narrow_read_once(consumer, item, field) {
+                    Ok(report) => return Ok(Some(report)),
+                    // A concurrent writer won; the next attempt re-reads its
+                    // generation and removes the capability from it.
+                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
         "issue" => {
             let consumer = positionals
                 .first()
@@ -155,6 +172,7 @@ pub(in crate::access::grant) fn group(
                 "grant issue <consumer> --capabilities <action:item[#field],...> [--workload-public-key-file <path>] [--token-file <path>] [--ttl-seconds <N>] [--audience <name>] [--replace-capabilities]",
                 "grant capability --agent <name> --purpose <text> --resource <resource> --target <name> [--ttl <seconds>] [--max-uses <1..16>] [--authorization-id <id>]",
                 "grant ensure <consumer> <item> --field <field> --token-file <path>",
+                "grant narrow <consumer> <item> --field <field>",
                 "grant list",
                 "grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer> | --token-file <path>",
                 "grant revoke <consumer>",
