@@ -4,7 +4,7 @@
 //! A host kept up to five Skarbiec processes: this service, a second `serve`
 //! for the control plane, the keychain launcher's `serve`, a `serve` of the
 //! retired Weles-only vault, and the removed `sync-daemon`. Started as
-//! `com.wisent.always-on.skarbiec`, the one process records the replica
+//! `com.wisent.skarbiec`, the one process records the replica
 //! daemon's bearer file and consumer on its bond, notes the loopback ports
 //! every predecessor was listening on, boots each unit out and removes its
 //! launch agent, and then listens on those ports itself: a consumer still
@@ -16,15 +16,16 @@
 
 use std::collections::BTreeSet;
 
-/// The label the fleet runs the one Skarbiec process under.
-pub(crate) const DECLARED_UNIT: &str = "com.wisent.always-on.skarbiec";
+/// The one unit the fleet runs Skarbiec under, as the Stado catalog names it.
+pub(crate) const DECLARED_UNIT: &str = "com.wisent.skarbiec";
 
-/// Units whose work runs inside the one process.
+/// Units whose work runs inside the one process: the catalog's retired units
+/// of Skarbiec, in the same order.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) const PREDECESSORS: [&str; 4] = [
     "com.wisent.compute.service.skarbiec-replica-sync",
     "com.wisent.compute.service.skarbiec-control-plane",
-    "com.wisent.skarbiec",
+    "com.wisent.always-on.skarbiec",
     "com.wisent.compute.service.com.wisent.skarbiec-weles",
 ];
 
