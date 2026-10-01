@@ -73,6 +73,9 @@ fn run() -> Result<()> {
     argv.next();
     let command = argv.next().unwrap_or_else(|| "help".to_string());
     let mut rest: Vec<String> = argv.collect();
+    // `--text` renders any result for a person instead of as JSON; it is
+    // taken out here so the flag parser never pairs it with the next word.
+    cli::args::take_text_switch(&mut rest);
     // `--help` and `-h` ask for help at every level and never run the command
     // they follow: `skarbiec purge <id> --help` used to purge, because the flag
     // parser took `--help` for one more option. Help is text for a person;

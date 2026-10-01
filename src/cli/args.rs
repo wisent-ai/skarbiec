@@ -76,7 +76,67 @@ pub(crate) fn flag_set(flags: &HashMap<String, String>, name: &str) -> bool {
     flags.get(name).map(|v| v == "true").unwrap_or(false)
 }
 
+/// Whether this invocation asked for text: `main` takes `--text` out of the
+/// arguments before any command parses them, so no command has to know it.
+/// A `OnceLock`, because the answer is runtime input, not a known initializer.
+static TEXT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Remove `--text` from the command line and remember that it was there.
+pub(crate) fn take_text_switch(rest: &mut Vec<String>) {
+    let asked = rest.iter().any(|word| word == "--text");
+    rest.retain(|word| word != "--text");
+    let _ = TEXT.set(asked);
+}
+
+/// Print one result: JSON for machines by default, the same document as
+/// indented `key: value` lines for people with `--text`.
 pub(crate) fn emit(value: &Value) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
+    if TEXT.get().copied().unwrap_or(false) {
+        let mut text = String::new();
+        render(value, 0, &mut text);
+        print!("{text}");
+    } else {
+        println!("{}", serde_json::to_string_pretty(value)?);
+    }
     Ok(())
+}
+
+fn scalar(value: &Value) -> Option<String> {
+    match value {
+        Value::Null => Some("none".to_string()),
+        Value::String(text) => Some(text.clone()),
+        Value::Bool(_) | Value::Number(_) => Some(value.to_string()),
+        Value::Array(items) if items.is_empty() => Some("(none)".to_string()),
+        Value::Object(fields) if fields.is_empty() => Some("(none)".to_string()),
+        Value::Array(_) | Value::Object(_) => None,
+    }
+}
+
+fn render(value: &Value, depth: usize, out: &mut String) {
+    let pad = "  ".repeat(depth);
+    match value {
+        Value::Object(fields) if !fields.is_empty() => {
+            for (key, field) in fields {
+                match scalar(field) {
+                    Some(text) => out.push_str(&format!("{pad}{key}: {text}\n")),
+                    None => {
+                        out.push_str(&format!("{pad}{key}:\n"));
+                        render(field, depth + 1, out);
+                    }
+                }
+            }
+        }
+        Value::Array(items) if !items.is_empty() => {
+            for item in items {
+                match scalar(item) {
+                    Some(text) => out.push_str(&format!("{pad}- {text}\n")),
+                    None => {
+                        out.push_str(&format!("{pad}-\n"));
+                        render(item, depth + 1, out);
+                    }
+                }
+            }
+        }
+        other => out.push_str(&format!("{pad}{}\n", scalar(other).unwrap_or_default())),
+    }
 }
