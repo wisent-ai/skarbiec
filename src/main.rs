@@ -56,11 +56,44 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
     )
 }
 
+// The advertised list is the contract: a command that is dispatchable but
+// absent here is private, and no caller can be told to rely on it. The
+// release classifier compares exactly this surface, so `version` had to
+// arrive here as well as in the dispatcher before docs could point at it.
+// `--help` reads the groups from here as well.
+fn help_listing() -> Value {
+    json!({"groups": ["grant","route","credential","rotation"], "commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","duplicates","stamp-fingerprints","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","remove-user","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","route","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-status","bond-add","bond-list","bond-remove","capability-status","credential","rotation","apple-challenge-put","version"]})
+}
+
 fn main() -> Result<()> {
     let mut argv = std::env::args();
     argv.next();
-    let command = argv.next().unwrap_or_else(|| "help".to_string());
-    let rest: Vec<String> = argv.collect();
+    let mut command = argv.next().unwrap_or_else(|| "help".to_string());
+    let mut rest: Vec<String> = argv.collect();
+    // `--help` and `-h` ask for help at every level and never run the command
+    // they follow: `skarbiec purge <id> --help` used to purge, because the flag
+    // parser took `--help` for one more option.
+    if matches!(command.as_str(), "--help" | "-h") {
+        command = "help".to_string();
+    }
+    if rest.iter().any(|word| word == "--help" || word == "-h") {
+        let listing = help_listing();
+        let is_group = listing["groups"]
+            .as_array()
+            .is_some_and(|groups| groups.iter().any(|group| group == command.as_str()));
+        if is_group {
+            rest = vec!["help".to_string()];
+        } else if command != "help" && command != "import" {
+            // `import --help` is answered by the importer with its own usage,
+            // formats and limits; every other command is answered here.
+            return emit(&json!({
+                "command": command,
+                "help": format!(
+                    "skarbiec {command} was not run. Its invocation, inputs, effects and refusals are on https://skarbiec.wisent.com/docs under {command}; `skarbiec help` lists every command"
+                ),
+            }));
+        }
+    }
     let (flags, positionals) = parse_args(&rest);
 
     match command.as_str() {
@@ -90,13 +123,7 @@ fn main() -> Result<()> {
         "migrate-v2" => emit(&items::migrate_v2(&flags)?),
         "export" => cmd_export(&flags, &positionals),
         "onboarding" => emit(&onboarding::run(&flags)?),
-        // The advertised list is the contract: a command that is dispatchable but
-        // absent here is private, and no caller can be told to rely on it. The
-        // release classifier compares exactly this surface, so `version` had to
-        // arrive here as well as in the dispatcher before docs could point at it.
-        "help" => emit(
-            &json!({"groups": ["grant","route","credential","rotation"], "commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","duplicates","stamp-fingerprints","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","remove-user","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","route","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-status","bond-add","bond-list","bond-remove","capability-status","credential","rotation","apple-challenge-put","version"]}),
-        ),
+        "help" => emit(&help_listing()),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
         "browser-host-install" => emit(&browser::install_host(&flags)?),
