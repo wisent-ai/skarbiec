@@ -45,9 +45,9 @@ pub fn random_token() -> Result<String> {
 /// In process, because this is how a bearer is verified on EVERY
 /// authenticated route. As a `shasum` child it took a slot in the same
 /// bounded pool the gpg decryptions use, so a request that hashes one string
-/// waited behind work it has nothing to do with: on 2026-09-05 a grant
-/// metadata call took 14.4s and `GET /readyz` 9.7s for exactly that reason,
-/// and verifying a 74,859-line audit chain cost one process per line.
+/// waited behind work it has nothing to do with: a grant metadata call took
+/// over ten seconds and `GET /readyz` nearly as long for exactly that
+/// reason, and verifying a long audit chain cost one process per line.
 pub fn sha256_hex(input: &str) -> Result<String> {
     use sha2::Digest;
     let digest = sha2::Sha256::digest(input.as_bytes());

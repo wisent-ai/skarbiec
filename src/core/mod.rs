@@ -33,9 +33,9 @@ thread_local! {
 /// location in Stado (`secrets.skarbiec.vault_file`); every unit Stado
 /// renders receives it as `SKARBIEC_VAULT_FILE`. A bare `skarbiec` in an
 /// operator's or an agent's shell received nothing and used the default, so
-/// on 2026-09-16 one laptop held two vaults under one owner - 663 items at
-/// the declared path, 661 at the default - and which one a command read
-/// depended on who had launched it. Reading the declaration here ends that:
+/// one laptop could hold two vaults under one owner - nearly identical item
+/// counts at the declared path and at the default - and which one a command
+/// read depended on who had launched it. Reading the declaration here ends that:
 /// the same file answers a service and a shell.
 pub fn vault_path() -> PathBuf {
     if let Some(path) = REQUEST_VAULT.with(|cell| cell.borrow().clone()) {

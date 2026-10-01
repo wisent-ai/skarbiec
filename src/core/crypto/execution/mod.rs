@@ -63,11 +63,11 @@ pub(super) fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<S
         // `gpg: public key decryption failed: Broken pipe`.
         //
         // The generation then advances because recovery was ATTEMPTED, not
-        // because it reported success. On 2026-09-03 a wedged keyboxd on the
-        // always-on Mac made `gpgconf --launch` time out, this call returned
-        // the error, and `?` propagated it without retrying — so every later
-        // read repeated the identical failing sequence and a 641-item vault
-        // answered 503 until a person intervened. A recovery that cannot
+        // because it reported success. A wedged keyboxd that makes `gpgconf
+        // --launch` time out has this call return the error, and `?`
+        // propagating it without retrying means every later read repeats
+        // the identical failing sequence and the whole vault answers 503
+        // until a person intervenes. A recovery that cannot
         // complete must still let the next request try something else.
         let recovery = {
             let _exclusive = GPG_LIMIT.acquire_exclusive();
@@ -99,12 +99,12 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     // eight of those hold the whole pool. Every cheap tool then queues behind
     // decryptions it has nothing to do with: `shasum`, which is how a bearer
     // is verified on EVERY authenticated route, and `openssl`, which is how a
-    // token is minted. On 2026-09-05 the fleet's four verifier sweeps read 48
-    // mapped items through one broker while the queue agent asked it for the
-    // metadata of its own grant — a call that decrypts nothing — and that
-    // metadata call took 14.4s, `GET /readyz` on the same broker 9.7s, and
-    // Stado's `agent-skarbiec` check reported `not measured` about a broker
-    // answering every request with 200.
+    // token is minted. Several verifier sweeps reading dozens of mapped
+    // items through one broker while the queue agent asks it for the
+    // metadata of its own grant — a call that decrypts nothing — make that
+    // metadata call take over ten seconds, `GET /readyz` on the same broker
+    // nearly as long, and Stado's `agent-skarbiec` check report `not
+    // measured` about a broker answering every request with 200.
     //
     // One order everywhere, so the two limits cannot deadlock against each
     // other: `acquire_exclusive` on the GnuPG limit is also taken before any

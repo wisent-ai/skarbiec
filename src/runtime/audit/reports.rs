@@ -42,8 +42,7 @@ pub fn probe() -> Result<()> {
 ///
 /// - **Linkage** - each line's recorded predecessor is the line before it.
 ///   Two string comparisons, no hashing, so it always covers the whole
-///   journal. This is the property a second writer breaks, and the one that
-///   actually broke here on 2026-07-30.
+///   journal. This is the property a second writer breaks.
 /// - **Digest** - the line's own fields still hash to the hash it carries.
 ///   This is the property a retroactive edit breaks, and it costs one
 ///   `shasum` process per line: 74,859 entries take about fifteen minutes.

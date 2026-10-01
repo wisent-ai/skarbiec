@@ -41,11 +41,11 @@ so a decryption waiting its turn on the keyring holds no capacity anything
 else needs. Taken the other way round, eight parked `gpg` children own the
 whole general pool and every cheap tool queues behind them — `shasum`, which
 verifies the bearer on every authenticated route, and `openssl`, which mints a
-token. On 2026-09-05 a fleet host's four verifier sweeps read 48 mapped items
-through one broker while a queue agent asked it for the metadata of its own
-grant: that call decrypts nothing and took 14.4s, `GET /readyz` on the same
-broker took 9.7s, and the fleet's own check reported the broker unmeasured
-while it answered every request with 200.
+token. Several verifier sweeps reading dozens of mapped items through one
+broker while a queue agent asks it for the metadata of its own grant make
+that call — which decrypts nothing — take over ten seconds, `GET /readyz`
+on the same broker nearly as long, and the fleet's own check report the
+broker unmeasured while it answers every request with 200.
 
 `/readyz` decrypts its canaries, so it waits for GnuPG capacity by design;
 `/livez` and the metadata routes do not.
@@ -188,8 +188,8 @@ registry binds the account to — and then
 refuses the create without. `profile` runs it when the bundle id has no record;
 `app-record` runs it alone. The trusted session's cookies stay owner-only under
 `~/.stado/work`, so a second run inside Apple's trust window signs in without a
-prompt. It has run: app `6807934112` for `ai.wisent.jeden` was created this way
-on 2026-09-02, and the first `jeden-ios` build reached TestFlight the same day.
+prompt. It has run: an app record and its first iOS build reached TestFlight
+this way the same day.
 
 Three vault items hold this one Apple ID and two of them were stale, which is
 why the Weles Apple trajectory had never completed: a password nothing checks is
