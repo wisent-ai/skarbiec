@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use cli::args::{emit, parse_args, OrUsage, Usage};
-use cli::items::{cmd_backfill_item_uids, cmd_rename, cmd_retag, cmd_set, cmd_set_json};
+use cli::items::{cmd_backfill_item_uids, cmd_rename, cmd_retag, cmd_set_json};
 use cli::reads::{
     cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore,
     cmd_restore_version, cmd_stamp_fingerprints,
@@ -115,7 +115,6 @@ fn run() -> Result<()> {
         }
         "vaults" => emit(&runtime::vaults::inventory()?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
-        "set" => cmd_set(&flags, &positionals),
         "get" => cmd_get(&flags, &positionals),
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),

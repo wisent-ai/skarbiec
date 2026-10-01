@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::io::Read;
 
 use crate::core::vault::Vault;
-use crate::core::{items, schema, vault_path};
+use crate::core::{schema, vault_path};
 
 use super::args::{emit, flag_set, OrUsage};
 
@@ -108,27 +108,6 @@ fn requested_or_existing(
                 .collect()
         })
         .unwrap_or_default()
-}
-
-pub(crate) fn cmd_set(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
-    let id = positionals
-        .first()
-        .or_usage("usage: set <id> [--type <canonical-kind>] k=v ...")?;
-    let item_kind = flags.get("type").map(String::as_str).unwrap_or("login");
-    let mut vault = Vault::open(vault_path())?;
-    ensure_owner_set_allowed(&vault, id)?;
-    let fields: Vec<String> = positionals
-        .iter()
-        .skip(std::iter::once(()).count())
-        .cloned()
-        .collect();
-    let payload = items::build_item(item_kind, &fields)?;
-    let recipients = requested_or_existing(flags, &vault, id, "recipients");
-    let tags = requested_or_existing(flags, &vault, id, "tags");
-    ensure_no_reserved_tags(&tags)?;
-    let writer = vault.owner_uid().to_string();
-    vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
-    emit(&json!({"ok": true, "id": id, "kind": item_kind}))
 }
 
 /// `--if-absent` creates the item only when no live item has that id; an

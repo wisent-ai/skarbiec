@@ -31,7 +31,6 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("recover-daemons", "skarbiec recover-daemons", "Replace the account's keyboxd, gpg-agent and scdaemon through gpgconf and report what each held before."),
     row("vaults", "skarbiec vaults", "Inventory the Skarbiec vault files in this host's conventional locations without decrypting them."),
     row("init", "skarbiec init <owner-uid>", "Create a new vault with an owner recipient and a separate recovery recipient."),
-    row("set", "skarbiec set <id> [--type <canonical-kind>] [--recipients <uid,...>] [--tags <tag,...>] <field=value>...", "Write a schema-validated typed item from field=value arguments."),
     row("set-json", "skarbiec set-json <id> [--type <canonical-kind>] [--recipients <uid,...>] [--tags <tag,...>] [--if-absent]  (payload on stdin)", "Write one canonical item payload read from stdin, so no value appears in argv."),
     row("get", "skarbiec get <id> [--field <field>]", "Decrypt one item for its owner, or return one exact text field."),
     row("list", "skarbiec list [--all]", "List item metadata without credential values; --all includes trashed items."),
