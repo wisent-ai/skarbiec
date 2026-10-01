@@ -65,7 +65,10 @@ impl Vault {
         let text = fs::read_to_string(&path)
             .with_context(|| format!("read vault file {}", path.display()))?;
         let doc: Value = serde_json::from_str(&text).with_context(|| {
-            format!("parse vault file {}: it is not the JSON document skarbiec writes", path.display())
+            format!(
+                "parse vault file {}: it is not the JSON document skarbiec writes",
+                path.display()
+            )
         })?;
         let base_generation = document_generation(&doc);
         Ok(Self {
