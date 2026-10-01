@@ -7,11 +7,9 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
-use std::time::{Duration, Instant};
-
 use super::super::common::{client_identity, exact_name, purpose, resume_handles};
 use super::super::directory::expectation_body;
-use super::super::{CREDENTIAL_OPERATIONS_PATH, TERMINAL_STATUSES};
+use super::super::CREDENTIAL_OPERATIONS_PATH;
 use super::endpoint::{
     canonical_endpoint, endpoint_authority, forwards_dir, stale_service_directory,
 };
@@ -170,8 +168,8 @@ pub(in crate::credential) fn remote_status(
     flags: &HashMap<String, String>,
     args: &[String],
 ) -> Result<Value> {
-    let allowed = ["as", "token-file", "follow"];
-    let usage = "usage: credential status <item-id> [--follow] --as <caller> --token-file <path>";
+    let allowed = ["as", "token-file"];
+    let usage = "usage: credential status <item-id> --as <caller> --token-file <path>; it reads once and reports settled";
     if flags.keys().any(|key| !allowed.contains(&key.as_str())) {
         bail!("{usage}");
     }
@@ -179,40 +177,6 @@ pub(in crate::credential) fn remote_status(
     exact_name("credential item id", credential_id, "200".parse()?)?;
     let (caller, token) = client_identity(flags)?;
     let path = format!("{CREDENTIAL_OPERATIONS_PATH}/{credential_id}");
-    if !flags.get("follow").is_some_and(|value| value == "true") {
-        return canonical_call("GET", &path, None, &caller, &token);
-    }
-    // The canonical Skarbiec owns the poll; following it is exactly the same
-    // call repeated until the operation leaves `pending`.
-    let interval = Duration::from_secs("5".parse()?);
-    let limit = Duration::from_secs("1800".parse()?);
-    let started = Instant::now();
-    loop {
-        let snapshot = canonical_call("GET", &path, None, &caller, &token)?;
-        let current = snapshot
-            .get("status")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        if current != "pending" {
-            let mut settled = snapshot;
-            settled
-                .as_object_mut()
-                .context("credential status is not an object")?
-                .insert(
-                    "follow_settled".to_string(),
-                    Value::Bool(TERMINAL_STATUSES.contains(&current.as_str())),
-                );
-            return Ok(settled);
-        }
-        if started.elapsed().saturating_add(interval) > limit {
-            let mut timed_out = snapshot;
-            timed_out
-                .as_object_mut()
-                .context("credential status is not an object")?
-                .insert("follow_timed_out".to_string(), Value::Bool(true));
-            return Ok(timed_out);
-        }
-        std::thread::sleep(interval);
-    }
+    let snapshot = canonical_call("GET", &path, None, &caller, &token)?;
+    crate::credential::status::with_settled(snapshot)
 }

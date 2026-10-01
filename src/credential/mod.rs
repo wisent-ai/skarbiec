@@ -147,7 +147,8 @@ pub(super) const ROLLBACK_STATUSES: &[&str] = &["none", "completed", "failed", "
 // never retried: it quarantines the item.
 pub(super) const PROVIDER_EFFECTS: &[&str] = &["none", "changed", "unknown"];
 
-// Request states that end a `credential status --follow` watch.
+// Request states no later read can change: `credential status` reports
+// `settled: true` for them, so a caller knows whether reading again can help.
 pub(super) const TERMINAL_STATUSES: &[&str] = &[
     "completed",
     "operation_failed",
@@ -244,7 +245,7 @@ pub fn dispatch(
                 "credential status",
                 "credential declare-endpoint"
             ],
-            "usage": "credential <acquire|rotate|reset|verify|remove|reauth> <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; reauth accepts a named login item and delegates browser authentication to Weles while Skarbiec remains the operation owner; an item named after a generic provider slug acquires that provider's api_key with no sealed contract; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id> [--follow]; credential declare-endpoint …",
+            "usage": "credential <acquire|rotate|reset|verify|remove|reauth> <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; reauth accepts a named login item and delegates browser authentication to Weles while Skarbiec remains the operation owner; an item named after a generic provider slug acquires that provider's api_key with no sealed contract; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id>; credential declare-endpoint …",
             "wire": WIRE_VERSION,
             "item_states": ITEM_STATES,
             "provider_effects": PROVIDER_EFFECTS,
