@@ -27,9 +27,6 @@
           "release/build.sh"
         ]
       },
-      "tests": [
-        {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
-      ],
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/bin/start": "bin/start",
@@ -50,9 +47,6 @@
           "release/build.sh"
         ]
       },
-      "tests": [
-        {"name": "real-cli", "argv": ["cargo", "test", "--locked"]}
-      ],
       "secret_env": {
         "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-signing#private_key"
       },

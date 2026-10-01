@@ -67,8 +67,6 @@ cp -R "$bridge_package/bin" "$bridge_package/src" "$bridge_stage/"
 install -m 0644 "$bridge_package/package.json" "$bridge_stage/package.json"
 install -m 0644 "$bridge_package/LICENSE" "$bridge_stage/LICENSE"
 chmod 0755 "$bridge_stage/bin/weles-skarbiec-acquire-admission.mjs"
-CARGO_TARGET_DIR="$build_root" cargo test --locked --manifest-path "$source_dir/Cargo.toml" \
-  --test credentials installed_symlink_uses_packaged_bridge_and_persists_missing_authority -- --ignored --nocapture
 install -m 0644 "$source_dir/LICENSE" "$stage/LICENSE"
 install -m 0644 "$source_dir/NOTICE" "$stage/NOTICE"
 

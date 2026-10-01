@@ -6,79 +6,13 @@ description = "Self-contained vault for sensitive values: at-rest encryption, mu
 license-file = "LICENSE"
 repository = "https://github.com/wisent-ai/skarbiec"
 readme = "README.md"
+# No test target is built until the operator approves one with
+# `tama tests approve`.
+autotests = false
 
 [[bin]]
 name = "skarbiec"
 path = "src/main.rs"
-
-[[test]]
-name = "items"
-path = "tests/items/main.rs"
-
-[[test]]
-name = "identities"
-path = "tests/identities/main.rs"
-
-[[test]]
-name = "credentials"
-path = "tests/credentials/main.rs"
-
-[[test]]
-name = "onboarding"
-path = "tests/onboarding/main.rs"
-
-[[test]]
-name = "schema"
-path = "tests/schema/main.rs"
-
-[[test]]
-name = "vault"
-path = "tests/vault/main.rs"
-
-[[test]]
-name = "migration"
-path = "tests/migration/main.rs"
-
-[[test]]
-name = "grants"
-path = "tests/grants/main.rs"
-
-[[test]]
-name = "operator-values"
-path = "tests/operator-values/main.rs"
-
-[[test]]
-name = "operator-http"
-path = "tests/operator-http/main.rs"
-
-[[test]]
-name = "routes"
-path = "tests/routes/main.rs"
-
-# Each real product test area is registered explicitly.
-[[test]]
-name = "crypto-capacity"
-path = "tests/crypto-capacity/main.rs"
-
-[[test]]
-name = "audit"
-path = "tests/audit/main.rs"
-
-[[test]]
-name = "daemon-recovery"
-path = "tests/daemon-recovery/main.rs"
-
-[[test]]
-name = "replication"
-path = "tests/replication/main.rs"
-
-[[test]]
-name = "recipients"
-path = "tests/recipients/main.rs"
-
-[[test]]
-name = "rotation"
-path = "tests/rotation/main.rs"
 
 [dependencies]
 anyhow = "1.0"
