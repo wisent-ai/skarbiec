@@ -75,8 +75,8 @@ function requestFill(loginId, passwordField) {
 }
 
 function chooseAndFill(logins, passwordField) {
-  if (logins.length === Number("1")) {
-    requestFill(logins[Number("0")].id, passwordField);
+  if (logins.length === 1) {
+    requestFill(logins[0].id, passwordField);
     return;
   }
   const menu = document.createElement("div");
@@ -130,7 +130,7 @@ function offerFill(passwordField) {
   chrome.runtime.sendMessage(
     { type: "skarbiec-list", domain: location.hostname },
     (reply) => {
-      if (reply && reply.ok && reply.logins && reply.logins.length > Number("0")) {
+      if (reply && reply.ok && reply.logins && reply.logins.length > 0) {
         chooseAndFill(reply.logins, passwordField);
       }
     },
@@ -165,8 +165,8 @@ function attachBadge(passwordField) {
   });
   const place = () => {
     const rect = passwordField.getBoundingClientRect();
-    badge.style.top = `${rect.top + window.scrollY + (rect.height - badge.offsetHeight) / Number("2")}px`;
-    badge.style.left = `${rect.right + window.scrollX - badge.offsetWidth - Number("6")}px`;
+    badge.style.top = `${rect.top + window.scrollY + (rect.height - badge.offsetHeight) / 2}px`;
+    badge.style.left = `${rect.right + window.scrollX - badge.offsetWidth - 6}px`;
   };
   badge.addEventListener("click", (event) => {
     event.preventDefault();

@@ -59,7 +59,7 @@ function loginRow(tab, login) {
 
 async function activeTab() {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-  return tabs[Number("0")];
+  return tabs[0];
 }
 
 async function main() {
@@ -75,7 +75,7 @@ async function main() {
       showStatus(`Skarbiec unavailable: ${detail}`);
       return;
     }
-    if (!reply.logins || reply.logins.length === Number("0")) {
+    if (!reply.logins || reply.logins.length === 0) {
       showStatus(`No logins in the vault for ${host}.`);
       return;
     }

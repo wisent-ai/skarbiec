@@ -23,7 +23,7 @@ function ensurePort() {
   port.onDisconnect.addListener(() => {
     const error = chrome.runtime.lastError;
     port = null;
-    while (pending.length > Number("0")) {
+    while (pending.length > 0) {
       const next = pending.shift();
       next.resolve({
         ok: false,
