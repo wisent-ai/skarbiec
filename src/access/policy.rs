@@ -133,6 +133,18 @@ pub fn dispatch(
             crate::runtime::audit::append("policy-set", &json!({"key": key}))?;
             Ok(Some(json!({"ok": true, "key": key})))
         }
+        // The inverse of policy-set: withdraw one rule. A key that is not set
+        // is the state asked for, reported rather than refused.
+        "policy-unset" => {
+            let key = positionals.first().context("usage: policy-unset <key>")?;
+            let mut vault = load()?;
+            let removed = ensure_section(vault.doc_mut(), "policy").remove(key.as_str()).is_some();
+            if removed {
+                vault.save()?;
+                crate::runtime::audit::append("policy-unset", &json!({"key": key}))?;
+            }
+            Ok(Some(json!({"ok": true, "key": key, "removed": removed})))
+        }
         "policy-get" => {
             let vault = load()?;
             Ok(Some(
