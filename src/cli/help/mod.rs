@@ -43,7 +43,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("delete", "skarbiec delete <id>", "Move an owner-controlled item to recoverable trash."),
     row("reclaim", "skarbiec reclaim <id>", "Return an item from external writer control to owner control."),
     row("restore", "skarbiec restore <id>", "Restore a trashed owner-controlled item to the live inventory."),
-    row("purge", "skarbiec purge <id>", "Permanently remove a trashed owner-controlled item."),
+    row("purge", "skarbiec purge <id> --yes", "Permanently remove a trashed owner-controlled item and every saved version; without --yes nothing is removed."),
     row("restore-version", "skarbiec restore-version <id> <at>", "Make the historical revision recorded at <at> the item's new current revision."),
     row("generate", "skarbiec generate --length <N> [--lower] [--upper] [--digits] [--symbols] | --passphrase --words <N> [--separator <text>]", "Generate a password or a word-list passphrase locally."),
     row("import", "skarbiec import <export-file> [--format auto|canonical|1password|bitwarden|browser-csv] [--conflict keep|replace|error]", "Seed the vault from a password-manager, browser or canonical Skarbiec export."),

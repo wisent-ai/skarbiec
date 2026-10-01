@@ -127,7 +127,7 @@ fn run() -> Result<()> {
         "delete" => emit(&cmd_delete(&positionals)?),
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => emit(&cmd_restore(&positionals)?),
-        "purge" => emit(&cmd_purge(&positionals)?),
+        "purge" => emit(&cmd_purge(&positionals, cli::args::flag_set(&flags, "yes"))?),
         "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
         "import" => emit(&core::importer::run(&flags, &positionals)?),

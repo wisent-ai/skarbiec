@@ -34,10 +34,19 @@ pub(crate) fn cmd_restore(positionals: &[String]) -> Result<Value> {
     Ok(json!({"ok": true}))
 }
 
-pub(crate) fn cmd_purge(positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().or_usage("usage: purge <id>")?;
+/// Remove an item and every saved version for good. Nothing undoes it, so the
+/// CLI needs `--yes` (`confirmed`); the operator API passes `true` because the
+/// desktop's own Purge Permanently dialog is the confirmation it sends.
+pub(crate) fn cmd_purge(positionals: &[String], confirmed: bool) -> Result<Value> {
+    let id = positionals.first().or_usage("usage: purge <id> --yes")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
+    if !confirmed {
+        bail!(
+            "purge would remove {id} and every saved version of it for good; nothing was removed. \
+             Rerun with --yes to purge it, or restore {id} to keep it"
+        );
+    }
     vault.purge_item(id)?;
     Ok(json!({"ok": true}))
 }
