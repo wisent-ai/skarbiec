@@ -3,6 +3,7 @@
 // the same way for all of them.
 
 pub(crate) mod args;
+pub(crate) mod help;
 pub(crate) mod items;
 pub(crate) mod reads;
 pub(crate) mod tools;

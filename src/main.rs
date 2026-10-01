@@ -56,42 +56,26 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
     )
 }
 
-// The advertised list is the contract: a command that is dispatchable but
-// absent here is private, and no caller can be told to rely on it. The
-// release classifier compares exactly this surface, so `version` had to
-// arrive here as well as in the dispatcher before docs could point at it.
-// `--help` reads the groups from here as well.
-fn help_listing() -> Value {
-    json!({"groups": ["grant","route","credential","rotation"], "commands": ["status","doctor","recover-daemons","vaults","init","set","set-json","get","list","duplicates","stamp-fingerprints","retag","rename","backfill-item-uids","delete","reclaim","restore","purge","restore-version","generate","import","migrate","migrate-v2","add-user","rotate-owner","share","revoke","remove-user","users","export-key","grant","acquisition-request","acquisition-read","key-doctor","recovery-status","recovery-drill","emergency-grant","emergency-cancel","emergency-list","emergency-activate","policy-set","policy-get","policy-check-length","audit","audit-query","audit-epoch-start","verify-chain","route","totp","totp-seed-state","breach-check","sync-init","sync-push","sync-pull","pull","donate","donations","donation-accept","donation-reject","enroll","sync-status","maintain","bond-add","bond-list","bond-remove","capability-status","credential","rotation","apple-challenge-put","version"]})
-}
-
 fn main() -> Result<()> {
     let mut argv = std::env::args();
     argv.next();
-    let mut command = argv.next().unwrap_or_else(|| "help".to_string());
+    let command = argv.next().unwrap_or_else(|| "help".to_string());
     let mut rest: Vec<String> = argv.collect();
     // `--help` and `-h` ask for help at every level and never run the command
     // they follow: `skarbiec purge <id> --help` used to purge, because the flag
-    // parser took `--help` for one more option.
+    // parser took `--help` for one more option. Help is text for a person;
+    // `skarbiec help` is the same inventory as JSON for machines.
     if matches!(command.as_str(), "--help" | "-h") {
-        command = "help".to_string();
+        cli::help::print_overview();
+        return Ok(());
     }
     if rest.iter().any(|word| word == "--help" || word == "-h") {
-        let listing = help_listing();
-        let is_group = listing["groups"]
-            .as_array()
-            .is_some_and(|groups| groups.iter().any(|group| group == command.as_str()));
-        if is_group {
+        if cli::help::is_group(&command) {
             rest = vec!["help".to_string()];
         } else if command != "help" && command != "import" {
             // `import --help` is answered by the importer with its own usage,
             // formats and limits; every other command is answered here.
-            return emit(&json!({
-                "command": command,
-                "help": format!(
-                    "skarbiec {command} was not run. Its invocation, inputs, effects and refusals are on https://skarbiec.wisent.com/docs under {command}; `skarbiec help` lists every command"
-                ),
-            }));
+            return cli::help::print_command(&command);
         }
     }
     let (flags, positionals) = parse_args(&rest);
@@ -100,7 +84,20 @@ fn main() -> Result<()> {
         "version" | "--version" | "-V" => emit(&cmd_version()?),
         "status" => emit(&core::items::status_json()?),
         "doctor" => emit(&runtime::doctor::report()?),
-        "recover-daemons" => emit(&runtime::doctor::recover_daemons()?),
+        "recover-daemons" => {
+            // Exit 0 only when the daemons were replaced: the receipt is
+            // printed either way, and a failed recovery fails the command
+            // with gpgconf's own cause, so a caller never reads success.
+            let receipt = runtime::doctor::recover_daemons()?;
+            emit(&receipt)?;
+            if receipt["recovered"] != json!(true) {
+                bail!(
+                    "recover-daemons: the GnuPG daemons were not replaced: {}",
+                    receipt["detail"].as_str().unwrap_or("no cause was reported")
+                );
+            }
+            Ok(())
+        }
         "vaults" => emit(&runtime::vaults::inventory()?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
         "set" => cmd_set(&flags, &positionals),
@@ -123,7 +120,7 @@ fn main() -> Result<()> {
         "migrate-v2" => emit(&items::migrate_v2(&flags)?),
         "export" => cmd_export(&flags, &positionals),
         "onboarding" => emit(&onboarding::run(&flags)?),
-        "help" => emit(&help_listing()),
+        "help" => emit(&cli::help::listing()),
         "mcp" => net::mcp::serve(),
         "native-host" => native_host::run(),
         "browser-host-install" => emit(&browser::install_host(&flags)?),
