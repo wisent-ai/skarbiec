@@ -15,8 +15,6 @@
 pub(crate) use anyhow::{Context, Result};
 pub(crate) use serde_json::{json, Value};
 pub(crate) use std::collections::HashMap;
-pub(crate) use std::thread;
-pub(crate) use std::time::Duration;
 
 pub(crate) use crate::core::{crypto, vault::Vault, vault_path};
 
