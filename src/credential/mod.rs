@@ -77,9 +77,9 @@ const IDENTITY_OPERATIONS: &[&str] = &["adopt", "rotate", "verify", "reset"];
 /// writes is the one Stado's service directory materializes from the
 /// registry, so the ordinary way it comes to exist is `stado service
 /// directory publish`, and an address the operator declares by hand is the
-/// operator's own word. Until 2026-09-14 the command guessed the loopback
-/// port `serve` binds by default, which on a machine whose Skarbiec is placed
-/// elsewhere declared an undeclared local process as the canonical one.
+/// operator's own word. The command never guesses the loopback port `serve`
+/// binds by default: on a machine whose Skarbiec is placed elsewhere that
+/// would declare an undeclared local process as the canonical one.
 const DECLARE_ENDPOINT_USAGE: &str = "usage: credential declare-endpoint <url> (or --url <url>): \
      the canonical Skarbiec's address from this machine; `stado service directory publish` \
      writes the same marker from the fleet's declaration";
@@ -250,7 +250,12 @@ pub fn dispatch(
             "item_states": ITEM_STATES,
             "provider_effects": PROVIDER_EFFECTS,
         }),
-        other => return Err(crate::cli::args::Usage(format!("unknown credential command: {other}; `skarbiec credential --help` lists them")).into()),
+        other => {
+            return Err(crate::cli::args::Usage(format!(
+                "unknown credential command: {other}; `skarbiec credential --help` lists them"
+            ))
+            .into())
+        }
     };
     Ok(Some(value))
 }

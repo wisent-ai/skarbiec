@@ -1,11 +1,9 @@
 // Whether a reauth actually produced the subscription it was run for: the
 // named login item has to carry a live subscription record, not just a token.
 //
-// For every provider, not one of them. Until 2026-09-21 this required
-// `brama:provider:codex` and the three field names a Codex grant happens to
-// use, so a Claude Code or Kimi subscription reauth could never be confirmed
-// however completely it had succeeded: the item was there, the grant was
-// there, and the check answered no because the tag said another provider.
+// For every provider, not one of them. A check that required one provider's
+// tag and the field names that provider's grant happens to use could never
+// confirm another provider's reauth however completely it had succeeded.
 // Which provider a subscription is held with is what its own
 // `brama:provider:` tag says, and what a grant looks like inside is the
 // router's contract, not this vault's -- so the record is judged on being a
