@@ -156,7 +156,7 @@ fn document_generation(doc: &Value) -> u64 {
 /// temporary beside the target, synced, then renamed over it. Every writer of
 /// a vault file goes through this, the replica pull included - until
 /// 2026-09-16 the pull used `fs::write`, which honours the umask, so a pulled
-/// replica landed world-readable and `stado secrets inspect-vault` refused
+/// replica landed world-readable and `stado credentials inspect-vault` refused
 /// it as not owner-only.
 pub fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
     let parent = path.parent().context("vault path has no parent")?;
