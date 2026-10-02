@@ -1,11 +1,7 @@
 // Stamping the fingerprint onto items that predate it.
 //
-// The refusal in the write funnel only sees items that carry a fingerprint,
-// and `duplicates` can only compare those. The vault on this fleet holds 658
-// active items and every one of them was written before the field existed, so
-// on the day the feature shipped the report answered "no duplicates" about a
-// vault where one platform appears three times. An answer that covers nothing
-// is worse than no answer, because it reads like reassurance.
+// Duplicate detection compares only items carrying a fingerprint. Older items
+// must be stamped before a duplicate report can cover their payloads.
 //
 // This is the pass that closes the gap: read each active item, compute the
 // fingerprint of its payload under the vault's salt, and write the field into

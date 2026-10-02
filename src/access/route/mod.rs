@@ -1,21 +1,9 @@
 // Declared route resolution: one capability answering which vault item and
 // field a resource name resolves to.
 //
-// It replaces `routes list`, `routes add`, `routes reconcile`, `routes verify`,
-// `resolve` and `expand`. Six verbs, because each was written for the incident
-// that needed it: one to print the table, one to write a row, one to derive
-// rows from the vault, one to check them, one to hand a login's fields to a
-// consumer, one to fill a template. All six asked the same question -- which
-// credential does this name reach -- and four of them answered it from a
-// different source.
-//
-// Reconciliation is gone rather than renamed. It existed because resolution
-// could not read a declaration: rows had to be derived from the vault ahead of
-// time, and they went stale the moment an item was renamed, so `routes verify`
-// reported a working credential as missing and reconciling again added
-// nothing, because the resource was already in the table. Resolution now reads
-// the declaration at the moment it is asked, and the table holds only what
-// nothing declares.
+// Resolution reads the item's current declaration rather than a derived copy
+// that can become stale after a rename. The explicit table holds only routes
+// that no vault item declares.
 //
 // The three leaves: `resolve` answers what a name reaches and, with `--emit`
 // or `--template`, materializes it; `declare` states the one row a vault item
