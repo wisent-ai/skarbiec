@@ -109,10 +109,7 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
         .context("onboarding state path has no parent")?;
     fs::create_dir_all(parent)
         .with_context(|| format!("create onboarding state directory {}", parent.display()))?;
-    fs::set_permissions(
-        parent,
-        fs::Permissions::from_mode(0o700),
-    )?;
+    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
     let suffix = crate::core::crypto::random_token()?;
     let temporary = path.with_extension(format!("json.tmp-{}", &suffix[..12]));
     let body = format!("{}\n", serde_json::to_string(state)?);
