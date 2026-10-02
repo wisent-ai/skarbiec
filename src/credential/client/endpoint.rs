@@ -46,7 +46,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
             path.display()
         )
     })?;
-    let group_world_write = u32::from_str_radix("022", "8".parse()?)?;
+    let group_world_write = 0o022;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()?
@@ -57,7 +57,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
             path.display()
         );
     }
-    let max: usize = "256".parse()?;
+    let max: usize = 256;
     let raw = fs::read_to_string(&path)
         .with_context(|| format!("{ENDPOINT_UNRESOLVED}: read {}", path.display()))?;
     let endpoint = raw.trim().to_string();
@@ -101,8 +101,8 @@ pub(crate) fn canonical_endpoint_report() -> Result<Value> {
 pub(in crate::credential) fn declare_canonical_endpoint(endpoint: &str) -> Result<Value> {
     let endpoint = endpoint.trim();
     let directory = forwards_dir()?;
-    let owner_only_directory = u32::from_str_radix("700", "8".parse()?)?;
-    let owner_only_file = u32::from_str_radix("600", "8".parse()?)?;
+    let owner_only_directory = 0o700;
+    let owner_only_file = 0o600;
     fs::create_dir_all(&directory)
         .with_context(|| format!("create forwards directory {}", directory.display()))?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(owner_only_directory))

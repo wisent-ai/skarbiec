@@ -42,8 +42,8 @@ pub(super) fn checked_approval(value: &Value) -> Result<Option<Value>> {
         safe_string(approval, "approval_id").context("approval is missing approval_id")?;
     let resume_token =
         safe_string(approval, "resume_token").context("approval is missing resume_token")?;
-    opaque_handle("approval_id", &approval_id, "64".parse()?)?;
-    opaque_handle("resume_token", &resume_token, "128".parse()?)?;
+    opaque_handle("approval_id", &approval_id, 64)?;
+    opaque_handle("resume_token", &resume_token, 128)?;
     let phase = checked_enum(approval, "phase", RESPONSE_PHASES)?
         .context("approval is missing an accepted phase")?;
     let provider_effect = checked_enum(approval, "provider_effect", PROVIDER_EFFECTS)?
@@ -87,7 +87,7 @@ pub(super) fn checked_receipt(value: &Value) -> Result<Option<Value>> {
     if !hex_digest(&request_id)? || !hex_digest(&evidence_digest)? {
         bail!("receipt request_id and evidence_digest must be 64 hexadecimal characters");
     }
-    let host_max: usize = "128".parse()?;
+    let host_max: usize = 128;
     let execution_host = safe_string(receipt, "execution_host")
         .filter(|host| !host.is_empty() && host.len() <= host_max)
         .context("receipt is missing a bounded execution_host")?;
@@ -103,7 +103,7 @@ pub(super) fn checked_receipt(value: &Value) -> Result<Option<Value>> {
         checked_timestamp(receipt, "verified_at")?.context("receipt is missing verified_at")?;
     let action_log_id =
         safe_string(receipt, "action_log_id").context("receipt is missing action_log_id")?;
-    exact_name("receipt action_log_id", &action_log_id, "200".parse()?)?;
+    exact_name("receipt action_log_id", &action_log_id, 200)?;
     Ok(Some(json!({
         "tenant_id": tenant_id,
         "principal_object_id": principal_object_id,

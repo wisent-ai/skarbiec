@@ -45,8 +45,8 @@ pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
     }
     let metadata = fs::symlink_metadata(&path)
         .with_context(|| format!("inspect {source} executable {}; install a complete Skarbiec release or configure {BRIDGE_ENV}", path.display()))?;
-    let unsafe_bits = u32::from_str_radix("022", "8".parse()?)?;
-    let owner_execute = u32::from_str_radix("100", "8".parse()?)?;
+    let unsafe_bits = 0o022;
+    let owner_execute = 0o100;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()?
@@ -103,7 +103,7 @@ pub(in crate::credential) fn sanitized_response(value: &Value) -> Result<Value> 
 // error message. Collapsing is skarbiec's own rule -- a bridge writes progress
 // lines -- but the bound is the fleet's, from `wisent-errors`.
 pub(in crate::credential) fn sanitized_diagnostics(raw: &[u8]) -> String {
-    let max: usize = "512".parse().unwrap_or_default();
+    let max: usize = 512;
     let collapsed = String::from_utf8_lossy(raw)
         .chars()
         .map(|character| {
@@ -131,7 +131,7 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
     // Drain stderr concurrently so a chatty bridge cannot deadlock on a full
     // pipe while we are still reading its stdout.
     let mut errors = child.stderr.take().context("open Weles bridge stderr")?;
-    let diagnostic_max: u64 = "4096".parse()?;
+    let diagnostic_max: u64 = 4096;
     let diagnostics = std::thread::spawn(move || {
         let mut captured = Vec::new();
         let _ = (&mut errors)
@@ -146,8 +146,8 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
         .context("open Weles bridge stdin")?
         .write_all(&serde_json::to_vec(request)?)?;
 
-    let max: u64 = "65536".parse()?;
-    let extra: u64 = "1".parse()?;
+    let max: u64 = 65536;
+    let extra: u64 = 1;
     let mut output = Vec::new();
     child
         .stdout

@@ -32,7 +32,7 @@ pub fn migrate_v2(flags: &std::collections::HashMap<String, String>) -> Result<V
     let mut output = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(u32::from_str_radix("600", "8".parse()?)?)
+        .mode(0o600)
         .open(&snapshot)
         .with_context(|| format!("create migration snapshot {}", snapshot.display()))?;
     std::io::copy(&mut input, &mut output)?;

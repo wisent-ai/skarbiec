@@ -124,7 +124,7 @@ pub fn issue(
         return Ok(None);
     }
     let replay_retention = proof_window_seconds()?
-        .checked_mul("2".parse()?)
+        .checked_mul(2)
         .context("workload proof retention overflow")?;
     proofs.insert(
         proof_hash,

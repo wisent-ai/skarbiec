@@ -154,7 +154,7 @@ pub(in crate::credential) fn trash_adopted_item(
         .cloned()
         .with_context(|| format!("adopted item disappeared: {credential_id}"))?;
     let lifecycle = context_block(vault, credential_id, "lifecycle").unwrap_or_default();
-    let first_revision: u64 = "1".parse()?;
+    let first_revision: u64 = 1;
     let created_here = lifecycle.get("created").and_then(Value::as_bool) == Some(true)
         && lifecycle.get("request_id").and_then(Value::as_str) == Some(request_id)
         && lifecycle.get("state").and_then(Value::as_str) == Some(STATE_ADOPTING);

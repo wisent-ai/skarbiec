@@ -59,8 +59,8 @@ pub(crate) enum ManagedRead {
 // The operator's password arrives on stdin and nowhere else: never argv, never
 // an endpoint body, never a log line. The read buffer is zeroed before return.
 pub(super) fn read_password_stdin() -> Result<String> {
-    let max: usize = "512".parse()?;
-    let extra: u64 = "1".parse()?;
+    let max: usize = 512;
+    let extra: u64 = 1;
     let mut raw = Vec::new();
     std::io::stdin()
         .lock()

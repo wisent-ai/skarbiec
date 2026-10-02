@@ -48,8 +48,8 @@ pub(in crate::credential) fn generic_provider(provider: &str) -> bool {
 pub(in crate::credential) const GENERIC_PROVIDER_SHAPE: &str = "^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$: 3 to 40 characters, lowercase ASCII letters, digits and '-', starting and ending with a letter or a digit";
 
 pub(in crate::credential) fn generic_provider_slug(provider: &str) -> bool {
-    let minimum: usize = "3".parse().unwrap_or_default();
-    let maximum: usize = "40".parse().unwrap_or_default();
+    let minimum: usize = 3;
+    let maximum: usize = 40;
     let bytes = provider.as_bytes();
     let edge = |byte: &u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
     (minimum..=maximum).contains(&bytes.len())
@@ -79,8 +79,8 @@ pub(in crate::credential) fn generic_credential_id(provider: &str) -> Result<&st
 pub(in crate::credential) const SIGNUP_ORIGIN_SHAPE: &str = "https://<host>[:<port>]: an absolute https origin, lowercase host, no userinfo, path, query or fragment";
 
 fn signup_origin_shaped(value: &str) -> bool {
-    let maximum: usize = "512".parse().unwrap_or_default();
-    let port_digits: usize = "5".parse().unwrap_or_default();
+    let maximum: usize = 512;
+    let port_digits: usize = 5;
     let Some(authority) = value.strip_prefix("https://") else {
         return false;
     };

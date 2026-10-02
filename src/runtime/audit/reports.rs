@@ -53,7 +53,7 @@ pub fn probe() -> Result<()> {
 /// after it - the opposite of what an audit surface is for.
 pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
     let (entries, malformed) = lines_with_faults()?;
-    let one: usize = "1".parse()?;
+    let one: usize = 1;
     let total = entries.len();
     let digests_from = match flags.get("tail") {
         Some(raw) => {
@@ -169,7 +169,7 @@ pub(super) fn query(flags: &HashMap<String, String>) -> Result<Value> {
         .unwrap_or("100")
         .parse()
         .context("--limit must be a positive integer")?;
-    let maximum: usize = "10000".parse()?;
+    let maximum: usize = 10000;
     if limit == usize::MIN || limit > maximum {
         anyhow::bail!("--limit must be between one and 10000");
     }

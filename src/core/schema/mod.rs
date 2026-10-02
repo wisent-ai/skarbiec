@@ -47,7 +47,7 @@ pub fn is_placeholder(value: &str) -> bool {
 
 fn exact_component(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= "128".parse().unwrap_or(usize::MAX)
+        && value.len() <= 128
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))

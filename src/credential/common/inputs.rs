@@ -31,7 +31,7 @@ pub(in crate::credential) fn email_address(
     let Some(value) = value.map(|value| value.trim().to_lowercase()) else {
         return Ok(None);
     };
-    let valid = value.len() <= "254".parse()?
+    let valid = value.len() <= 254
         && !value.chars().any(char::is_control)
         && value.split('@').count() == std::iter::once(()).count().saturating_add(1)
         && value.split_once('@').is_some_and(|(local, domain)| {
@@ -62,7 +62,7 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     }
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("inspect credential token file {}", path.display()))?;
-    let unsafe_bits = u32::from_str_radix("077", "8".parse()?)?;
+    let unsafe_bits = 0o077;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()?
@@ -70,7 +70,7 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     {
         bail!("credential token file must be an owner-only regular file");
     }
-    let max: usize = "512".parse()?;
+    let max: usize = 512;
     let token = fs::read_to_string(path)?.trim().to_string();
     if token.is_empty() || token.len() > max || token.chars().any(char::is_control) {
         bail!("credential token file must hold exactly one bounded bearer token");
@@ -103,7 +103,7 @@ pub(in crate::credential) fn client_identity(
         .or_else(|| flags.get("consumer"))
         .context("--as <consumer> is required to reach the canonical Skarbiec")?
         .clone();
-    exact_name("consumer", &consumer, "200".parse()?)?;
+    exact_name("consumer", &consumer, 200)?;
     let path = match flags.get("token-file") {
         Some(path) => PathBuf::from(path.trim()),
         None => {
@@ -130,7 +130,7 @@ pub(in crate::credential) fn resume_handles(
         .context("--approval <id> is required")?
         .trim()
         .to_string();
-    opaque_handle("--approval", &approval_id, "64".parse()?)?;
+    opaque_handle("--approval", &approval_id, 64)?;
     let resume_token = match flags.get("resume-token-file") {
         Some(path) => read_secret_file(Path::new(path.trim()))?,
         None => flags
@@ -139,6 +139,6 @@ pub(in crate::credential) fn resume_handles(
             .trim()
             .to_string(),
     };
-    opaque_handle("--resume-token", &resume_token, "128".parse()?)?;
+    opaque_handle("--resume-token", &resume_token, 128)?;
     Ok((approval_id, resume_token))
 }

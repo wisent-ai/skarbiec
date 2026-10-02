@@ -116,7 +116,7 @@ pub(crate) fn handle_items_put(
                     operation_id: Some(operation_id),
                 },
             )?;
-            "1".parse()?
+            1
         }
         "stage" => {
             if consumer.is_empty()

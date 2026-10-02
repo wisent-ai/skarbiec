@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
 pub(in crate::credential) fn safe_string(value: &Value, key: &str) -> Option<String> {
-    let max: usize = "512".parse().ok()?;
+    let max: usize = 512;
     value
         .get(key)
         .and_then(Value::as_str)
@@ -47,7 +47,7 @@ pub(in crate::credential) fn checked_code(value: &Value) -> Result<Option<String
         return Ok(None);
     }
     let text = safe_string(value, "code").context("Weles response code is not a bounded string")?;
-    let max: usize = "64".parse()?;
+    let max: usize = 64;
     let shaped = text.len() <= max
         && text.starts_with(|first: char| first.is_ascii_uppercase())
         && text
@@ -63,7 +63,7 @@ pub(in crate::credential) fn checked_host(value: &Value) -> Result<Option<String
     if !present(value, "executionHost") {
         return Ok(None);
     }
-    let max: usize = "128".parse()?;
+    let max: usize = 128;
     let host = safe_string(value, "executionHost")
         .filter(|host| !host.is_empty() && host.len() <= max)
         .context("Weles response executionHost must be a bounded single-line host name")?;
@@ -83,7 +83,7 @@ pub(in crate::credential) fn checked_uuid(value: &Value, key: &str) -> Result<Op
 }
 
 pub(in crate::credential) fn hex_digest(value: &str) -> Result<bool> {
-    let width: usize = "64".parse()?;
+    let width: usize = 64;
     Ok(value.len() == width && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
 }
 
@@ -110,7 +110,7 @@ pub(in crate::credential) fn timestamp_shaped(value: &str) -> bool {
             .is_ok_and(|width| group.len() == width)
             && group.bytes().all(|byte| byte.is_ascii_digit())
     };
-    let fraction_max: usize = "6".parse().unwrap_or_default();
+    let fraction_max: usize = 6;
     date_groups.len() == date_widths.len()
         && clock_groups.len() == clock_widths.len()
         && date_groups

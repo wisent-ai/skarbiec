@@ -43,7 +43,7 @@ pub(in crate::credential) fn canonical_call(
         )
     })?;
     stream.write_all(request.as_bytes())?;
-    let max: u64 = "262144".parse()?;
+    let max: u64 = 262144;
     let mut raw = Vec::new();
     (&stream).take(max).read_to_end(&mut raw)?;
     let text = String::from_utf8_lossy(&raw).into_owned();
@@ -92,9 +92,9 @@ pub(in crate::credential) fn remote_operation(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage.clone())?;
-    exact_name("credential item id", credential_id, "200".parse()?)?;
+    exact_name("credential item id", credential_id, 200)?;
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("consumer", consumer, "200".parse()?)?;
+    exact_name("consumer", consumer, 200)?;
     let mut body = Map::new();
     body.insert("item".to_string(), json!(credential_id));
     body.insert("operation".to_string(), json!(operation));
@@ -142,7 +142,7 @@ pub(in crate::credential) fn remote_resume(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage)?;
-    exact_name("credential item id", credential_id, "200".parse()?)?;
+    exact_name("credential item id", credential_id, 200)?;
     let (approval_id, resume_token) = resume_handles(flags)?;
     let mut body = Map::new();
     body.insert("item".to_string(), json!(credential_id));
@@ -174,7 +174,7 @@ pub(in crate::credential) fn remote_status(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage)?;
-    exact_name("credential item id", credential_id, "200".parse()?)?;
+    exact_name("credential item id", credential_id, 200)?;
     let (caller, token) = client_identity(flags)?;
     let path = format!("{CREDENTIAL_OPERATIONS_PATH}/{credential_id}");
     let snapshot = canonical_call("GET", &path, None, &caller, &token)?;

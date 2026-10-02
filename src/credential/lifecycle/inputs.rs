@@ -79,7 +79,7 @@ pub(super) fn read_submission<'a>(
         bail!("--password-stdin is accepted only by credential adopt");
     }
     let provider = flags.get("provider").context("--provider is required")?;
-    exact_name("provider", provider, "128".parse()?)?;
+    exact_name("provider", provider, 128)?;
     let credential_id = match args.first() {
         Some(named) => named.as_str(),
         None if operation == "acquire" && generic_provider(provider) => {
@@ -88,8 +88,8 @@ pub(super) fn read_submission<'a>(
         None => bail!("{usage}"),
     };
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("credential item id", credential_id, "200".parse()?)?;
-    exact_name("consumer", consumer, "200".parse()?)?;
+    exact_name("credential item id", credential_id, 200)?;
+    exact_name("consumer", consumer, 200)?;
     let purpose = purpose(flags.get("purpose"), consumer)?;
     let account = email_address("--account", flags.get("account"))?;
     // Where the account this acquisition registers is signed up. Weles echoes

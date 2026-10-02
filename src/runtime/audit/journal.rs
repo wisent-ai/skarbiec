@@ -154,7 +154,7 @@ pub(super) fn tail_lines(limit: usize) -> Result<Vec<Value>> {
     let mut file = std::fs::File::open(&path)?;
     let length = file.metadata()?.len();
     let mut window = u64::try_from(usize::from(u16::MAX))?;
-    let growth: u64 = "2".parse()?;
+    let growth: u64 = 2;
     loop {
         let start = length.saturating_sub(window);
         file.seek(std::io::SeekFrom::Start(start))?;
@@ -200,7 +200,7 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create audit directory {}", parent.display()))?;
-        let private_mode = u32::from_str_radix("700", "8".parse()?)?;
+        let private_mode = 0o700;
         fs::set_permissions(parent, fs::Permissions::from_mode(private_mode))
             .with_context(|| format!("protect audit directory {}", parent.display()))?;
     }

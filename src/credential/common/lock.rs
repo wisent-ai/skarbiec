@@ -53,7 +53,7 @@ pub(in crate::credential) fn exact_name(name: &str, value: &str, maximum: usize)
 
 pub(in crate::credential) fn purpose(value: Option<&String>, consumer: &str) -> Result<String> {
     let value = value.map(String::as_str).unwrap_or(consumer);
-    let max: usize = "200".parse()?;
+    let max: usize = 200;
     if value.is_empty() || value.len() > max || value.chars().any(char::is_control) {
         bail!("purpose must be 1-200 printable UTF-8 bytes");
     }

@@ -27,7 +27,7 @@ pub(crate) use api::lifecycle::{handle_credential_operation_status, handle_crede
 // fleet's rule, from `wisent-errors`, so an operator reading a truncated gpg
 // message here sees it cut exactly as every other product cuts one.
 pub(crate) fn bounded_detail(detail: &str) -> String {
-    let limit: usize = "400".parse().unwrap_or_default();
+    let limit: usize = 400;
     trim_detail(detail, limit)
 }
 

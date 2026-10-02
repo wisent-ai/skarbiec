@@ -58,7 +58,7 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
     if !parent.exists() {
         fs::DirBuilder::new()
             .recursive(true)
-            .mode(u32::from_str_radix("700", "8".parse()?)?)
+            .mode(0o700)
             .create(parent)
             .with_context(|| format!("create vault directory {}", parent.display()))?;
     }
@@ -87,13 +87,13 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
 }
 
 fn private_file_mode() -> Result<u32> {
-    u32::from_str_radix("600", "8".parse()?).context("private vault file mode")
+    Ok(0o600)
 }
 
 /// The only item envelope revision this build reads. It was written inline at
 /// each comparison, so a reader could not tell which number was load-bearing.
 pub fn current_envelope() -> u64 {
-    "2".parse().expect("envelope revision is a number")
+    2
 }
 
 /// Bytes of OS entropy behind one `item_uid`.

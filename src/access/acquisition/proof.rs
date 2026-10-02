@@ -23,7 +23,7 @@ pub(super) fn exact_name(value: &str) -> bool {
 }
 
 pub(super) fn valid_workload_id(value: &str) -> bool {
-    let maximum: usize = "128".parse().unwrap_or_default();
+    let maximum: usize = 128;
     !value.is_empty()
         && value.len() <= maximum
         && value.trim() == value
@@ -31,7 +31,7 @@ pub(super) fn valid_workload_id(value: &str) -> bool {
 }
 
 pub(super) fn valid_nonce(value: &str) -> bool {
-    let expected: usize = "43".parse().unwrap_or_default();
+    let expected: usize = 43;
     value.len() == expected
         && value
             .bytes()
@@ -39,16 +39,16 @@ pub(super) fn valid_nonce(value: &str) -> bool {
 }
 
 pub(super) fn decode_signature(value: &str) -> Option<Vec<u8>> {
-    let expected: usize = "128".parse().ok()?;
+    let expected: usize = 128;
     if value.len() != expected {
         return None;
     }
     value
         .as_bytes()
-        .chunks_exact("2".parse().ok()?)
+        .chunks_exact(2)
         .map(|pair| {
             let text = std::str::from_utf8(pair).ok()?;
-            u8::from_str_radix(text, "16".parse().ok()?).ok()
+            u8::from_str_radix(text, 16).ok()
         })
         .collect()
 }
@@ -139,7 +139,7 @@ pub(super) fn verify_workload_proof(
 }
 
 pub(super) fn proof_window_seconds() -> Result<u64> {
-    "30".parse().context("workload proof window")
+    Ok(30)
 }
 
 pub(super) fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {

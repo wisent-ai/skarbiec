@@ -22,11 +22,11 @@ impl Drop for StateLock {
 }
 
 pub(super) fn private_file_mode() -> Result<u32> {
-    u32::from_str_radix("600", "8".parse()?).context("private file mode")
+    Ok(0o600)
 }
 
 pub(super) fn unsafe_mode_bits() -> Result<u32> {
-    u32::from_str_radix("077", "8".parse()?).context("unsafe mode bits")
+    Ok(0o077)
 }
 
 pub(super) fn effective_uid() -> Result<u32> {
@@ -148,7 +148,7 @@ pub(super) fn ttl_seconds() -> Result<u64> {
         .unwrap_or_else(|_| "30".to_string())
         .parse()
         .context("SKARBIEC_ACQUISITION_TTL_SECONDS must be an integer")?;
-    let maximum: u64 = "300".parse()?;
+    let maximum: u64 = 300;
     if ttl == u64::MIN || ttl > maximum {
         bail!("SKARBIEC_ACQUISITION_TTL_SECONDS must be between one and 300")
     }

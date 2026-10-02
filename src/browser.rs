@@ -20,11 +20,11 @@ const CHROME_EXTENSION_ID: &str = include_str!("../deploy/chrome-extension-id");
 const FIREFOX_EXTENSION_ID: &str = "skarbiec-autofill@wisent.ai";
 
 fn private_file_mode() -> Result<u32> {
-    u32::from_str_radix("600", "8".parse()?).context("private file mode")
+    Ok(0o600)
 }
 
 fn private_dir_mode() -> Result<u32> {
-    u32::from_str_radix("700", "8".parse()?).context("private directory mode")
+    Ok(0o700)
 }
 
 fn home_dir() -> Result<PathBuf> {

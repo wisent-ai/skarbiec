@@ -20,7 +20,7 @@ pub(in crate::access::grant) fn effective_uid() -> Result<u32> {
 
 pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<String> {
     let metadata = fs::symlink_metadata(path)?;
-    let unsafe_bits = u32::from_str_radix("077", "8".parse()?)?;
+    let unsafe_bits = 0o077;
     if !metadata.file_type().is_file()
         || metadata.uid() != effective_uid()?
         || metadata.mode() & unsafe_bits != u32::MIN
@@ -28,7 +28,7 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
         bail!("workload public key must be an owner-controlled regular file");
     }
     let key = fs::read_to_string(path)?;
-    let maximum: usize = "8192".parse()?;
+    let maximum: usize = 8192;
     if key.is_empty()
         || key.len() > maximum
         || !key.contains("-----BEGIN PUBLIC KEY-----")
@@ -51,7 +51,7 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
 
 pub(in crate::access::grant) fn read_fixed_token(path: &Path) -> Result<String> {
     let metadata = fs::symlink_metadata(path)?;
-    let unsafe_bits = u32::from_str_radix("077", "8".parse()?)?;
+    let unsafe_bits = 0o077;
     if !metadata.file_type().is_file()
         || metadata.uid() != effective_uid()?
         || metadata.mode() & unsafe_bits != u32::MIN
@@ -60,7 +60,7 @@ pub(in crate::access::grant) fn read_fixed_token(path: &Path) -> Result<String> 
     }
     let contents = fs::read_to_string(path)?;
     let token = contents.trim_end_matches(['\r', '\n']);
-    if token.is_empty() || token.len() > "4096".parse()? || token.chars().any(char::is_whitespace) {
+    if token.is_empty() || token.len() > 4096 || token.chars().any(char::is_whitespace) {
         bail!("token file must contain one bounded non-whitespace token");
     }
     Ok(token.to_string())
@@ -119,7 +119,7 @@ pub(in crate::access::grant) fn allowed_action(action: &str) -> bool {
 /// which is how a path pattern would otherwise reach outside what was granted.
 pub(in crate::access::grant) fn exact_route(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= "128".parse().unwrap_or(usize::MAX)
+        && value.len() <= 128
         && value.split('/').all(exact_component)
         && !value.split('/').any(|component| component == "..")
 }

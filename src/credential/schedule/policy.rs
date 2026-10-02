@@ -16,7 +16,7 @@ use super::{policies, section, SUBMISSION, USAGE};
 
 /// Seconds in one day, the unit `--every-days` is given in.
 pub(super) fn day_seconds() -> Result<i64> {
-    Ok("86400".parse()?)
+    Ok(86400)
 }
 
 fn text<'a>(entry: &'a Value, key: &str) -> Option<&'a str> {
@@ -88,8 +88,8 @@ pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Va
         .context("--every-days is too large")?;
     let provider = flags.get("provider").context("--provider is required")?;
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("provider", provider, "128".parse()?)?;
-    exact_name("consumer", consumer, "200".parse()?)?;
+    exact_name("provider", provider, 128)?;
+    exact_name("consumer", consumer, 200)?;
     let purpose = flags
         .get("purpose")
         .map(|value| purpose(Some(value), consumer))

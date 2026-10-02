@@ -111,7 +111,7 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
         .with_context(|| format!("create onboarding state directory {}", parent.display()))?;
     fs::set_permissions(
         parent,
-        fs::Permissions::from_mode(u32::from_str_radix("700", 8)?),
+        fs::Permissions::from_mode(0o700),
     )?;
     let suffix = crate::core::crypto::random_token()?;
     let temporary = path.with_extension(format!("json.tmp-{}", &suffix[..12]));
@@ -119,7 +119,7 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(u32::from_str_radix("600", 8)?)
+        .mode(0o600)
         .open(&temporary)
         .with_context(|| format!("create onboarding state {}", temporary.display()))?;
     file.write_all(body.as_bytes())?;

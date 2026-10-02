@@ -34,7 +34,7 @@ pub(in crate::credential) fn resolve_quarantine(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage.clone())?;
-    exact_name("credential item id", credential_id, "200".parse()?)?;
+    exact_name("credential item id", credential_id, 200)?;
     if flags.get("confirm").map(String::as_str) != Some(QUARANTINE_CONFIRMATION) {
         bail!("{usage}");
     }
