@@ -16,7 +16,7 @@ impl Vault {
             .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
         if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
-            bail!("item uses the legacy envelope: {id} (run migrate-v2)");
+            bail!("item uses the legacy envelope: {id} (run `skarbiec upgrade --apply`)");
         }
         if item.get("state").and_then(Value::as_str) == Some("trashed") {
             bail!("item is in trash: {id} (restore it first)");
@@ -163,7 +163,7 @@ impl Vault {
                             // same way this projection already reports a
                             // missing `kind`. That null is useful rather than
                             // untidy: it is how an operator sees which items
-                            // `backfill-item-uids` still has to stamp.
+                            // `skarbiec upgrade` still has to stamp.
                             "item_uid": item.get("item_uid"),
                             "kind": item.get("kind"),
                             "state": state,

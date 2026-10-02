@@ -101,7 +101,7 @@ pub(super) fn lifecycle_blockers(
             blockers.push(blocker(
                 BLOCKER_LEGACY_ENVELOPE,
                 format!(
-                    "{credential_id} still uses the pre-v2 envelope; run migrate-v2 before any lifecycle operation"
+                    "{credential_id} still uses the pre-v2 envelope; run `skarbiec upgrade --apply` before any lifecycle operation"
                 ),
             ));
         // A legacy envelope hides the payload, so the field cannot be judged

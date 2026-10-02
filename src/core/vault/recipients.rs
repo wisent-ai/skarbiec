@@ -159,7 +159,7 @@ impl Vault {
             .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
         if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
-            bail!("{id} uses a legacy envelope; run migrate-v2 before changing who can read it");
+            bail!("{id} uses a legacy envelope; run `skarbiec upgrade --apply` before changing who can read it");
         }
         let mut current = item
             .get("current")

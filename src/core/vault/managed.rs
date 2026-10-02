@@ -27,7 +27,7 @@ impl Vault {
             .cloned()
             .with_context(|| format!("no item: {id}"))?;
         if entry.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
-            bail!("{id} still uses the legacy envelope; run migrate-v2 before updating it");
+            bail!("{id} still uses the legacy envelope; run `skarbiec upgrade --apply` before updating it");
         }
         // `retag` is the one write whose entire subject is the tag list, so it
         // is the one that must not slip past the registry on its way around
@@ -70,7 +70,7 @@ impl Vault {
             .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
         if item.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
-            bail!("item uses the legacy envelope: {id} (run migrate-v2)");
+            bail!("item uses the legacy envelope: {id} (run `skarbiec upgrade --apply`)");
         }
         if item.get("state").and_then(Value::as_str) != Some("active") {
             bail!("{id} is not active");

@@ -63,7 +63,7 @@ impl Vault {
         if previous.as_ref().is_some_and(|entry| {
             entry.get("format").and_then(Value::as_u64) != Some(current_envelope())
         }) {
-            bail!("{id} still uses the legacy envelope; run migrate-v2 before updating it");
+            bail!("{id} still uses the legacy envelope; run `skarbiec upgrade --apply` before updating it");
         }
         if let (Some(previous), Some(requested)) = (&previous, &requested_management) {
             if let Some(existing) = previous.get("management") {

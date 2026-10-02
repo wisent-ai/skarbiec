@@ -217,32 +217,3 @@ pub(crate) fn cmd_rename(positionals: &[String]) -> Result<()> {
     )?;
     emit(&json!({"ok": true, "from": from, "to": to, "item_uid": item_uid}))
 }
-
-/// Stamp a permanent `item_uid` onto every item that predates the field.
-///
-/// Lazy minting means the field arrives on its own as items are written, but
-/// an operator wanting a complete picture should not have to touch hundreds of
-/// items by hand to get one. Idempotent: an item that already has one is
-/// skipped before anything is generated, so a second run stamps nothing.
-///
-/// Envelope only. No payload is read, decrypted or re-encrypted, and
-/// `revision`, `updated_at` and `current` are untouched -- acquiring an
-/// identifier is not a change to the credential, and a diff of a backfilled
-/// vault shows one added field per item and nothing else.
-pub(crate) fn cmd_backfill_item_uids() -> Result<()> {
-    let mut vault = Vault::open(vault_path())?;
-    let (stamped, total) = vault.backfill_item_uids()?;
-    if !stamped.is_empty() {
-        crate::runtime::audit::append_sync(
-            "item-uids-backfilled",
-            &json!({"stamped": stamped.len(), "items": total}),
-        )?;
-    }
-    emit(&json!({
-        "ok": true,
-        "items": total,
-        "stamped": stamped.len(),
-        "already_present": total.saturating_sub(stamped.len()),
-        "ids": stamped,
-    }))
-}

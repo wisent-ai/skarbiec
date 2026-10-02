@@ -35,7 +35,7 @@ pub(in crate::access::grant) fn narrow_read_once(
         .with_context(|| format!("consumer {consumer} has no grant in {}", vault_path().display()))?
         .get_mut("capabilities")
         .and_then(Value::as_array_mut)
-        .context("existing grant is not v2; run migrate-v2 first")?;
+        .context("existing grant is not v2; run `skarbiec upgrade --apply` first")?;
     let before = capabilities.len();
     capabilities.retain(|held| held != &capability);
     let status = if capabilities.len() == before {

@@ -143,21 +143,10 @@ pub(crate) fn cmd_duplicates() -> Result<Value> {
         report["note"] = json!(format!(
             "{unstamped} of {active} active items were written before payload fingerprints \
              existed and cannot be compared with anything; each one is stamped by the next \
-             `skarbiec set` of that item, so an empty duplicate list over this vault means \
-             nothing comparable rather than nothing duplicated"
+             `skarbiec set` of that item or by `skarbiec upgrade --apply`, so an empty \
+             duplicate list over this vault means nothing comparable rather than nothing \
+             duplicated"
         ));
     }
     Ok(report)
-}
-
-/// `skarbiec stamp-fingerprints [--apply]`: describe the items that predate
-/// the payload fingerprint so the duplicate report and the write refusal
-/// cover the whole vault.
-///
-/// Without `--apply` it reports what the pass would stamp and which items it
-/// cannot read. It never rewrites a payload: the ciphertext, the revision and
-/// the history of every item stay as they are.
-pub(crate) fn cmd_stamp_fingerprints(flags: &HashMap<String, String>) -> Result<Value> {
-    let apply = flags.contains_key("apply");
-    Vault::open(vault_path())?.stamp_fingerprints(apply)
 }

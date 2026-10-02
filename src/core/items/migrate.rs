@@ -1,19 +1,99 @@
-// Moving a vault forward: the v2 envelope migration with its snapshot, and
-// the item-by-item copy between two vault files.
+// Moving a vault forward: the one upgrade pass that brings the configured
+// vault to the current schema, and the item-by-item copy between two vault
+// files.
 
 use anyhow::{bail, Context, Result};
 use crate::cli::args::OrUsage;
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::core::vault::Vault;
 use crate::core::{migrate, vault_path};
 
-pub fn migrate_v2(flags: &std::collections::HashMap<String, String>) -> Result<Value> {
+/// `skarbiec upgrade [--apply] [--snapshot <path>]`: bring the configured
+/// vault to the current schema in one idempotent pass — the v2 envelope for
+/// its items and grants, an `item_uid` on every item, and a payload
+/// fingerprint on every active item. Each step is skipped for what already
+/// has it, so a second run changes nothing and reports zero. Without
+/// `--apply` it reports what the pass would change and writes nothing.
+///
+/// The envelope migration rewrites the file, so it is preceded by a
+/// mode-0600 snapshot — `--snapshot` names it, otherwise a timestamped path
+/// beside the vault — and refused when that path exists. The identifier and
+/// fingerprint steps touch the cleartext envelope only: no payload is
+/// re-encrypted and no item gains a revision.
+pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Value> {
+    let apply = crate::cli::args::flag_set(flags, "apply");
     let source = vault_path();
+    let mut vault = Vault::open(source.clone())?;
+    let version = vault
+        .doc()
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or("v1")
+        .to_string();
+    let legacy_envelope = version != CURRENT_VERSION;
+    let mut envelope = json!({
+        "from": version,
+        "to": CURRENT_VERSION,
+        "needed": legacy_envelope,
+    });
+    if legacy_envelope && apply {
+        let snapshot = snapshot_vault(flags, &source)?;
+        let report = migrate::migrate(&mut vault)?;
+        envelope = json!({
+            "from": version,
+            "to": CURRENT_VERSION,
+            "needed": true,
+            "snapshot": snapshot.display().to_string(),
+            "items": report.items,
+            "revisions": report.revisions,
+            "grants": report.grants,
+        });
+    }
+    let item_uids = if apply {
+        let (stamped, total) = vault.backfill_item_uids()?;
+        if !stamped.is_empty() {
+            crate::runtime::audit::append_sync(
+                "item-uids-backfilled",
+                &json!({"stamped": stamped.len(), "items": total}),
+            )?;
+        }
+        json!({"items": total, "stamped": stamped.len(), "ids": stamped})
+    } else {
+        let items = vault.doc().get("items").and_then(Value::as_object);
+        let total = items.map(serde_json::Map::len).unwrap_or_default();
+        let missing: Vec<&String> = items
+            .map(|items| {
+                items
+                    .iter()
+                    .filter(|(_, entry)| crate::core::vault::entry_item_uid(entry).is_none())
+                    .map(|(id, _)| id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({"items": total, "missing": missing.len(), "ids": missing})
+    };
+    let fingerprints = vault.stamp_fingerprints(apply)?;
+    Ok(json!({
+        "ok": true,
+        "applied": apply,
+        "vault": source.display().to_string(),
+        "envelope": envelope,
+        "item_uids": item_uids,
+        "fingerprints": fingerprints,
+    }))
+}
+
+/// The schema version the upgrade pass brings a vault to.
+const CURRENT_VERSION: &str = "v2";
+
+/// Copy the vault file, byte for byte, to a new mode-0600 path before the
+/// envelope migration rewrites it.
+fn snapshot_vault(flags: &std::collections::HashMap<String, String>, source: &Path) -> Result<PathBuf> {
     let snapshot = flags.get("snapshot").map_or_else(
         || -> Result<PathBuf> {
             let epoch = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -25,27 +105,19 @@ pub fn migrate_v2(flags: &std::collections::HashMap<String, String>) -> Result<V
         |path| Ok(PathBuf::from(path)),
     )?;
     if snapshot.exists() {
-        bail!("migration snapshot already exists: {}", snapshot.display());
+        bail!("upgrade snapshot already exists: {}; name another with --snapshot", snapshot.display());
     }
-    let mut input = File::open(&source)
+    let mut input = File::open(source)
         .with_context(|| format!("open vault snapshot source {}", source.display()))?;
     let mut output = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&snapshot)
-        .with_context(|| format!("create migration snapshot {}", snapshot.display()))?;
+        .with_context(|| format!("create upgrade snapshot {}", snapshot.display()))?;
     std::io::copy(&mut input, &mut output)?;
     output.sync_all()?;
-    let mut vault = Vault::open(source)?;
-    let report = migrate::migrate(&mut vault)?;
-    Ok(json!({
-        "ok": true,
-        "snapshot": snapshot.display().to_string(),
-        "items": report.items,
-        "revisions": report.revisions,
-        "grants": report.grants,
-    }))
+    Ok(snapshot)
 }
 
 /// Copy every live item from one vault file into another.

@@ -63,7 +63,7 @@ impl Vault {
             .cloned()
             .with_context(|| format!("no item: {from}"))?;
         if entry.get("format").and_then(Value::as_u64) != Some(current_envelope()) {
-            bail!("{from} still uses the legacy envelope; run migrate-v2 before renaming it");
+            bail!("{from} still uses the legacy envelope; run `skarbiec upgrade --apply` before renaming it");
         }
         let item_uid = match entry_item_uid(&entry) {
             Some(existing) => existing.to_string(),

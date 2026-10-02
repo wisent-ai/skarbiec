@@ -14,7 +14,7 @@ mod generate;
 mod migrate;
 
 pub use generate::{generate_passphrase, generate_password};
-pub use migrate::{migrate_v2, migrate_vault};
+pub use migrate::{migrate_vault, upgrade};
 
 // Canonical item construction: k=v fields become one validated payload;
 // profile-based bundle items use `set-json` instead.

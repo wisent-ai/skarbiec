@@ -32,7 +32,7 @@ pub(in crate::access::grant) fn issue_once(
                 .get("capabilities")
                 .and_then(Value::as_array)
                 .cloned()
-                .context("existing grant is not v2; run migrate-v2 first")
+                .context("existing grant is not v2; run `skarbiec upgrade --apply` first")
         })
         .transpose()?;
     let capabilities = parse_capabilities(
@@ -204,7 +204,7 @@ pub(in crate::access::grant) fn ensure_read_once(
     let already_present = existing
         .get("capabilities")
         .and_then(Value::as_array)
-        .context("existing grant is not v2; run migrate-v2 first")?
+        .context("existing grant is not v2; run `skarbiec upgrade --apply` first")?
         .contains(&capability);
     let status = if already_present {
         "unchanged"
@@ -216,7 +216,7 @@ pub(in crate::access::grant) fn ensure_read_once(
             .and_then(|tokens| tokens.get_mut(consumer))
             .and_then(|grant| grant.get_mut("capabilities"))
             .and_then(Value::as_array_mut)
-            .context("existing grant is not v2; run migrate-v2 first")?
+            .context("existing grant is not v2; run `skarbiec upgrade --apply` first")?
             .push(capability.clone());
         vault.save()?;
         crate::runtime::audit::append(

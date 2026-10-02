@@ -20,10 +20,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use cli::args::{emit, parse_args, OrUsage, Usage};
-use cli::items::{cmd_backfill_item_uids, cmd_rename, cmd_retag, cmd_set_json};
+use cli::items::{cmd_rename, cmd_retag, cmd_set_json};
 use cli::reads::{
     cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore,
-    cmd_restore_version, cmd_stamp_fingerprints,
+    cmd_restore_version,
 };
 use cli::tools::{cmd_export, cmd_generate, cmd_version};
 use core::{crypto, items, vault::Vault};
@@ -119,10 +119,8 @@ fn run() -> Result<()> {
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
         "duplicates" => emit(&cmd_duplicates()?),
-        "stamp-fingerprints" => emit(&cmd_stamp_fingerprints(&flags)?),
         "retag" => cmd_retag(&flags, &positionals),
         "rename" => cmd_rename(&positionals),
-        "backfill-item-uids" => cmd_backfill_item_uids(),
         "delete" => emit(&cmd_delete(&positionals)?),
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => emit(&cmd_restore(&positionals)?),
@@ -131,7 +129,7 @@ fn run() -> Result<()> {
         "generate" => cmd_generate(&flags),
         "import" => emit(&core::importer::run(&flags, &positionals)?),
         "migrate" => emit(&items::migrate_vault(&flags)?),
-        "migrate-v2" => emit(&items::migrate_v2(&flags)?),
+        "upgrade" => emit(&items::upgrade(&flags)?),
         "export" => cmd_export(&flags, &positionals),
         "onboarding" => emit(&onboarding::run(&flags)?),
         "help" => emit(&cli::help::listing()),

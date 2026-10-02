@@ -96,7 +96,7 @@ pub(crate) fn handle_items_read(
             &json!({
                 "error": "item uses the legacy envelope",
                 "error_code": Code::Config.as_str(),
-                "detail": format!("run migrate-v2 before reading {id}"),
+                "detail": format!("run `skarbiec upgrade --apply` before reading {id}"),
             }),
         );
     }
