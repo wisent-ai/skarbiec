@@ -31,11 +31,8 @@ pub fn probe() -> Result<()> {
 
 /// Verify the journal's hash chain, and say which journal was verified.
 ///
-/// Naming the file is not decoration. This binary's default path and the path
-/// Stado hands its callers are different files, so a bare `intact: true` over
-/// a nearly empty default journal reads exactly like a clean bill of health
-/// for the vault actually in use. Measured here: the default carried 67
-/// entries while the journal in service carried 74,835.
+/// The report names the selected journal: a valid default file does not prove
+/// the journal used by the active vault is intact.
 ///
 /// Two properties are checked, they fail for different reasons, and they cost
 /// wildly different amounts:
@@ -45,12 +42,11 @@ pub fn probe() -> Result<()> {
 ///   journal. This is the property a second writer breaks.
 /// - **Digest** - the line's own fields still hash to the hash it carries.
 ///   This is the property a retroactive edit breaks, and it costs one
-///   `shasum` process per line: 74,859 entries take about fifteen minutes.
+///   `shasum` process per line.
 ///   `--tail N` bounds it to the newest N lines.
 ///
-/// Neither scan stops at the first fault. Stopping is what let one raced
-/// append in July hide the seventy-two thousand well-formed entries written
-/// after it - the opposite of what an audit surface is for.
+/// Neither scan stops at the first fault; later valid entries and later faults
+/// remain part of the report.
 pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
     let (entries, malformed) = lines_with_faults()?;
     let one: usize = 1;
