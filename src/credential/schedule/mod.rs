@@ -43,7 +43,10 @@ pub(super) fn dispatch(flags: &HashMap<String, String>, positionals: &[String]) 
             "commands": ["rotation set", "rotation list", "rotation remove", "rotation run"],
             "usage": USAGE,
         })),
-        other => Err(crate::cli::args::Usage(format!("unknown rotation command: {other}; {USAGE}")).into()),
+        other => Err(crate::cli::args::Usage(format!(
+            "unknown rotation command: {other}; {USAGE}"
+        ))
+        .into()),
     }
 }
 

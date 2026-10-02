@@ -32,7 +32,12 @@ pub(in crate::access::grant) fn narrow_read_once(
         .get_mut("tokens")
         .and_then(Value::as_object_mut)
         .and_then(|tokens| tokens.get_mut(consumer))
-        .with_context(|| format!("consumer {consumer} has no grant in {}", vault_path().display()))?
+        .with_context(|| {
+            format!(
+                "consumer {consumer} has no grant in {}",
+                vault_path().display()
+            )
+        })?
         .get_mut("capabilities")
         .and_then(Value::as_array_mut)
         .context("existing grant is not v2; run `skarbiec upgrade --apply` first")?;

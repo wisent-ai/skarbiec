@@ -55,7 +55,12 @@ pub fn dispatch(
         "withdraw" => withdraw(flags)?,
         "verify" => verify(flags, &rest)?,
         "help" => help(),
-        other => return Err(crate::cli::args::Usage(format!("unknown route command: {other}; `skarbiec route help` lists them")).into()),
+        other => {
+            return Err(crate::cli::args::Usage(format!(
+                "unknown route command: {other}; `skarbiec route help` lists them"
+            ))
+            .into())
+        }
     };
     Ok(Some(value))
 }
@@ -150,7 +155,10 @@ fn resolve(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
 fn required<'a>(flags: &'a HashMap<String, String>, name: &str, max: usize) -> Result<&'a str> {
     let value = flags.get(name).map(String::as_str).unwrap_or_default();
     if !exact_token(value, max) {
-        return Err(crate::cli::args::Usage(format!("route: --{name} is required and must be exact (non-empty, one line)")).into());
+        return Err(crate::cli::args::Usage(format!(
+            "route: --{name} is required and must be exact (non-empty, one line)"
+        ))
+        .into());
     }
     Ok(value)
 }
@@ -168,7 +176,12 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
     let (key, value) = match (flags.contains_key("item"), flags.contains_key("tag")) {
         (true, false) => ("item", required(flags, "item", MAX_NAME_CHARS)?),
         (false, true) => ("tag", required(flags, "tag", MAX_NAME_CHARS)?),
-        _ => return Err(crate::cli::args::Usage("route declare takes exactly one of --item or --tag".to_string()).into()),
+        _ => {
+            return Err(crate::cli::args::Usage(
+                "route declare takes exactly one of --item or --tag".to_string(),
+            )
+            .into())
+        }
     };
     let field = required(flags, "field", MAX_NAME_CHARS)?;
     let reason = required(flags, "reason", MAX_REASON_CHARS)?;

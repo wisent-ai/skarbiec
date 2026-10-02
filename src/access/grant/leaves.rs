@@ -57,7 +57,9 @@ pub(in crate::access::grant) fn group(
         "narrow" => {
             let usage = "usage: grant narrow <consumer> <item> --field <field>";
             let consumer = positionals.first().or_usage(usage)?;
-            let item = positionals.get(std::iter::once(()).count()).or_usage(usage)?;
+            let item = positionals
+                .get(std::iter::once(()).count())
+                .or_usage(usage)?;
             let field = flags.get("field").or_usage("--field is required")?;
             let mut attempt = 0u32;
             loop {
@@ -184,7 +186,10 @@ pub(in crate::access::grant) fn group(
                 "introspect", "call",
             ],
         }))),
-        other => Err(crate::cli::args::Usage(format!("unknown grant command: {other}; `skarbiec grant --help` lists them")).into()),
+        other => Err(crate::cli::args::Usage(format!(
+            "unknown grant command: {other}; `skarbiec grant --help` lists them"
+        ))
+        .into()),
     }
 }
 

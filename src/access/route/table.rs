@@ -261,13 +261,22 @@ pub(super) fn write_row(
 /// operation is serialized, not only its final atomic replacement.
 fn lock_table(path: &Path) -> Result<fs::File> {
     let lock_path = path.with_extension("json.lock");
-    if let Some(parent) = lock_path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+    if let Some(parent) = lock_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
         fs::create_dir_all(parent).context("create capability route directory")?;
     }
-    let lock = fs::OpenOptions::new().read(true).write(true).create(true).truncate(false).mode(0o600)
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .mode(0o600)
         .open(&lock_path)
         .with_context(|| format!("open capability route lock {}", lock_path.display()))?;
-    lock.lock_exclusive().with_context(|| format!("lock capability route table {}", path.display()))?;
+    lock.lock_exclusive()
+        .with_context(|| format!("lock capability route table {}", path.display()))?;
     Ok(lock)
 }
 

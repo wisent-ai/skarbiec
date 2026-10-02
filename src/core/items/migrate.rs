@@ -2,8 +2,8 @@
 // vault to the current schema, and the item-by-item copy between two vault
 // files.
 
-use anyhow::{bail, Context, Result};
 use crate::cli::args::OrUsage;
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::os::unix::fs::OpenOptionsExt;
@@ -93,7 +93,10 @@ const CURRENT_VERSION: &str = "v2";
 
 /// Copy the vault file, byte for byte, to a new mode-0600 path before the
 /// envelope migration rewrites it.
-fn snapshot_vault(flags: &std::collections::HashMap<String, String>, source: &Path) -> Result<PathBuf> {
+fn snapshot_vault(
+    flags: &std::collections::HashMap<String, String>,
+    source: &Path,
+) -> Result<PathBuf> {
     let snapshot = flags.get("snapshot").map_or_else(
         || -> Result<PathBuf> {
             let epoch = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
@@ -105,7 +108,10 @@ fn snapshot_vault(flags: &std::collections::HashMap<String, String>, source: &Pa
         |path| Ok(PathBuf::from(path)),
     )?;
     if snapshot.exists() {
-        bail!("upgrade snapshot already exists: {}; name another with --snapshot", snapshot.display());
+        bail!(
+            "upgrade snapshot already exists: {}; name another with --snapshot",
+            snapshot.display()
+        );
     }
     let mut input = File::open(source)
         .with_context(|| format!("open vault snapshot source {}", source.display()))?;

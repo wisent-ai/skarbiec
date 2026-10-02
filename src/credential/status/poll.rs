@@ -1,8 +1,8 @@
 // One poll of one credential operation: read the record, ask Weles when the
 // answer can still change, then settle and report.
 
-use anyhow::{bail, Context, Result};
 use crate::cli::args::OrUsage;
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -26,7 +26,9 @@ use super::snapshot::emit;
 // One poll of the exact Weles action log, persisted exactly like a manual
 // `credential status` run.
 pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> Result<Value> {
-    let credential_id = args.first().or_usage("usage: credential status <item-id>")?;
+    let credential_id = args
+        .first()
+        .or_usage("usage: credential status <item-id>")?;
     exact_name("credential item id", credential_id, 200)?;
     let request_item = request_item_id(credential_id);
     let mut vault = Vault::open(vault_path.to_path_buf())?;

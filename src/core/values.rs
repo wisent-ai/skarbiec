@@ -3,8 +3,8 @@
 // These are the same operations the command line offers, delegating to the
 // same Vault API so the operator console and the local vault cannot drift.
 
-use anyhow::{bail, Context, Result};
 use crate::cli::args::OrUsage;
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 

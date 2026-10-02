@@ -24,7 +24,9 @@ pub fn dispatch(
             let field = positionals.get(2).or_usage(
                 "usage: acquisition-request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX",
             )?;
-            let workload_id = flags.get("workload-id").or_usage("--workload-id required")?;
+            let workload_id = flags
+                .get("workload-id")
+                .or_usage("--workload-id required")?;
             let timestamp = flags
                 .get("workload-timestamp")
                 .or_usage("--workload-timestamp required")?
@@ -73,9 +75,9 @@ pub fn dispatch(
             })))
         }
         "acquisition-read" => {
-            let consumer = positionals
-                .first()
-                .or_usage("usage: acquisition-read <consumer> <item> <field> --token-file <path>")?;
+            let consumer = positionals.first().or_usage(
+                "usage: acquisition-read <consumer> <item> <field> --token-file <path>",
+            )?;
             let item = positionals.get(1).or_usage(
                 "usage: acquisition-read <consumer> <item> <field> --token-file <path>",
             )?;

@@ -38,11 +38,11 @@ pub use lookup::{
 };
 pub use rules::capabilities::acquisition_workload_public_key;
 
+use crate::cli::args::OrUsage;
 use leaves::group;
 use lookup::{load, now_epoch};
 use rules::capabilities::{parse_capabilities, read_acquisition_catalog};
 use rules::validation::read_workload_public_key;
-use crate::cli::args::OrUsage;
 
 pub fn dispatch(
     command: &str,

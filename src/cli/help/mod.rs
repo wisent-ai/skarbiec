@@ -18,11 +18,21 @@ pub(crate) struct CommandHelp {
 }
 
 const fn row(name: &'static str, usage: &'static str, summary: &'static str) -> CommandHelp {
-    CommandHelp { name, usage, summary, group: false }
+    CommandHelp {
+        name,
+        usage,
+        summary,
+        group: false,
+    }
 }
 
 const fn group(name: &'static str, usage: &'static str, summary: &'static str) -> CommandHelp {
-    CommandHelp { name, usage, summary, group: true }
+    CommandHelp {
+        name,
+        usage,
+        summary,
+        group: true,
+    }
 }
 
 pub(crate) const COMMANDS: &[CommandHelp] = &[
@@ -102,7 +112,9 @@ fn docs_url(name: &str) -> String {
 
 /// Whether `name` is a group that answers `help` with its own inventory.
 pub(crate) fn is_group(name: &str) -> bool {
-    COMMANDS.iter().any(|command| command.group && command.name == name)
+    COMMANDS
+        .iter()
+        .any(|command| command.group && command.name == name)
 }
 
 /// The machine-readable inventory `skarbiec help` prints: the group and
@@ -125,7 +137,11 @@ pub(crate) fn listing() -> Value {
 
 /// `skarbiec --help`: every command and what it does, for a person.
 pub(crate) fn print_overview() {
-    let width = COMMANDS.iter().map(|command| command.name.len()).max().unwrap_or_default();
+    let width = COMMANDS
+        .iter()
+        .map(|command| command.name.len())
+        .max()
+        .unwrap_or_default();
     println!("usage: skarbiec <command> [arguments]\n");
     println!("commands:");
     for command in COMMANDS {
@@ -141,8 +157,16 @@ pub(crate) fn print_overview() {
 /// `skarbiec <command> --help`: one command's usage, never its effect.
 pub(crate) fn print_command(name: &str) -> Result<()> {
     let Some(command) = COMMANDS.iter().find(|command| command.name == name) else {
-        return Err(super::args::Usage(format!("unknown command: {name}; `skarbiec --help` lists every command")).into());
+        return Err(super::args::Usage(format!(
+            "unknown command: {name}; `skarbiec --help` lists every command"
+        ))
+        .into());
     };
-    println!("usage: {}\n\n{}\n\n{}", command.usage, command.summary, docs_url(command.name));
+    println!(
+        "usage: {}\n\n{}\n\n{}",
+        command.usage,
+        command.summary,
+        docs_url(command.name)
+    );
     Ok(())
 }

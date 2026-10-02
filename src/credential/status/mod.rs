@@ -39,7 +39,11 @@ pub(super) fn status(
     args: &[String],
 ) -> Result<Value> {
     if flags.keys().any(|key| key != "local") {
-        return Err(crate::cli::args::Usage("usage: credential status <item-id> [--local]; it reads once and reports settled".to_string()).into());
+        return Err(crate::cli::args::Usage(
+            "usage: credential status <item-id> [--local]; it reads once and reports settled"
+                .to_string(),
+        )
+        .into());
     }
     with_settled(status_once(vault_path, args)?)
 }

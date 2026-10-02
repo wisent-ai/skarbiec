@@ -108,7 +108,9 @@ fn run() -> Result<()> {
             if receipt["recovered"] != json!(true) {
                 bail!(
                     "recover-daemons: the GnuPG daemons were not replaced: {}",
-                    receipt["detail"].as_str().unwrap_or("no cause was reported")
+                    receipt["detail"]
+                        .as_str()
+                        .unwrap_or("no cause was reported")
                 );
             }
             Ok(())
@@ -124,7 +126,10 @@ fn run() -> Result<()> {
         "delete" => emit(&cmd_delete(&positionals)?),
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => emit(&cmd_restore(&positionals)?),
-        "purge" => emit(&cmd_purge(&positionals, cli::args::flag_set(&flags, "yes"))?),
+        "purge" => emit(&cmd_purge(
+            &positionals,
+            cli::args::flag_set(&flags, "yes"),
+        )?),
         "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
         "import" => emit(&core::importer::run(&flags, &positionals)?),
@@ -150,7 +155,10 @@ fn run() -> Result<()> {
             } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else {
-                return Err(Usage(format!("unknown command: {other}; `skarbiec --help` lists every command")).into());
+                return Err(Usage(format!(
+                    "unknown command: {other}; `skarbiec --help` lists every command"
+                ))
+                .into());
             }
         }
     }

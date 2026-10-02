@@ -12,8 +12,8 @@
 // The bond serve channel (serve-mode `pull`, `GET /v1/vault`, the shared HTTP
 // client) lives in net::bond — this module is the git channel only.
 
-use anyhow::{bail, Context, Result};
 use crate::cli::args::OrUsage;
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -130,9 +130,14 @@ pub fn dispatch(
             let (ok, _o, e) = git(&["push", "origin", &remote_ref])?;
             crate::runtime::audit::append("sync-push", &json!({"branch": branch, "ok": ok}))?;
             if !ok {
-                bail!("sync-push: git push origin {remote_ref} failed: {}", e.trim());
+                bail!(
+                    "sync-push: git push origin {remote_ref} failed: {}",
+                    e.trim()
+                );
             }
-            Ok(Some(json!({"ok": true, "branch": branch, "detail": e.trim()})))
+            Ok(Some(
+                json!({"ok": true, "branch": branch, "detail": e.trim()}),
+            ))
         }
         "sync-pull" => {
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");

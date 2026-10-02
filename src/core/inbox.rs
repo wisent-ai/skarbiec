@@ -8,8 +8,8 @@
 // claim matches. v1 trust model: the donate token's consumer IS the writer
 // identity; `from` is an unsigned claim carried for the owner's inspection.
 
-use anyhow::{Context, Result};
 use crate::cli::args::OrUsage;
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;

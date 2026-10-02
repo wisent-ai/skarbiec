@@ -139,7 +139,9 @@ pub fn dispatch(
         "policy-unset" => {
             let key = positionals.first().or_usage("usage: policy-unset <key>")?;
             let mut vault = load()?;
-            let removed = ensure_section(vault.doc_mut(), "policy").remove(key.as_str()).is_some();
+            let removed = ensure_section(vault.doc_mut(), "policy")
+                .remove(key.as_str())
+                .is_some();
             if removed {
                 vault.save()?;
                 crate::runtime::audit::append("policy-unset", &json!({"key": key}))?;

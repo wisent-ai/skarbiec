@@ -3,8 +3,8 @@
 // range endpoint, and match the returned suffixes locally — the value never
 // leaves this host. Reports whether it appears in known breach corpora.
 
-use anyhow::{Context, Result};
 use crate::cli::args::OrUsage;
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::process::Command;

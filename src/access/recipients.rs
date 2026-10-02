@@ -91,7 +91,9 @@ pub fn dispatch(
         }
         "rotate-owner" => {
             let mut args = positionals.iter();
-            let uid = args.next().or_usage("usage: rotate-owner <new-owner-uid>")?;
+            let uid = args
+                .next()
+                .or_usage("usage: rotate-owner <new-owner-uid>")?;
             // Deliberately no key generation. `add-user` generating a key for
             // an unknown uid is what turned one command into an outage: a key
             // minted here would be a key no ciphertext was ever encrypted to.
@@ -156,7 +158,9 @@ pub fn dispatch(
         // that, so the CLI needs --yes; the desktop's Remove from vault sheet
         // sends it.
         "remove-user" => {
-            let uid = positionals.first().or_usage("usage: remove-user <uid> --yes")?;
+            let uid = positionals
+                .first()
+                .or_usage("usage: remove-user <uid> --yes")?;
             let mut vault = Vault::open(vault_path())?;
             crate::cli::items::ensure_not_replica(&vault, "remove-user")?;
             if vault.recipient_fpr(uid).is_some() && !crate::cli::args::flag_set(flags, "yes") {
