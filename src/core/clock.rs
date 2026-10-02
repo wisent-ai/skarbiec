@@ -1,13 +1,6 @@
-// The one clock. Seven modules each spawned `/bin/date` to learn the time,
-// and every one of those spawns was a process the vault's bounded crypto pool
-// had to make room for: a timestamp competed with a decryption for the same
-// capacity, which is how a metadata call that decrypts nothing took 14.4s on
-// 2026-09-05 while four verifier sweeps held the pool.
-//
-// The formats are the exact strings those `date` calls produced, so a
-// timestamp written before this module and one written after it are the same
-// bytes. `runtime::audit::journal` already did this in process; this is that
-// decision applied to the rest.
+// Format timestamps in process so obtaining the time does not compete with
+// cryptographic work for subprocess capacity. Preserve the documented UTC
+// formats used by stored records and audit entries.
 
 use time::format_description::BorrowedFormatItem;
 use time::macros::format_description;

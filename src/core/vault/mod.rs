@@ -154,10 +154,8 @@ fn document_generation(doc: &Value) -> u64 {
 
 /// Write a vault document privately and atomically: a fresh owner-only
 /// temporary beside the target, synced, then renamed over it. Every writer of
-/// a vault file goes through this, the replica pull included - until
-/// 2026-09-16 the pull used `fs::write`, which honours the umask, so a pulled
-/// replica landed world-readable and `stado credentials inspect-vault` refused
-/// it as not owner-only.
+/// a vault file, including replica pulls, uses this path so privacy does not
+/// depend on the process umask.
 pub fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
     let parent = path.parent().context("vault path has no parent")?;
     let temp = path.with_extension(format!("tmp.{}", std::process::id()));
