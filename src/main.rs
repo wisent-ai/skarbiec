@@ -155,10 +155,10 @@ fn run() -> Result<()> {
             } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else {
-                return Err(Usage(format!(
+                Err(Usage(format!(
                     "unknown command: {other}; `skarbiec --help` lists every command"
                 ))
-                .into());
+                .into())
             }
         }
     }

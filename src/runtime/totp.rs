@@ -10,7 +10,7 @@
 // which of three states a login row is in, and those three have three
 // different repairs, so they are never collapsed here.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 

@@ -1,7 +1,7 @@
 // The acquisition verbs an operator or a workload runs, and the exact
 // refusals each of them answers with.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
