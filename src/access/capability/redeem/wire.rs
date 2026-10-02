@@ -55,15 +55,15 @@ pub(super) fn challenge_item(resource: &str) -> String {
     format!("capability-challenge-{}", resource.replace(['/', ':'], "-"))
 }
 
-/// `apple-challenge-put <resource>` -- store the six digits a trusted device just
-/// showed, under the resource an authorization already named.
+/// `challenge-put <resource>` -- store the digits a trusted device just
+/// showed, under the resource an authorization already named. The resource
+/// names the provider (`challenge:apple/<authorization>`); the verb does not.
 ///
 /// This is the write half of the `challenge:` exception above. Issuing a capability
 /// for a code that does not exist yet is deliberate: the login that will need it is
-/// what causes Apple to send it, so the redeeming side polls and gets `pending`
-/// until this runs. Without this command the poll never stops being pending, and the
-/// deployment scripts that reach for it -- `skarbiec-remote-command.sh` allows
-/// exactly this verb -- were calling something the binary did not implement.
+/// what causes the provider to send it, so the redeeming side polls and gets
+/// `pending` until this runs. Without this command the poll never stops being
+/// pending.
 ///
 /// The code arrives on stdin, never in argv: a remote command line is readable by
 /// anybody with `ps`, and the argv of a shell command is not a place a
@@ -74,13 +74,13 @@ pub(super) fn challenge_item(resource: &str) -> String {
 pub(in crate::access::capability) fn challenge_put(positionals: &[String]) -> Result<Value> {
     let mut named = positionals.iter();
     let Some(resource) = named.next() else {
-        bail!("apple-challenge-put requires exactly one resource");
+        bail!("challenge-put requires exactly one resource");
     };
     if named.next().is_some() {
-        bail!("apple-challenge-put requires exactly one resource");
+        bail!("challenge-put requires exactly one resource");
     }
     if !resource.starts_with("challenge:") {
-        bail!("apple-challenge-put only stores a challenge: resource");
+        bail!("challenge-put only stores a challenge: resource");
     }
 
     // Only an authorized challenge may be written. The capability is issued by the
@@ -104,10 +104,10 @@ pub(in crate::access::capability) fn challenge_put(positionals: &[String]) -> Re
         .context("reading the challenge code from stdin")?;
     let code = code.trim().to_string();
     if code.is_empty() {
-        bail!("apple-challenge-put reads the code from stdin and received nothing");
+        bail!("challenge-put reads the code from stdin and received nothing");
     }
     if !code.chars().all(|character| character.is_ascii_digit()) {
-        bail!("an Apple challenge code is digits only");
+        bail!("a challenge code is digits only");
     }
 
     let item = challenge_item(resource);
@@ -125,7 +125,7 @@ pub(in crate::access::capability) fn challenge_put(positionals: &[String]) -> Re
     )?;
     vault.save()?;
     crate::runtime::audit::append_sync(
-        "apple-challenge-stored",
+        "challenge-stored",
         &json!({"resource": resource, "item": item}),
     )?;
     Ok(json!({"status": "stored", "resource": resource}))

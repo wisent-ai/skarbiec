@@ -92,7 +92,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("capability-status", "skarbiec capability-status [--socket <unix-socket-path>]", "Check that the running capability broker reads the same vault, state and routes as this client."),
     group("credential", "skarbiec credential help", "Run the persisted credential lifecycle (acquire, adopt, rotate, reset, verify, remove, reauth, resume, status); `skarbiec credential help` lists the subcommands."),
     group("rotation", "skarbiec rotation help", "Declare, list and withdraw per-item rotation policies and start every due rotation; `skarbiec rotation help` lists the subcommands."),
-    row("apple-challenge-put", "skarbiec apple-challenge-put <challenge:resource>  (digits on stdin)", "Store the digits a trusted device received for an authorized one-use challenge."),
+    row("challenge-put", "skarbiec challenge-put <challenge:resource>  (digits on stdin)", "Store the digits a trusted device received for an authorized one-use challenge; the resource names the provider."),
     row("version", "skarbiec version", "Print the binary version and, for published artifacts, its release and source provenance."),
 ];
 
