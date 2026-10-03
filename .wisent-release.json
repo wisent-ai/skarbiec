@@ -9,8 +9,8 @@
   },
   "inputs": {
     "weles-client": {
-      "uri": "stado://sources/skarbiec/weles-client/74010851d4dabf83cf9864f9d0881379222f8a9448b36b734d0626acce1f068d/weles-client.tgz",
-      "sha256": "74010851d4dabf83cf9864f9d0881379222f8a9448b36b734d0626acce1f068d",
+      "uri": "stado://sources/skarbiec/dependencies/weles-client/sha256/0f0516a6bc1366e96d1e779163b0b9173082e9c501dfd912cab9625c75764056/source.tar.gz",
+      "sha256": "0f0516a6bc1366e96d1e779163b0b9173082e9c501dfd912cab9625c75764056",
       "mount": "weles-client",
       "extract": true
     }
@@ -18,8 +18,28 @@
   "platforms": {
     "darwin-arm64": {
       "quality": [
-        {"name": "fmt", "argv": ["cargo", "fmt", "--", "--check"]},
-        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]}
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--",
+            "--check"
+          ]
+        },
+        {
+          "name": "clippy",
+          "argv": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "--all-targets",
+            "--keep-going",
+            "--",
+            "-D",
+            "warnings"
+          ]
+        }
       ],
       "build": {
         "argv": [
@@ -38,8 +58,28 @@
     },
     "linux-amd64": {
       "quality": [
-        {"name": "fmt", "argv": ["cargo", "fmt", "--", "--check"]},
-        {"name": "clippy", "argv": ["cargo", "clippy", "--locked", "--all-targets", "--keep-going", "--", "-D", "warnings"]}
+        {
+          "name": "fmt",
+          "argv": [
+            "cargo",
+            "fmt",
+            "--",
+            "--check"
+          ]
+        },
+        {
+          "name": "clippy",
+          "argv": [
+            "cargo",
+            "clippy",
+            "--locked",
+            "--all-targets",
+            "--keep-going",
+            "--",
+            "-D",
+            "warnings"
+          ]
+        }
       ],
       "build": {
         "argv": [

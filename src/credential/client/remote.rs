@@ -32,9 +32,8 @@ pub(in crate::credential) fn canonical_call(
         payload.len()
     );
     let mut stream = TcpStream::connect(&authority).with_context(|| {
-        // The address came from a file, and an operator who cannot see which
-        // file cannot tell a stopped service from a stale declaration. Both
-        // happened on this fleet in one evening.
+        // Name the declaration so the caller can distinguish an unreachable
+        // service from an endpoint file that selects the wrong address.
         format!(
             "canonical Skarbiec is unreachable on {authority}, declared by {}; run `skarbiec credential declare-endpoint <url>` to correct it",
             forwards_dir()

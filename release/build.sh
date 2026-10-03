@@ -48,13 +48,11 @@ SKARBIEC_RELEASE_COMMIT="$commit" CARGO_TARGET_DIR="$build_root" \
 install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
 install -m 0755 "$source_dir/release/launch.sh" "$stage/bin/start"
 bridge_input=${WISENT_INPUT_WELES_CLIENT_DIR:?WISENT_INPUT_WELES_CLIENT_DIR is required}
-bridge_package="$bridge_input/package"
-if [[ ! -d "$bridge_package" ]]; then
-  bridge_package="$bridge_input"
-fi
+# The native pin-input archive retains its input-name prefix.
+bridge_package="$bridge_input/weles-client"
 bridge_stage="$stage/share/skarbiec/weles-client"
 if [[ ! -f "$bridge_package/bin/weles-skarbiec-acquire-admission.mjs" ]]; then
-  printf 'Skarbiec build input weles-client is missing its bridge: %s/bin/weles-skarbiec-acquire-admission.mjs; WISENT_INPUT_WELES_CLIENT_DIR=%s must name Weles Client source or its extracted package, not Skarbiec source\n' "$bridge_package" "$bridge_input" >&2
+  printf 'Skarbiec build input weles-client is missing its bridge: %s/bin/weles-skarbiec-acquire-admission.mjs; pin the Weles Client source with stado release catalog pin-input --name weles-client\n' "$bridge_package" >&2
   exit 1
 fi
 package_name=$(npm pkg get name --prefix "$bridge_package")
