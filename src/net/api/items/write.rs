@@ -47,6 +47,20 @@ pub(crate) fn handle_items_put(
             &json!({"error": "credential operation records and sealed directory contracts cannot be changed through item APIs"}),
         );
     }
+    if mode == "rotate" {
+        return super::rotate::handle(
+            stream,
+            vault,
+            super::rotate::Rotation {
+                id,
+                field,
+                operation_id,
+                consumer: &consumer,
+                bearer: &bearer,
+                value: parsed.get("value"),
+            },
+        );
+    }
     if mode != "acquire"
         && (!inbox::managed_by_weles(&vault, id)
             || inbox::written_by(&vault, id).as_deref() != Some(consumer.as_str()))
@@ -182,7 +196,7 @@ pub(crate) fn handle_items_put(
             return http::write_response(
                 stream,
                 "HTTP/1.1 400 Bad Request",
-                &json!({"error": "mode must be acquire or stage"}),
+                &json!({"error": "mode must be acquire, stage or rotate"}),
             );
         }
     };

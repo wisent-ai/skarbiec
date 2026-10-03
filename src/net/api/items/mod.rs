@@ -1,6 +1,7 @@
 // One item, one field, one direction at a time.
 
 mod read;
+mod rotate;
 mod write;
 
 pub(crate) use read::handle_items_read;
