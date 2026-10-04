@@ -9,7 +9,7 @@ use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 mod commands;
 mod proof;
-mod role;
+pub(crate) mod role;
 mod state;
 pub use commands::dispatch;
 

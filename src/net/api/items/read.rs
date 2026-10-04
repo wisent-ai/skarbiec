@@ -42,6 +42,34 @@ pub(crate) fn handle_items_read(
             &json!({"error": "consumer not authorized to read item field"}),
         );
     }
+    // A grant may name a role (`read:role:<role>#<field>`): the request asks
+    // for `role:<role>`, the grant matched that coordinate above, and the value
+    // comes from the one live item playing the role now, so the caller never
+    // names an item. A plain item id resolves to itself.
+    let requested = id;
+    let resolved = match crate::access::acquisition::role::item_for(&vault, requested) {
+        Ok(item) => item,
+        Err(error) => {
+            let detail = if error
+                .downcast_ref::<crate::access::acquisition::AcquisitionFieldMissing>()
+                .is_some()
+            {
+                format!("no live item carries stado:{requested}")
+            } else {
+                error.to_string()
+            };
+            return http::write_response(
+                stream,
+                "HTTP/1.1 404 Not Found",
+                &json!({
+                    "error": "the role has no single item",
+                    "error_code": Code::NotFound.as_str(),
+                    "detail": detail,
+                }),
+            );
+        }
+    };
+    let id = resolved.as_str();
     // An adopt candidate the provider has not confirmed is readable only by
     // the adopt verification path, never by an ordinary read grant.
     if field != "context"
@@ -130,11 +158,11 @@ pub(crate) fn handle_items_read(
     };
     crate::runtime::audit::append(
         "http-item-read",
-        &json!({"item": id, "field": field, "consumer": consumer}),
+        &json!({"item": id, "requested": requested, "field": field, "consumer": consumer}),
     )?;
     http::write_response(
         stream,
         "HTTP/1.1 200 OK",
-        &json!({"id": id, "field": field, "value": value}),
+        &json!({"id": requested, "item": id, "field": field, "value": value}),
     )
 }

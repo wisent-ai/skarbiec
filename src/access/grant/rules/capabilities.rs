@@ -51,12 +51,14 @@ pub(in crate::access::grant) fn parse_capabilities(
         if matches!(action, "lifecycle" | "reseal") && field.is_some() {
             bail!("{action} capability is item-scoped and must not name a field");
         }
-        // `role:<role>` is an acquisition coordinate: redemption reads the one
-        // live item tagged `stado:role:<role>`. No other action resolves a role,
-        // so on any other action it would name an item literally called that.
-        if item.starts_with("role:") && action != "acquire" {
+        // `role:<role>` is a coordinate that acquisition and a scoped read
+        // resolve to the one live item tagged `stado:role:<role>`. No other
+        // action resolves a role, so on any other action it would name an item
+        // literally called that.
+        let names_role = item.starts_with("role:");
+        if names_role && !matches!(action, "acquire" | "read") {
             bail!(
-                "only acquire names a role (acquire:role:<role>#<field>); {action} names an item"
+                "only acquire and read name a role (acquire:role:<role>#<field>, read:role:<role>#<field>); {action} names an item"
             );
         }
         let capability = json!({"action": action, "item": item, "field": field});
@@ -81,7 +83,10 @@ pub(in crate::access::grant) fn parse_capabilities(
         // Lifecycle scopes can name the item an acquire operation will create.
         // They grant no value access; requiring an existing item here would
         // make acquisition of a new credential through the canonical API impossible.
-        if !preserved {
+        // A role coordinate is resolved when it is used: the item playing the
+        // role may be replaced between grant and read, so nothing is checked
+        // against today's holder here.
+        if !preserved && !names_role {
             if let Some(field) = field {
                 if field == "context" && action != "read" {
                     bail!("context is metadata and may only be named by read capabilities");

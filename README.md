@@ -134,7 +134,11 @@ their temporary vaults and keyrings after capture.
    and direct capabilities cannot be mixed into that identity. A workload that
    should not know which item holds its secret registers
    `acquire:role:<role>#field` instead: it asks for `role:<role>`, and
-   redemption reads the one live item tagged `stado:role:<role>`.
+   redemption reads the one live item tagged `stado:role:<role>`. A scoped
+   consumer that reads directly (`POST /v1/items/read`) is granted
+   `read:role:<role>#field` the same way and asks for `id: "role:<role>"`; the
+   answer carries the requested coordinate as `id` and the item that played the
+   role as `item`, and no holder, or two, is `404` with the role named.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
    timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and
    replayed proof hashes.

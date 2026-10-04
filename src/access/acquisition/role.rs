@@ -1,13 +1,15 @@
-// An acquisition coordinate that names a role instead of an item.
+// A coordinate that names a role instead of an item, for acquisition and for
+// a scoped consumer's read.
 //
 // A workload that acquires through the broker used to name the vault item it
 // reads (`acquire:<item>#<field>`), so every such product kept an item name in
 // its code, and renaming or replacing the item broke it. `role:<role>` names
-// what the secret is for: the grant declares `acquire:role:<role>#<field>`, the
-// workload signs its proof over `role:<role>` and the field, and redemption
-// reads that field of the one live item tagged `stado:role:<role>` -- the same
-// role a Stado consumer selects the item by. No item, or two items, in the
-// role is refused rather than guessed.
+// what the secret is for: the grant declares `acquire:role:<role>#<field>` or
+// `read:role:<role>#<field>`, the caller asks for `role:<role>` (an acquiring
+// workload signs its proof over that coordinate), and the value comes from the
+// one live item tagged `stado:role:<role>` -- the same role a Stado consumer
+// selects the item by. No item, or two items, in the role is refused rather
+// than guessed.
 
 use anyhow::{bail, Result};
 
@@ -28,7 +30,7 @@ pub(super) fn exact_coordinate(coordinate: &str) -> bool {
 
 /// The item a coordinate reads: the item it names, or the one live item that
 /// plays the role it names.
-pub(super) fn item_for(vault: &Vault, coordinate: &str) -> Result<String> {
+pub(crate) fn item_for(vault: &Vault, coordinate: &str) -> Result<String> {
     let Some(role) = coordinate.strip_prefix(ROLE_COORDINATE) else {
         return Ok(coordinate.to_string());
     };
