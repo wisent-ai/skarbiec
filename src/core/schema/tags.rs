@@ -104,6 +104,16 @@ const TAG_NAMESPACES: &[TagNamespace] = &[
         prefix: "weles:record:",
         value: "kind",
     },
+    // How Weles signs into a login row: `google_sso` or `email_password`.
+    // A login row imported without a sealed `login_method` in its context had
+    // no way to be given one short of rewriting the row, so every sign-in
+    // through it was refused `login_method_unsupported (absent)`. The tag is
+    // the typed declaration: an operator sets it with the owner's tag write
+    // (`stado credentials item retag`) and Weles reads it beside the context.
+    TagNamespace::Valued {
+        prefix: "weles:login-method:",
+        value: "method",
+    },
 ];
 
 impl TagNamespace {

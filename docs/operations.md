@@ -245,6 +245,7 @@ newline, or carriage return.
 | `lifecycle:quarantined` | exact | Written and cleared by the credential lifecycle when it freezes or releases an item, and read back to decide whether an item is frozen |
 | `skrzynka:mailbox` | exact | Registered for Skrzynka, which lists its mailboxes by it: `skrzynka mailbox declare` writes it and `skrzynka mailbox undeclare` removes it; Skarbiec does not write it |
 | `weles:record:<kind>` | valued | Registered for Weles: the kind of record an item holds (trajectory account, service credential, runtime setting, email-domain status). Weles lists its records of a kind by this tag and matches each record's sealed context, so the item's id decides nothing; Skarbiec does not write it |
+| `weles:login-method:<method>` | valued | Registered for Weles: how it signs into a login row, `google_sso` or `email_password`, for a row whose sealed context declares no `login_method`. An operator writes it on the vault owner with `stado credentials item retag`; Weles reads it beside the context; Skarbiec does not write it |
 
 Only what a write introduces is judged. A tag the item already carries is left
 alone, because writes deliberately preserve tags they do not mention and
