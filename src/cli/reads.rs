@@ -65,11 +65,25 @@ pub(crate) fn cmd_restore_version(positionals: &[String]) -> Result<()> {
 }
 
 pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
-    let id = positionals
+    let coordinate = positionals
         .first()
-        .or_usage("usage: get <id> [--field <field>]")?;
+        .or_usage("usage: get <id|role:<role>> [--field <field>]")?;
     let path = vault_path();
-    let item = Vault::open(path.clone())?
+    let vault = Vault::open(path.clone())?;
+    // `role:<role>` reads the one live item tagged `stado:role:<role>`, the
+    // same coordinate acquisition and scoped reads take, so an owner-side
+    // reader names what the secret is for instead of an item id.
+    let id = &crate::access::acquisition::role::item_for(&vault, coordinate).map_err(|error| {
+        match coordinate.strip_prefix("role:") {
+            Some(role) if error.is::<crate::access::acquisition::AcquisitionFieldMissing>() => {
+                anyhow::anyhow!(
+                    "no live item carries stado:role:{role}; tag the item that plays role {role}"
+                )
+            }
+            _ => error,
+        }
+    })?;
+    let item = vault
         .get_item(id)
         .with_context(|| format!("reading item {id} from the vault at {}", path.display()))?;
     let Some(field) = flags.get("field") else {

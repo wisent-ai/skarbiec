@@ -42,7 +42,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("vaults", "skarbiec vaults", "Inventory the Skarbiec vault files in this host's conventional locations without decrypting them."),
     row("init", "skarbiec init <owner-uid>", "Create a new vault with an owner recipient and a separate recovery recipient."),
     row("set-json", "skarbiec set-json <id> [--type <canonical-kind>] [--recipients <uid,...>] [--tags <tag,...>] [--if-absent]  (payload on stdin)", "Write one canonical item payload read from stdin, so no value appears in argv."),
-    row("get", "skarbiec get <id> [--field <field>]", "Decrypt one item for its owner, or return one exact text field."),
+    row("get", "skarbiec get <id|role:<role>> [--field <field>]", "Decrypt one item for its owner, or return one exact text field; role:<role> reads the one live item tagged stado:role:<role>."),
     row("list", "skarbiec list [--all]", "List item metadata without credential values; --all includes trashed items."),
     row("duplicates", "skarbiec duplicates", "Report which live items hold exactly the same payload."),
     row("retag", "skarbiec retag <id> --tags <tag[,tag...]>", "Replace one item's tags without rewriting its payload or recipients."),
