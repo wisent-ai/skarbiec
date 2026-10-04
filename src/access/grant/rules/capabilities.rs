@@ -137,19 +137,28 @@ pub(in crate::access::grant) fn read_acquisition_catalog(
             continue;
         }
         let columns: Vec<&str> = line.split('|').collect();
-        if columns.len() != ["consumer", "item", "field"].len()
-            || !columns.iter().all(|value| exact_component(value))
-        {
-            bail!("invalid acquisition catalog row: {line}");
-        }
-        let row = (
-            columns[usize::MIN].to_string(),
-            columns[std::iter::once(()).count()].to_string(),
-            columns[std::iter::once(())
-                .count()
-                .saturating_add(std::iter::once(()).count())]
-            .to_string(),
-        );
+        // A row is consumer|item|field. The item column may name a role
+        // instead of an item, `role:<role>`, which registers
+        // `acquire:role:<role>#<field>`: redemption then reads the one live
+        // item tagged `stado:role:<role>`, so the catalog names no vault item.
+        let exact_coordinate = |value: &str| match value.strip_prefix("role:") {
+            Some(role) => exact_component(role),
+            None => exact_component(value),
+        };
+        let row = match columns.as_slice() {
+            [consumer, item, field]
+                if exact_component(consumer)
+                    && exact_coordinate(item)
+                    && exact_component(field) =>
+            {
+                (
+                    (*consumer).to_string(),
+                    (*item).to_string(),
+                    (*field).to_string(),
+                )
+            }
+            _ => bail!("invalid acquisition catalog row: {line}"),
+        };
         if rows.iter().any(|existing| existing == &row) {
             bail!("duplicate acquisition catalog row: {line}");
         }
