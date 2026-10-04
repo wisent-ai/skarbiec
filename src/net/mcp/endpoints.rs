@@ -98,14 +98,28 @@ pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Opti
     if consumer.is_empty() || !grant::token_valid_hash(&vault, &consumer, &hash) {
         return Ok(None);
     }
+    // A grant may cover an item by its id or by a role it plays
+    // (`read:role:<role>#<field>`): the item carrying `stado:role:<role>` is
+    // listed for that consumer too, so a reader granted roles sees the items
+    // it may read without naming any of them.
     Ok(Some(
         vault
             .list(false)
             .into_iter()
             .filter(|item| {
-                item.get("id").and_then(Value::as_str).is_some_and(|id| {
-                    grant::token_allows_any_item_hash(&vault, &consumer, &hash, "read", id)
-                })
+                let allows = |coordinate: &str| {
+                    grant::token_allows_any_item_hash(&vault, &consumer, &hash, "read", coordinate)
+                };
+                let by_id = item.get("id").and_then(Value::as_str).is_some_and(allows);
+                by_id
+                    || item
+                        .get("tags")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .filter_map(|tag| tag.strip_prefix("stado:role:"))
+                        .any(|role| allows(&format!("role:{role}")))
             })
             .collect(),
     ))
