@@ -63,6 +63,62 @@ pub(in crate::credential) fn live_item_exists(vault: &Vault, id: &str) -> bool {
         .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
 }
 
+/// The operation request recorded for `credential_id`, when one exists.
+pub(crate) fn recorded_request(vault: &Vault, credential_id: &str) -> Option<Value> {
+    vault
+        .get_item(&request_item_id(credential_id))
+        .ok()
+        .and_then(|payload| schema::field(&payload, "value").ok().cloned())
+}
+
+/// The item a `role:<role>` credential coordinate names for `operation`.
+///
+/// The one live item tagged `stado:role:<role>` answers it. With no holder,
+/// only `acquire` may proceed: an acquisition already recorded for the role
+/// whose item does not exist yet is resumed under its id, and otherwise a
+/// fresh random id is minted, so the caller never names the item. Two
+/// holders are refused rather than guessed.
+pub(crate) fn credential_for_role(vault: &Vault, role: &str, operation: &str) -> Result<String> {
+    let tag = format!("stado:role:{role}");
+    match crate::access::route::declaration::tagged_items(vault, &tag).as_slice() {
+        [one] => return Ok((*one).to_string()),
+        [] => {}
+        several => anyhow::bail!(
+            "{} live items carry {tag}; exactly one item may play role {role}",
+            several.len()
+        ),
+    }
+    if operation != "acquire" {
+        anyhow::bail!(
+            "no live item plays role {role}: tag the item {tag}, or create it with credential acquire role:{role}"
+        );
+    }
+    match pending_role_acquisition(vault, role) {
+        Some(credential_id) => Ok(credential_id),
+        None => crate::core::crypto::random_token(),
+    }
+}
+
+/// The item id of an acquisition recorded for `role` whose item does not
+/// exist yet: the item that acquisition's managed write will create.
+pub(crate) fn pending_role_acquisition(vault: &Vault, role: &str) -> Option<String> {
+    vault
+        .doc()
+        .get("items")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|items| items.keys())
+        .filter_map(|key| key.strip_prefix("operation:credential/"))
+        .find(|credential_id| {
+            !live_item_exists(vault, credential_id)
+                && recorded_request(vault, credential_id).is_some_and(|request| {
+                    request.get("role").and_then(Value::as_str) == Some(role)
+                        && request.get("operation").and_then(Value::as_str) == Some("acquire")
+                })
+        })
+        .map(str::to_string)
+}
+
 // One writer, two declared families. The kind travels with the record instead
 // of being assumed, because assuming it is what made a seal and an operation
 // record indistinguishable once written.

@@ -40,6 +40,35 @@ pub(crate) fn handle_items_put(
     let mode = parsed.get("mode").and_then(Value::as_str).unwrap_or("");
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
+    // A Weles writer may name the role an item plays instead of the item
+    // (`stage:role:<role>#<field>` grants, `id: role:<role>`). The grant is
+    // checked against the coordinate it names; everything else -- the
+    // operation record, the managed authority, the write -- uses the item the
+    // role resolves to: the one live holder for `stage`, and for `acquire` the
+    // item the acquisition recorded for that role will create.
+    let requested = id;
+    let resolved;
+    let id = match requested.strip_prefix("role:") {
+        None => requested,
+        Some(role) => {
+            let item = match mode {
+                "acquire" => crate::credential::pending_role_acquisition(&vault, role),
+                "stage" => crate::access::acquisition::role::item_for(&vault, requested).ok(),
+                _ => None,
+            };
+            let Some(item) = item else {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": format!(
+                        "role {role} resolves to no item for {mode}: stage needs the one live item tagged stado:role:{role}, acquire needs an acquisition started with credential acquire role:{role}, and rotate names an item"
+                    )}),
+                );
+            };
+            resolved = item;
+            resolved.as_str()
+        }
+    };
     if crate::credential::lifecycle_owned_item(&vault, id) {
         return http::write_response(
             stream,
@@ -82,7 +111,7 @@ pub(crate) fn handle_items_put(
             }
             if consumer.is_empty()
                 || !grant::token_allows_field_action(
-                    &vault, &consumer, &bearer, "stage", id, field,
+                    &vault, &consumer, &bearer, "stage", requested, field,
                 )?
             {
                 return http::write_response(
@@ -118,12 +147,25 @@ pub(crate) fn handle_items_put(
                 u64::MIN,
                 parsed.get("capture_origin").and_then(Value::as_str),
             )?;
+            // An acquisition started for a role tags the item it creates, so
+            // every later reader finds it by that role.
+            let mut tags = vec!["managed:weles".to_string()];
+            if let Some(role) =
+                crate::credential::recorded_request(&vault, id).and_then(|request| {
+                    request
+                        .get("role")
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+            {
+                tags.push(format!("stado:role:{role}"));
+            }
             vault.set_managed_item(
                 id,
                 kind,
                 &payload,
                 &[],
-                &["managed:weles".to_string()],
+                &tags,
                 crate::core::vault::ManagedWrite {
                     controller: "weles",
                     writer: &consumer,
@@ -135,7 +177,7 @@ pub(crate) fn handle_items_put(
         "stage" => {
             if consumer.is_empty()
                 || !grant::token_allows_field_action(
-                    &vault, &consumer, &bearer, "stage", id, field,
+                    &vault, &consumer, &bearer, "stage", requested, field,
                 )?
             {
                 return http::write_response(
@@ -204,6 +246,7 @@ pub(crate) fn handle_items_put(
         "http-item-field-write",
         &json!({
             "item": id,
+            "requested": requested,
             "field": field,
             "mode": mode,
             "operation_id": operation_id,
@@ -216,7 +259,8 @@ pub(crate) fn handle_items_put(
         "HTTP/1.1 200 OK",
         &json!({
             "ok": true,
-            "id": id,
+            "id": requested,
+            "item": id,
             "field": field,
             "mode": mode,
             "operation_id": operation_id,

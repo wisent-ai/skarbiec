@@ -6,7 +6,10 @@ mod records;
 mod writes;
 
 pub(crate) use lifecycle::lifecycle_state;
-pub(crate) use records::{lifecycle_owned_item, seal_item_id};
+pub(crate) use records::{
+    credential_for_role, lifecycle_owned_item, pending_role_acquisition, recorded_request,
+    seal_item_id,
+};
 pub(crate) use writes::authorize_managed_write;
 
 pub(super) use lifecycle::{quarantine_active, refuse_quarantined};

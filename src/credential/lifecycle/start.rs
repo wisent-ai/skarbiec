@@ -27,7 +27,7 @@ pub(in crate::credential) fn start_operation(
     args: &[String],
 ) -> Result<Value> {
     let submission = read_submission(operation, vault_path, flags, args)?;
-    let credential_id = submission.credential_id;
+    let credential_id = submission.credential_id.as_str();
     let dry_run = submission.dry_run;
     let request_item = request_item_id(credential_id);
     let _request_lock = if dry_run {
@@ -78,6 +78,7 @@ pub(in crate::credential) fn start_operation(
             "request_id": request_id,
             "operation": operation,
             "credential_id": credential_id,
+            "role": submission.role,
             "provider": submission.provider,
             "consumer": submission.consumer,
             "purpose": submission.purpose,

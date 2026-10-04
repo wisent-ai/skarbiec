@@ -22,7 +22,13 @@ use super::super::wire::{
 /// One validated submission: every value the operation needs, resolved once.
 pub(super) struct Submission<'a> {
     pub(super) operation: &'a str,
-    pub(super) credential_id: &'a str,
+    /// The item the operation acts on. A `role:<role>` argument is resolved
+    /// here to the item playing the role (or, for an acquisition nobody holds
+    /// yet, a fresh id), so everything after this reads one item id.
+    pub(super) credential_id: String,
+    /// The role the caller named instead of an item, recorded with the
+    /// request so the item an acquisition creates is tagged with it.
+    pub(super) role: Option<String>,
     pub(super) provider: &'a str,
     pub(super) consumer: &'a str,
     pub(super) purpose: String,
@@ -57,9 +63,9 @@ pub(super) fn read_submission<'a>(
     // name a credential nobody holds yet, and a generic provider already names
     // it.
     let item_argument = if operation == "acquire" {
-        "[<item-id>]"
+        "[<item-id>|role:<role>]"
     } else {
-        "<item-id>"
+        "<item-id>|role:<role>"
     };
     let usage = format!(
         "usage: credential {operation} {item_argument} --provider <provider> --consumer <consumer> [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] [--purpose <purpose>] [--dry-run]; a generic provider's item id defaults to its slug"
@@ -80,15 +86,26 @@ pub(super) fn read_submission<'a>(
     }
     let provider = flags.get("provider").context("--provider is required")?;
     exact_name("provider", provider, 128)?;
-    let credential_id = match args.first() {
+    let named = match args.first() {
         Some(named) => named.as_str(),
         None if operation == "acquire" && generic_provider(provider) => {
             generic_credential_id(provider)?
         }
         None => bail!("{usage}"),
     };
+    let (credential_id, role) = match named.strip_prefix("role:") {
+        Some(role) => {
+            exact_name("role", role, 200)?;
+            let vault = Vault::open(vault_path.to_path_buf())?;
+            (
+                crate::credential::credential_for_role(&vault, role, operation)?,
+                Some(role.to_string()),
+            )
+        }
+        None => (named.to_string(), None),
+    };
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", &credential_id, 200)?;
     exact_name("consumer", consumer, 200)?;
     let purpose = purpose(flags.get("purpose"), consumer)?;
     let account = email_address("--account", flags.get("account"))?;
@@ -105,20 +122,20 @@ pub(super) fn read_submission<'a>(
     // them, cross-check them, never take either as an argument.
     let (directory, field) = {
         let vault = Vault::open(vault_path.to_path_buf())?;
-        refuse_quarantined(&vault, credential_id, operation)?;
-        let directory = resolved_directory(&vault, credential_id)?;
-        cross_check_expectations(flags, credential_id, directory.as_ref())?;
+        refuse_quarantined(&vault, &credential_id, operation)?;
+        let directory = resolved_directory(&vault, &credential_id)?;
+        cross_check_expectations(flags, &credential_id, directory.as_ref())?;
         let field = provider_contract(
             operation,
             provider,
-            credential_id,
+            &credential_id,
             account.as_deref(),
             directory.as_ref(),
         )?;
         // The item's own field decides whether it is eligible at all. A
         // provider contract that writes another name is refused here, before
         // the operation lock, the record, or the bridge.
-        enforce_field_contract(&vault, credential_id, provider, field)?;
+        enforce_field_contract(&vault, &credential_id, provider, field)?;
         (directory, field)
     };
     let wire_block = match directory.as_ref() {
@@ -129,6 +146,7 @@ pub(super) fn read_submission<'a>(
     Ok(Submission {
         operation,
         credential_id,
+        role,
         provider,
         consumer,
         purpose,

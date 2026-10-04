@@ -51,14 +51,15 @@ pub(in crate::access::grant) fn parse_capabilities(
         if matches!(action, "lifecycle" | "reseal") && field.is_some() {
             bail!("{action} capability is item-scoped and must not name a field");
         }
-        // `role:<role>` is a coordinate that acquisition and a scoped read
-        // resolve to the one live item tagged `stado:role:<role>`. No other
-        // action resolves a role, so on any other action it would name an item
+        // `role:<role>` is a coordinate that acquisition, a scoped read and a
+        // Weles managed write (stage, and the acquire write that creates the
+        // item) resolve to the item tagged `stado:role:<role>`. No other action
+        // resolves a role, so on any other action it would name an item
         // literally called that.
         let names_role = item.starts_with("role:");
-        if names_role && !matches!(action, "acquire" | "read") {
+        if names_role && !matches!(action, "acquire" | "read" | "stage") {
             bail!(
-                "only acquire and read name a role (acquire:role:<role>#<field>, read:role:<role>#<field>); {action} names an item"
+                "only acquire, read and stage name a role (acquire:role:<role>#<field>, read:role:<role>#<field>, stage:role:<role>#<field>); {action} names an item"
             );
         }
         let capability = json!({"action": action, "item": item, "field": field});

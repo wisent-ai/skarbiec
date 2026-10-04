@@ -30,7 +30,7 @@ pub(super) struct Proceed {
 }
 
 pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Result<Preflight> {
-    let credential_id = submission.credential_id;
+    let credential_id = submission.credential_id.as_str();
     let operation = submission.operation;
     let request_item = request_item_id(credential_id);
     let mut resumable_request: Option<Value> = None;

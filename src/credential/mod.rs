@@ -36,7 +36,10 @@ pub(crate) use adopt::{candidate_hidden, managed_read, ManagedRead};
 pub(crate) use serve::{
     endpoint_item, exact_credential_item, status_from_endpoint, submit_from_endpoint,
 };
-pub(crate) use state::{authorize_managed_write, lifecycle_owned_item};
+pub(crate) use state::{
+    authorize_managed_write, credential_for_role, lifecycle_owned_item, pending_role_acquisition,
+    recorded_request,
+};
 
 use client::{declare_canonical_endpoint, remote_operation, remote_resume, remote_status};
 

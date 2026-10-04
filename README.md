@@ -139,6 +139,15 @@ their temporary vaults and keyrings after capture.
    `read:role:<role>#field` the same way and asks for `id: "role:<role>"`; the
    answer carries the requested coordinate as `id` and the item that played the
    role as `item`, and no holder, or two, is `404` with the role named.
+   A credential operation may name a role too: `skarbiec credential acquire
+   role:<role> …` (and `adopt`, `rotate`, `reset`, `verify`) acts on the one
+   live item tagged `stado:role:<role>`; an acquisition nobody holds yet runs
+   under a fresh random id, a repeated one resumes that id, and the item the
+   Weles write creates is tagged with the role. The Weles writer is granted
+   `stage:role:<role>#field` and writes `id: "role:<role>"`; Skarbiec checks
+   the grant against that coordinate and writes the item it resolves to. A
+   role that resolves to no item is `409` naming what it needs. The items list
+   shows a role-granted consumer the item that plays its role.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
    timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and
    replayed proof hashes.
