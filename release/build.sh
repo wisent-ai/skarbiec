@@ -76,7 +76,8 @@ if [[ "$platform" == linux-amd64 ]]; then
   fi
   browser_stage="$stage/share/skarbiec/browser"
   mkdir -p "$browser_stage"
-  codebase="https://stado.wisent.com/releases/skarbiec/$version/linux-amd64/skarbiec-autofill.crx"
+  update_origin=${SKARBIEC_EXTENSION_UPDATE_ORIGIN:?the release manifest env must declare SKARBIEC_EXTENSION_UPDATE_ORIGIN}
+  codebase="${update_origin%/}/releases/skarbiec/$version/linux-amd64/skarbiec-autofill.crx"
   extension_id=$(tr -d '[:space:]' < "$source_dir/deploy/chrome-extension-id")
   stado product crx3 --extension "$source_dir/browser" --key "$extension_key" \
     --expected-id "$extension_id" --codebase "$codebase" --version "$version" \

@@ -87,6 +87,9 @@
           "release/build.sh"
         ]
       },
+      "env": {
+        "SKARBIEC_EXTENSION_UPDATE_ORIGIN": "https://stado.wisent.com"
+      },
       "secret_env": {
         "SKARBIEC_EXTENSION_PRIVATE_KEY_FILE": "browser-extension-signing#private_key"
       },
