@@ -128,7 +128,7 @@ fn declared_tags<'a>(record: &'a Value, prefix: &str) -> Vec<&'a str> {
 /// Every live item carrying exactly `tag`, sorted. A capability route that
 /// names a tag instead of an item resolves through this, so no route row
 /// names an item and renaming one changes nothing.
-pub(super) fn tagged_items<'a>(vault: &'a Vault, tag: &str) -> Vec<&'a str> {
+pub(crate) fn tagged_items<'a>(vault: &'a Vault, tag: &str) -> Vec<&'a str> {
     let Some(items) = items(vault) else {
         return Vec::new();
     };

@@ -51,6 +51,14 @@ pub(in crate::access::grant) fn parse_capabilities(
         if matches!(action, "lifecycle" | "reseal") && field.is_some() {
             bail!("{action} capability is item-scoped and must not name a field");
         }
+        // `role:<role>` is an acquisition coordinate: redemption reads the one
+        // live item tagged `stado:role:<role>`. No other action resolves a role,
+        // so on any other action it would name an item literally called that.
+        if item.starts_with("role:") && action != "acquire" {
+            bail!(
+                "only acquire names a role (acquire:role:<role>#<field>); {action} names an item"
+            );
+        }
         let capability = json!({"action": action, "item": item, "field": field});
         if capabilities.contains(&capability) {
             bail!("duplicate capability: {encoded}");

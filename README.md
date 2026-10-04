@@ -131,7 +131,10 @@ their temporary vaults and keyrings after capture.
    item's recipient set; the vault file never contains plaintext values.
 2. **Register.** For a new consumer, the operator registers one exact
    `acquire:item#field` capability and an Ed25519 workload public key. Wildcards
-   and direct capabilities cannot be mixed into that identity.
+   and direct capabilities cannot be mixed into that identity. A workload that
+   should not know which item holds its secret registers
+   `acquire:role:<role>#field` instead: it asks for `role:<role>`, and
+   redemption reads the one live item tagged `stado:role:<role>`.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
    timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and
    replayed proof hashes.

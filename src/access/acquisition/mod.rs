@@ -9,6 +9,7 @@ use crate::core::{crypto, schema, vault::Vault, vault_path};
 
 mod commands;
 mod proof;
+mod role;
 mod state;
 pub use commands::dispatch;
 
@@ -86,7 +87,7 @@ pub fn issue(
     signature: &str,
 ) -> Result<Option<IssuedAcquisition>> {
     if !exact_name(consumer)
-        || !exact_name(item)
+        || !role::exact_coordinate(item)
         || !exact_name(field)
         || !valid_workload_id(workload_id)
         || !valid_nonce(nonce)
@@ -109,7 +110,7 @@ pub fn issue(
     // A missing field is returned only after the workload proves its identity.
     // The caller can then distinguish optional material from an authority
     // outage without turning the endpoint into a field-existence oracle.
-    validate_target(&vault, item, field)?;
+    validate_target(&vault, &role::item_for(&vault, item)?, field)?;
 
     let path = state_path();
     let _lock = acquire_lock(&path)?;
@@ -164,7 +165,11 @@ pub fn consume(
     item: &str,
     field: &str,
 ) -> Result<Option<AcquiredField>> {
-    if !exact_name(consumer) || !exact_name(item) || !exact_name(field) || presented.is_empty() {
+    if !exact_name(consumer)
+        || !role::exact_coordinate(item)
+        || !exact_name(field)
+        || presented.is_empty()
+    {
         return Ok(None);
     }
     let hash = crypto::sha256_hex(presented)?;
@@ -201,6 +206,11 @@ pub fn consume(
     }
 
     let vault = Vault::open(vault_path())?;
+    // The token is bound to the coordinate the workload asked for; a role
+    // coordinate reads the item playing that role now, so replacing the item
+    // between issue and read hands over the new one.
+    let item = role::item_for(&vault, item)?;
+    let item = item.as_str();
     // While an adopt is in flight the operator-supplied candidate is the only
     // value that proves anything, and only the adopt verification path may
     // read it. Outside that exact window a candidate is unreadable and the
