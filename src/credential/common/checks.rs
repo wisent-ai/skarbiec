@@ -5,11 +5,10 @@ use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
 pub(in crate::credential) fn safe_string(value: &Value, key: &str) -> Option<String> {
-    let max: usize = 512;
     value
         .get(key)
         .and_then(Value::as_str)
-        .filter(|text| text.len() <= max && !text.chars().any(char::is_control))
+        .filter(|text| !text.chars().any(char::is_control))
         .map(str::to_string)
 }
 
@@ -46,10 +45,8 @@ pub(in crate::credential) fn checked_code(value: &Value) -> Result<Option<String
     if !present(value, "code") {
         return Ok(None);
     }
-    let text = safe_string(value, "code").context("Weles response code is not a bounded string")?;
-    let max: usize = 64;
-    let shaped = text.len() <= max
-        && text.starts_with(|first: char| first.is_ascii_uppercase())
+    let text = safe_string(value, "code").context("Weles response code is not a single-line string")?;
+    let shaped = text.starts_with(|first: char| first.is_ascii_uppercase())
         && text
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_');

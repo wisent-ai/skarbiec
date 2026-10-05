@@ -171,8 +171,8 @@ pub(in crate::access::grant) fn group(
         }
         "help" => Ok(Some(json!({
             "commands": [
-                "grant issue <consumer> --capabilities <action:item[#field],...> [--workload-public-key-file <path>] [--token-file <path>] [--ttl-seconds <N>] [--audience <name>] [--replace-capabilities]",
-                "grant capability --agent <name> --purpose <text> --resource <resource> --target <name> [--ttl <seconds>] [--max-uses <1..16>] [--authorization-id <id>]",
+                "grant issue <consumer> --capabilities <action:item[#field],...> --ttl-seconds <N> [--workload-public-key-file <path>] [--token-file <path>] [--audience <name>] [--replace-capabilities]",
+                "grant capability --agent <name> --purpose <text> --resource <resource> --target <name> --ttl <seconds> --max-uses <N> [--authorization-id <id>]",
                 "grant ensure <consumer> <item> --field <field> --token-file <path>",
                 "grant narrow <consumer> <item> --field <field>",
                 "grant list",

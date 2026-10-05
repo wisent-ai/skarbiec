@@ -238,7 +238,7 @@ pub struct DaemonRecycle {
 /// beside it, and the retry generation advances so a `gpg` that loses its
 /// socket to this pass retries once instead of recovering a second time.
 pub fn recycle_oversized_daemons() -> Result<DaemonRecycle> {
-    let limit_bytes = daemon_memory_limit_bytes();
+    let limit_bytes = daemon_memory_limit_bytes()?;
     let footprints = daemon_footprints()?;
     let over_limit: Vec<String> = footprints
         .iter()
@@ -274,11 +274,7 @@ fn recover_exclusively() -> Result<()> {
     outcome
 }
 
-pub fn executor_status() -> (usize, usize, usize, usize) {
-    (
-        CRYPTO_LIMIT.in_use(),
-        CRYPTO_LIMIT.maximum,
-        GPG_LIMIT.in_use(),
-        GPG_LIMIT.maximum,
-    )
+/// How many cryptographic children run now, all and GnuPG.
+pub fn executor_status() -> (usize, usize) {
+    (CRYPTO_LIMIT.in_use(), GPG_LIMIT.in_use())
 }

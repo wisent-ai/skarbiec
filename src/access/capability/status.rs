@@ -2,7 +2,7 @@
 //! A listening transport is not proof that any credential can be redeemed.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::absolute;
 
@@ -10,7 +10,6 @@ use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 
 use super::state::{routes_path, state_path};
-use super::MAX_REQUEST_BYTES;
 use crate::core::vault_path;
 
 pub(super) const VERSION: &str = "skarbiec.capability-status.v1";
@@ -54,12 +53,11 @@ pub(super) fn inspect(flags: &HashMap<String, String>) -> Result<Value> {
 
     let mut line = String::new();
     BufReader::new(stream)
-        .take(MAX_REQUEST_BYTES)
         .read_line(&mut line)
         .with_context(|| format!("read capability broker status from {}", socket.display()))?;
     ensure!(
         line.ends_with('\n'),
-        "capability broker {} did not return a complete bounded status response",
+        "capability broker {} did not return a complete status response",
         socket.display()
     );
     let mut response: Value = serde_json::from_str(&line)

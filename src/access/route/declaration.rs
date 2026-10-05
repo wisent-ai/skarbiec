@@ -20,7 +20,7 @@
 // table, by exact id, where a rename fails loudly instead of quietly.
 
 use super::values::login_fields;
-use crate::core::schema::{exact_token, MAX_NAME_CHARS};
+use crate::core::schema::exact_token;
 use crate::core::vault::Vault;
 use serde_json::{json, Map, Value};
 
@@ -162,13 +162,13 @@ pub(super) fn provider_items(vault: &Vault) -> Vec<(&str, &str, Option<&str>)> {
             let [provider] = providers[..] else {
                 return None;
             };
-            if !exact_token(provider, MAX_NAME_CHARS) {
+            if !exact_token(provider) {
                 return None;
             }
             let ids = declared_tags(record, SUBSCRIPTION_TAG);
             let subscription = match ids[..] {
                 [] => None,
-                [id] if exact_token(id, MAX_NAME_CHARS) => Some(id),
+                [id] if exact_token(id) => Some(id),
                 _ => return None,
             };
             Some((item.as_str(), provider, subscription))
@@ -195,10 +195,7 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
             }));
             continue;
         }
-        if providers
-            .iter()
-            .any(|value| !exact_token(value, MAX_NAME_CHARS))
-        {
+        if providers.iter().any(|value| !exact_token(value)) {
             problems
                 .push(json!({"item": item, "problem": "declared provider is not an exact name"}));
             continue;
@@ -209,7 +206,7 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
                 "item": item,
                 "problem": format!("item declares {} subscription ids: {}", ids.len(), ids.join(", ")),
             }));
-        } else if ids.iter().any(|value| !exact_token(value, MAX_NAME_CHARS)) {
+        } else if ids.iter().any(|value| !exact_token(value)) {
             problems.push(
                 json!({"item": item, "problem": "declared subscription id is not an exact name"}),
             );
@@ -236,7 +233,7 @@ pub(super) fn agent_items(vault: &Vault, agent: Option<&str>) -> Vec<(String, St
             let declared = fields
                 .get("id")
                 .and_then(Value::as_str)
-                .filter(|value| exact_token(value, MAX_NAME_CHARS))?;
+                .filter(|value| exact_token(value))?;
             if agent.is_some_and(|needle| needle != declared) {
                 return None;
             }

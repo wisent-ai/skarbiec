@@ -9,10 +9,10 @@ use std::net::TcpStream;
 use wisent_errors::Code;
 
 use super::readiness::readiness_check;
-use super::request::{credential_status_item, is_mutation, read_line_bounded};
+use super::request::{credential_status_item, is_mutation, read_line};
 use super::{
-    bounded_detail, load, presented_identity, request_field, request_id, request_json,
-    write_response, MAX_BODY_BYTES, MAX_HEADER_BYTES, MAX_REQUEST_LINE_BYTES, WRITE_LOCK,
+    detail_text, load, presented_identity, request_field, request_id, request_json,
+    write_response, WRITE_LOCK,
 };
 use crate::access::grant;
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
@@ -20,7 +20,7 @@ use crate::net::operator;
 
 pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
-    let Some(request_line) = read_line_bounded(&mut reader, MAX_REQUEST_LINE_BYTES)? else {
+    let Some(request_line) = read_line(&mut reader)? else {
         return Ok(());
     };
     let mut parts = request_line.split_whitespace();
@@ -34,20 +34,10 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     });
 
     let mut headers: HashMap<String, String> = HashMap::new();
-    let mut header_bytes = 0usize;
     loop {
-        let remaining = MAX_HEADER_BYTES.saturating_sub(header_bytes);
-        if remaining == 0 {
-            return write_response(
-                &mut stream,
-                "HTTP/1.1 431 Request Header Fields Too Large",
-                &json!({"error": "request headers too large"}),
-            );
-        }
-        let Some(line) = read_line_bounded(&mut reader, remaining)? else {
+        let Some(line) = read_line(&mut reader)? else {
             anyhow::bail!("request ended before headers");
         };
-        header_bytes = header_bytes.saturating_add(line.len());
         if line.trim().is_empty() {
             break;
         }
@@ -59,13 +49,6 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         Some(value) => value.parse::<usize>().context("invalid content-length")?,
         None => 0,
     };
-    if body_len > MAX_BODY_BYTES {
-        return write_response(
-            &mut stream,
-            "HTTP/1.1 413 Content Too Large",
-            &json!({"error": "request body too large"}),
-        );
-    }
     let mut body_buf = vec![Default::default(); body_len];
     reader.read_exact(&mut body_buf)?;
     let body = String::from_utf8_lossy(&body_buf).into_owned();
@@ -91,8 +74,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     }
     if method == "GET" && matches!(path.as_str(), "/health" | "/readyz") {
         let readiness = readiness_check();
-        let (crypto_active, crypto_limit, gpg_active, gpg_limit) =
-            crate::core::crypto::executor_status();
+        let (crypto_active, gpg_active) = crate::core::crypto::executor_status();
         match readiness {
             Err(error) => write_response(
                 &mut stream,
@@ -101,12 +83,10 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "ok": false,
                     "service": "skarbiec",
                     "error_code": Code::InfraDown.as_str(),
-                    "detail": bounded_detail(&error.to_string()),
+                    "detail": detail_text(&error.to_string()),
                     "crypto": {
                         "active": crypto_active,
-                        "limit": crypto_limit,
                         "gpg_active": gpg_active,
-                        "gpg_limit": gpg_limit,
                     },
                 }),
             ),
@@ -119,9 +99,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "canaries": canaries,
                     "crypto": {
                         "active": crypto_active,
-                        "limit": crypto_limit,
                         "gpg_active": gpg_active,
-                        "gpg_limit": gpg_limit,
                     },
                 }),
             ),

@@ -143,14 +143,20 @@ pub(super) fn now_epoch() -> Result<u64> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }
 
+/// How long a one-use capability lives: the operator's value in
+/// `SKARBIEC_ACQUISITION_TTL_SECONDS`, set in the service's environment.
+/// Skarbiec holds no default and no ceiling of its own.
 pub(super) fn ttl_seconds() -> Result<u64> {
-    let ttl: u64 = std::env::var("SKARBIEC_ACQUISITION_TTL_SECONDS")
-        .unwrap_or_else(|_| "30".to_string())
+    let raw = std::env::var("SKARBIEC_ACQUISITION_TTL_SECONDS").context(
+        "SKARBIEC_ACQUISITION_TTL_SECONDS is not set: the lifetime of a one-use capability, \
+         in seconds, is the operator's to state in the Skarbiec service environment",
+    )?;
+    let ttl: u64 = raw
+        .trim()
         .parse()
-        .context("SKARBIEC_ACQUISITION_TTL_SECONDS must be an integer")?;
-    let maximum: u64 = 300;
-    if ttl == u64::MIN || ttl > maximum {
-        bail!("SKARBIEC_ACQUISITION_TTL_SECONDS must be between one and 300")
+        .with_context(|| format!("SKARBIEC_ACQUISITION_TTL_SECONDS must be a whole number of seconds, not {raw:?}"))?;
+    if ttl == u64::MIN {
+        bail!("SKARBIEC_ACQUISITION_TTL_SECONDS must be at least one second")
     }
     Ok(ttl)
 }

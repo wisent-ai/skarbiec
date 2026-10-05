@@ -33,20 +33,18 @@ pub(super) const PASS: &str = "pass";
 pub(super) const FAIL: &str = "fail";
 pub(super) const NOT_CONFIGURED: &str = "not_configured";
 
-/// Digests recomputed for the newest entries. Linkage covers the whole journal;
-/// the bounded window keeps routine diagnosis proportional to a fixed tail.
-pub(super) const DIGEST_WINDOW: &str = "200";
-
 pub(super) fn check(name: &str, status: &str, detail: String) -> Value {
     json!({"check": name, "status": status, "detail": detail})
 }
 
-/// Every check, plus a tally an operator can read at a glance.
-pub fn report() -> Result<Value> {
+/// Every check, plus a tally an operator can read at a glance. `tail` is the
+/// operator's `--tail N`: the audit digests are recomputed for the newest N
+/// entries only; without it, for every entry.
+pub fn report(tail: Option<&str>) -> Result<Value> {
     let checks = vec![
         vault_check(),
         selection_check(),
-        audit_check(),
+        audit_check(tail),
         daemons_check(),
         endpoint_check(),
         worm_check(),
@@ -92,7 +90,7 @@ pub fn recover_daemons() -> Result<Value> {
             "pid": footprint.pid,
             "bytes": footprint.bytes,
         })).collect::<Vec<_>>(),
-        "limit_bytes": crate::core::crypto::daemon_memory_limit_bytes(),
+        "limit_bytes": crate::core::crypto::daemon_memory_limit_bytes().ok(),
         "detail": detail,
     }))
 }

@@ -17,12 +17,9 @@ use super::run_once;
 const KIB: u64 = 1024;
 const MIB: u64 = 1024 * KIB;
 
-/// The setting that names the ceiling, in MiB, and the ceiling used when it
-/// is unset. A healthy `keyboxd` serving a few hundred items holds well under
-/// 300 MiB; a whole gibibyte leaves room for a large keyring while still
-/// catching the growth that took a 16 GiB host down.
+/// The setting that names the ceiling, in MiB. Skarbiec holds no default:
+/// the operator states it in the service environment.
 pub const DAEMON_MEMORY_LIMIT_SETTING: &str = "SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB";
-const DEFAULT_DAEMON_MEMORY_LIMIT_MB: u64 = 1024;
 
 /// One live GnuPG daemon of this keyring and what it holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,14 +42,19 @@ impl DaemonFootprint {
     }
 }
 
-/// The ceiling in bytes, from the setting or its default.
-pub fn daemon_memory_limit_bytes() -> u64 {
-    std::env::var(DAEMON_MEMORY_LIMIT_SETTING)
-        .ok()
-        .and_then(|raw| raw.trim().parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_DAEMON_MEMORY_LIMIT_MB)
-        .saturating_mul(MIB)
+/// The ceiling in bytes, from the setting; refused by name when it is unset.
+pub fn daemon_memory_limit_bytes() -> Result<u64> {
+    let raw = std::env::var(DAEMON_MEMORY_LIMIT_SETTING).with_context(|| {
+        format!(
+            "{DAEMON_MEMORY_LIMIT_SETTING} is not set: the memory, in MiB, above which a GnuPG \
+             daemon is replaced is the operator's to state in the Skarbiec service environment"
+        )
+    })?;
+    let megabytes: u64 = raw
+        .trim()
+        .parse()
+        .with_context(|| format!("{DAEMON_MEMORY_LIMIT_SETTING} must be a whole number of MiB, not {raw:?}"))?;
+    Ok(megabytes.saturating_mul(MIB))
 }
 
 pub fn human_size(bytes: u64) -> String {

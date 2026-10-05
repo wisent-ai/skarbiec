@@ -23,12 +23,6 @@ use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Map, Value};
 
-// A resource is the broker's own vocabulary and carries separators; an item and
-// a field are vault names. The bounds are the ones `grant capability` already
-// applies to a resource it refuses to issue.
-pub(super) const MAX_RESOURCE_CHARS: usize = 512;
-pub(super) const MAX_REASON_CHARS: usize = 512;
-
 const STAMP_FORMAT: &str = "+%Y%m%dT%H%M%SZ";
 const ISO_FORMAT: &str = "+%Y-%m-%dT%H:%M:%SZ";
 

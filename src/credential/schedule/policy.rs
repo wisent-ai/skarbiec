@@ -88,8 +88,8 @@ pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Va
         .context("--every-days is too large")?;
     let provider = flags.get("provider").context("--provider is required")?;
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("provider", provider, 128)?;
-    exact_name("consumer", consumer, 200)?;
+    exact_name("provider", provider)?;
+    exact_name("consumer", consumer)?;
     let purpose = flags
         .get("purpose")
         .map(|value| purpose(Some(value), consumer))

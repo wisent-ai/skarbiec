@@ -39,7 +39,7 @@ pub(super) fn checked_directory(block: &Value) -> Result<Value> {
         }
     }
     let provider = safe_string(block, "provider").context("sealed directory has no provider")?;
-    exact_name("sealed directory provider", &provider, 128)?;
+    exact_name("sealed directory provider", &provider)?;
     let tenant_id = safe_string(block, "tenant_id").context("sealed directory has no tenant_id")?;
     let principal_object_id = safe_string(block, "principal_object_id")
         .context("sealed directory has no principal_object_id")?;
@@ -192,9 +192,9 @@ pub(super) fn seal_directory(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage.clone())?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", credential_id)?;
     let provider = flags.get("provider").context("--provider is required")?;
-    exact_name("provider", provider, 128)?;
+    exact_name("provider", provider)?;
     let tenant_id =
         lowercase_uuid("--tenant", flags.get("tenant"))?.context("--tenant is required")?;
     let principal_object_id = lowercase_uuid("--object-id", flags.get("object-id"))?

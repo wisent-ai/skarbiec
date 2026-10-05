@@ -42,8 +42,8 @@ pub(super) fn checked_approval(value: &Value) -> Result<Option<Value>> {
         safe_string(approval, "approval_id").context("approval is missing approval_id")?;
     let resume_token =
         safe_string(approval, "resume_token").context("approval is missing resume_token")?;
-    opaque_handle("approval_id", &approval_id, 64)?;
-    opaque_handle("resume_token", &resume_token, 128)?;
+    opaque_handle("approval_id", &approval_id)?;
+    opaque_handle("resume_token", &resume_token)?;
     let phase = checked_enum(approval, "phase", RESPONSE_PHASES)?
         .context("approval is missing an accepted phase")?;
     let provider_effect = checked_enum(approval, "provider_effect", PROVIDER_EFFECTS)?
@@ -103,7 +103,7 @@ pub(super) fn checked_receipt(value: &Value) -> Result<Option<Value>> {
         checked_timestamp(receipt, "verified_at")?.context("receipt is missing verified_at")?;
     let action_log_id =
         safe_string(receipt, "action_log_id").context("receipt is missing action_log_id")?;
-    exact_name("receipt action_log_id", &action_log_id, 200)?;
+    exact_name("receipt action_log_id", &action_log_id)?;
     Ok(Some(json!({
         "tenant_id": tenant_id,
         "principal_object_id": principal_object_id,

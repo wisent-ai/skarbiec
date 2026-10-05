@@ -19,12 +19,12 @@ use super::{ACCOUNT_PROVIDER, REMOTE_OPERATIONS};
 
 pub(crate) fn endpoint_item(body: &Value) -> Result<String> {
     let item = safe_string(body, "item").context("credential operation request needs an item")?;
-    exact_name("credential item id", &item, 200)?;
+    exact_name("credential item id", &item)?;
     Ok(item)
 }
 
 pub(crate) fn exact_credential_item(value: &str) -> Result<String> {
-    exact_name("credential item id", value, 200)?;
+    exact_name("credential item id", value)?;
     Ok(value.to_string())
 }
 

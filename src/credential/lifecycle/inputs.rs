@@ -85,7 +85,7 @@ pub(super) fn read_submission<'a>(
         bail!("--password-stdin is accepted only by credential adopt");
     }
     let provider = flags.get("provider").context("--provider is required")?;
-    exact_name("provider", provider, 128)?;
+    exact_name("provider", provider)?;
     let named = match args.first() {
         Some(named) => named.as_str(),
         None if operation == "acquire" && generic_provider(provider) => {
@@ -95,7 +95,7 @@ pub(super) fn read_submission<'a>(
     };
     let (credential_id, role) = match named.strip_prefix("role:") {
         Some(role) => {
-            exact_name("role", role, 200)?;
+            exact_name("role", role)?;
             let vault = Vault::open(vault_path.to_path_buf())?;
             (
                 crate::credential::credential_for_role(&vault, role, operation)?,
@@ -105,8 +105,8 @@ pub(super) fn read_submission<'a>(
         None => (named.to_string(), None),
     };
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("credential item id", &credential_id, 200)?;
-    exact_name("consumer", consumer, 200)?;
+    exact_name("credential item id", &credential_id)?;
+    exact_name("consumer", consumer)?;
     let purpose = purpose(flags.get("purpose"), consumer)?;
     let account = email_address("--account", flags.get("account"))?;
     // Where the account this acquisition registers is signed up. Weles echoes

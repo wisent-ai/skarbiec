@@ -4,7 +4,7 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-use super::{exact_token, MAX_NAME_CHARS};
+use super::exact_token;
 
 /// One registered tag namespace, and the two shapes a namespace comes in.
 ///
@@ -150,11 +150,11 @@ fn tag_refusal(tag: &str) -> Result<(), String> {
         let Some(carried) = tag.strip_prefix(prefix) else {
             continue;
         };
-        if exact_token(carried, MAX_NAME_CHARS) {
+        if exact_token(carried) {
             return Ok(());
         }
         return Err(format!(
-            "claims the {prefix}<{value}> namespace without a usable {value}: the value must be 1 to {MAX_NAME_CHARS} bytes and carry no NUL, newline or carriage return"
+            "claims the {prefix}<{value}> namespace without a usable {value}: the value must be non-empty and carry no NUL, newline or carriage return"
         ));
     }
     Err("claims a namespace that is not registered".to_string())

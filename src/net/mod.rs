@@ -13,7 +13,6 @@ pub mod sync;
 use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
-use wisent_errors::trim_detail;
 
 pub(crate) use api::donation::handle_donation;
 pub(crate) use api::identity::{handle_owner_pubkey, handle_tokens_introspect};
@@ -21,14 +20,10 @@ pub(crate) use api::items::{handle_items_put, handle_items_read};
 pub(crate) use api::lifecycle::{handle_credential_operation_status, handle_credential_operations};
 
 // Shared request helpers, re-exported by net::http so handler call sites read
-// the same in every module.
-//
-// The width is skarbiec's own decision; how to cut is not. `trim_detail` is the
-// fleet's rule, from `wisent-errors`, so an operator reading a truncated gpg
-// message here sees it cut exactly as every other product cuts one.
-pub(crate) fn bounded_detail(detail: &str) -> String {
-    let limit: usize = 400;
-    trim_detail(detail, limit)
+// the same in every module. A failure's detail reaches the caller whole: only
+// the whitespace around it, which is never information, is dropped.
+pub(crate) fn detail_text(detail: &str) -> String {
+    detail.trim().to_owned()
 }
 
 pub(crate) fn request_json(body: &str) -> Value {

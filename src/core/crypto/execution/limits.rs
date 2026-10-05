@@ -1,37 +1,43 @@
-// How many crypto programs may run at once, which binaries they are, and how
-// long one of them may take. A permit is held for the length of one run.
+// Which crypto programs are running, which binaries they are, and the drain
+// a GnuPG daemon recovery waits for. A permit is held for the length of one
+// run; nothing caps how many run at once.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Condvar, LazyLock, Mutex};
 
-const DEFAULT_CRYPTO_LIMIT: usize = 8;
-const DEFAULT_GPG_LIMIT: usize = 2;
+/// How many runs hold a permit, and whether a recovery holds the whole set.
+#[derive(Default)]
+struct Runs {
+    active: usize,
+    exclusive: bool,
+}
 
+#[derive(Default)]
 pub(super) struct ExecutionLimit {
-    active: Mutex<usize>,
+    runs: Mutex<Runs>,
     available: Condvar,
-    pub(super) maximum: usize,
 }
 
 impl ExecutionLimit {
+    /// A permit for one run; it waits only while a recovery holds the set.
     pub(super) fn acquire(&self) -> ExecutionPermit<'_> {
-        let mut active = self
-            .active
+        let mut runs = self
+            .runs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while *active >= self.maximum {
-            active = self
+        while runs.exclusive {
+            runs = self
                 .available
-                .wait(active)
+                .wait(runs)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        *active += 1;
+        runs.active += 1;
         ExecutionPermit { limit: self }
     }
 
-    /// Take the whole limit, so that nothing holding it can be running while
+    /// Take the whole set, so that nothing holding it can be running while
     /// this permit lives.
     ///
     /// Recovering the GnuPG daemons is not an operation on this process: it
@@ -42,27 +48,27 @@ impl ExecutionLimit {
     /// caller that asked for nothing but a credential read. That is how one
     /// slow read turned into `503 infra_down` for a release publisher, a
     /// capability broker and an agent reading the same vault at once. The
-    /// recovery now waits for the gpg capacity to drain instead.
+    /// recovery therefore waits for every run to finish instead.
     pub(super) fn acquire_exclusive(&self) -> ExclusivePermit<'_> {
-        let mut active = self
-            .active
+        let mut runs = self
+            .runs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while *active > 0 {
-            active = self
+        while runs.active > 0 || runs.exclusive {
+            runs = self
                 .available
-                .wait(active)
+                .wait(runs)
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
-        *active = self.maximum;
+        runs.exclusive = true;
         ExclusivePermit { limit: self }
     }
 
     pub(super) fn in_use(&self) -> usize {
-        *self
-            .active
+        self.runs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .active
     }
 }
 
@@ -72,15 +78,15 @@ pub(super) struct ExecutionPermit<'a> {
 
 impl Drop for ExecutionPermit<'_> {
     fn drop(&mut self) {
-        let mut active = self
+        let mut runs = self
             .limit
-            .active
+            .runs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *active = active.saturating_sub(1);
+        runs.active = runs.active.saturating_sub(1);
         // Every waiter, not one: an exclusive waiter only proceeds once the
         // count reaches zero, and waking a single ordinary waiter instead can
-        // leave it parked behind capacity it would never be told about.
+        // leave it parked behind a drain it would never be told about.
         self.limit.available.notify_all();
     }
 }
@@ -91,26 +97,18 @@ pub(super) struct ExclusivePermit<'a> {
 
 impl Drop for ExclusivePermit<'_> {
     fn drop(&mut self) {
-        let mut active = self
+        let mut runs = self
             .limit
-            .active
+            .runs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        *active = 0;
+        runs.exclusive = false;
         self.limit.available.notify_all();
     }
 }
 
-pub(super) static CRYPTO_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
-    active: Mutex::new(0),
-    available: Condvar::new(),
-    maximum: configured_limit("SKARBIEC_CRYPTO_CONCURRENCY", DEFAULT_CRYPTO_LIMIT),
-});
-pub(super) static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(|| ExecutionLimit {
-    active: Mutex::new(0),
-    available: Condvar::new(),
-    maximum: configured_limit("SKARBIEC_GPG_CONCURRENCY", DEFAULT_GPG_LIMIT),
-});
+pub(super) static CRYPTO_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(ExecutionLimit::default);
+pub(super) static GPG_LIMIT: LazyLock<ExecutionLimit> = LazyLock::new(ExecutionLimit::default);
 pub(super) static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(|| Mutex::new(0));
 static CRYPTO_PROGRAMS: LazyLock<HashMap<&'static str, PathBuf>> = LazyLock::new(|| {
     [
@@ -157,14 +155,6 @@ pub(super) fn crypto_program(program: &str) -> Cow<'_, Path> {
         .unwrap_or_else(|| Cow::Borrowed(Path::new(program)))
 }
 
-fn configured_limit(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|raw| raw.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default)
-}
-
 // One subprocess seam for every cryptographic tool. Output pipes are drained
-// concurrently and every child is waited for until it exits; what bounds this
-// seam is the concurrency limit above, not a clock.
+// concurrently and every child is waited for until it exits; nothing bounds
+// this seam by a count or a clock.

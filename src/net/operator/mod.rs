@@ -92,7 +92,7 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
         Err(error) => http::write_response(
             stream,
             BAD_LINE,
-            &json!({"error": http::bounded_detail(&error.to_string())}),
+            &json!({"error": http::detail_text(&error.to_string())}),
         )?,
     }
     Ok(true)

@@ -29,7 +29,7 @@ pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> 
     let credential_id = args
         .first()
         .or_usage("usage: credential status <item-id>")?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", credential_id)?;
     let request_item = request_item_id(credential_id);
     let mut vault = Vault::open(vault_path.to_path_buf())?;
     let sealed_only =

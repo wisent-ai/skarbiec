@@ -20,17 +20,10 @@ pub const ITEM_SCHEMA: &str = "skarbiec.item.v2";
 /// read under another.
 pub const IDENTITY_REFERENCE: &str = "identity";
 
-/// The bound an exact name carries throughout this crate: non-empty, no longer
-/// than this many bytes, and free of the separators a name must never smuggle
-/// into a resource string, a route table row or a journal line.
-pub const MAX_NAME_CHARS: usize = 128;
-
-pub fn exact_token(value: &str, max: usize) -> bool {
-    !value.is_empty()
-        && value.len() <= max
-        && !value.contains('\0')
-        && !value.contains('\n')
-        && !value.contains('\r')
+/// An exact name: non-empty and free of the separators a name must never
+/// smuggle into a resource string, a route table row or a journal line.
+pub fn exact_token(value: &str) -> bool {
+    !value.is_empty() && !value.contains('\0') && !value.contains('\n') && !value.contains('\r')
 }
 /// Whether one stored string is an operator placeholder rather than a
 /// credential. Placeholders in imported fleet data are uppercase identifiers
@@ -47,7 +40,6 @@ pub fn is_placeholder(value: &str) -> bool {
 
 fn exact_component(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 128
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))

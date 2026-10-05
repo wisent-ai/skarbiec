@@ -1,8 +1,8 @@
-// Reading a request off the socket within its declared bounds, and deciding
-// whether the route it names mutates the vault.
+// Reading a request off the socket, and deciding whether the route it names
+// mutates the vault.
 
 use anyhow::Result;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
@@ -39,19 +39,15 @@ pub(super) fn is_mutation(method: &str, path: &str) -> bool {
     )
 }
 
-pub(super) fn read_line_bounded(
-    reader: &mut BufReader<TcpStream>,
-    maximum: usize,
-) -> Result<Option<String>> {
+/// One CRLF- or LF-terminated line, or `None` at the end of the stream. A line
+/// the stream cuts before its end is refused as a request that ended early.
+pub(super) fn read_line(reader: &mut BufReader<TcpStream>) -> Result<Option<String>> {
     let mut line = String::new();
-    let read = reader
-        .take(u64::try_from(maximum.saturating_add(1))?)
-        .read_line(&mut line)?;
-    if read == 0 {
+    if reader.read_line(&mut line)? == 0 {
         return Ok(None);
     }
-    if read > maximum || !line.ends_with('\n') {
-        anyhow::bail!("request line exceeds {maximum} bytes");
+    if !line.ends_with('\n') {
+        anyhow::bail!("request ended in the middle of a line");
     }
     Ok(Some(line))
 }

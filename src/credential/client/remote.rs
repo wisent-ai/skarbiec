@@ -91,9 +91,9 @@ pub(in crate::credential) fn remote_operation(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage.clone())?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", credential_id)?;
     let consumer = flags.get("consumer").context("--consumer is required")?;
-    exact_name("consumer", consumer, 200)?;
+    exact_name("consumer", consumer)?;
     let mut body = Map::new();
     body.insert("item".to_string(), json!(credential_id));
     body.insert("operation".to_string(), json!(operation));
@@ -141,7 +141,7 @@ pub(in crate::credential) fn remote_resume(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage)?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", credential_id)?;
     let (approval_id, resume_token) = resume_handles(flags)?;
     let mut body = Map::new();
     body.insert("item".to_string(), json!(credential_id));
@@ -173,7 +173,7 @@ pub(in crate::credential) fn remote_status(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage)?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", credential_id)?;
     let (caller, token) = client_identity(flags)?;
     let path = format!("{CREDENTIAL_OPERATIONS_PATH}/{credential_id}");
     let snapshot = canonical_call("GET", &path, None, &caller, &token)?;

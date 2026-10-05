@@ -31,9 +31,6 @@ use serde_json::Value;
 
 const PROOF_DOMAIN: &[u8] = b"SKARBIEC-WORKLOAD-PROOF\0v1\0";
 const WIRE_VERSION: &str = "skarbiec.redeem.v1";
-const MAX_REQUEST_BYTES: u64 = 8 * 1024;
-const MAX_TTL_SECONDS: u64 = 3600;
-const NONCE_RETENTION_SECONDS: u64 = 2 * MAX_TTL_SECONDS;
 
 /// The `openssl` this build verifies proofs with.
 ///

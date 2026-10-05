@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 
 use super::state::{acquire_state_lock, load_state, now_epoch, save_state};
-use super::MAX_TTL_SECONDS;
 use crate::core::schema::exact_token;
 use crate::core::{crypto, vault::Vault, vault_path};
 
@@ -45,10 +44,6 @@ fn refused(
     anyhow!("grant capability refused for {resource}: {reason}; {remedy}")
 }
 
-// Each bound is refused separately and the error names the pair, so `x < low || x >
-// high` mirrors the sentence the caller reads back. A `contains` on a range says the
-// same thing about a set, which is not what is being explained here.
-#[allow(clippy::manual_range_contains)]
 pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value> {
     let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
     let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
@@ -57,32 +52,33 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
         .map(String::as_str)
         .unwrap_or_default();
     let target = flags.get("target").map(String::as_str).unwrap_or_default();
-    if !exact_token(agent, 128) || !exact_token(purpose, 128) || !exact_token(resource, 512) {
+    if !exact_token(agent) || !exact_token(purpose) || !exact_token(resource) {
         bail!("grant capability requires exact --agent, --purpose, and --resource");
     }
-    if !exact_token(target, 64) {
+    if !exact_token(target) {
         bail!("grant capability requires an exact --target");
     }
+    // How long the capability lives and how many times it may be redeemed are
+    // the issuer's to state on every issue; Skarbiec holds no default and no
+    // ceiling for either.
     let ttl: u64 = flags
         .get("ttl")
-        .map(String::as_str)
-        .unwrap_or("600")
+        .context("grant capability requires --ttl: the capability's lifetime in whole seconds")?
         .parse()
         .context("--ttl must be whole seconds")?;
-    if ttl < 1 || ttl > MAX_TTL_SECONDS {
-        bail!("--ttl must be between 1 and {MAX_TTL_SECONDS} seconds");
+    if ttl == u64::MIN {
+        bail!("--ttl must be at least one second");
     }
     let max_uses: u64 = flags
         .get("max-uses")
-        .map(String::as_str)
-        .unwrap_or("1")
+        .context("grant capability requires --max-uses: how many times the capability may be redeemed")?
         .parse()
         .context("--max-uses must be a whole number")?;
-    if max_uses < 1 || max_uses > 16 {
-        bail!("--max-uses must be between 1 and 16");
+    if max_uses == u64::MIN {
+        bail!("--max-uses must be at least one");
     }
     let authorization_id = flags.get("authorization-id").cloned().unwrap_or_default();
-    if !authorization_id.is_empty() && !exact_token(&authorization_id, 64) {
+    if !authorization_id.is_empty() && !exact_token(&authorization_id) {
         bail!("--authorization-id must be one exact identifier");
     }
     // A capability whose resource resolves to nothing would be issued now and fail

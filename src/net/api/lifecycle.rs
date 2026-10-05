@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::net::TcpStream;
 
 use crate::access::grant;
-use crate::net::{bounded_detail, http};
+use crate::net::{detail_text, http};
 
 // === credential lifecycle serve endpoints ===
 //
@@ -41,7 +41,7 @@ pub(crate) fn handle_credential_operations(
             return http::write_response(
                 stream,
                 "HTTP/1.1 400 Bad Request",
-                &json!({"error": bounded_detail(&error.to_string())}),
+                &json!({"error": detail_text(&error.to_string())}),
             );
         }
     };
@@ -69,7 +69,7 @@ pub(crate) fn handle_credential_operations(
         Err(error) => http::write_response(
             stream,
             "HTTP/1.1 409 Conflict",
-            &json!({"ok": false, "error": bounded_detail(&error.to_string())}),
+            &json!({"ok": false, "error": detail_text(&error.to_string())}),
         ),
     }
 }
@@ -87,7 +87,7 @@ pub(crate) fn handle_credential_operation_status(
             return http::write_response(
                 stream,
                 "HTTP/1.1 400 Bad Request",
-                &json!({"error": bounded_detail(&error.to_string())}),
+                &json!({"error": detail_text(&error.to_string())}),
             );
         }
     };
@@ -103,7 +103,7 @@ pub(crate) fn handle_credential_operation_status(
         Err(error) => http::write_response(
             stream,
             "HTTP/1.1 409 Conflict",
-            &json!({"ok": false, "error": bounded_detail(&error.to_string())}),
+            &json!({"ok": false, "error": detail_text(&error.to_string())}),
         ),
     }
 }

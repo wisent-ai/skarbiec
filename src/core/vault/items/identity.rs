@@ -47,8 +47,8 @@ impl Vault {
         if from == to {
             bail!("{from} already has that id");
         }
-        if !schema::exact_token(to, schema::MAX_NAME_CHARS) {
-            bail!("a new item id must be one exact name of 1 to {} characters with no NUL, newline or carriage return", schema::MAX_NAME_CHARS);
+        if !schema::exact_token(to) {
+            bail!("a new item id must be one non-empty name with no NUL, newline or carriage return");
         }
         let items = self
             .doc

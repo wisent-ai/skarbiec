@@ -33,7 +33,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/policy" => access("policy-get", &no_flags, &none),
         "/v1/operator/grants" => grant("list", &no_flags, &none),
         "/v1/operator/rotation" => rotation("list", &no_flags, &none),
-        "/v1/operator/doctor" => crate::runtime::doctor::report(),
+        "/v1/operator/doctor" => crate::runtime::doctor::report(None),
         "/v1/operator/status" => crate::core::items::status_json(),
         "/v1/operator/vaults" => crate::runtime::vaults::inventory(),
         "/v1/operator/donations" => inbox("donations", &no_flags, &none),

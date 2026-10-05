@@ -6,7 +6,7 @@ use crate::runtime::{audit, vaults};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::{check, DIGEST_WINDOW, FAIL, NOT_CONFIGURED, PASS};
+use super::{check, FAIL, NOT_CONFIGURED, PASS};
 
 /// The vault, read as a file rather than asked over HTTP.
 pub(super) fn vault_check() -> Value {
@@ -36,10 +36,13 @@ pub(super) fn vault_check() -> Value {
     }
 }
 
-/// The hash chain, split the way `verify-chain` splits it.
-pub(super) fn audit_check() -> Value {
+/// The hash chain, split the way `verify-chain` splits it: linkage over the
+/// whole journal, digests over the newest `tail` entries or over all of them.
+pub(super) fn audit_check(tail: Option<&str>) -> Value {
     let mut flags = HashMap::new();
-    flags.insert("tail".to_string(), DIGEST_WINDOW.to_string());
+    if let Some(tail) = tail {
+        flags.insert("tail".to_string(), tail.to_string());
+    }
     match audit::chain_report(&flags) {
         Ok(report) => {
             let journal = report

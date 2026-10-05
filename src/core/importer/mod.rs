@@ -117,12 +117,11 @@ pub(super) fn source_row(
                 '-'
             }
         })
-        .take(40)
         .collect();
     let slug = slug.trim_matches('-');
     let label = if slug.is_empty() { "import" } else { slug };
     Ok(ImportRow {
-        id: format!("{label}-{provider}-{}", &digest[..24]),
+        id: format!("{label}-{provider}-{digest}"),
         title,
         payload,
         recipients: Vec::new(),

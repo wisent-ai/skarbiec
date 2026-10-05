@@ -57,13 +57,12 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
             path.display()
         );
     }
-    let max: usize = 256;
     let raw = fs::read_to_string(&path)
         .with_context(|| format!("{ENDPOINT_UNRESOLVED}: read {}", path.display()))?;
     let endpoint = raw.trim().to_string();
-    if endpoint.is_empty() || endpoint.len() > max || endpoint.chars().any(char::is_control) {
+    if endpoint.is_empty() || endpoint.chars().any(char::is_control) {
         bail!(
-            "{ENDPOINT_UNRESOLVED}: {} must hold exactly one bounded URL; {ENDPOINT_REMEDY}",
+            "{ENDPOINT_UNRESOLVED}: {} must hold exactly one URL; {ENDPOINT_REMEDY}",
             path.display()
         );
     }

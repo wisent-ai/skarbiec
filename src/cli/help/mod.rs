@@ -37,7 +37,7 @@ const fn group(name: &'static str, usage: &'static str, summary: &'static str) -
 
 pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("status", "skarbiec status", "Report the configured vault path and non-sensitive vault counts."),
-    row("doctor", "skarbiec doctor", "Diagnose the vault file, audit chain, GnuPG daemons, canonical endpoint, WORM evidence and consumer grants without depending on the API."),
+    row("doctor", "skarbiec doctor [--tail N]", "Diagnose the vault file, audit chain, GnuPG daemons, canonical endpoint, WORM evidence and consumer grants without depending on the API. Audit digests are recomputed for every entry, or for the newest N with --tail."),
     row("recover-daemons", "skarbiec recover-daemons", "Replace the account's keyboxd, gpg-agent and scdaemon through gpgconf and report what each held before."),
     row("vaults", "skarbiec vaults", "Inventory the Skarbiec vault files in this host's conventional locations without decrypting them."),
     row("init", "skarbiec init <owner-uid>", "Create a new vault with an owner recipient and a separate recovery recipient."),

@@ -28,13 +28,11 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
         bail!("workload public key must be an owner-controlled regular file");
     }
     let key = fs::read_to_string(path)?;
-    let maximum: usize = 8192;
     if key.is_empty()
-        || key.len() > maximum
         || !key.contains("-----BEGIN PUBLIC KEY-----")
         || !key.contains("-----END PUBLIC KEY-----")
     {
-        bail!("workload public key must be a bounded PEM public key");
+        bail!("workload public key must be a PEM public key");
     }
     let output = Command::new("openssl")
         .args(["pkey", "-pubin", "-in"])
@@ -60,8 +58,8 @@ pub(in crate::access::grant) fn read_fixed_token(path: &Path) -> Result<String> 
     }
     let contents = fs::read_to_string(path)?;
     let token = contents.trim_end_matches(['\r', '\n']);
-    if token.is_empty() || token.len() > 4096 || token.chars().any(char::is_whitespace) {
-        bail!("token file must contain one bounded non-whitespace token");
+    if token.is_empty() || token.chars().any(char::is_whitespace) {
+        bail!("token file must contain one non-whitespace token");
     }
     Ok(token.to_string())
 }
@@ -119,7 +117,6 @@ pub(in crate::access::grant) fn allowed_action(action: &str) -> bool {
 /// which is how a path pattern would otherwise reach outside what was granted.
 pub(in crate::access::grant) fn exact_route(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 128
         && value.split('/').all(exact_component)
         && !value.split('/').any(|component| component == "..")
 }

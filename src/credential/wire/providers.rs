@@ -45,15 +45,12 @@ pub(in crate::credential) fn generic_provider(provider: &str) -> bool {
 // The exact slug shape a generic provider must have to name its own item. The
 // slug becomes the item id, so it is held to an identifier's shape and not
 // merely to `exact_name`'s character set.
-pub(in crate::credential) const GENERIC_PROVIDER_SHAPE: &str = "^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$: 3 to 40 characters, lowercase ASCII letters, digits and '-', starting and ending with a letter or a digit";
+pub(in crate::credential) const GENERIC_PROVIDER_SHAPE: &str = "^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$: lowercase ASCII letters, digits and '-', starting and ending with a letter or a digit";
 
 pub(in crate::credential) fn generic_provider_slug(provider: &str) -> bool {
-    let minimum: usize = 3;
-    let maximum: usize = 40;
     let bytes = provider.as_bytes();
     let edge = |byte: &u8| byte.is_ascii_lowercase() || byte.is_ascii_digit();
-    (minimum..=maximum).contains(&bytes.len())
-        && bytes.first().is_some_and(edge)
+    bytes.first().is_some_and(edge)
         && bytes.last().is_some_and(edge)
         && bytes.iter().all(|byte| edge(byte) || *byte == b'-')
 }
@@ -79,12 +76,10 @@ pub(in crate::credential) fn generic_credential_id(provider: &str) -> Result<&st
 pub(in crate::credential) const SIGNUP_ORIGIN_SHAPE: &str = "https://<host>[:<port>]: an absolute https origin, lowercase host, no userinfo, path, query or fragment";
 
 fn signup_origin_shaped(value: &str) -> bool {
-    let maximum: usize = 512;
-    let port_digits: usize = 5;
     let Some(authority) = value.strip_prefix("https://") else {
         return false;
     };
-    if value.len() > maximum || authority.is_empty() {
+    if authority.is_empty() {
         return false;
     }
     let (host, port) = match authority.split_once(':') {
@@ -99,9 +94,7 @@ fn signup_origin_shaped(value: &str) -> bool {
             .split('.')
             .all(|part| !part.is_empty() && part.as_bytes().iter().all(label))
         && port.is_none_or(|port| {
-            !port.is_empty()
-                && port.len() <= port_digits
-                && port.bytes().all(|byte| byte.is_ascii_digit())
+            port.bytes().all(|byte| byte.is_ascii_digit()) && port.parse::<u16>().is_ok()
         })
 }
 

@@ -98,7 +98,7 @@ fn run() -> Result<()> {
     match command.as_str() {
         "version" | "--version" | "-V" => emit(&cmd_version()?),
         "status" => emit(&core::items::status_json()?),
-        "doctor" => emit(&runtime::doctor::report()?),
+        "doctor" => emit(&runtime::doctor::report(flags.get("tail").map(String::as_str))?),
         "recover-daemons" => {
             // Exit 0 only when the daemons were replaced: the receipt is
             // printed either way, and a failed recovery fails the command

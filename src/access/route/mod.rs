@@ -12,11 +12,11 @@
 
 use std::collections::HashMap;
 
-use crate::core::schema::{exact_token, MAX_NAME_CHARS};
+use crate::core::schema::exact_token;
 use crate::core::{vault::Vault, vault_path};
 use declaration::{AGENT_PREFIX, LOGIN_PREFIX, PROVIDER_PREFIX};
 use resolution as route_resolution;
-use table::{self as route_table, MAX_REASON_CHARS, MAX_RESOURCE_CHARS};
+use table as route_table;
 use values as route_values;
 pub mod coordinate;
 pub mod declaration;
@@ -74,13 +74,13 @@ fn help() -> Value {
     })
 }
 
-/// Every name a caller may ask for is bounded exactly as `grant capability`
-/// bounds a resource it will issue against: a name carrying a newline would
+/// Every name a caller may ask for is checked exactly as `grant capability`
+/// checks a resource it will issue against: a name carrying a newline would
 /// land in a report and in a journal line as something no later reader can
 /// split back out.
 fn exact_names(asked: &[String]) -> Result<Vec<String>> {
     for name in asked {
-        if !exact_token(name, MAX_RESOURCE_CHARS) {
+        if !exact_token(name) {
             bail!("route resolve requires exact names: {name} is not one");
         }
     }
@@ -140,9 +140,9 @@ fn resolve(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
 /// A flag that is absent, empty, or carrying a newline is refused with the
 /// validator the broker applies to a resource before it will issue a
 /// capability for it.
-fn required<'a>(flags: &'a HashMap<String, String>, name: &str, max: usize) -> Result<&'a str> {
+fn required<'a>(flags: &'a HashMap<String, String>, name: &str) -> Result<&'a str> {
     let value = flags.get(name).map(String::as_str).unwrap_or_default();
-    if !exact_token(value, max) {
+    if !exact_token(value) {
         return Err(crate::cli::args::Usage(format!(
             "route: --{name} is required and must be exact (non-empty, one line)"
         ))
@@ -160,10 +160,10 @@ fn required<'a>(flags: &'a HashMap<String, String>, name: &str, max: usize) -> R
 /// item (`--item`) or the tag the one answering item carries (`--tag`); a
 /// tagged row survives any rename and names nothing an operator chose.
 fn declare(flags: &HashMap<String, String>) -> Result<Value> {
-    let resource = required(flags, "resource", MAX_RESOURCE_CHARS)?;
+    let resource = required(flags, "resource")?;
     let (key, value) = match (flags.contains_key("item"), flags.contains_key("tag")) {
-        (true, false) => ("item", required(flags, "item", MAX_NAME_CHARS)?),
-        (false, true) => ("tag", required(flags, "tag", MAX_NAME_CHARS)?),
+        (true, false) => ("item", required(flags, "item")?),
+        (false, true) => ("tag", required(flags, "tag")?),
         _ => {
             return Err(crate::cli::args::Usage(
                 "route declare takes exactly one of --item or --tag".to_string(),
@@ -171,8 +171,8 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
             .into())
         }
     };
-    let field = required(flags, "field", MAX_NAME_CHARS)?;
-    let reason = required(flags, "reason", MAX_REASON_CHARS)?;
+    let field = required(flags, "field")?;
+    let reason = required(flags, "reason")?;
     if declares_itself(resource) {
         bail!(
             "{resource} is resolved from what an item declares, not from the table: tag the item instead"
@@ -188,8 +188,8 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
 /// reason a declaration's is: this table decides which credential a login form
 /// receives, so its history must say why a route stopped answering.
 fn withdraw(flags: &HashMap<String, String>) -> Result<Value> {
-    let resource = required(flags, "resource", MAX_RESOURCE_CHARS)?;
-    let reason = required(flags, "reason", MAX_REASON_CHARS)?;
+    let resource = required(flags, "resource")?;
+    let reason = required(flags, "reason")?;
     route_table::remove_row(resource, reason)
 }
 

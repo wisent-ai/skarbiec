@@ -8,7 +8,6 @@ use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use wisent_errors::trim_detail;
 
 use super::super::common::{
     checked_bool, checked_code, checked_enum, checked_host, checked_uuid, effective_uid,
@@ -99,12 +98,10 @@ pub(in crate::credential) fn sanitized_response(value: &Value) -> Result<Value> 
 }
 
 // Bridge stderr is operator-facing diagnostics, never secret material: strip
-// control characters, collapse whitespace, and bound it before it reaches an
-// error message. Collapsing is skarbiec's own rule -- a bridge writes progress
-// lines -- but the bound is the fleet's, from `wisent-errors`.
+// control characters and collapse whitespace before it reaches an error
+// message, because a bridge writes progress lines. Nothing is cut.
 pub(in crate::credential) fn sanitized_diagnostics(raw: &[u8]) -> String {
-    let max: usize = 512;
-    let collapsed = String::from_utf8_lossy(raw)
+    String::from_utf8_lossy(raw)
         .chars()
         .map(|character| {
             if character.is_control() {
@@ -116,8 +113,7 @@ pub(in crate::credential) fn sanitized_diagnostics(raw: &[u8]) -> String {
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<&str>>()
-        .join(" ");
-    trim_detail(&collapsed, max)
+        .join(" ")
 }
 
 pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
@@ -131,13 +127,9 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
     // Drain stderr concurrently so a chatty bridge cannot deadlock on a full
     // pipe while we are still reading its stdout.
     let mut errors = child.stderr.take().context("open Weles bridge stderr")?;
-    let diagnostic_max: u64 = 4096;
     let diagnostics = std::thread::spawn(move || {
         let mut captured = Vec::new();
-        let _ = (&mut errors)
-            .take(diagnostic_max)
-            .read_to_end(&mut captured);
-        let _ = std::io::copy(&mut errors, &mut std::io::sink());
+        let _ = errors.read_to_end(&mut captured);
         captured
     });
     child
@@ -146,20 +138,12 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
         .context("open Weles bridge stdin")?
         .write_all(&serde_json::to_vec(request)?)?;
 
-    let max: u64 = 65536;
-    let extra: u64 = 1;
     let mut output = Vec::new();
     child
         .stdout
         .take()
         .context("open Weles bridge stdout")?
-        .take(max.saturating_add(extra))
         .read_to_end(&mut output)?;
-    if u64::try_from(output.len())? > max {
-        let _ = child.kill();
-        let _ = child.wait();
-        bail!("Weles credential acquisition response exceeded size limit");
-    }
     let status = child
         .wait()
         .context("wait for Weles credential acquisition bridge")?;

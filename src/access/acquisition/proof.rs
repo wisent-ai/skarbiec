@@ -23,11 +23,7 @@ pub(super) fn exact_name(value: &str) -> bool {
 }
 
 pub(super) fn valid_workload_id(value: &str) -> bool {
-    let maximum: usize = 128;
-    !value.is_empty()
-        && value.len() <= maximum
-        && value.trim() == value
-        && !value.chars().any(char::is_control)
+    !value.is_empty() && value.trim() == value && !value.chars().any(char::is_control)
 }
 
 pub(super) fn valid_nonce(value: &str) -> bool {
@@ -140,8 +136,11 @@ pub(super) fn verify_workload_proof(
     result
 }
 
+/// How far a workload proof's timestamp may stand from now and still be
+/// fresh: the operator's one-use capability lifetime, so a proof is not
+/// accepted after the bearer it asks for would already have expired.
 pub(super) fn proof_window_seconds() -> Result<u64> {
-    Ok(30)
+    super::state::ttl_seconds()
 }
 
 pub(super) fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {

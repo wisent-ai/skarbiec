@@ -151,9 +151,9 @@ their temporary vaults and keyrings after capture.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
    timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and
    replayed proof hashes.
-4. **Borrow once.** Skarbiec issues an opaque bearer with a default 30-second
-   TTL. The first successful matching read deletes its stored hash before
-   returning the field.
+4. **Borrow once.** Skarbiec issues an opaque bearer that lives for
+   `SKARBIEC_ACQUISITION_TTL_SECONDS`, the operator's setting. The first
+   successful matching read deletes its stored hash before returning the field.
 5. **Record.** Issuance and consumption append non-sensitive identifiers to a
    hash-chained local journal. Values, signatures, and public keys are excluded.
 

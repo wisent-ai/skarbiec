@@ -58,7 +58,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 #   {"check":"endpoint","status":"fail","detail":"nothing answers
 #   http://127.0.0.1:8785, declared by ~/.stado/forwards/skarbiec.local"}
 #     → the file names an address no Skarbiec serves. Re-run step 3 with the
-#       right URL; the default port is 8787.
+#       URL `skarbiec serve --port` listens on.
 #
 #   {"check":"audit","status":"fail","detail":"... 1 fault(s), first at line
 #   2311 ..."}

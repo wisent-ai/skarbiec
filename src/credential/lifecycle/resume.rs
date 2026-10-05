@@ -41,7 +41,7 @@ pub(in crate::credential) fn resume(
         bail!("{usage}");
     }
     let credential_id = args.first().context(usage)?;
-    exact_name("credential item id", credential_id, 200)?;
+    exact_name("credential item id", credential_id)?;
     let (approval_id, resume_token) = resume_handles(flags)?;
     let _request_lock = acquire_credential_operation_lock(vault_path)?;
     let request_item = request_item_id(credential_id);

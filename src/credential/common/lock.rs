@@ -38,10 +38,8 @@ pub(in crate::credential) fn now_iso() -> String {
     crate::core::clock::now_iso()
 }
 
-pub(in crate::credential) fn exact_name(name: &str, value: &str, maximum: usize) -> Result<()> {
-    let max = maximum;
+pub(in crate::credential) fn exact_name(name: &str, value: &str) -> Result<()> {
     if value.is_empty()
-        || value.len() > max
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
@@ -53,9 +51,8 @@ pub(in crate::credential) fn exact_name(name: &str, value: &str, maximum: usize)
 
 pub(in crate::credential) fn purpose(value: Option<&String>, consumer: &str) -> Result<String> {
     let value = value.map(String::as_str).unwrap_or(consumer);
-    let max: usize = 200;
-    if value.is_empty() || value.len() > max || value.chars().any(char::is_control) {
-        bail!("purpose must be 1-200 printable UTF-8 bytes");
+    if value.is_empty() || value.chars().any(char::is_control) {
+        bail!("purpose must be non-empty printable UTF-8");
     }
     Ok(value.to_string())
 }

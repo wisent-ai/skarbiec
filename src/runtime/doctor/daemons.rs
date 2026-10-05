@@ -22,7 +22,10 @@ use super::{check, FAIL, PASS};
 /// service's next readiness pass or `recover-daemons`, and both are named.
 /// No daemon running is a pass: `gpg` starts them on the next read.
 pub(super) fn daemons_check() -> Value {
-    let limit_bytes = daemon_memory_limit_bytes();
+    let limit_bytes = match daemon_memory_limit_bytes() {
+        Ok(limit_bytes) => limit_bytes,
+        Err(error) => return check("gpg_daemons", FAIL, format!("{error:#}")),
+    };
     let limit = human_size(limit_bytes);
     match daemon_footprints() {
         Ok(footprints) if footprints.is_empty() => check(

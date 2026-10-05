@@ -73,7 +73,7 @@ fn declared_provider(payload: &Value) -> Option<String> {
         .ok()?
         .get("provider")
         .and_then(Value::as_str)
-        .filter(|provider| schema::exact_token(provider, schema::MAX_NAME_CHARS))
+        .filter(|provider| schema::exact_token(provider))
         .map(str::to_string)
 }
 
@@ -100,7 +100,8 @@ pub fn issue(
         return Ok(None);
     };
     let now = now_epoch()?;
-    if now.abs_diff(timestamp) > proof_window_seconds()? {
+    let window = proof_window_seconds()?;
+    if now.abs_diff(timestamp) > window {
         return Ok(None);
     }
     let payload = workload_payload(consumer, item, field, workload_id, timestamp, nonce);
@@ -124,13 +125,12 @@ pub fn issue(
     if proofs.contains_key(&proof_hash) {
         return Ok(None);
     }
-    let replay_retention = proof_window_seconds()?
-        .checked_mul(2)
-        .context("workload proof retention overflow")?;
+    // The proof is refused as a replay for as long as its timestamp would
+    // still be accepted as fresh.
     proofs.insert(
         proof_hash,
-        json!(now
-            .checked_add(replay_retention)
+        json!(timestamp
+            .checked_add(window)
             .context("workload proof expiry overflow")?),
     );
     let expires_at = now

@@ -24,19 +24,17 @@ pub(super) fn seed_of(payload: &Value) -> Option<&str> {
         .filter(|seed| !seed.is_empty())
 }
 
-/// Supported stored seeds contain 80 to 640 bits of Base32 data.
-pub(super) const MIN_TOTP_SEED_BASE32_CHARS: usize = 16;
-pub(super) const MAX_TOTP_SEED_BASE32_CHARS: usize = 128;
 /// RFC 4648 Base32 uses eight-character blocks and at most six `=` characters
 /// to pad the final block.
 pub(super) const BASE32_BLOCK_CHARS: usize = 8;
 pub(super) const MAX_BASE32_PADDING_CHARS: usize = 6;
 
-/// TOTP seeds are Base32 text, optionally followed by standard `=` padding.
+/// TOTP seeds are non-empty Base32 text, optionally followed by standard `=`
+/// padding. How long a seed is, is the issuer's choice.
 pub(crate) fn base32_seed_shape(seed: &str) -> bool {
     let data = seed.trim_end_matches('=');
     let padding = seed.len().saturating_sub(data.len());
-    (MIN_TOTP_SEED_BASE32_CHARS..=MAX_TOTP_SEED_BASE32_CHARS).contains(&data.len())
+    !data.is_empty()
         && padding <= MAX_BASE32_PADDING_CHARS
         && (padding == 0 || seed.len().is_multiple_of(BASE32_BLOCK_CHARS))
         && data

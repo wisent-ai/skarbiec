@@ -52,7 +52,7 @@ pub fn dispatch(
     match command {
         "token-register-acquisitions" => {
             let catalog = positionals.first().or_usage(
-                "usage: token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH [--ttl-seconds N] [--replace-capabilities]",
+                "usage: token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH --ttl-seconds N [--replace-capabilities]",
             )?;
             let allowed_flags = [
                 "workload-public-key-file",
@@ -71,8 +71,7 @@ pub fn dispatch(
             let workload_public_key = read_workload_public_key(Path::new(public_key_path))?;
             let ttl_seconds: u64 = flags
                 .get("ttl-seconds")
-                .map(String::as_str)
-                .unwrap_or("2592000")
+                .or_usage("token-register-acquisitions requires --ttl-seconds: the grants' lifetime in whole seconds")?
                 .parse()
                 .or_usage("--ttl-seconds must be an integer")?;
             if ttl_seconds == u64::MIN {

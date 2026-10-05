@@ -3,23 +3,19 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
 
 use super::proof::{item_field, verify_proof, workload_public_key};
 use super::wire::{challenge_item, denied, denied_because, pending, reply};
 use crate::access::capability::state::{acquire_state_lock, load_state, now_epoch, save_state};
-use crate::access::capability::{
-    MAX_REQUEST_BYTES, NONCE_RETENTION_SECONDS, PROOF_DOMAIN, WIRE_VERSION,
-};
+use crate::access::capability::{PROOF_DOMAIN, WIRE_VERSION};
 use crate::core::schema::exact_token;
 use crate::core::{vault::Vault, vault_path};
 
 pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
     let mut line = String::new();
-    BufReader::new(stream.try_clone()?)
-        .take(MAX_REQUEST_BYTES)
-        .read_line(&mut line)?;
+    BufReader::new(stream.try_clone()?).read_line(&mut line)?;
     let Ok(request) = serde_json::from_str::<Value>(line.trim_end()) else {
         return denied(stream);
     };
@@ -46,8 +42,8 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         || !capability_id
             .chars()
             .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-        || !exact_token(&nonce, 128)
-        || !exact_token(&workload_id, 128)
+        || !exact_token(&nonce)
+        || !exact_token(&workload_id)
         || proof.len() != 86
     {
         return denied_because(stream, "malformed request: version, operation, capability id, nonce, workload id or proof is not the shape this wire requires");
@@ -122,9 +118,6 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
     }
 
     state["nonces"][&nonce_key] = json!(now);
-    if let Some(nonces) = state["nonces"].as_object_mut() {
-        nonces.retain(|_, seen| seen.as_u64().unwrap_or(0) + NONCE_RETENTION_SECONDS > now);
-    }
 
     if operation == "cancel" {
         state["capabilities"][&capability_id]["state"] = json!("cancelled");

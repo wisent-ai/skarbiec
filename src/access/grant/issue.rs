@@ -96,8 +96,7 @@ pub(in crate::access::grant) fn issue_once(
     }
     let ttl_seconds: u64 = flags
         .get("ttl-seconds")
-        .map(String::as_str)
-        .unwrap_or("2592000")
+        .context("grant issue requires --ttl-seconds: the grant's lifetime in whole seconds")?
         .parse()
         .context("--ttl-seconds must be an integer")?;
     if ttl_seconds == u64::MIN {

@@ -43,14 +43,13 @@ pub(in crate::credential) fn email_address(
     Ok(Some(value))
 }
 
-pub(in crate::credential) fn opaque_handle(name: &str, value: &str, maximum: usize) -> Result<()> {
+pub(in crate::credential) fn opaque_handle(name: &str, value: &str) -> Result<()> {
     if value.is_empty()
-        || value.len() > maximum
         || !value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
     {
-        bail!("{name} must be 1-{maximum} characters of ASCII letters, digits, '.', '_', or '-'");
+        bail!("{name} must be ASCII letters, digits, '.', '_', or '-'");
     }
     Ok(())
 }
@@ -70,10 +69,9 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     {
         bail!("credential token file must be an owner-only regular file");
     }
-    let max: usize = 512;
     let token = fs::read_to_string(path)?.trim().to_string();
-    if token.is_empty() || token.len() > max || token.chars().any(char::is_control) {
-        bail!("credential token file must hold exactly one bounded bearer token");
+    if token.is_empty() || token.chars().any(char::is_control) {
+        bail!("credential token file must hold exactly one bearer token");
     }
     Ok(token)
 }
@@ -103,7 +101,7 @@ pub(in crate::credential) fn client_identity(
         .or_else(|| flags.get("consumer"))
         .context("--as <consumer> is required to reach the canonical Skarbiec")?
         .clone();
-    exact_name("consumer", &consumer, 200)?;
+    exact_name("consumer", &consumer)?;
     let path = match flags.get("token-file") {
         Some(path) => PathBuf::from(path.trim()),
         None => {
@@ -130,7 +128,7 @@ pub(in crate::credential) fn resume_handles(
         .context("--approval <id> is required")?
         .trim()
         .to_string();
-    opaque_handle("--approval", &approval_id, 64)?;
+    opaque_handle("--approval", &approval_id)?;
     let resume_token = match flags.get("resume-token-file") {
         Some(path) => read_secret_file(Path::new(path.trim()))?,
         None => flags
@@ -139,6 +137,6 @@ pub(in crate::credential) fn resume_handles(
             .trim()
             .to_string(),
     };
-    opaque_handle("--resume-token", &resume_token, 128)?;
+    opaque_handle("--resume-token", &resume_token)?;
     Ok((approval_id, resume_token))
 }

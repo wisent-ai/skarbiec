@@ -143,7 +143,7 @@ pub(crate) fn handle_items_read(
                 &json!({
                     "error": "item is stored but could not be decrypted",
                     "error_code": Code::InfraDown.as_str(),
-                    "detail": http::bounded_detail(&detail),
+                    "detail": http::detail_text(&detail),
                 }),
             );
         }

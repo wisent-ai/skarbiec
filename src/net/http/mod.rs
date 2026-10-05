@@ -27,11 +27,7 @@ pub(crate) use service::survive_accept;
 use pool::RequestPool;
 use readiness::maintenance_pass;
 
-const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
-const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
-const MAX_HEADER_BYTES: usize = 32 * 1024;
-const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 pub(crate) fn load() -> Result<Vault> {
     Vault::open(vault_path())
@@ -52,7 +48,7 @@ pub(crate) fn presented_identity(headers: &HashMap<String, String>) -> (String, 
 /// A gpg failure names key ids and recipient uids, which is exactly what an
 /// operator needs to see and is not secret material. The cap keeps a runaway
 /// message out of a JSON body; the full text stays in the process log.
-pub(crate) use super::{bounded_detail, request_field, request_id, request_json};
+pub(crate) use super::{detail_text, request_field, request_id, request_json};
 
 pub(crate) fn write_response(
     stream: &mut TcpStream,
@@ -88,10 +84,13 @@ pub fn dispatch(
                 crate::runtime::audit::append("serve", &json!({"address": null}))?;
                 None
             } else {
-                let port = flags
-                    .get("port")
-                    .map(String::as_str)
-                    .unwrap_or(DEFAULT_PORT);
+                // The port is the unit's declaration; Skarbiec has none of its own.
+                let port = flags.get("port").map(String::as_str).ok_or_else(|| {
+                    crate::cli::args::Usage(
+                        "serve requires --port <port> (the unit declares it), or --no-http"
+                            .to_string(),
+                    )
+                })?;
                 // Started as its declared unit, the one process first retires
                 // the Skarbiec units it replaces, then answers on their ports.
                 let inherited = service::take_over_predecessors();
