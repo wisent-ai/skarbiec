@@ -64,7 +64,7 @@
         {
           "step": "03",
           "title": "Spend it once",
-          "text": "Skarbiec issues an opaque bearer that lives for the operator's SKARBIEC_ACQUISITION_TTL_SECONDS. The first successful matching read deletes its stored hash before returning the field."
+          "text": "Skarbiec issues an opaque bearer that lives until it is spent or until the grant that lent it ends. The first successful matching read deletes its stored hash before returning the field."
         },
         {
           "step": "04",

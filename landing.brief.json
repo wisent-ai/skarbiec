@@ -28,7 +28,7 @@
       "evidence": "README.md#How it works"
     },
     {
-      "claim": "Skarbiec issues an opaque bearer that lives for the operator's SKARBIEC_ACQUISITION_TTL_SECONDS, and the first successful matching read deletes its stored hash before returning the field.",
+      "claim": "Skarbiec issues an opaque bearer that lives until it is spent or until the grant that lent it ends, and the first successful matching read deletes its stored hash before returning the field.",
       "evidence": "README.md#How it works"
     },
     {

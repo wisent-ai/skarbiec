@@ -14,7 +14,6 @@ is and how to install it; this page covers running one.
 | `SKARBIEC_AUDIT_FILE` | Override the local append-only journal path |
 | `SKARBIEC_UNLOCK_FILE` | Owner-only file supplying a protected key's unlock phrase to a persistent service |
 | `SKARBIEC_UNLOCK` | Single-invocation unlock phrase, passed to `gpg` over stdin; prefer the file for services |
-| `SKARBIEC_ACQUISITION_TTL_SECONDS` | Required for acquisitions: the one-use capability lifetime in whole seconds, at least one; also how far a workload proof's timestamp may stand from now. Skarbiec has no default and no ceiling; without it every acquisition is refused naming the setting |
 | `SKARBIEC_MCP_CONSUMER` | Server-side consumer identity required to enable MCP route resolution |
 | `SKARBIEC_MCP_TOKEN_FILE` | Server-side compatibility grant file; never a tool argument |
 | `SKARBIEC_MCP_OUT_DIR` | Required absolute directory for mode-0600 MCP route-resolution output |

@@ -149,11 +149,13 @@ their temporary vaults and keyrings after capture.
    role that resolves to no item is `409` naming what it needs. The items list
    shows a role-granted consumer the item that plays its role.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
-   timestamp, and nonce. Skarbiec rejects stale proofs, capability mismatches, and
-   replayed proof hashes.
-4. **Borrow once.** Skarbiec issues an opaque bearer that lives for
-   `SKARBIEC_ACQUISITION_TTL_SECONDS`, the operator's setting. The first
-   successful matching read deletes its stored hash before returning the field.
+   timestamp, and nonce. Skarbiec rejects a proof signed after now, one older
+   than the newest proof that workload already spent, capability mismatches,
+   and replayed proof hashes; a nonce is remembered until the grant ends.
+4. **Borrow once.** Skarbiec issues an opaque bearer that lives until it is
+   spent or until the acquire grant that lent it ends: it cannot outlive its
+   authority, and no shorter lifetime is configured. The first successful
+   matching read deletes its stored hash before returning the field.
 5. **Record.** Issuance and consumption append non-sensitive identifiers to a
    hash-chained local journal. Values, signatures, and public keys are excluded.
 
@@ -259,14 +261,12 @@ key, or one-use token.
 missing, the id or field is empty, or the timestamp is not an unsigned integer.
 Supplied item, field, or workload values that fail exact-name or workload-proof
 validation return `401` with `{"error":"unauthorized"}`, as do an absent
-consumer, a missing acquisition grant, an expired timestamp, or a replay.
+consumer, a missing or ended acquisition grant, a timestamp after now or older
+than the workload's newest spent proof, or a replay.
 After the workload has proved its identity, a field that the item does not
-carry returns `404` with `{"error":"acquisition field does not exist on item"}`;
-A service whose `SKARBIEC_ACQUISITION_TTL_SECONDS` is unset, not a whole
-number, or zero returns `503` with `{"error":"config","detail":"<the sentence
-naming the setting>"}`, so the refused workload can say what is missing; the
-setting's name is configuration, not a secret. Other issuance failures return
-`503` with `{"error":"infra_down"}`. The missing-field distinction is therefore
+carry returns `404` with `{"error":"acquisition field does not exist on item"}`.
+Other issuance failures return `503` with `{"error":"infra_down"}`. The
+missing-field distinction is therefore
 available to an authorized workload without exposing field existence to an
 unproved caller.
 

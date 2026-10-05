@@ -55,13 +55,6 @@ pub(crate) fn handle_acquisitions_issue(
                 return http::write_response(stream, "HTTP/1.1 404 Not Found", e);
             }
             Err(error) => {
-                if let Some(unconfigured) =
-                    error.downcast_ref::<crate::access::acquisition::AcquisitionUnconfigured>()
-                {
-                    eprintln!("acquisition issue refused for {consumer} on {item}#{field}: {unconfigured}");
-                    let e = &json!({"error": Code::Config.as_str(), "detail": unconfigured.to_string()});
-                    return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
-                }
                 eprintln!("acquisition issue failed for {consumer} on {item}#{field}: {error:#}");
                 let e = &json!({"error": Code::InfraDown.as_str()});
                 return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);

@@ -93,9 +93,15 @@ pub(super) fn validate_owned_regular(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The document a state file starts as; every object in it is a section an
+/// older file may lack.
+fn fresh_state() -> Value {
+    json!({"version": "v1", "tokens": {}, "proofs": {}, "workloads": {}})
+}
+
 pub(super) fn load_state(path: &Path) -> Result<Value> {
     if !path.exists() {
-        return Ok(json!({"version": "v1", "tokens": {}, "proofs": {}}));
+        return Ok(fresh_state());
     }
     validate_owned_regular(path)?;
     let mut state: Value =
@@ -105,11 +111,17 @@ pub(super) fn load_state(path: &Path) -> Result<Value> {
     {
         bail!("invalid acquisition state document");
     }
-    if state.get("proofs").is_none() {
-        state["proofs"] = json!({});
-    }
-    if !state.get("proofs").is_some_and(Value::is_object) {
-        bail!("invalid acquisition proof state");
+    let fresh = fresh_state();
+    for (section, empty) in fresh.as_object().into_iter().flatten() {
+        if !empty.is_object() {
+            continue;
+        }
+        if state.get(section).is_none() {
+            state[section] = empty.clone();
+        }
+        if !state.get(section).is_some_and(Value::is_object) {
+            bail!("invalid acquisition {section} state");
+        }
     }
     Ok(state)
 }
@@ -141,29 +153,4 @@ pub(super) fn save_state(path: &Path, state: &Value) -> Result<()> {
 
 pub(super) fn now_epoch() -> Result<u64> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
-}
-
-/// How long a one-use capability lives: the operator's value in
-/// `SKARBIEC_ACQUISITION_TTL_SECONDS`, set in the service's environment.
-/// Skarbiec holds no default and no ceiling of its own.
-pub(super) fn ttl_seconds() -> Result<u64> {
-    let unconfigured = |sentence: String| super::AcquisitionUnconfigured(sentence).into();
-    let Ok(raw) = std::env::var("SKARBIEC_ACQUISITION_TTL_SECONDS") else {
-        return Err(unconfigured(
-            "SKARBIEC_ACQUISITION_TTL_SECONDS is not set: the lifetime of a one-use capability, \
-             in seconds, is the operator's to state in the Skarbiec service environment"
-                .to_string(),
-        ));
-    };
-    let Ok(ttl) = raw.trim().parse::<u64>() else {
-        return Err(unconfigured(format!(
-            "SKARBIEC_ACQUISITION_TTL_SECONDS must be a whole number of seconds, not {raw:?}"
-        )));
-    };
-    if ttl == u64::MIN {
-        return Err(unconfigured(
-            "SKARBIEC_ACQUISITION_TTL_SECONDS must be at least one second".to_string(),
-        ));
-    }
-    Ok(ttl)
 }

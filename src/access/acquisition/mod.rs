@@ -1,5 +1,12 @@
-// Short-lived, field-bound, single-use acquisition bearers. Registered
-// workload identities may request an acquisition but can never read directly.
+// Field-bound, single-use acquisition bearers. Registered workload identities
+// may request an acquisition but can never read directly.
+//
+// No lifetime is configured. A bearer lives until it is spent or until the
+// acquire grant that lent it ends, whichever comes first: it can never
+// outlive the authority behind it, and nothing shorter has a source. A
+// workload proof is fresh when it was signed no later than now and no
+// earlier than the newest proof this workload already spent; its nonce is
+// remembered until the grant ends, so a proof is accepted once.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -14,10 +21,10 @@ mod state;
 pub use commands::dispatch;
 
 use proof::{
-    exact_name, proof_window_seconds, purge_expired, valid_nonce, valid_workload_id,
-    validate_target, verify_workload_proof, workload_payload,
+    exact_name, purge_expired, valid_nonce, valid_workload_id, validate_target,
+    verify_workload_proof, workload_payload,
 };
-use state::{acquire_lock, load_state, now_epoch, save_state, state_path, ttl_seconds};
+use state::{acquire_lock, load_state, now_epoch, save_state, state_path};
 
 #[derive(Debug)]
 pub(crate) struct AcquisitionFieldMissing;
@@ -29,21 +36,6 @@ impl std::fmt::Display for AcquisitionFieldMissing {
 }
 
 impl std::error::Error for AcquisitionFieldMissing {}
-
-/// The one-use capability lifetime is not stated, or not usable, in the
-/// service environment. It carries the sentence naming the setting, which is
-/// configuration, not a secret, so a workload refused for it can say why
-/// instead of reading `infra_down`.
-#[derive(Debug)]
-pub(crate) struct AcquisitionUnconfigured(pub(crate) String);
-
-impl std::fmt::Display for AcquisitionUnconfigured {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for AcquisitionUnconfigured {}
 
 pub struct IssuedAcquisition {
     pub token: String,
@@ -110,17 +102,15 @@ pub fn issue(
         return Ok(None);
     }
     let vault = Vault::open(vault_path())?;
-    let Some(public_key) = grant::acquisition_workload_public_key(&vault, consumer, item, field)
-    else {
+    let Some(lent) = grant::acquisition_grant(&vault, consumer, item, field) else {
         return Ok(None);
     };
     let now = now_epoch()?;
-    let window = proof_window_seconds()?;
-    if now.abs_diff(timestamp) > window {
+    if timestamp > now {
         return Ok(None);
     }
     let payload = workload_payload(consumer, item, field, workload_id, timestamp, nonce);
-    if !verify_workload_proof(&public_key, &payload, signature)? {
+    if !verify_workload_proof(&lent.public_key, &payload, signature)? {
         return Ok(None);
     }
     // A missing field is returned only after the workload proves its identity.
@@ -132,6 +122,17 @@ pub fn issue(
     let _lock = acquire_lock(&path)?;
     let mut state = load_state(&path)?;
     purge_expired(&mut state, now)?;
+    // A proof older than the newest one this workload already spent is a
+    // captured proof being replayed late, not the workload asking now.
+    let newest = state
+        .pointer(&format!(
+            "/workloads/{}/newest",
+            pointer_segment(workload_id)
+        ))
+        .and_then(Value::as_u64);
+    if newest.is_some_and(|newest| timestamp < newest) {
+        return Ok(None);
+    }
     let proof_hash = crypto::sha256_hex(&format!("{workload_id}\0{nonce}"))?;
     let proofs = state
         .get_mut("proofs")
@@ -140,17 +141,18 @@ pub fn issue(
     if proofs.contains_key(&proof_hash) {
         return Ok(None);
     }
-    // The proof is refused as a replay for as long as its timestamp would
-    // still be accepted as fresh.
-    proofs.insert(
-        proof_hash,
-        json!(timestamp
-            .checked_add(window)
-            .context("workload proof expiry overflow")?),
-    );
-    let expires_at = now
-        .checked_add(ttl_seconds()?)
-        .context("acquisition expiry overflow")?;
+    // The proof's nonce is refused as a replay for as long as the grant that
+    // could accept it lasts.
+    proofs.insert(proof_hash, json!(lent.expires_at));
+    state
+        .get_mut("workloads")
+        .and_then(Value::as_object_mut)
+        .context("acquisition workloads section")?
+        .insert(
+            workload_id.to_string(),
+            json!({ "newest": timestamp, "expires_at": lent.expires_at }),
+        );
+    let expires_at = lent.expires_at;
     let token = crypto::random_token()?;
     let hash = crypto::sha256_hex(&token)?;
     let tokens = state
@@ -256,4 +258,9 @@ pub fn consume(
         .remove(&hash);
     save_state(&path, &state)?;
     Ok(Some(AcquiredField { value, provider }))
+}
+
+/// A key as one segment of a JSON pointer (RFC 6901): `~` and `/` escaped.
+fn pointer_segment(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
 }

@@ -136,13 +136,6 @@ pub(super) fn verify_workload_proof(
     result
 }
 
-/// How far a workload proof's timestamp may stand from now and still be
-/// fresh: the operator's one-use capability lifetime, so a proof is not
-/// accepted after the bearer it asks for would already have expired.
-pub(super) fn proof_window_seconds() -> Result<u64> {
-    super::state::ttl_seconds()
-}
-
 pub(super) fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {
     if !exact_name(item) || !exact_name(field) {
         bail!("item and field must be exact names without wildcards or separators");
@@ -175,5 +168,15 @@ pub(super) fn purge_expired(state: &mut Value, now: u64) -> Result<()> {
         .and_then(Value::as_object_mut)
         .context("acquisition proofs section")?;
     proofs.retain(|_, expiry| expiry.as_u64().is_some_and(|value| value > now));
+    let workloads = state
+        .get_mut("workloads")
+        .and_then(Value::as_object_mut)
+        .context("acquisition workloads section")?;
+    workloads.retain(|_, record| {
+        record
+            .get("expires_at")
+            .and_then(Value::as_u64)
+            .is_some_and(|expiry| expiry > now)
+    });
     Ok(())
 }

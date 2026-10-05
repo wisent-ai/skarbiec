@@ -174,12 +174,19 @@ pub(in crate::access::grant) fn read_acquisition_catalog(
     Ok(rows)
 }
 
-pub fn acquisition_workload_public_key(
+/// What an acquire grant lends a workload: the public key its proofs are
+/// checked against, and when the grant itself ends.
+pub struct AcquisitionGrant {
+    pub public_key: String,
+    pub expires_at: u64,
+}
+
+pub fn acquisition_grant(
     vault: &Vault,
     consumer: &str,
     item: &str,
     field: &str,
-) -> Option<String> {
+) -> Option<AcquisitionGrant> {
     let entry = vault
         .doc()
         .get("tokens")
@@ -198,10 +205,13 @@ pub fn acquisition_workload_public_key(
     if !allowed {
         return None;
     }
-    entry
-        .get("workload_public_key")
-        .and_then(Value::as_str)
-        .map(str::to_string)
+    Some(AcquisitionGrant {
+        public_key: entry
+            .get("workload_public_key")
+            .and_then(Value::as_str)?
+            .to_string(),
+        expires_at: entry.get("expires_at").and_then(Value::as_u64)?,
+    })
 }
 
 /// Every workload-bound coordinate a grant declares, and how each is spent.
