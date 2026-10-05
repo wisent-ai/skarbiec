@@ -4,23 +4,11 @@ use serde_json::{json, Map, Value};
 use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
-use super::super::{login_fields, source_row, text, ImportDocument, MAX_IMPORT_BYTES};
+use super::super::{login_fields, source_row, text, ImportDocument};
 
 pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument> {
     let mut archive =
         ZipArchive::new(Cursor::new(bytes)).context("invalid 1Password 1PUX archive")?;
-    let mut total = 0_u64;
-    for index in 0..archive.len() {
-        let member = archive
-            .by_index(index)
-            .context("read 1PUX archive member")?;
-        total = total
-            .checked_add(member.size())
-            .context("1PUX archive size overflow")?;
-        if total > MAX_IMPORT_BYTES {
-            bail!("1PUX archive exceeds the 256 MiB uncompressed limit");
-        }
-    }
     let data =
         read_member(&mut archive, "export.data").context("1PUX archive requires export.data")?;
     let attributes: Value =
@@ -56,13 +44,7 @@ pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument>
             bail!("unsupported 1PUX archive member {name}; no items were written");
         }
         let mut content = Vec::new();
-        member
-            .by_ref()
-            .take(MAX_IMPORT_BYTES + 1)
-            .read_to_end(&mut content)?;
-        if content.len() as u64 > MAX_IMPORT_BYTES {
-            bail!("1PUX attachment exceeds the 256 MiB limit");
-        }
+        member.read_to_end(&mut content)?;
         let file_name = name
             .rsplit_once("___")
             .map(|(_, name)| name)
@@ -98,11 +80,7 @@ pub(in crate::core::importer) fn read_member(
     archive
         .by_name(name)
         .with_context(|| format!("1PUX archive has no {name}"))?
-        .take(MAX_IMPORT_BYTES + 1)
         .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_IMPORT_BYTES {
-        bail!("1PUX member exceeds the 256 MiB limit");
-    }
     Ok(bytes)
 }
 

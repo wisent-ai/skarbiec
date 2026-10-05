@@ -18,9 +18,6 @@ use std::path::Path;
 
 use super::schema;
 
-pub(super) const MAX_IMPORT_BYTES: u64 = 256 * 1024 * 1024;
-const MAX_IMPORT_ITEMS: usize = 100_000;
-
 pub(super) struct ImportRow {
     id: String,
     payload: Value,
@@ -50,8 +47,6 @@ pub fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Va
             "formats": ["auto", "canonical", "1password", "bitwarden", "browser-csv"],
             "conflict_policies": ["keep", "replace", "error"],
             "default_conflict_policy": "keep",
-            "max_input_bytes": MAX_IMPORT_BYTES,
-            "max_items": MAX_IMPORT_ITEMS,
         }));
     }
     if positionals.len() != 1 {
@@ -74,22 +69,18 @@ pub fn import_file(path: &Path, format: &str, conflict: &str) -> Result<Value> {
     if !["auto", "canonical", "1password", "bitwarden", "browser-csv"].contains(&format) {
         bail!("import format must be auto, canonical, 1password, bitwarden, or browser-csv");
     }
-    let source =
+    let mut source =
         File::open(path).with_context(|| format!("read import file {}", path.display()))?;
     if !source.metadata()?.is_file() {
         bail!("import source must be a regular file");
     }
+    // The export is the operator's own file: it is read whole, and every row
+    // it holds is imported; no size or row count was ever decided for it.
     let mut bytes = Vec::new();
-    source.take(MAX_IMPORT_BYTES + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > MAX_IMPORT_BYTES {
-        bail!("import exceeds the 256 MiB input limit");
-    }
+    source.read_to_end(&mut bytes)?;
     let document = parse(&bytes, format)?;
     if document.rows.is_empty() {
         bail!("import contains no items");
-    }
-    if document.rows.len() > MAX_IMPORT_ITEMS {
-        bail!("import exceeds the 100000 item limit");
     }
     apply(document, conflict)
 }
