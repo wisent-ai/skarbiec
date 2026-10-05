@@ -78,7 +78,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("policy-get", "skarbiec policy-get", "Read the administrative policy."),
     row("policy-check-length", "skarbiec policy-check-length <candidate>", "Check a candidate's length against min_generated_length without storing it."),
     row("audit", "skarbiec audit [--limit <N>]", "Read the append-only audit journal, oldest first."),
-    row("audit-query", "skarbiec audit-query [--op <operation>] [--consumer <name>] [--item <id>] [--since <iso>] [--until <iso>] [--limit <N>]", "Filter the audit journal by operation, consumer, item and time."),
+    row("audit-query", "skarbiec audit-query [--op <operation>] [--consumer <name>] [--item <id>] [--since <iso>] [--until <iso>] [--limit <N>]", "Filter the audit journal by operation, consumer, item and time: every match, or with --limit the newest N; matched counts them all."),
     row("audit-epoch-start", "skarbiec audit-epoch-start --reason <text>", "Start a signed audit epoch after acknowledging an already-broken chain."),
     row("verify-chain", "skarbiec verify-chain [--tail <N>]", "Verify the audit journal's linkage and entry digests and report every fault."),
     group("route", "skarbiec route help", "Resolve resource names to vault fields, declare the routes an item cannot, and verify them; `skarbiec route help` lists the subcommands."),

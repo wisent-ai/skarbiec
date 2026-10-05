@@ -158,16 +158,17 @@ pub(super) fn recent(flags: &HashMap<String, String>) -> Result<Vec<Value>> {
     tail_lines(limit)
 }
 
+/// Matching journal entries, oldest first. Without `limit` every match is
+/// returned; a `limit` keeps the newest that many and must be at least one.
+/// `matched` always counts every match, so a limited answer says how many it
+/// left out.
 pub(super) fn query(flags: &HashMap<String, String>) -> Result<Value> {
-    let limit: usize = flags
+    let limit: Option<usize> = flags
         .get("limit")
-        .map(String::as_str)
-        .unwrap_or("100")
-        .parse()
-        .context("--limit must be a positive integer")?;
-    let maximum: usize = 10000;
-    if limit == usize::MIN || limit > maximum {
-        anyhow::bail!("--limit must be between one and 10000");
+        .map(|raw| raw.parse().context("--limit must be a positive integer"))
+        .transpose()?;
+    if limit == Some(usize::MIN) {
+        anyhow::bail!("--limit must be at least one");
     }
     let operation = flags.get("op").map(String::as_str);
     let consumer = flags.get("consumer").map(String::as_str);
@@ -197,7 +198,7 @@ pub(super) fn query(flags: &HashMap<String, String>) -> Result<Value> {
         })
         .collect();
     let matched = entries.len();
-    if entries.len() > limit {
+    if let Some(limit) = limit.filter(|limit| entries.len() > *limit) {
         entries.drain(..entries.len() - limit);
     }
     Ok(json!({"matched": matched, "returned": entries.len(), "entries": entries}))
