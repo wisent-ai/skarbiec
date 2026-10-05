@@ -36,7 +36,7 @@ pub use lookup::{
     introspect, presented_hash, token_allows_action, token_allows_any_item_hash,
     token_allows_field_action, token_allows_vault_action, token_valid_hash,
 };
-pub use rules::capabilities::{acquisition_grant, AcquisitionGrant};
+pub use rules::capabilities::acquisition_grant;
 
 use crate::cli::args::OrUsage;
 use leaves::group;
