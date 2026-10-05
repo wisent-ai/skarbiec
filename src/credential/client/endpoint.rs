@@ -89,11 +89,11 @@ pub(crate) fn canonical_endpoint_report() -> Result<Value> {
 /// Write the canonical forward file this module reads.
 ///
 /// Nothing in this product wrote it. The reader above enforces a precise
-/// contract - owner-owned, no group or world write, exactly one bounded URL -
-/// and every fresh installation has no such file at all, so the first
+/// contract - owner-owned, no group or world write, exactly one URL - and
+/// every fresh installation has no such file at all, so the first
 /// `credential` call on a new machine failed with a path and no way to
 /// produce it. Measured on this host: the file existed from an earlier
-/// session naming port 8785, which no Skarbiec serves; the default is 8787.
+/// session naming a port no Skarbiec serves.
 ///
 /// The declaration is verified through `canonical_endpoint` before returning,
 /// so a file this command wrote can never be one the reader rejects.

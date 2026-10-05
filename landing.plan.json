@@ -7,7 +7,7 @@
     "metaDescription": "Skarbiec hands an agent workload exactly one credential field, once, against a signed request — and refuses the replay.",
     "proofStrip": [
       "Ed25519 workload proofs",
-      "30-second one-use tokens",
+      "One-use tokens",
       "Hash-chained local journal",
       "Loopback broker only",
       "Apache-2.0 local core"
@@ -64,7 +64,7 @@
         {
           "step": "03",
           "title": "Spend it once",
-          "text": "Skarbiec issues an opaque bearer with a default 30-second TTL. The first successful matching read deletes its stored hash before returning the field."
+          "text": "Skarbiec issues an opaque bearer that lives for the operator's SKARBIEC_ACQUISITION_TTL_SECONDS. The first successful matching read deletes its stored hash before returning the field."
         },
         {
           "step": "04",
@@ -135,7 +135,7 @@
         "rows": [
           [
             "HTTP broker",
-            "127.0.0.1 only, port 8787 unless --port says otherwise",
+            "127.0.0.1 only, on the port --port names",
             "No"
           ],
           [

@@ -28,7 +28,7 @@
       "evidence": "README.md#How it works"
     },
     {
-      "claim": "Skarbiec issues an opaque bearer with a default 30-second TTL, and the first successful matching read deletes its stored hash before returning the field.",
+      "claim": "Skarbiec issues an opaque bearer that lives for the operator's SKARBIEC_ACQUISITION_TTL_SECONDS, and the first successful matching read deletes its stored hash before returning the field.",
       "evidence": "README.md#How it works"
     },
     {
@@ -44,7 +44,7 @@
       "evidence": "README.md#Real product journeys"
     },
     {
-      "claim": "`serve` binds `127.0.0.1` only, on port 8787 unless `--port` says otherwise, and announces that loopback restriction on startup.",
+      "claim": "`serve` binds `127.0.0.1` only, on the port `--port` names, and announces that loopback restriction on startup.",
       "evidence": "README.md#Ownership by concern"
     },
     {
