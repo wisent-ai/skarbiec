@@ -100,7 +100,9 @@ pub(in crate::access::grant) fn issue_once(
     // protects nothing a revocation does not, and a missed renewal is an
     // outage. An acquire grant lends its lifetime to every bearer it mints,
     // so it keeps a stated one.
-    let until_revoked = flags.get("until-revoked").is_some_and(|value| value == "true");
+    let until_revoked = flags
+        .get("until-revoked")
+        .is_some_and(|value| value == "true");
     let expires_at = match (flags.get("ttl-seconds"), until_revoked) {
         (Some(_), true) => bail!("--ttl-seconds and --until-revoked are exclusive"),
         (None, true) if has_acquire => bail!(
