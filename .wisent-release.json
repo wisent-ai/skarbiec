@@ -135,6 +135,6 @@
       "candidate",
       "stable"
     ],
-    "reconcile": true
+    "reconcile": false
   }
 }
