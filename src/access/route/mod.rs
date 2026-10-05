@@ -180,8 +180,73 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
     }
     // Opportunistic on purpose: a row may be declared ahead of provisioning,
     // so an unreadable vault leaves the row exactly as it would have been.
-    let vault = Vault::open(vault_path()).ok();
+    let mut vault = Vault::open(vault_path()).ok();
+    if key == "tag" {
+        if let Some(open) = vault.as_mut() {
+            adopt_live_item(open, resource, value, field, reason)?;
+        }
+    }
     route_table::write_row(resource, key, value, field, reason, vault.as_ref())
+}
+
+/// A tag row declared over a live item row, for a role no item carries yet:
+/// the item the route already answers with is the role's only evident
+/// holder, so it is tagged with the role here, in the same step, and the tag
+/// row then names that very item without repointing the route. Without this
+/// every consumer moving its routes from items to roles stopped at the first
+/// unheld role until someone tagged the item by hand. A role another item
+/// already carries is left to `write_row`, which refuses the repoint.
+fn adopt_live_item(
+    vault: &mut Vault,
+    resource: &str,
+    tag: &str,
+    field: &str,
+    reason: &str,
+) -> Result<()> {
+    let table = route_table::load()?;
+    let Some(row) = table.get(resource) else {
+        return Ok(());
+    };
+    let text = |name: &str| row.get(name).and_then(Value::as_str).unwrap_or_default();
+    let item = text("item").to_string();
+    if item.is_empty()
+        || text("field") != field
+        || !declaration::tagged_items(vault, tag).is_empty()
+    {
+        return Ok(());
+    }
+    let Some(record) = vault
+        .doc()
+        .get("items")
+        .and_then(|items| items.get(&item))
+        .cloned()
+    else {
+        return Ok(());
+    };
+    crate::cli::items::ensure_owner_mutation_allowed(vault, &item, "route role adoption")?;
+    let mut tags: Vec<String> = record
+        .get("tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    tags.push(tag.to_string());
+    vault.set_item_tags(&item, &tags)?;
+    crate::runtime::audit::append_sync(
+        "capability-route-role-adopted",
+        &serde_json::json!({
+            "resource": resource,
+            "item": item,
+            "tag": tag,
+            "field": field,
+            "reason": reason,
+        }),
+    )?;
+    Ok(())
 }
 
 /// Withdraw one row `declare` wrote. The reason is required for the same

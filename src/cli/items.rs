@@ -11,7 +11,7 @@ use crate::core::{schema, vault_path};
 
 use super::args::{emit, flag_set, OrUsage};
 
-pub(super) fn ensure_owner_mutation_allowed(
+pub(crate) fn ensure_owner_mutation_allowed(
     vault: &Vault,
     id: &str,
     operation: &str,
