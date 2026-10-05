@@ -262,9 +262,13 @@ validation return `401` with `{"error":"unauthorized"}`, as do an absent
 consumer, a missing acquisition grant, an expired timestamp, or a replay.
 After the workload has proved its identity, a field that the item does not
 carry returns `404` with `{"error":"acquisition field does not exist on item"}`;
-other issuance failures return `503` with `{"error":"infra_down"}`. The
-missing-field distinction is therefore available to an authorized workload
-without exposing field existence to an unproved caller.
+A service whose `SKARBIEC_ACQUISITION_TTL_SECONDS` is unset, not a whole
+number, or zero returns `503` with `{"error":"config","detail":"<the sentence
+naming the setting>"}`, so the refused workload can say what is missing; the
+setting's name is configuration, not a secret. Other issuance failures return
+`503` with `{"error":"infra_down"}`. The missing-field distinction is therefore
+available to an authorized workload without exposing field existence to an
+unproved caller.
 
 The script refuses to overwrite an existing demo directory. Remove the isolated
 state when finished:

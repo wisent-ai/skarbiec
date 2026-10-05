@@ -30,6 +30,21 @@ impl std::fmt::Display for AcquisitionFieldMissing {
 
 impl std::error::Error for AcquisitionFieldMissing {}
 
+/// The one-use capability lifetime is not stated, or not usable, in the
+/// service environment. It carries the sentence naming the setting, which is
+/// configuration, not a secret, so a workload refused for it can say why
+/// instead of reading `infra_down`.
+#[derive(Debug)]
+pub(crate) struct AcquisitionUnconfigured(pub(crate) String);
+
+impl std::fmt::Display for AcquisitionUnconfigured {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for AcquisitionUnconfigured {}
+
 pub struct IssuedAcquisition {
     pub token: String,
     pub expires_at: u64,

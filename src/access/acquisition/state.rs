@@ -147,15 +147,23 @@ pub(super) fn now_epoch() -> Result<u64> {
 /// `SKARBIEC_ACQUISITION_TTL_SECONDS`, set in the service's environment.
 /// Skarbiec holds no default and no ceiling of its own.
 pub(super) fn ttl_seconds() -> Result<u64> {
-    let raw = std::env::var("SKARBIEC_ACQUISITION_TTL_SECONDS").context(
-        "SKARBIEC_ACQUISITION_TTL_SECONDS is not set: the lifetime of a one-use capability, \
-         in seconds, is the operator's to state in the Skarbiec service environment",
-    )?;
-    let ttl: u64 = raw.trim().parse().with_context(|| {
-        format!("SKARBIEC_ACQUISITION_TTL_SECONDS must be a whole number of seconds, not {raw:?}")
-    })?;
+    let unconfigured = |sentence: String| super::AcquisitionUnconfigured(sentence).into();
+    let Ok(raw) = std::env::var("SKARBIEC_ACQUISITION_TTL_SECONDS") else {
+        return Err(unconfigured(
+            "SKARBIEC_ACQUISITION_TTL_SECONDS is not set: the lifetime of a one-use capability, \
+             in seconds, is the operator's to state in the Skarbiec service environment"
+                .to_string(),
+        ));
+    };
+    let Ok(ttl) = raw.trim().parse::<u64>() else {
+        return Err(unconfigured(format!(
+            "SKARBIEC_ACQUISITION_TTL_SECONDS must be a whole number of seconds, not {raw:?}"
+        )));
+    };
     if ttl == u64::MIN {
-        bail!("SKARBIEC_ACQUISITION_TTL_SECONDS must be at least one second")
+        return Err(unconfigured(
+            "SKARBIEC_ACQUISITION_TTL_SECONDS must be at least one second".to_string(),
+        ));
     }
     Ok(ttl)
 }
