@@ -129,7 +129,10 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
 fn forget_stale(state: &mut Value, now: u64) {
     if let Some(capabilities) = state["capabilities"].as_object_mut() {
         capabilities.retain(|_, record| {
-            record.get("expires_at").and_then(Value::as_u64).is_some_and(|until| until > now)
+            record
+                .get("expires_at")
+                .and_then(Value::as_u64)
+                .is_some_and(|until| until > now)
         });
     }
     let live: Vec<String> = state["capabilities"]
@@ -138,7 +141,8 @@ fn forget_stale(state: &mut Value, now: u64) {
         .unwrap_or_default();
     if let Some(nonces) = state["nonces"].as_object_mut() {
         nonces.retain(|key, _| {
-            key.split_once(':').is_some_and(|(capability, _)| live.iter().any(|id| id == capability))
+            key.split_once(':')
+                .is_some_and(|(capability, _)| live.iter().any(|id| id == capability))
         });
     }
 }

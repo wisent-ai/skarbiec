@@ -11,8 +11,8 @@ use wisent_errors::Code;
 use super::readiness::readiness_check;
 use super::request::{credential_status_item, is_mutation, read_line};
 use super::{
-    detail_text, load, presented_identity, request_field, request_id, request_json,
-    write_response, WRITE_LOCK,
+    detail_text, load, presented_identity, request_field, request_id, request_json, write_response,
+    WRITE_LOCK,
 };
 use crate::access::grant;
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;

@@ -71,7 +71,9 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
     }
     let max_uses: u64 = flags
         .get("max-uses")
-        .context("grant capability requires --max-uses: how many times the capability may be redeemed")?
+        .context(
+            "grant capability requires --max-uses: how many times the capability may be redeemed",
+        )?
         .parse()
         .context("--max-uses must be a whole number")?;
     if max_uses == u64::MIN {

@@ -50,10 +50,9 @@ pub fn daemon_memory_limit_bytes() -> Result<u64> {
              daemon is replaced is the operator's to state in the Skarbiec service environment"
         )
     })?;
-    let megabytes: u64 = raw
-        .trim()
-        .parse()
-        .with_context(|| format!("{DAEMON_MEMORY_LIMIT_SETTING} must be a whole number of MiB, not {raw:?}"))?;
+    let megabytes: u64 = raw.trim().parse().with_context(|| {
+        format!("{DAEMON_MEMORY_LIMIT_SETTING} must be a whole number of MiB, not {raw:?}")
+    })?;
     Ok(megabytes.saturating_mul(MIB))
 }
 

@@ -45,7 +45,8 @@ pub(in crate::credential) fn checked_code(value: &Value) -> Result<Option<String
     if !present(value, "code") {
         return Ok(None);
     }
-    let text = safe_string(value, "code").context("Weles response code is not a single-line string")?;
+    let text =
+        safe_string(value, "code").context("Weles response code is not a single-line string")?;
     let shaped = text.starts_with(|first: char| first.is_ascii_uppercase())
         && text
             .bytes()

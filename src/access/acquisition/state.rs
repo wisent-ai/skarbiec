@@ -151,10 +151,9 @@ pub(super) fn ttl_seconds() -> Result<u64> {
         "SKARBIEC_ACQUISITION_TTL_SECONDS is not set: the lifetime of a one-use capability, \
          in seconds, is the operator's to state in the Skarbiec service environment",
     )?;
-    let ttl: u64 = raw
-        .trim()
-        .parse()
-        .with_context(|| format!("SKARBIEC_ACQUISITION_TTL_SECONDS must be a whole number of seconds, not {raw:?}"))?;
+    let ttl: u64 = raw.trim().parse().with_context(|| {
+        format!("SKARBIEC_ACQUISITION_TTL_SECONDS must be a whole number of seconds, not {raw:?}")
+    })?;
     if ttl == u64::MIN {
         bail!("SKARBIEC_ACQUISITION_TTL_SECONDS must be at least one second")
     }

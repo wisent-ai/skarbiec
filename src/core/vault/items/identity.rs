@@ -48,7 +48,9 @@ impl Vault {
             bail!("{from} already has that id");
         }
         if !schema::exact_token(to) {
-            bail!("a new item id must be one non-empty name with no NUL, newline or carriage return");
+            bail!(
+                "a new item id must be one non-empty name with no NUL, newline or carriage return"
+            );
         }
         let items = self
             .doc

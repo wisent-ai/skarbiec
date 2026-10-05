@@ -16,9 +16,10 @@ use crate::core::{migrate, vault_path};
 /// `skarbiec upgrade [--apply] [--snapshot <path>]`: bring the configured
 /// vault to the current schema in one idempotent pass — the v2 envelope for
 /// its items and grants, an `item_uid` on every item, and a payload
-/// fingerprint on every active item. Each step is skipped for what already
-/// has it, so a second run changes nothing and reports zero. Without
-/// `--apply` it reports what the pass would change and writes nothing.
+/// fingerprint on every active item, and owner control of every item a former
+/// owner still controls. Each step is skipped for what already has it, so a
+/// second run changes nothing and reports zero. Without `--apply` it reports
+/// what the pass would change and writes nothing.
 ///
 /// The envelope migration rewrites the file, so it is preceded by a
 /// mode-0600 snapshot — `--snapshot` names it, otherwise a timestamped path
@@ -78,6 +79,17 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
         json!({"items": total, "missing": missing.len(), "ids": missing})
     };
     let fingerprints = vault.stamp_fingerprints(apply)?;
+    // Control held by a former owner: a vault rotated before rotate-owner
+    // moved control with the ownership still has items nobody may write.
+    let moved = vault.transfer_former_owner_control();
+    if apply && !moved.is_empty() {
+        vault.save()?;
+        crate::runtime::audit::append_sync(
+            "former-owner-control-transferred",
+            &json!({"items": moved.len()}),
+        )?;
+    }
+    let control = json!({"former_owner_items": moved.len(), "ids": moved});
     Ok(json!({
         "ok": true,
         "applied": apply,
@@ -85,6 +97,7 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
         "envelope": envelope,
         "item_uids": item_uids,
         "fingerprints": fingerprints,
+        "control": control,
     }))
 }
 

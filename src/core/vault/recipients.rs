@@ -110,6 +110,9 @@ impl Vault {
             .as_object_mut()
             .context("vault document is not an object")?
             .insert("owner".to_string(), json!(new_owner_uid));
+        // The outgoing owner no longer writes as the owner, so whatever it
+        // controlled has to move with the ownership or keep no writer at all.
+        self.transfer_former_owner_control();
 
         // Deleted items still hold secrets and are still restorable, so they
         // rotate too.
@@ -139,6 +142,58 @@ impl Vault {
             "historical_versions": versions,
             "recovery_preserved": !self.recovery_fpr().is_empty(),
         }))
+    }
+
+    /// Give the current owner control of every item a former owner of this
+    /// vault controls, and return their ids.
+    ///
+    /// `management.controller` names whoever wrote an item, and afterwards
+    /// only that identity may change it. A former owner — a recipient the
+    /// registry records with `owner_until` — writes nothing as the owner any
+    /// more, so its items were left with no writer: every owner write
+    /// (retag, rotate, delete) refused "<id> is not owner-controlled". Items
+    /// under the credential lifecycle or managed by Weles keep their
+    /// controller; only control moves, no field, tag or revision changes.
+    pub fn transfer_former_owner_control(&mut self) -> Vec<String> {
+        let owner = self.owner_uid().to_string();
+        let former: Vec<String> = self
+            .doc
+            .get("recipients")
+            .and_then(Value::as_object)
+            .map(|recipients| {
+                recipients
+                    .iter()
+                    .filter(|(uid, entry)| *uid != &owner && entry.get("owner_until").is_some())
+                    .map(|(uid, _)| uid.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut moved = Vec::new();
+        for (id, entry) in obj_mut(&mut self.doc, "items").iter_mut() {
+            let Some(management) = entry.get("management").and_then(Value::as_object) else {
+                continue;
+            };
+            let held_by_former = management
+                .get("controller")
+                .and_then(Value::as_str)
+                .is_some_and(|controller| former.iter().any(|uid| uid == controller));
+            let mode = management.get("mode").and_then(Value::as_str);
+            let weles = entry
+                .get("tags")
+                .and_then(Value::as_array)
+                .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some("managed:weles")));
+            if !held_by_former || !matches!(mode, Some("owner" | "external")) || weles {
+                continue;
+            }
+            if let Some(entry) = entry.as_object_mut() {
+                entry.insert(
+                    "management".to_string(),
+                    json!({"mode": "owner", "controller": owner}),
+                );
+                moved.push(id.clone());
+            }
+        }
+        moved
     }
 
     /// Re-encrypt every current and historical revision of one item onto
