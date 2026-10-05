@@ -100,7 +100,13 @@ fn mint_browser_token() -> Result<String> {
     if capabilities.is_empty() {
         bail!("no canonical login items are available for browser access");
     }
-    let flags = HashMap::from([("capabilities".to_string(), capabilities.join(","))]);
+    // Each install mints a fresh bearer, which retires the previous one; the
+    // grant itself lives until `grant revoke`, because no lifetime was ever
+    // stated for it and grant issue refuses to invent one.
+    let flags = HashMap::from([
+        ("capabilities".to_string(), capabilities.join(",")),
+        ("until-revoked".to_string(), "true".to_string()),
+    ]);
     let positionals = vec!["issue".to_string(), CONSUMER.to_string()];
     let minted = grant::dispatch("grant", &flags, &positionals)?
         .context("grant issue did not return a result")?;

@@ -181,7 +181,7 @@ pub(super) fn migrate_grants(
             .or_insert_with(|| json!(consumer));
         object
             .entry("expires_at".to_string())
-            .or_insert_with(|| json!(u64::MAX));
+            .or_insert_with(|| json!(crate::access::grant::UNTIL_REVOKED));
         object
             .entry("workload_public_key".to_string())
             .or_insert(Value::Null);

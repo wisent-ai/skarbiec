@@ -94,17 +94,33 @@ pub(in crate::access::grant) fn issue_once(
     if !has_acquire && workload_public_key.is_some() {
         bail!("workload public keys are valid only for acquire capabilities");
     }
-    let ttl_seconds: u64 = flags
-        .get("ttl-seconds")
-        .context("grant issue requires --ttl-seconds: the grant's lifetime in whole seconds")?
-        .parse()
-        .context("--ttl-seconds must be an integer")?;
-    if ttl_seconds == u64::MIN {
-        bail!("--ttl-seconds must be positive");
-    }
-    let expires_at = now_epoch()?
-        .checked_add(ttl_seconds)
-        .context("grant expiry overflow")?;
+    // A grant either ends at a stated time or lives until `grant revoke`
+    // withdraws it. The second is what a consumer whose holder keeps it alive
+    // needs: re-issuing with the same bearer to push an expiry forward
+    // protects nothing a revocation does not, and a missed renewal is an
+    // outage. An acquire grant lends its lifetime to every bearer it mints,
+    // so it keeps a stated one.
+    let until_revoked = flags.get("until-revoked").is_some_and(|value| value == "true");
+    let expires_at = match (flags.get("ttl-seconds"), until_revoked) {
+        (Some(_), true) => bail!("--ttl-seconds and --until-revoked are exclusive"),
+        (None, true) if has_acquire => bail!(
+            "an acquire grant lends its lifetime to every bearer it mints; state --ttl-seconds"
+        ),
+        (None, true) => super::UNTIL_REVOKED,
+        (Some(ttl), false) => {
+            let ttl_seconds: u64 = ttl.parse().context("--ttl-seconds must be an integer")?;
+            if ttl_seconds == u64::MIN {
+                bail!("--ttl-seconds must be positive");
+            }
+            now_epoch()?
+                .checked_add(ttl_seconds)
+                .context("grant expiry overflow")?
+        }
+        (None, false) => bail!(
+            "grant issue requires --ttl-seconds <N> (the grant's lifetime in whole seconds) or \
+             --until-revoked (it lives until `grant revoke`)"
+        ),
+    };
     let supplied_token = flags
         .get("token-file")
         .map(|path| read_fixed_token(Path::new(path)))
@@ -159,6 +175,7 @@ pub(in crate::access::grant) fn issue_once(
         "workload_bound": workload_public_key.is_some(),
         "audience": audience,
         "expires_at": expires_at,
+        "until_revoked": until_revoked,
         "token": generated_token,
     });
     // What `invite` existed to print. An acquire grant hands out no bearer, so

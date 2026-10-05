@@ -44,6 +44,11 @@ use lookup::{load, now_epoch};
 use rules::capabilities::{parse_capabilities, read_acquisition_catalog};
 use rules::validation::read_workload_public_key;
 
+/// The stored expiry of a grant that lives until `grant revoke` withdraws
+/// it: no clock reaches it, so every liveness check reads it as live. The
+/// same value a migrated grant without an expiry receives.
+pub(crate) const UNTIL_REVOKED: u64 = u64::MAX;
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,

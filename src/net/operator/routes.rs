@@ -116,6 +116,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
                     "capabilities",
                     "workload-public-key-file",
                     "ttl-seconds",
+                    "until-revoked",
                     "audience",
                     "replace-capabilities",
                 ],
