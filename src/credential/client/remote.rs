@@ -42,9 +42,8 @@ pub(in crate::credential) fn canonical_call(
         )
     })?;
     stream.write_all(request.as_bytes())?;
-    let max: u64 = 262144;
     let mut raw = Vec::new();
-    (&stream).take(max).read_to_end(&mut raw)?;
+    (&stream).read_to_end(&mut raw)?;
     let text = String::from_utf8_lossy(&raw).into_owned();
     raw.fill(u8::MIN);
     let status_line = text.lines().next().unwrap_or_default().to_string();
