@@ -5,8 +5,8 @@
 // then atomically consume it on the first successful single-field read.
 //
 // This module keeps the listener, the shared helpers and the constants; the
-// route table, the request reader, the readiness probe and the worker pool
-// live in the modules beside it.
+// route table, the request reader, the readiness probe and the request
+// workers live in the modules beside it.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -29,19 +29,9 @@ use readiness::maintenance_pass;
 
 const DEFAULT_PORT: &str = "8787";
 const LOOPBACK: &str = "127.0.0.1";
-const DEFAULT_HTTP_WORKERS: usize = 16;
-const DEFAULT_HTTP_QUEUE: usize = 32;
 const MAX_REQUEST_LINE_BYTES: usize = 8 * 1024;
 const MAX_HEADER_BYTES: usize = 32 * 1024;
 const MAX_BODY_BYTES: usize = 1024 * 1024;
-
-pub(super) fn configured_usize(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|raw| raw.parse().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default)
-}
 
 pub(crate) fn load() -> Result<Vault> {
     Vault::open(vault_path())

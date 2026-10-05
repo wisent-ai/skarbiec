@@ -1,54 +1,27 @@
-// The bounded worker pool behind the listener: a fixed number of threads, a
-// bounded queue, an explicit answer when the queue is full, and the one
-// request failure that ends the process.
+// The request workers behind the listener: every accepted connection is
+// served on a thread of its own, so no request waits behind a worker count
+// or is refused because a queue is full; the one request failure that ends
+// the process is handed back from whichever thread meets it.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::net::TcpStream;
-use std::sync::{mpsc, Arc, Mutex, PoisonError};
+use std::sync::{mpsc, Mutex, PoisonError};
 use wisent_errors::Code;
 
 use super::routes::handle;
-use super::{configured_usize, write_response, DEFAULT_HTTP_QUEUE, DEFAULT_HTTP_WORKERS};
+use super::write_response;
 
 pub(super) struct RequestPool {
-    sender: mpsc::SyncSender<TcpStream>,
+    lost_sender: mpsc::Sender<anyhow::Error>,
     lost: Mutex<mpsc::Receiver<anyhow::Error>>,
 }
 
 impl RequestPool {
     pub(super) fn new() -> Result<Self> {
-        let workers = configured_usize("SKARBIEC_HTTP_WORKERS", DEFAULT_HTTP_WORKERS);
-        let queue = configured_usize("SKARBIEC_HTTP_QUEUE", DEFAULT_HTTP_QUEUE);
-        let (sender, receiver) = mpsc::sync_channel::<TcpStream>(queue);
-        let receiver = Arc::new(Mutex::new(receiver));
         let (lost_sender, lost) = mpsc::channel();
-        for index in 0..workers {
-            let receiver = Arc::clone(&receiver);
-            let lost_sender = lost_sender.clone();
-            std::thread::Builder::new()
-                .name(format!("skarbiec-http-{index}"))
-                .spawn(move || loop {
-                    let next = receiver
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .recv();
-                    let Ok(stream) = next else {
-                        break;
-                    };
-                    let Err(error) = handle(stream) else {
-                        continue;
-                    };
-                    if descriptor_lost(&error) {
-                        let _ = lost_sender.send(error);
-                        break;
-                    }
-                    eprintln!("request error: {error}");
-                })
-                .context("spawn bounded HTTP worker")?;
-        }
         Ok(Self {
-            sender,
+            lost_sender,
             lost: Mutex::new(lost),
         })
     }
@@ -76,36 +49,39 @@ impl RequestPool {
                  accepted already closed (EBADF); no client can close a descriptor inside this \
                  process, so no answer it writes can be trusted to reach the caller it is for",
             )),
-            Err(_) => Err(anyhow!("every Skarbiec request worker stopped")),
+            Err(_) => Err(anyhow!("the request workers' failure channel closed")),
         }
     }
 
+    /// Serve `stream` on a thread of its own. When the system refuses a
+    /// thread, the caller is answered with the system's own reason.
     pub(super) fn submit(&self, stream: TcpStream) {
-        match self.sender.try_send(stream) {
-            Ok(()) => {}
-            Err(mpsc::TrySendError::Full(mut stream)) => {
-                let _ = write_response(
-                    &mut stream,
-                    "HTTP/1.1 503 Service Unavailable",
-                    &json!({
-                        "error": "skarbiec request capacity exhausted",
-                        "error_code": Code::RateLimit.as_str(),
-                        "retryable": true,
-                    }),
-                );
-            }
-            Err(mpsc::TrySendError::Disconnected(mut stream)) => {
-                let _ = write_response(
-                    &mut stream,
-                    "HTTP/1.1 503 Service Unavailable",
-                    &json!({
-                        "error": "skarbiec request workers unavailable",
-                        "error_code": Code::InfraDown.as_str(),
-                        "retryable": false,
-                    }),
-                );
-            }
-        }
+        let answer = stream.try_clone();
+        let lost = self.lost_sender.clone();
+        let started = std::thread::Builder::new()
+            .name("skarbiec-http".to_owned())
+            .spawn(move || {
+                let Err(error) = handle(stream) else {
+                    return;
+                };
+                if descriptor_lost(&error) {
+                    let _ = lost.send(error);
+                    return;
+                }
+                eprintln!("request error: {error}");
+            });
+        let (Err(refused), Ok(mut stream)) = (started, answer) else {
+            return;
+        };
+        let _ = write_response(
+            &mut stream,
+            "HTTP/1.1 503 Service Unavailable",
+            &json!({
+                "error": format!("skarbiec could not start a thread for this request: {refused}"),
+                "error_code": Code::InfraDown.as_str(),
+                "retryable": true,
+            }),
+        );
     }
 }
 
