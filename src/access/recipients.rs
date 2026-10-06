@@ -206,7 +206,7 @@ pub fn dispatch(
                 json!({"uid": uid, "public_key": crypto::export_public_key(&fpr)?}),
             ))
         }
-        // The bond configuration commands (bond-add/bond-list/bond-remove) live
+        // The bond configuration commands (bond-add/bond-edit/bond-list/bond-remove) live
         // in crate::bonds with the other bond operations.
         // p2p outbound write: seal one item's fields JSON to the remote
         // vault's owner key (fetched from its serve and imported here), then

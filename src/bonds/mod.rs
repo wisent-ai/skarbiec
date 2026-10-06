@@ -1,5 +1,5 @@
-// Bond operations: the bond configuration commands (bond-add/bond-list/
-// bond-remove), the enroll client that registers a replica's key with a
+// Bond operations: the bond configuration commands (bond-add/bond-edit/
+// bond-list/bond-remove), the enroll client that registers a replica's key with a
 // source serve, one pull of every bond this vault pulls (run by
 // `skarbiec maintain`), and the sync-status report.
 //
@@ -33,6 +33,7 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "bond-add" => cmd_bond_add(flags, positionals).map(Some),
+        "bond-edit" => cmd_bond_edit(flags, positionals).map(Some),
         "bond-list" => cmd_bond_list().map(Some),
         "bond-remove" => cmd_bond_remove(positionals).map(Some),
         "enroll" => cmd_enroll(flags).map(Some),

@@ -15,6 +15,8 @@ const MODES: [&str; 4] = ["replica", "hub", "p2p", "git"];
 const ROLES: [&str; 4] = ["source", "replica", "consumer", "peer"];
 const CHANNEL_TYPES: [&str; 3] = ["serve", "git", "file"];
 
+/// A new bond. A name already configured is refused with its mode and role;
+/// `bond-edit` changes it.
 pub(crate) fn cmd_bond_add(
     flags: &HashMap<String, String>,
     positionals: &[String],
@@ -22,6 +24,69 @@ pub(crate) fn cmd_bond_add(
     let name = positionals.first().or_usage(
         "usage: bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
     )?;
+    let vault = Vault::open(vault_path())?;
+    if let Some(existing) = vault.doc().get("bond").and_then(|bonds| bonds.get(name)) {
+        anyhow::bail!(
+            "bond {name} is already configured (mode {}, role {}); `skarbiec bond-edit {name}` changes it",
+            existing["mode"].as_str().unwrap_or("-"),
+            existing["role"].as_str().unwrap_or("-"),
+        );
+    }
+    drop(vault);
+    write_bond(name, flags, "bond-add")
+}
+
+/// Change one configured bond: every flag `bond-add` takes may be given,
+/// and what is not given keeps its configured value. The result passes the
+/// same checks a new bond does.
+pub(crate) fn cmd_bond_edit(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
+    let name = positionals.first().or_usage(
+        "usage: bond-edit <name> [--mode <mode>] [--role <role>] [--channel <type:address>] [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
+    )?;
+    if flags.is_empty() {
+        anyhow::bail!("bond-edit changes nothing without a flag `bond-add` takes");
+    }
+    let vault = Vault::open(vault_path())?;
+    let current = vault
+        .doc()
+        .get("bond")
+        .and_then(|bonds| bonds.get(name))
+        .cloned()
+        .with_context(|| format!("no bond named: {name}; `skarbiec bond-list` lists them"))?;
+    drop(vault);
+    let mut merged = configured_flags(&current);
+    merged.extend(flags.iter().map(|(key, value)| (key.clone(), value.clone())));
+    write_bond(name, &merged, "bond-edit")
+}
+
+/// The flags `bond-add` would take to configure `bond` as it stands.
+fn configured_flags(bond: &Value) -> HashMap<String, String> {
+    let mut flags = HashMap::new();
+    let mut keep = |key: &str, value: Option<String>| {
+        if let Some(value) = value {
+            flags.insert(key.to_string(), value);
+        }
+    };
+    let text = |value: &Value| value.as_str().map(str::to_string);
+    let channel = &bond["channel"];
+    keep("mode", text(&bond["mode"]));
+    keep("role", text(&bond["role"]));
+    keep("channel", text(&channel["type"]).zip(text(&channel["address"])).map(|(kind, address)| format!("{kind}:{address}")));
+    keep("interval", channel["interval_seconds"].as_u64().map(|seconds| seconds.to_string()));
+    keep("token-file", text(&channel["token_file"]));
+    keep("consumer", text(&channel["consumer"]));
+    let peers: Vec<String> = bond["peers"].as_array().into_iter().flatten().filter_map(text).collect();
+    if !peers.is_empty() {
+        keep("peers", Some(peers.join(",")));
+    }
+    flags
+}
+
+/// Checks the flags and writes the bond `name` as they describe it.
+fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Result<Value> {
     let mode = flags.get("mode").or_usage("--mode required")?;
     let role = flags.get("role").or_usage("--role required")?;
     let channel = flags.get("channel").or_usage("--channel required")?;
@@ -93,7 +158,7 @@ pub(crate) fn cmd_bond_add(
         .and_then(Value::as_object_mut)
         .context("bond section is an object")?
         .insert(
-            name.clone(),
+            name.to_string(),
             json!({
                 "mode": mode,
                 "role": role,
@@ -103,7 +168,7 @@ pub(crate) fn cmd_bond_add(
         );
     vault.save()?;
     crate::runtime::audit::append(
-        "bond-add",
+        action,
         &json!({"bond": name, "mode": mode, "role": role}),
     )?;
     Ok(json!({"ok": true, "bond": name, "mode": mode, "role": role}))
