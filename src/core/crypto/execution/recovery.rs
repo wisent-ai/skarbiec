@@ -35,6 +35,40 @@ const RECOVERABLE_GPG_ERRORS: [u32; 10] = [
     GPG_ERR_SYSTEM_ERROR | 109, // GPG_ERR_EPIPE
 ];
 
+/// The wedged-daemon shapes: a daemon that stays but holds the key database.
+/// On charless-mac-mini a process kept the keybox lock (`gpg: Note:
+/// database_open … waiting for lock (held by 8690)`), every decryption ended
+/// `keydb_search failed: Operation timed out`, and the vault answered every
+/// read 503 for over half an hour (3f9201e7); killing the daemons is the
+/// repair there too. Named as gpg-error.h names them and resolved through
+/// libgpg-error's own `gpg-error` tool, which prints `<code> = …` for a name.
+const WEDGED_GPG_ERROR_NAMES: &[&str] = &["GPG_ERR_TIMEOUT", "GPG_ERR_LOCKED", "GPG_ERR_ETIMEDOUT"];
+
+/// [`WEDGED_GPG_ERROR_NAMES`] as codes, resolved once. A name the tool does
+/// not answer is left out and said so on stderr: that shape then stays
+/// unrecovered, as it was before it was named.
+static WEDGED_GPG_ERRORS: std::sync::LazyLock<Vec<u32>> = std::sync::LazyLock::new(|| {
+    WEDGED_GPG_ERROR_NAMES
+        .iter()
+        .filter_map(|name| {
+            let answer = std::process::Command::new("gpg-error").arg(name).output();
+            let code = answer.as_ref().ok().and_then(|output| {
+                String::from_utf8_lossy(&output.stdout)
+                    .split_whitespace()
+                    .next()
+                    .and_then(|code| code.parse::<u32>().ok())
+            });
+            if code.is_none() {
+                eprintln!(
+                    "skarbiec: gpg-error did not resolve {name} ({answer:?}); a gpg failure with \
+                     that code is not recovered"
+                );
+            }
+            code
+        })
+        .collect()
+});
+
 /// Whether a failed gpg run is worth one daemon recovery and a retry, read
 /// from gpg's own machine status (`--status-fd`), never from its prose. A gpg
 /// that died before it could report a status line and stopped reading its
@@ -46,9 +80,10 @@ pub(super) fn recoverable_gpg_failure(error: &anyhow::Error) -> bool {
     if exit.gpg_errors.is_empty() {
         return exit.stdin_closed;
     }
-    exit.gpg_errors
-        .iter()
-        .any(|value| RECOVERABLE_GPG_ERRORS.contains(&(value & GPG_ERR_CODE_MASK)))
+    exit.gpg_errors.iter().any(|value| {
+        let code = value & GPG_ERR_CODE_MASK;
+        RECOVERABLE_GPG_ERRORS.contains(&code) || WEDGED_GPG_ERRORS.contains(&code)
+    })
 }
 
 /// Split gpg's stderr under `--status-fd 2` into the error values of its
