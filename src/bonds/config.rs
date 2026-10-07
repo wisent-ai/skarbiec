@@ -58,7 +58,11 @@ pub(crate) fn cmd_bond_edit(
         .with_context(|| format!("no bond named: {name}; `skarbiec bond-list` lists them"))?;
     drop(vault);
     let mut merged = configured_flags(&current);
-    merged.extend(flags.iter().map(|(key, value)| (key.clone(), value.clone())));
+    merged.extend(
+        flags
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone())),
+    );
     write_bond(name, &merged, "bond-edit")
 }
 
@@ -74,11 +78,26 @@ fn configured_flags(bond: &Value) -> HashMap<String, String> {
     let channel = &bond["channel"];
     keep("mode", text(&bond["mode"]));
     keep("role", text(&bond["role"]));
-    keep("channel", text(&channel["type"]).zip(text(&channel["address"])).map(|(kind, address)| format!("{kind}:{address}")));
-    keep("interval", channel["interval_seconds"].as_u64().map(|seconds| seconds.to_string()));
+    keep(
+        "channel",
+        text(&channel["type"])
+            .zip(text(&channel["address"]))
+            .map(|(kind, address)| format!("{kind}:{address}")),
+    );
+    keep(
+        "interval",
+        channel["interval_seconds"]
+            .as_u64()
+            .map(|seconds| seconds.to_string()),
+    );
     keep("token-file", text(&channel["token_file"]));
     keep("consumer", text(&channel["consumer"]));
-    let peers: Vec<String> = bond["peers"].as_array().into_iter().flatten().filter_map(text).collect();
+    let peers: Vec<String> = bond["peers"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(text)
+        .collect();
     if !peers.is_empty() {
         keep("peers", Some(peers.join(",")));
     }
@@ -167,10 +186,7 @@ fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Resu
             }),
         );
     vault.save()?;
-    crate::runtime::audit::append(
-        action,
-        &json!({"bond": name, "mode": mode, "role": role}),
-    )?;
+    crate::runtime::audit::append(action, &json!({"bond": name, "mode": mode, "role": role}))?;
     Ok(json!({"ok": true, "bond": name, "mode": mode, "role": role}))
 }
 
