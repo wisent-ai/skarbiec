@@ -101,6 +101,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("bond-list", "skarbiec bond-list", "List every stored bond configuration."),
     row("bond-remove", "skarbiec bond-remove <name>", "Remove one stored bond configuration."),
     row("capability-status", "skarbiec capability-status [--socket <unix-socket-path>]", "Check that the running capability broker reads the same vault, state and routes as this client."),
+    row("agent-enrol", "skarbiec agent-enrol <agent>", "Create the request-signing identity Brama verifies one agent's calls with: an internal-authority item <agent>-agent-signing whose generated agent_auth_secret answers agent:<agent>; an agent that already has one is refused."),
     group("credential", "skarbiec credential help", "Run the persisted credential lifecycle (acquire, adopt, rotate, reset, verify, remove, reauth, resume, status); `skarbiec credential help` lists the subcommands."),
     group("rotation", "skarbiec rotation help", "Declare, list and withdraw per-item rotation policies and start every due rotation; `skarbiec rotation help` lists the subcommands."),
     row("challenge-put", "skarbiec challenge-put <challenge:resource>  (digits on stdin)", "Store the digits a trusted device received for an authorized one-use challenge; the resource names the provider."),

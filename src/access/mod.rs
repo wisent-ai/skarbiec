@@ -3,6 +3,7 @@
 // submodule matches its own commands and returns None for anything else, so
 // this router simply forwards to them in turn; a real error propagates via `?`.
 
+pub mod agent;
 pub mod acquisition;
 pub mod capability;
 pub mod grant;

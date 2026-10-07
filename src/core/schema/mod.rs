@@ -38,7 +38,7 @@ pub fn is_placeholder(value: &str) -> bool {
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-fn exact_component(value: &str) -> bool {
+pub fn exact_component(value: &str) -> bool {
     !value.is_empty()
         && value
             .bytes()

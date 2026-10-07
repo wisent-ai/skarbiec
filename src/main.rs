@@ -134,6 +134,7 @@ fn run() -> Result<()> {
         )?),
         "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
+        "agent-enrol" => emit(&access::agent::enrol(&positionals)?),
         "import" => emit(&core::importer::run(&flags, &positionals)?),
         "migrate" => emit(&items::migrate_vault(&flags)?),
         "upgrade" => emit(&items::upgrade(&flags)?),

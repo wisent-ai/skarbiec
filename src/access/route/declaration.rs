@@ -35,8 +35,8 @@ const SUBSCRIPTION_TAG: &str = "brama:id:";
 // `fields.id` names the Brama agent and `fields.agent_auth_secret` is its
 // credential, both first-class in `core::schema`. Every other kind either
 // forbids those fields outright or is a free-form dump that declares nothing.
-const AGENT_IDENTITY_KIND: &str = "internal-authority";
-const AGENT_SECRET_FIELD: &str = "agent_auth_secret";
+pub(crate) const AGENT_IDENTITY_KIND: &str = "internal-authority";
+pub(crate) const AGENT_SECRET_FIELD: &str = "agent_auth_secret";
 const LOGIN_KIND: &str = "login";
 
 pub(super) const PROVIDER_PREFIX: &str = "provider:";
@@ -217,7 +217,7 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
 
 /// Every agent signing identity the vault declares: an `internal-authority`
 /// item carrying `agent_auth_secret` whose own `id` field names the agent.
-pub(super) fn agent_items(vault: &Vault, agent: Option<&str>) -> Vec<(String, String)> {
+pub(crate) fn agent_items(vault: &Vault, agent: Option<&str>) -> Vec<(String, String)> {
     let Some(items) = items(vault) else {
         return Vec::new();
     };
