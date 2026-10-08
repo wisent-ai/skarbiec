@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 pub(crate) use api::donation::handle_donation;
 pub(crate) use api::identity::{handle_owner_pubkey, handle_tokens_introspect};
-pub(crate) use api::items::{handle_items_put, handle_items_read};
+pub(crate) use api::items::{handle_items_put, handle_items_read, handle_items_revision};
 pub(crate) use api::lifecycle::{handle_credential_operation_status, handle_credential_operations};
 
 // Shared request helpers, re-exported by net::http so handler call sites read

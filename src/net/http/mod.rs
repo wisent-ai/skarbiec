@@ -94,9 +94,16 @@ pub fn dispatch(
                 // Started as its declared unit, the one process first retires
                 // the Skarbiec units it replaces, then answers on their ports.
                 let inherited = service::take_over_predecessors();
-                let address = format!("{LOOPBACK}:{port}");
+                let requested = format!("{LOOPBACK}:{port}");
                 let listener =
-                    TcpListener::bind(&address).with_context(|| format!("bind {address}"))?;
+                    TcpListener::bind(&requested).with_context(|| format!("bind {requested}"))?;
+                // The bound address, not the requested one: a port the system
+                // chose (a test asks for any free one) is printed as the port
+                // the API really answers on.
+                let address = listener
+                    .local_addr()
+                    .with_context(|| format!("read the address {requested} was bound to"))?
+                    .to_string();
                 let mut listeners = vec![listener];
                 for extra in inherited
                     .into_iter()

@@ -67,7 +67,7 @@ pub(crate) fn cmd_restore_version(positionals: &[String]) -> Result<()> {
 pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
     let coordinate = positionals
         .first()
-        .or_usage("usage: get <id|role:<role>> [--field <field>]")?;
+        .or_usage("usage: get <id|role:<role>> [--field <field> | --revision]")?;
     let path = vault_path();
     let vault = Vault::open(path.clone())?;
     // `role:<role>` reads the one live item tagged `stado:role:<role>`, the
@@ -83,6 +83,25 @@ pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -
             _ => error,
         }
     })?;
+    // `--revision` answers which version of the item a read would return now
+    // (`{id, item, item_uid, revision}`) and decrypts nothing, the same
+    // answer `POST /v1/items/revision` gives a consumer holding a read grant.
+    if flag_set(flags, "revision") {
+        if flags.contains_key("field") {
+            bail!("get takes --field or --revision, not both: --revision names the item's version, which every field shares");
+        }
+        let item_uid = vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id.as_str()))
+            .and_then(crate::core::vault::entry_item_uid);
+        return emit(&json!({
+            "id": coordinate,
+            "item": id,
+            "item_uid": item_uid,
+            "revision": vault.item_revision(id)?,
+        }));
+    }
     let item = vault
         .get_item(id)
         .with_context(|| format!("reading item {id} from the vault at {}", path.display()))?;

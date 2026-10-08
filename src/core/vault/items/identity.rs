@@ -26,6 +26,24 @@ impl Vault {
             .map(|(id, _)| id.as_str())
     }
 
+    /// The revision of the item's current value: the number every write of a
+    /// new value raises (a write, a restored version, an activated staged
+    /// rotation) and that tags, recipients and renames leave as it is. It is
+    /// read from the cleartext envelope, so it costs no decryption: a reader
+    /// that holds a value learns whether the value it holds is still current
+    /// without reading the value again.
+    pub fn item_revision(&self, id: &str) -> Result<u64> {
+        let entry = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        entry.get("revision").and_then(Value::as_u64).with_context(|| {
+            format!("item {id} records no revision; run `skarbiec upgrade --apply` to bring it to the current envelope")
+        })
+    }
+
     /// Move one item to a new id, keeping everything that is not the id.
     ///
     /// The entry object is moved whole, so `item_uid`, history, revision,

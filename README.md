@@ -148,6 +148,13 @@ their temporary vaults and keyrings after capture.
    the grant against that coordinate and writes the item it resolves to. A
    role that resolves to no item is `409` naming what it needs. The items list
    shows a role-granted consumer the item that plays its role.
+   Every single-field read answers the version of what it read beside the
+   value: `item_uid` (kept by a rename, new after a purge and recreate) and
+   `revision` (raised by every new value, unchanged by tags, recipients and
+   renames). `POST /v1/items/revision`, under the same `read` grant, answers
+   that version without the value, decrypting nothing, so a consumer holding a
+   value reads it again only when the version moved; `skarbiec get <id>
+   --revision` is the owner's form of the same answer.
 3. **Prove.** The workload signs the consumer, item, field, workload id,
    timestamp, and nonce. Skarbiec rejects a proof signed after now, one older
    than the newest proof that workload already spent, capability mismatches,

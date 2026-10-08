@@ -185,6 +185,9 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     if method == "POST" && path == "/v1/items/read" {
         return crate::net::handle_items_read(&mut stream, &headers, &body);
     }
+    if method == "POST" && path == "/v1/items/revision" {
+        return crate::net::handle_items_revision(&mut stream, &headers, &body);
+    }
     if method == "PUT" && path == "/v1/items" {
         return crate::net::handle_items_put(&mut stream, &headers, &body);
     }
