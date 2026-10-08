@@ -40,7 +40,7 @@ fail() {
 # WANT says whether it had to succeed (ok) or be refused (refused). Only the
 # command line and the verdict are reported: an answer may carry a token.
 run() {
-  if out=$(set -o pipefail; "$BIN" "$@" |& cat); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" &>/dev/stdout); then got=ok; else got=refused; fi
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
 }

@@ -41,7 +41,7 @@ fail() {
 # standard error together in $out; WANT says whether it had to succeed (ok) or
 # be refused (refused).
 run() {
-  if out=$(set -o pipefail; "$BIN" "$@" <"$ROOT/stdin" |& cat); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
   if [ "$got" = ok ]; then
     printf '$ skarbiec %s\nresult: ok\n\n' "$*" >>"$REPORT"
   else
