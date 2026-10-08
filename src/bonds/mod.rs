@@ -1,7 +1,7 @@
-// Bond operations: the `bond` group (add, edit, list, remove), the enroll
-// client that registers a replica's key with a
+// Bond operations: the `bond` group (add, edit, list, remove, status), the
+// enroll client that registers a replica's key with a
 // source serve, one pull of every bond this vault pulls (run by
-// `skarbiec maintain`), and the sync-status report.
+// `skarbiec maintain`), and the bond status report.
 //
 // | part | what it owns |
 // |---|---|
@@ -36,6 +36,9 @@ pub fn dispatch(
         // The operator route reads the list by its whole leaf name.
         "bond list" => cmd_bond_list().map(Some),
         "enroll" => cmd_enroll(flags).map(Some),
+        // `bond status` under its old name: Stado runs it on a host against
+        // the Skarbiec installed there, so it stays until every host runs one
+        // with `bond status`.
         "sync-status" => cmd_sync_status(flags).map(Some),
         _ => Ok(None),
     }
@@ -47,7 +50,7 @@ pub fn dispatch(
 fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
     let Some((subcommand, positionals)) = positionals.split_first() else {
         return Err(crate::cli::args::Usage(
-            "bond needs a subcommand (add, edit, list or remove); `skarbiec bond help` lists them"
+            "bond needs a subcommand (add, edit, list, remove or status); `skarbiec bond help` lists them"
                 .to_string(),
         )
         .into());
@@ -57,14 +60,16 @@ fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Opti
         "edit" => cmd_bond_edit(flags, positionals).map(Some),
         "list" => cmd_bond_list().map(Some),
         "remove" => cmd_bond_remove(positionals).map(Some),
+        "status" => cmd_sync_status(flags).map(Some),
         "help" => Ok(Some(json!({
             "commands": [
                 "bond add <name> --mode <replica|hub|p2p|git> --role <source|replica|consumer|peer> --channel <serve|git|file>:<address> [--peers <fpr,...>] [--interval <seconds>] [--token-file <path> [--consumer <name>]]",
                 "bond edit <name> [--mode …] [--role …] [--channel …] [--peers …] [--interval …] [--token-file … [--consumer …]]",
                 "bond list",
                 "bond remove <name>",
+                "bond status [--bond <name>] [--consumer <name>] [--token-file <path>]",
             ],
-            "usage": "A bond is one stored replication relationship of this vault. bond add creates one and refuses a name already configured, naming its mode and role; bond edit changes the flags it is given and keeps the rest, and the result passes the checks bond add applies; bond list prints every stored bond; bond remove deletes one.",
+            "usage": "A bond is one stored replication relationship of this vault. bond add creates one and refuses a name already configured, naming its mode and role; bond edit changes the flags it is given and keeps the rest, and the result passes the checks bond add applies; bond list prints every stored bond; bond remove deletes one; bond status reports each bond's state, whether serve pulls it, and the remote's health and item counts.",
         }))),
         other => Err(crate::cli::args::Usage(format!(
             "unknown bond command: {other}; `skarbiec bond --help` lists them"

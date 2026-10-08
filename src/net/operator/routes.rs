@@ -253,10 +253,10 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         // argv, and the answer never repeats it.
         "/v1/operator/policy/check" => crate::access::policy::check(&text(parsed, "candidate")?),
         "/v1/operator/sync/init" => {
-            net("sync-init", &no_flags, &positionals(parsed, &["endpoint"])?)
+            net("mirror init", &no_flags, &positionals(parsed, &["endpoint"])?)
         }
-        "/v1/operator/sync/push" => net("sync-push", &flags(parsed, &["message"]), &none),
-        "/v1/operator/sync/pull" => net("sync-pull", &flags(parsed, &["force"]), &none),
+        "/v1/operator/sync/push" => net("mirror push", &flags(parsed, &["message"]), &none),
+        "/v1/operator/sync/pull" => net("mirror pull", &flags(parsed, &["force"]), &none),
         "/v1/operator/route/declare" => access(
             "route",
             &flags(parsed, &["resource", "item", "field", "reason"]),

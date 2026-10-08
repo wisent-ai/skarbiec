@@ -4,7 +4,7 @@
 // live vault into it and commits+pushes, pull fetches and copies it back.
 //
 // A pull replaces the whole live vault, so it can destroy items that exist only
-// locally (created after the last push). `sync-pull` therefore snapshots the
+// locally (created after the last push). `mirror pull` therefore snapshots the
 // live vault first and refuses to proceed when local-only items would be lost,
 // unless `--force` is given. Merging is deliberately not attempted: mirror and
 // live vault may be encrypted to different recipient sets.
@@ -76,16 +76,66 @@ fn git(args: &[&str]) -> Result<(bool, String, String)> {
     ))
 }
 
+/// `mirror init|push|pull` is a group over the Git ciphertext mirror: the
+/// object is the command and the verb its first positional; the operator
+/// routes call the leaves by their whole name ("mirror push"). The old
+/// spellings sync-init, sync-push and sync-pull still answer, because Stado
+/// runs them on a host against the Skarbiec installed there; they go once
+/// every host runs one with the group. Audit operation names are unchanged.
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if command == "mirror" {
+        return group(flags, positionals).map(Some);
+    }
+    let spelled;
+    let command = match command.strip_prefix("sync-") {
+        Some(verb) => {
+            spelled = format!("mirror {verb}");
+            spelled.as_str()
+        }
+        None => command,
+    };
+    leaf(command, flags, positionals)
+}
+
+fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+    let Some((verb, positionals)) = positionals.split_first() else {
+        return Err(crate::cli::args::Usage(
+            "mirror needs a subcommand; `skarbiec mirror help` lists them".to_string(),
+        )
+        .into());
+    };
+    if verb == "help" {
+        return Ok(json!({
+            "commands": [
+                "mirror init <remote-url>",
+                "mirror push [--branch <name>] [--message <text>]",
+                "mirror pull [--branch <name>] [--force]",
+            ],
+            "usage": "mirror init sets up the Git ciphertext mirror and its origin, mirror push commits the encrypted vault and pushes one branch, and mirror pull replaces the live vault from the mirror after backing it up, refusing while local items would be lost unless --force.",
+        }));
+    }
+    leaf(&format!("mirror {verb}"), flags, positionals)?.ok_or_else(|| {
+        crate::cli::args::Usage(format!(
+            "unknown mirror command: {verb}; `skarbiec mirror help` lists them"
+        ))
+        .into()
+    })
+}
+
+fn leaf(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
-        "sync-init" => {
+        "mirror init" => {
             let remote = positionals
                 .first()
-                .or_usage("usage: sync-init <remote-url>")?;
+                .or_usage("usage: mirror init <remote-url>")?;
             std::fs::create_dir_all(sync_dir())?;
             let (ok, _o, e) = git(&["init"])?;
             if !ok {
@@ -112,7 +162,7 @@ pub fn dispatch(
                 json!({"ok": true, "sync_dir": sync_dir().display().to_string(), "remote": remote}),
             ))
         }
-        "sync-push" => {
+        "mirror push" => {
             let live = vault_path();
             if !live.exists() {
                 bail!("no vault to push at {}", live.display());
@@ -131,7 +181,7 @@ pub fn dispatch(
             crate::runtime::audit::append("sync-push", &json!({"branch": branch, "ok": ok}))?;
             if !ok {
                 bail!(
-                    "sync-push: git push origin {remote_ref} failed: {}",
+                    "mirror push: git push origin {remote_ref} failed: {}",
                     e.trim()
                 );
             }
@@ -139,11 +189,11 @@ pub fn dispatch(
                 json!({"ok": true, "branch": branch, "detail": e.trim()}),
             ))
         }
-        "sync-pull" => {
+        "mirror pull" => {
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
             let (ok, _o, e) = git(&["pull", "--no-rebase", "origin", branch])?;
             if !ok {
-                bail!("sync-pull: git pull origin {branch} failed: {}", e.trim());
+                bail!("mirror pull: git pull origin {branch} failed: {}", e.trim());
             }
             let mirror = mirror_path();
             if !mirror.exists() {
@@ -159,7 +209,7 @@ pub fn dispatch(
                 let missing = items_missing_from_mirror(&live, &mirror)?;
                 if !missing.is_empty() && !flags.contains_key("force") {
                     bail!(
-                        "sync-pull: {} local item(s) are not in the mirror and would be lost: {}; the live vault is unchanged and backed up at {}. Push them first, or re-run with --force to accept the loss",
+                        "mirror pull: {} local item(s) are not in the mirror and would be lost: {}; the live vault is unchanged and backed up at {}. Push them first, or re-run with --force to accept the loss",
                         missing.len(),
                         missing.join(", "),
                         backup.map(|p| p.display().to_string()).unwrap_or_default()

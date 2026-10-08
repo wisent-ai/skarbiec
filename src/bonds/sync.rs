@@ -96,7 +96,7 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
     let wanted = flags.get("bond");
     if flags.contains_key("token") {
         anyhow::bail!(
-            "sync-status does not take --token: a bearer in argv is readable by every process on this host. \
+            "bond status does not take --token: a bearer in argv is readable by every process on this host. \
              Write it to an owner-only file (mode 0600) and pass --token-file <absolute path>"
         );
     }

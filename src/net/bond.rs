@@ -198,7 +198,7 @@ pub(crate) fn handle_enroll(
 // the pull refuses unless forced. The staged file sits next to the live vault
 // so the rename is atomic and no reader sees a partial write. Local bond
 // configs are the replica's own relationships — they are carried across the
-// replace and stamped with the pull time so sync-status can report it.
+// replace and stamped with the pull time so bond status can report it.
 pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
     let usage = "usage: pull --from <base-url> --token-file <path> [--bond name] [--consumer name] [--force]";
     let from = flags.get("from").context(usage)?;
