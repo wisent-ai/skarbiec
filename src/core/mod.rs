@@ -99,6 +99,51 @@ pub fn stado_declared_vault() -> Option<PathBuf> {
     })
 }
 
+/// The route this machine reads the fleet vault through, when Stado says it
+/// holds none itself: `secrets.skarbiec.url` is declared and
+/// `secrets.skarbiec.vault_file` is not. Such a machine is a client of the
+/// vault owner, and any vault file on it is a copy: the fleet keeps one
+/// vault, and a write into a copy is a credential the owner never sees (a
+/// subscription signed in on a laptop was stored in the laptop's leftover
+/// file while the gateway kept reading the owner's). `None` when Stado names
+/// no route, names a vault file here, or cannot be read.
+pub fn remote_owner_route() -> Option<String> {
+    let file = stado_config_file()?;
+    let text = std::fs::read_to_string(&file).ok()?;
+    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
+    if stado_declared_vault().is_some() {
+        return None;
+    }
+    document
+        .pointer("/secrets/skarbiec/url")?
+        .as_str()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+        .map(str::to_string)
+}
+
+/// Why `path` may not be opened, when nothing chose it: no request override
+/// and no `SKARBIEC_VAULT_FILE` named it, Stado declares no vault file here,
+/// and Stado routes this machine to the vault owner. A bare `skarbiec` (or a
+/// product that runs it, as Brama does when it stores a subscription) then
+/// lands on the leftover default file, which is a copy of the fleet vault the
+/// owner never reads. A vault someone names explicitly is theirs to open.
+pub fn unchosen_copy_refusal(path: &std::path::Path) -> Option<String> {
+    let chosen = REQUEST_VAULT.with(|cell| cell.borrow().is_some())
+        || std::env::var_os("SKARBIEC_VAULT_FILE").is_some();
+    if chosen || path != default_vault_path() {
+        return None;
+    }
+    let route = remote_owner_route()?;
+    Some(format!(
+        "this machine holds no Skarbiec vault: Stado reads the fleet vault through \
+         secrets.skarbiec.url ({route}), so {} is a copy and is neither read nor written; \
+         work on the vault owner (stado credentials vault names it), or name a vault of \
+         your own with SKARBIEC_VAULT_FILE",
+        path.display()
+    ))
+}
+
 /// Run one request's work against the vault it named, restoring the previous
 /// selection afterwards. `None` leaves the process default in place.
 pub fn with_vault_override<T>(path: Option<PathBuf>, work: impl FnOnce() -> T) -> T {

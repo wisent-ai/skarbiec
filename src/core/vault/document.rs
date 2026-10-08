@@ -59,6 +59,9 @@ impl Vault {
     }
 
     pub fn open(path: PathBuf) -> Result<Self> {
+        if let Some(refusal) = crate::core::unchosen_copy_refusal(&path) {
+            bail!(refusal);
+        }
         if !path.exists() {
             bail!("vault not initialized at {} (run: init)", path.display());
         }
@@ -79,6 +82,9 @@ impl Vault {
     }
 
     pub fn save(&mut self) -> Result<()> {
+        if let Some(refusal) = crate::core::unchosen_copy_refusal(&self.path) {
+            bail!(refusal);
+        }
         let _write_lock = acquire_write_lock(&self.path)?;
         if self.path.exists() {
             let persisted: Value = serde_json::from_str(&fs::read_to_string(&self.path)?)
