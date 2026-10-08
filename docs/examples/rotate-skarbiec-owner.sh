@@ -20,4 +20,4 @@ SKARBIEC_VAULT_FILE="$VAULT" "$SB" rotate-owner "$NEW_UID"
 
 # verify the vault still opens
 SKARBIEC_VAULT_FILE="$VAULT" "$SB" list
-SKARBIEC_VAULT_FILE="$VAULT" "$SB" recovery-status
+SKARBIEC_VAULT_FILE="$VAULT" "$SB" recovery status

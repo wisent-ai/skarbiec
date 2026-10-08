@@ -127,7 +127,7 @@ impl Vault {
         };
         // Every item write in this crate arrives here -- `set`, `set-json`,
         // `import`, the cross-vault copy, share, revoke, the emergency grant,
-        // the bond pull, donation-accept, the credential lifecycle and the
+        // the bond pull, donation accept, the credential lifecycle and the
         // HTTP acquire -- so the tag registry is enforced once, where the
         // stored list is finally known, rather than once per caller with the
         // next caller forgetting.

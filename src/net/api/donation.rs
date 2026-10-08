@@ -11,7 +11,7 @@ use crate::core::inbox;
 use crate::net::http;
 
 /// `POST /v1/donations` — p2p v2: enqueue into the donation inbox instead of
-/// merging; the owner merges with donation-accept (docs/design/bond.md).
+/// merging; the owner merges with donation accept (docs/design/bond.md).
 /// Requires an exact `donate:<item_id>` grant. Provenance rule: an existing id
 /// admits the donation only when its `written_by` matches the donor's `from` claim.
 pub(crate) fn handle_donation(

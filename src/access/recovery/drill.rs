@@ -16,10 +16,10 @@ pub(super) fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "recovery-drill" => {
+        "recovery drill" => {
             let expected = positionals
                 .first()
-                .or_usage("usage: recovery-drill <recipient-uid|recovery>")?;
+                .or_usage("usage: recovery drill <recipient-uid|recovery>")?;
             let vault = load()?;
             let expected_fingerprint = if expected == "recovery" {
                 vault.recovery_fpr().to_string()
@@ -85,7 +85,7 @@ pub(super) fn dispatch(
                 "isolated_keyring": true,
             })))
         }
-        "recovery-status" => {
+        "recovery status" => {
             let vault = load()?;
             let items = vault
                 .doc()

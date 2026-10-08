@@ -14,10 +14,10 @@ pub(super) fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "emergency-grant" => {
+        "emergency grant" => {
             let grantee = positionals
                 .first()
-                .or_usage("usage: emergency-grant <grantee> --activate-after <iso>")?;
+                .or_usage("usage: emergency grant <grantee> --activate-after <iso>")?;
             let activate_after = flags
                 .get("activate-after")
                 .or_usage("--activate-after <iso8601> required")?;
@@ -45,17 +45,17 @@ pub(super) fn dispatch(
                 json!({"ok": true, "grantee": grantee, "activate_after": activate_after}),
             ))
         }
-        "emergency-cancel" => {
+        "emergency cancel" => {
             let grantee = positionals
                 .first()
-                .or_usage("usage: emergency-cancel <grantee>")?;
+                .or_usage("usage: emergency cancel <grantee>")?;
             let mut vault = load()?;
             ensure_section(vault.doc_mut(), "emergency").remove(grantee);
             vault.save()?;
             crate::runtime::audit::append("emergency-cancel", &json!({"grantee": grantee}))?;
             Ok(Some(json!({"ok": true, "grantee": grantee})))
         }
-        "emergency-list" => {
+        "emergency list" => {
             let vault = load()?;
             Ok(Some(
                 vault
@@ -65,10 +65,10 @@ pub(super) fn dispatch(
                     .unwrap_or_else(|| json!({})),
             ))
         }
-        "emergency-activate" => {
+        "emergency activate" => {
             let grantee = positionals
                 .first()
-                .or_usage("usage: emergency-activate <grantee>")?;
+                .or_usage("usage: emergency activate <grantee>")?;
             let mut vault = load()?;
             let activate_after = vault
                 .doc()

@@ -35,11 +35,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/doctor" => crate::runtime::doctor::report(None),
         "/v1/operator/status" => crate::core::items::status_json(),
         "/v1/operator/vaults" => crate::runtime::vaults::inventory(),
-        "/v1/operator/donations" => inbox("donations", &no_flags, &none),
-        "/v1/operator/emergency" => access("emergency-list", &no_flags, &none),
-        "/v1/operator/recovery" => access("recovery-status", &no_flags, &none),
+        "/v1/operator/donations" => inbox("donation list", &no_flags, &none),
+        "/v1/operator/emergency" => access("emergency list", &no_flags, &none),
+        "/v1/operator/recovery" => access("recovery status", &no_flags, &none),
         "/v1/operator/key-doctor" => access("key-doctor", &no_flags, &none),
-        "/v1/operator/bonds" => bonds("bond-list", &no_flags, &none),
+        "/v1/operator/bonds" => bonds("bond list", &no_flags, &none),
         "/v1/operator/version" => crate::cmd_version(),
         "/v1/operator/route/resolve" => {
             let mut positionals = vec!["resolve".to_string()];
@@ -145,10 +145,10 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             grant("revoke", &no_flags, &positionals(parsed, &["consumer"])?)
         }
         "/v1/operator/donations/accept" => {
-            inbox("donation-accept", &no_flags, &positionals(parsed, &["id"])?)
+            inbox("donation accept", &no_flags, &positionals(parsed, &["id"])?)
         }
         "/v1/operator/donations/reject" => {
-            inbox("donation-reject", &no_flags, &positionals(parsed, &["id"])?)
+            inbox("donation reject", &no_flags, &positionals(parsed, &["id"])?)
         }
         "/v1/operator/credential" => {
             let operation = text(parsed, "operation")?;
@@ -222,22 +222,22 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             }
         }
         "/v1/operator/emergency/grant" => access(
-            "emergency-grant",
+            &leaf(path),
             &flags(parsed, &["activate-after"]),
             &positionals(parsed, &["grantee"])?,
         ),
         "/v1/operator/emergency/cancel" => access(
-            "emergency-cancel",
+            &leaf(path),
             &no_flags,
             &positionals(parsed, &["grantee"])?,
         ),
         "/v1/operator/emergency/activate" => access(
-            "emergency-activate",
+            &leaf(path),
             &no_flags,
             &positionals(parsed, &["grantee"])?,
         ),
         "/v1/operator/recovery/drill" => access(
-            "recovery-drill",
+            &leaf(path),
             &no_flags,
             &positionals(parsed, &["subject"])?,
         ),
@@ -269,4 +269,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         ),
         _ => bail!("unknown operator route: {path}"),
     }
+}
+
+/// The backend leaf a route under a grouped object names: the path below
+/// `/v1/operator/` with its separators read as spaces, so
+/// `/v1/operator/emergency/grant` calls `emergency grant`.
+fn leaf(path: &str) -> String {
+    path.trim_start_matches("/v1/operator/").replace('/', " ")
 }

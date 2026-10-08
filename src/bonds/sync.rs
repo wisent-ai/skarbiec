@@ -1,7 +1,7 @@
 // Replication as one pull per pulled bond, and the status report a person
 // reads to see whether it is working.
 //
-// A bond whose serve channel records a bearer file (`bond-add --token-file`)
+// A bond whose serve channel records a bearer file (`bond add --token-file`)
 // is a bond this vault pulls. `skarbiec maintain` pulls each such bond once;
 // a Stado schedule pinned to the replica host decides how often. A failed
 // pull goes to stderr and to the audit journal as `replication-failed`, and
@@ -71,7 +71,7 @@ pub(crate) fn pull_once(name: &str) -> Result<()> {
     let text = |key: &str| channel.get(key).and_then(Value::as_str).map(str::to_string);
     let address = text("address").with_context(|| format!("bond {name} channel has no address"))?;
     let token_file = text("token_file").with_context(|| {
-        format!("bond {name} records no token_file (set it with bond-add --token-file)")
+        format!("bond {name} records no token_file (set it with bond edit {name} --token-file)")
     })?;
     let consumer = text("consumer").unwrap_or_else(|| "replica".to_string());
     drop(vault);

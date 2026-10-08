@@ -181,7 +181,7 @@ mod launchd {
 
     /// The removed `sync-daemon` carried its bond's bearer file and consumer
     /// only in its argv. Record them on the bond's serve channel, the way
-    /// `bond-add --token-file --consumer` does, so `skarbiec maintain` pulls
+    /// `bond add --token-file --consumer` does, so `skarbiec maintain` pulls
     /// exactly what the daemon pulled.
     fn adopt_replica_bond(arguments: &[String]) -> Result<()> {
         let value = |flag: &str| {

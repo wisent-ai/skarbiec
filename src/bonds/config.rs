@@ -16,18 +16,18 @@ const ROLES: [&str; 4] = ["source", "replica", "consumer", "peer"];
 const CHANNEL_TYPES: [&str; 3] = ["serve", "git", "file"];
 
 /// A new bond. A name already configured is refused with its mode and role;
-/// `bond-edit` changes it.
+/// `bond edit` changes it.
 pub(crate) fn cmd_bond_add(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Value> {
     let name = positionals.first().or_usage(
-        "usage: bond-add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
+        "usage: bond add <name> --mode <mode> --role <role> --channel <type:address> [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
     )?;
     let vault = Vault::open(vault_path())?;
     if let Some(existing) = vault.doc().get("bond").and_then(|bonds| bonds.get(name)) {
         anyhow::bail!(
-            "bond {name} is already configured (mode {}, role {}); `skarbiec bond-edit {name}` changes it",
+            "bond {name} is already configured (mode {}, role {}); `skarbiec bond edit {name}` changes it",
             existing["mode"].as_str().unwrap_or("-"),
             existing["role"].as_str().unwrap_or("-"),
         );
@@ -36,7 +36,7 @@ pub(crate) fn cmd_bond_add(
     write_bond(name, flags, "bond-add")
 }
 
-/// Change one configured bond: every flag `bond-add` takes may be given,
+/// Change one configured bond: every flag `bond add` takes may be given,
 /// and what is not given keeps its configured value. The result passes the
 /// same checks a new bond does.
 pub(crate) fn cmd_bond_edit(
@@ -44,10 +44,10 @@ pub(crate) fn cmd_bond_edit(
     positionals: &[String],
 ) -> Result<Value> {
     let name = positionals.first().or_usage(
-        "usage: bond-edit <name> [--mode <mode>] [--role <role>] [--channel <type:address>] [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
+        "usage: bond edit <name> [--mode <mode>] [--role <role>] [--channel <type:address>] [--peers fpr,fpr] [--interval seconds] [--token-file path [--consumer name]]",
     )?;
     if flags.is_empty() {
-        anyhow::bail!("bond-edit changes nothing without a flag `bond-add` takes");
+        anyhow::bail!("bond edit changes nothing without a flag `bond add` takes");
     }
     let vault = Vault::open(vault_path())?;
     let current = vault
@@ -55,7 +55,7 @@ pub(crate) fn cmd_bond_edit(
         .get("bond")
         .and_then(|bonds| bonds.get(name))
         .cloned()
-        .with_context(|| format!("no bond named: {name}; `skarbiec bond-list` lists them"))?;
+        .with_context(|| format!("no bond named: {name}; `skarbiec bond list` lists them"))?;
     drop(vault);
     let mut merged = configured_flags(&current);
     merged.extend(
@@ -66,7 +66,7 @@ pub(crate) fn cmd_bond_edit(
     write_bond(name, &merged, "bond-edit")
 }
 
-/// The flags `bond-add` would take to configure `bond` as it stands.
+/// The flags `bond add` would take to configure `bond` as it stands.
 fn configured_flags(bond: &Value) -> HashMap<String, String> {
     let mut flags = HashMap::new();
     let mut keep = |key: &str, value: Option<String>| {
@@ -204,7 +204,7 @@ pub(crate) fn cmd_bond_list() -> Result<Value> {
 /// Remove one bond by name. A name that is not configured is an error,
 /// not a silent success — the caller asked to remove something.
 pub(crate) fn cmd_bond_remove(positionals: &[String]) -> Result<Value> {
-    let name = positionals.first().or_usage("usage: bond-remove <name>")?;
+    let name = positionals.first().or_usage("usage: bond remove <name>")?;
     let mut vault = Vault::open(vault_path())?;
     let removed = vault
         .doc_mut()

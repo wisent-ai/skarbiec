@@ -280,7 +280,7 @@ rm -rf "${TMPDIR:-/tmp}/skarbiec-acquisition-quickstart"
 For a real vault, first follow
 [the recovery boundary](https://skarbiec.wisent.com/docs/security#recovery-and-rotation), move the
 recovery private material to its custodian, and verify it with
-`recovery-drill`. Store real values through stdin, as shown in
+`recovery drill`. Store real values through stdin, as shown in
 [the executable examples](https://skarbiec.wisent.com/docs/examples), and register new
 workloads through acquisition rather than a legacy direct bearer.
 

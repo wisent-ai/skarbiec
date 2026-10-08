@@ -2,7 +2,7 @@
 //
 // p2p v2: a donation no longer merges on arrival — it lands in a per-vault
 // inbox file next to the vault (`<vault>.donations.json`, owner-only mode),
-// and the owner merges or drops it with donation-accept / donation-reject.
+// and the owner merges or drops it with donation accept / donation reject.
 // Provenance: every item carries `written_by` (the uid or consumer that first
 // wrote it), and an overwriting donation is accepted only when its `from`
 // claim matches. v1 trust model: the donate token's consumer IS the writer
@@ -131,13 +131,46 @@ fn take_donation(inbox: &mut Value, donation_id: &str) -> Result<Value> {
     Ok(donations.remove(position))
 }
 
+/// `donation list|accept|reject`: the object is the command and the verb its
+/// first positional. The operator routes call the leaves by their whole name
+/// ("donation accept").
 pub fn dispatch(
     command: &str,
     _flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if command == "donation" {
+        let Some((verb, positionals)) = positionals.split_first() else {
+            return Err(crate::cli::args::Usage(
+                "donation needs list, accept or reject; `skarbiec donation help` lists them"
+                    .to_string(),
+            )
+            .into());
+        };
+        if verb == "help" {
+            return Ok(Some(json!({
+                "commands": [
+                    "donation list",
+                    "donation accept <donation-id>",
+                    "donation reject <donation-id>",
+                ],
+                "usage": "donation list prints the pending donations without decrypting them; donation accept takes one after rechecking its writer-admission rule; donation reject discards one without decrypting it.",
+            })));
+        }
+        return match leaf(&format!("donation {verb}"), positionals)? {
+            Some(answer) => Ok(Some(answer)),
+            None => Err(crate::cli::args::Usage(format!(
+                "unknown donation command: {verb}; `skarbiec donation --help` lists them"
+            ))
+            .into()),
+        };
+    }
+    leaf(command, positionals)
+}
+
+fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
     match command {
-        "donations" => {
+        "donation list" => {
             let inbox = load_inbox()?;
             let pending: Vec<Value> = inbox
                 .get("donations")
@@ -157,10 +190,10 @@ pub fn dispatch(
                 .collect();
             Ok(Some(json!(pending)))
         }
-        "donation-accept" => {
+        "donation accept" => {
             let donation_id = positionals
                 .first()
-                .or_usage("usage: donation-accept <donation-id>")?;
+                .or_usage("usage: donation accept <donation-id>")?;
             let mut inbox = load_inbox()?;
             let donation = take_donation(&mut inbox, donation_id)?;
             let item_id = donation
@@ -188,7 +221,7 @@ pub fn dispatch(
                     &json!({"donation": donation_id, "item": item_id, "status": rule}),
                 )?;
                 anyhow::bail!(
-                    "donation-accept: donation {donation_id} for item {item_id} from {from} was refused at merge: admission rule {rule}; the donation is removed from the inbox"
+                    "donation accept: donation {donation_id} for item {item_id} from {from} was refused at merge: admission rule {rule}; the donation is removed from the inbox"
                 );
             }
             let plain = crypto::decrypt(armor).context("decrypt donation armor")?;
@@ -233,10 +266,10 @@ pub fn dispatch(
                 "id": item_id,
             })))
         }
-        "donation-reject" => {
+        "donation reject" => {
             let donation_id = positionals
                 .first()
-                .or_usage("usage: donation-reject <donation-id>")?;
+                .or_usage("usage: donation reject <donation-id>")?;
             let mut inbox = load_inbox()?;
             let donation = take_donation(&mut inbox, donation_id)?;
             save_inbox(&inbox)?;
