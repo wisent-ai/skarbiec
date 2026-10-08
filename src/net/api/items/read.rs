@@ -40,11 +40,19 @@ pub(super) fn locate(
 ) -> Result<Option<Located>> {
     let parsed = http::request_json(body);
     let Some(id) = http::request_id(&parsed) else {
-        http::write_response(stream, "HTTP/1.1 400 Bad Request", &json!({"error": "id required"}))?;
+        http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "id required"}),
+        )?;
         return Ok(None);
     };
     let Some(field) = http::request_field(&parsed) else {
-        http::write_response(stream, "HTTP/1.1 400 Bad Request", &json!({"error": "field required"}))?;
+        http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "field required"}),
+        )?;
         return Ok(None);
     };
     let (consumer, bearer) = http::presented_identity(headers);
@@ -109,7 +117,11 @@ pub(super) fn locate(
         .and_then(Value::as_object)
         .and_then(|items| items.get(id));
     let Some(stored) = stored else {
-        http::write_response(stream, "HTTP/1.1 404 Not Found", &json!({"error": "item not found"}))?;
+        http::write_response(
+            stream,
+            "HTTP/1.1 404 Not Found",
+            &json!({"error": "item not found"}),
+        )?;
         return Ok(None);
     };
     // A state the operator must change is not an outage, and every one of
@@ -153,7 +165,15 @@ pub(super) fn locate(
     let revision = vault.item_revision(id)?;
     let item = id.to_string();
     let requested = requested.to_string();
-    Ok(Some(Located { vault, requested, item, item_uid, revision, field: field.to_string(), consumer }))
+    Ok(Some(Located {
+        vault,
+        requested,
+        item,
+        item_uid,
+        revision,
+        field: field.to_string(),
+        consumer,
+    }))
 }
 
 pub(crate) fn handle_items_read(
@@ -161,8 +181,15 @@ pub(crate) fn handle_items_read(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let Some(Located { vault, requested, item, item_uid, revision, field, consumer }) =
-        locate(stream, headers, body)?
+    let Some(Located {
+        vault,
+        requested,
+        item,
+        item_uid,
+        revision,
+        field,
+        consumer,
+    }) = locate(stream, headers, body)?
     else {
         return Ok(());
     };

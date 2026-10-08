@@ -24,7 +24,15 @@ pub(crate) fn handle_items_revision(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let Some(Located { requested, item, item_uid, revision, field, .. }) = locate(stream, headers, body)? else {
+    let Some(Located {
+        requested,
+        item,
+        item_uid,
+        revision,
+        field,
+        ..
+    }) = locate(stream, headers, body)?
+    else {
         return Ok(());
     };
     http::write_response(
