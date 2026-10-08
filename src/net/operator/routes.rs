@@ -19,7 +19,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/items" => {
             crate::cmd_list(&HashMap::from([("all".to_string(), "true".to_string())]))
         }
-        "/v1/operator/recipients" => access("users", &no_flags, &none),
+        "/v1/operator/recipients" => access("recipient list", &no_flags, &none),
         "/v1/operator/audit" => runtime(
             "audit",
             &flags(
@@ -89,14 +89,18 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             access("revoke", &no_flags, &positionals(parsed, &["id", "uid"])?)
         }
         "/v1/operator/recipients/add" => access(
-            "add-user",
+            "recipient add",
             &flags(parsed, &["import", "role"]),
             &positionals(parsed, &["uid"])?,
         ),
         // The desktop's Remove from vault sheet is the confirmation it sends.
         "/v1/operator/recipients/remove" => {
             let confirmed = HashMap::from([("yes".to_string(), "true".to_string())]);
-            access("remove-user", &confirmed, &positionals(parsed, &["uid"])?)
+            access(
+                "recipient remove",
+                &confirmed,
+                &positionals(parsed, &["uid"])?,
+            )
         }
         "/v1/operator/rotation/set" => rotation(
             "set",

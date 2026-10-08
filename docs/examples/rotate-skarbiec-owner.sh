@@ -13,7 +13,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 cp "$VAULT" "$VAULT.backup"
 
 # successor key into the keyring (skarbiec makes the right key type)
-SKARBIEC_VAULT_FILE="$VAULT" "$SB" add-user "$NEW_UID"
+SKARBIEC_VAULT_FILE="$VAULT" "$SB" recipient add "$NEW_UID"
 
 # the atomic rotation
 SKARBIEC_VAULT_FILE="$VAULT" "$SB" rotate-owner "$NEW_UID"

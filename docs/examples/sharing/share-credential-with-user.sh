@@ -27,13 +27,13 @@ die() { echo "ERROR: $1" > /dev/stderr; false; exit; }
 [ -f "$REC_VAULT" ] || die "no recipient vault: $REC_VAULT (run create-skarbiec.sh for the recipient first)"
 
 # --- recipient side: export ONLY the public key ----------------------------
-# skarbiec export-key prints the recipient's armored PUBLIC key — safe to
-# publish, lets anyone encrypt TO the recipient, opens nothing itself.
+# skarbiec recipient export prints the recipient's armored PUBLIC key — safe
+# to publish, lets anyone encrypt TO the recipient, opens nothing itself.
 echo "== step (recipient): export public key"
-REC_UID=$(SKARBIEC_VAULT_FILE="$REC_VAULT" "$SB" users | jq -r 'to_entries | first(.[] | select(.value.role=="owner") | .key)')
+REC_UID=$(SKARBIEC_VAULT_FILE="$REC_VAULT" "$SB" recipient list | jq -r 'to_entries | first(.[] | select(.value.role=="owner") | .key)')
 [ -n "$REC_UID" ] || die "no owner recipient in $REC_VAULT"
-PUB=$(SKARBIEC_VAULT_FILE="$REC_VAULT" "$SB" export-key "$REC_UID" | jq -r '.public_key')
-[ -n "$PUB" ] || die "export-key returned nothing for $REC_UID"
+PUB=$(SKARBIEC_VAULT_FILE="$REC_VAULT" "$SB" recipient export "$REC_UID" | jq -r '.public_key')
+[ -n "$PUB" ] || die "recipient export returned nothing for $REC_UID"
 
 # --- donor side: import that key, read the item, encrypt to it -------------
 echo "== step (donor): import recipient public key + encrypt the item value"

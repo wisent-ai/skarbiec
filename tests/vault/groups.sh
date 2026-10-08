@@ -1,5 +1,6 @@
 #!/bin/bash
-# Real test of the `skarbiec recovery`, `emergency` and `donation` groups
+# Real test of the `skarbiec recovery`, `emergency`, `donation` and
+# `recipient` groups
 # through the built binary, on a vault of its own: SKARBIEC_VAULT_FILE,
 # SKARBIEC_AUDIT_FILE and GNUPGHOME point into this checkout's target
 # directory, so the operator's vault and keyring are never read or written.
@@ -13,7 +14,9 @@
 # unknown recipient, records one for the owner whose moment has passed, lists
 # it pending, activates it, cancels it and lists it gone; lists the empty
 # donation inbox and checks that accepting and rejecting a donation nobody
-# sent are refused. Every command, whether it succeeded, and its output go to
+# sent are refused; lists the owner as a recipient, exports its public key,
+# adds a member, refuses to remove it without --yes, removes it with --yes
+# and lists it gone. Every command, whether it succeeded, and its output go to
 # the run's report.txt.
 #
 # Usage: SKARBIEC=<path to the built binary> tests/vault/groups.sh
@@ -117,6 +120,31 @@ fails donation accept "missing-$RUN"
 refused "no pending donation: missing-$RUN"
 fails donation reject "missing-$RUN"
 refused "no pending donation: missing-$RUN"
+
+fails recipient
+refused "recipient needs a subcommand"
+fails recipient sideways
+refused "unknown recipient command: sideways"
+fails users
+refused "unknown command: users"
+ok recipient help
+check "recipient help names every leaf" "$(leaves)" "add remove list export"
+ok recipient list
+check "the owner is a recipient" "$(echo "$out" | jq -r --arg u "$OWNER" '.[$u].role')" "owner"
+ok recipient export "$OWNER"
+check "the exported key is a public key" "$(echo "$out" | jq -r '.public_key | startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----")')" "true"
+fails recipient export "nobody-$RUN"
+refused "unknown recipient: nobody-$RUN"
+MEMBER="groups-test-member-$RUN"
+ok recipient add "$MEMBER"
+check "the member is registered as a member" "$(echo "$out" | jq -r '.role')" "member"
+fails recipient remove "$MEMBER"
+refused "nothing was changed"
+ok recipient list
+check "a refused removal keeps the member" "$(echo "$out" | jq --arg u "$MEMBER" 'has($u)')" "true"
+ok recipient remove "$MEMBER" --yes
+ok recipient list
+check "the removed member is gone" "$(echo "$out" | jq --arg u "$MEMBER" 'has($u)')" "false"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

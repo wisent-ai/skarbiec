@@ -35,26 +35,66 @@ fn item_meta(vault: &Vault, id: &str) -> Result<(String, Vec<String>)> {
     Ok((item_kind, tags))
 }
 
+/// `recipient add|remove|list|export` is a group: the object is the command
+/// and the verb its first positional; the operator routes call the leaves by
+/// their whole name ("recipient add").
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if command == "recipient" {
+        return group(flags, positionals).map(Some);
+    }
+    leaf(command, flags, positionals)
+}
+
+fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+    let Some((verb, positionals)) = positionals.split_first() else {
+        return Err(crate::cli::args::Usage(
+            "recipient needs a subcommand; `skarbiec recipient help` lists them".to_string(),
+        )
+        .into());
+    };
+    if verb == "help" {
+        return Ok(json!({
+            "commands": [
+                "recipient add <uid> [--import <public-key-file>] [--role <member-role>]",
+                "recipient remove <uid> --yes",
+                "recipient list",
+                "recipient export <uid>",
+            ],
+            "usage": "recipient add registers a recipient identity without sharing any existing item; recipient remove takes one person out of every item, every historical revision and the registry, and changes nothing without --yes; recipient list prints the registered recipients; recipient export prints one recipient's public key.",
+        }));
+    }
+    leaf(&format!("recipient {verb}"), flags, positionals)?.ok_or_else(|| {
+        crate::cli::args::Usage(format!(
+            "unknown recipient command: {verb}; `skarbiec recipient help` lists them"
+        ))
+        .into()
+    })
+}
+
+fn leaf(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     match command {
-        "add-user" => {
+        "recipient add" => {
             let mut args = positionals.iter();
-            let uid = args
-                .next()
-                .or_usage("usage: add-user <uid> [--import <pubkey-file>] [--role r]")?;
+            let uid = args.next().or_usage(
+                "usage: recipient add <uid> [--import <public-key-file>] [--role <member-role>]",
+            )?;
             let role = flags.get("role").map(String::as_str).unwrap_or("member");
-            // `add-user` registers a recipient and stops there: it does NOT
+            // `recipient add` registers a recipient and stops there: it does NOT
             // re-encrypt the items already in the vault. For a member that is
             // correct — `share` grants per item on purpose. For an owner it is
             // a trap, and it fired: an owner added this way holds a key that
             // opens nothing, while the vault still answers every read from the
             // previous owner's key. If that key then goes missing, every item
             // is unreadable and the audit log shows only a successful
-            // `add-user`.
+            // `recipient add` (audited as `add-user`, the journal's own name).
             //
             // `rotate-owner` is the operation that means what this looked like:
             // it rewraps every current and historical ciphertext onto the new
@@ -62,7 +102,7 @@ pub fn dispatch(
             // than half-do it.
             if role == "owner" {
                 anyhow::bail!(
-                    "add-user cannot install an owner: it would register the key without \
+                    "recipient add cannot install an owner: it would register the key without \
                      re-encrypting the {} item(s) already stored, leaving an owner that \
                      cannot read them. Use `rotate-owner <uid>`, which rewraps every \
                      version onto the new key and preserves the recovery recipient.",
@@ -102,7 +142,7 @@ pub fn dispatch(
             let fpr = crypto::fingerprint_for(uid)?.with_context(|| {
                 format!(
                     "no key in the keyring for {uid}: import or generate it first \
-                     (add-user {uid} --import <pubkey-file>), then rotate"
+                     (recipient add {uid} --import <pubkey-file>), then rotate"
                 )
             })?;
             let mut vault = Vault::open(vault_path())?;
@@ -157,15 +197,15 @@ pub fn dispatch(
         // every saved version is rewritten without them and nothing restores
         // that, so the CLI needs --yes; the desktop's Remove from vault sheet
         // sends it.
-        "remove-user" => {
+        "recipient remove" => {
             let uid = positionals
                 .first()
-                .or_usage("usage: remove-user <uid> --yes")?;
+                .or_usage("usage: recipient remove <uid> --yes")?;
             let mut vault = Vault::open(vault_path())?;
-            crate::cli::items::ensure_not_replica(&vault, "remove-user")?;
+            crate::cli::items::ensure_not_replica(&vault, "recipient remove")?;
             if vault.recipient_fpr(uid).is_some() && !crate::cli::args::flag_set(flags, "yes") {
                 anyhow::bail!(
-                    "remove-user would rewrite every item and every saved version without {uid}; nothing was changed. \
+                    "recipient remove would rewrite every item and every saved version without {uid}; nothing was changed. \
                      Rerun with --yes to remove {uid}, or revoke single items with `skarbiec revoke <item-id> {uid}`"
                 );
             }
@@ -187,7 +227,7 @@ pub fn dispatch(
             crate::runtime::audit::append("remove-user", &report)?;
             Ok(Some(report))
         }
-        "users" => {
+        "recipient list" => {
             let vault = Vault::open(vault_path())?;
             let users = vault
                 .doc()
@@ -196,8 +236,10 @@ pub fn dispatch(
                 .unwrap_or_else(|| json!({}));
             Ok(Some(users))
         }
-        "export-key" => {
-            let uid = positionals.first().or_usage("usage: export-key <uid>")?;
+        "recipient export" => {
+            let uid = positionals
+                .first()
+                .or_usage("usage: recipient export <uid>")?;
             let vault = Vault::open(vault_path())?;
             let fpr = vault
                 .recipient_fpr(uid)
