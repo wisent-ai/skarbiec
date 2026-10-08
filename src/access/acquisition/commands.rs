@@ -9,8 +9,7 @@ use super::{consume, issue};
 use crate::cli::args::OrUsage;
 
 const REQUEST_USAGE: &str = "usage: acquisition request <consumer> <item> <field> --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX";
-const READ_USAGE: &str =
-    "usage: acquisition read <consumer> <item> <field> --token-file <path>";
+const READ_USAGE: &str = "usage: acquisition read <consumer> <item> <field> --token-file <path>";
 
 /// `acquisition request|read` is a group: the object is the command and the
 /// verb its first positional. The hyphenated spellings (`acquisition-request`,

@@ -226,21 +226,15 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["activate-after"]),
             &positionals(parsed, &["grantee"])?,
         ),
-        "/v1/operator/emergency/cancel" => access(
-            &leaf(path),
-            &no_flags,
-            &positionals(parsed, &["grantee"])?,
-        ),
-        "/v1/operator/emergency/activate" => access(
-            &leaf(path),
-            &no_flags,
-            &positionals(parsed, &["grantee"])?,
-        ),
-        "/v1/operator/recovery/drill" => access(
-            &leaf(path),
-            &no_flags,
-            &positionals(parsed, &["subject"])?,
-        ),
+        "/v1/operator/emergency/cancel" => {
+            access(&leaf(path), &no_flags, &positionals(parsed, &["grantee"])?)
+        }
+        "/v1/operator/emergency/activate" => {
+            access(&leaf(path), &no_flags, &positionals(parsed, &["grantee"])?)
+        }
+        "/v1/operator/recovery/drill" => {
+            access(&leaf(path), &no_flags, &positionals(parsed, &["subject"])?)
+        }
         "/v1/operator/policy/set" => access(
             "policy set",
             &no_flags,
@@ -252,9 +246,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         // The candidate travels in the request body, never in a command's
         // argv, and the answer never repeats it.
         "/v1/operator/policy/check" => crate::access::policy::check(&text(parsed, "candidate")?),
-        "/v1/operator/sync/init" => {
-            net("mirror init", &no_flags, &positionals(parsed, &["endpoint"])?)
-        }
+        "/v1/operator/sync/init" => net(
+            "mirror init",
+            &no_flags,
+            &positionals(parsed, &["endpoint"])?,
+        ),
         "/v1/operator/sync/push" => net("mirror push", &flags(parsed, &["message"]), &none),
         "/v1/operator/sync/pull" => net("mirror pull", &flags(parsed, &["force"]), &none),
         "/v1/operator/route/declare" => access(

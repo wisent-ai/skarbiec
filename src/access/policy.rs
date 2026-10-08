@@ -222,8 +222,9 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
                 );
             }
             let mut read = String::new();
-            std::io::Read::read_to_string(&mut std::io::stdin(), &mut read)
-                .map_err(|error| anyhow::anyhow!("reading the candidate from standard input: {error}"))?;
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut read).map_err(|error| {
+                anyhow::anyhow!("reading the candidate from standard input: {error}")
+            })?;
             let candidate = match read.strip_suffix('\n') {
                 Some(line) => match line.strip_suffix('\r') {
                     Some(bare) => bare,
@@ -250,15 +251,17 @@ pub fn check(candidate: &str) -> Result<Value> {
     let stored = vault.doc().get("policy");
     let rules: Vec<Value> = POLICY_KEYS
         .iter()
-        .map(|rule| match stored.and_then(|policy| policy.get(rule.name)) {
-            Some(value) => {
-                let mut verdict = (rule.decide)(value, candidate);
-                verdict["key"] = json!(rule.name);
-                verdict["configured"] = json!(true);
-                verdict
-            }
-            None => json!({"key": rule.name, "configured": false, "ok": true}),
-        })
+        .map(
+            |rule| match stored.and_then(|policy| policy.get(rule.name)) {
+                Some(value) => {
+                    let mut verdict = (rule.decide)(value, candidate);
+                    verdict["key"] = json!(rule.name);
+                    verdict["configured"] = json!(true);
+                    verdict
+                }
+                None => json!({"key": rule.name, "configured": false, "ok": true}),
+            },
+        )
         .collect();
     let ok = rules.iter().all(|rule| rule["ok"] == json!(true));
     Ok(json!({"ok": ok, "rules": rules}))
