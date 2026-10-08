@@ -36,10 +36,10 @@ const RECOVERABLE_GPG_ERRORS: [u32; 10] = [
 ];
 
 /// The wedged-daemon shapes: a daemon that stays but holds the key database.
-/// On charless-mac-mini a process kept the keybox lock (`gpg: Note:
-/// database_open … waiting for lock (held by 8690)`), every decryption ended
+/// On a vault host a process kept the keybox lock (`gpg: Note:
+/// database_open … waiting for lock (held by <pid>)`), every decryption ended
 /// `keydb_search failed: Operation timed out`, and the vault answered every
-/// read 503 for over half an hour (3f9201e7); killing the daemons is the
+/// read with a service-unavailable error; killing the daemons is the
 /// repair there too. Named as gpg-error.h names them and resolved through
 /// libgpg-error's own `gpg-error` tool, which prints `<code> = …` for a name.
 const WEDGED_GPG_ERROR_NAMES: &[&str] = &["GPG_ERR_TIMEOUT", "GPG_ERR_LOCKED", "GPG_ERR_ETIMEDOUT"];
