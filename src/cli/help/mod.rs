@@ -76,7 +76,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("policy-set", "skarbiec policy-set <key> <value>", "Set one administrative policy rule the binary enforces (min_generated_length)."),
     row("policy-unset", "skarbiec policy-unset <key>", "Withdraw one administrative policy rule; a key that is not set is reported, not refused."),
     row("policy-get", "skarbiec policy-get", "Read the administrative policy."),
-    row("policy-check-length", "skarbiec policy-check-length <candidate>", "Check a candidate's length against min_generated_length without storing it."),
+    row("policy-check", "skarbiec policy-check < candidate", "Decide a candidate read from standard input against every rule the policy declares, without storing it."),
     row("audit", "skarbiec audit [--limit <N>]", "Read the append-only audit journal, oldest first."),
     row("audit-query", "skarbiec audit-query [--op <operation>] [--consumer <name>] [--item <id>] [--since <iso>] [--until <iso>] [--limit <N>]", "Filter the audit journal by operation, consumer, item and time: every match, or with --limit the newest N; matched counts them all."),
     row("audit-epoch-start", "skarbiec audit-epoch-start --reason <text>", "Start a signed audit epoch after acknowledging an already-broken chain."),

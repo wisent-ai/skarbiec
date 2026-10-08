@@ -250,6 +250,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/policy/unset" => {
             access("policy-unset", &no_flags, &positionals(parsed, &["key"])?)
         }
+        // The candidate travels in the request body, never in a command's
+        // argv, and the answer never repeats it.
+        "/v1/operator/policy/check" => crate::access::policy::check(&text(parsed, "candidate")?),
         "/v1/operator/sync/init" => {
             net("sync-init", &no_flags, &positionals(parsed, &["endpoint"])?)
         }

@@ -4,10 +4,10 @@
 // The supported rules are the rows of `POLICY_KEYS` below, and that registry is
 // the authority: a rule exists because something in this binary reads it. The
 // section is not an open bag of operator metadata. Every command here treats it
-// as enforcement — `policy-check-length` decides on it, and the header of this
-// file once advertised a `require_totp` rule that nothing ever read — so a key
-// this binary does not consume is a rule an operator believes is in force and
-// is not. `policy-set` refuses one rather than storing it.
+// as enforcement — `policy-check` decides a candidate on it, and the header of
+// this file once advertised a `require_totp` rule that nothing ever read — so a
+// key this binary does not consume is a rule an operator believes is in force
+// and is not. `policy-set` refuses one rather than storing it.
 //
 // Consumer capabilities are a different surface, enforced by the tokens module.
 // Vocabulary here is deliberately neutral to keep policy metadata clear.
@@ -32,30 +32,24 @@ fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> &'a mut serde_json::Map<
         .expect("section is object")
 }
 
-// Minimum generated length the policy requires, if configured.
-pub fn min_generated_length(vault: &Vault) -> Option<usize> {
-    vault
-        .doc()
-        .get("policy")
-        .and_then(|p| p.get("min_generated_length"))
-        .and_then(Value::as_u64)
-        .map(|n| n as usize)
-}
-
 /// One supported policy key: its name, the value shape the reader can actually
-/// consume, and the test that decides whether a written value clears it.
+/// consume, the test that decides whether a written value clears it, and how
+/// a candidate is decided against a stored value.
 ///
 /// The shape is carried beside the test on purpose. A key whose value the
 /// reader silently skips is the same defect as a key nothing reads at all:
 /// `min_generated_length` is read through `as_u64`, so storing `soon` for it
 /// would leave `policy-get` showing a configured minimum while
-/// `policy-check-length` passes everything. Accepting the key is not enough;
+/// `policy-check` passes everything. Accepting the key is not enough;
 /// the value has to be one the rule can act on.
 struct PolicyKey {
     name: &'static str,
     /// What a value must be, phrased for the operator who reads a refusal.
     shape: &'static str,
     accepts: fn(&Value) -> bool,
+    /// The verdict on one candidate against the stored value: what the rule
+    /// requires, what the candidate has, and whether that clears it.
+    decide: fn(&Value, &str) -> Value,
 }
 
 /// A whole number, which is what every numeric rule here is read back as.
@@ -63,14 +57,26 @@ fn whole_number(value: &Value) -> bool {
     value.is_u64()
 }
 
+/// A candidate clears `min_generated_length` when it has at least that many
+/// characters.
+fn at_least_length(stored: &Value, candidate: &str) -> Value {
+    let actual = candidate.chars().count();
+    let required = stored.as_u64();
+    json!({
+        "required": required,
+        "actual": actual,
+        "ok": required.is_some_and(|minimum| actual as u64 >= minimum),
+    })
+}
+
 /// The registry. Adding a rule is adding a row here in the same commit that
 /// starts reading it; nothing else registers a policy key.
 const POLICY_KEYS: &[PolicyKey] = &[PolicyKey {
     name: "min_generated_length",
     shape: "a whole number",
-    // Read by `min_generated_length` below and decided on by
-    // `policy-check-length`.
+    // Decided on by `policy-check` through `at_least_length`.
     accepts: whole_number,
+    decide: at_least_length,
 }];
 
 /// Every supported key with the shape it demands, for a refusal to name.
@@ -158,22 +164,55 @@ pub fn dispatch(
                     .unwrap_or_else(|| json!({})),
             ))
         }
-        // Check a candidate string against the configured minimum length. Used
-        // by generation and by operators validating a value before storing it.
-        "policy-check-length" => {
-            let candidate = positionals
-                .first()
-                .or_usage("usage: policy-check-length <candidate>")?;
-            let vault = load()?;
-            let length = candidate.chars().count();
-            let verdict = match min_generated_length(&vault) {
-                Some(minimum) => {
-                    json!({"required": minimum, "actual": length, "ok": length >= minimum})
-                }
-                None => json!({"required": Value::Null, "actual": length, "ok": true}),
+        // Decide one candidate against every rule the policy declares. The
+        // candidate is a secret, so it is read from standard input and never
+        // from argv; one trailing newline is removed and nothing else, since
+        // whitespace inside a password is part of it.
+        "policy-check" => {
+            if !positionals.is_empty() {
+                anyhow::bail!(
+                    "policy-check reads the candidate from standard input, never from an argument: an argument stays in the process table and shell history. Pipe it in: `printf '%s' \"$CANDIDATE\" | skarbiec policy-check`"
+                );
+            }
+            let mut read = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut read)
+                .map_err(|error| anyhow::anyhow!("reading the candidate from standard input: {error}"))?;
+            let candidate = match read.strip_suffix('\n') {
+                Some(line) => match line.strip_suffix('\r') {
+                    Some(bare) => bare,
+                    None => line,
+                },
+                None => read.as_str(),
             };
-            Ok(Some(verdict))
+            check(candidate).map(Some)
         }
         _ => Ok(None),
     }
+}
+
+/// Decide one candidate against every rule the policy declares: `policy-check`
+/// on the command line and `POST /v1/operator/policy/check` for Desktop. The
+/// candidate is never part of the answer.
+pub fn check(candidate: &str) -> Result<Value> {
+    if candidate.is_empty() {
+        anyhow::bail!(
+            "policy-check needs a candidate, and the one it read was empty: standard input on the command line, the candidate field over the operator API"
+        );
+    }
+    let vault = load()?;
+    let stored = vault.doc().get("policy");
+    let rules: Vec<Value> = POLICY_KEYS
+        .iter()
+        .map(|rule| match stored.and_then(|policy| policy.get(rule.name)) {
+            Some(value) => {
+                let mut verdict = (rule.decide)(value, candidate);
+                verdict["key"] = json!(rule.name);
+                verdict["configured"] = json!(true);
+                verdict
+            }
+            None => json!({"key": rule.name, "configured": false, "ok": true}),
+        })
+        .collect();
+    let ok = rules.iter().all(|rule| rule["ok"] == json!(true));
+    Ok(json!({"ok": ok, "rules": rules}))
 }
