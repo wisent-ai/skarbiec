@@ -234,7 +234,7 @@ pub(in crate::access::grant) fn redemption_contract(
                 "item": item,
                 "field": field,
                 "how": format!(
-                    "sign an acquisition proof, then run: skarbiec acquisition-request {consumer} {item} {field} --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX; consume its token once with acquisition-read"
+                    "sign an acquisition proof, then run: skarbiec acquisition request {consumer} {item} {field} --workload-id ID --workload-timestamp EPOCH --workload-nonce NONCE --workload-signature HEX; consume its token once with acquisition read"
                 ),
             }))
         })

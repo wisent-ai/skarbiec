@@ -51,7 +51,7 @@ WORKLOAD_SIGNATURE=$(
 rm -f "$WORKLOAD_PAYLOAD"
 
 ACQUISITION_RESPONSE=$(
-  "$SB" acquisition-request "$CONSUMER" "$ITEM" "$FIELD" \
+  "$SB" acquisition request "$CONSUMER" "$ITEM" "$FIELD" \
     --workload-id "$WORKLOAD_ID" \
     --workload-timestamp "$WORKLOAD_TIMESTAMP" \
     --workload-nonce "$WORKLOAD_NONCE" \
@@ -61,11 +61,17 @@ ACQUISITION_TOKEN=$(printf '%s\n' "$ACQUISITION_RESPONSE" | sed -n 's/.*"token":
 
 if [ -z "$ACQUISITION_TOKEN" ]; then
   printf '%s\n' "$ACQUISITION_RESPONSE"
-  printf '%s\n' 'acquisition-request returned no token'
+  printf '%s\n' 'acquisition request returned no token'
   false
 fi
 
-"$SB" acquisition-read "$CONSUMER" "$ITEM" "$FIELD" --token "$ACQUISITION_TOKEN"
-"$SB" acquisition-read "$CONSUMER" "$ITEM" "$FIELD" --token "$ACQUISITION_TOKEN"
+TOKEN_FILE="$DEMO_DIR/one-use-token"
+printf '%s' "$ACQUISITION_TOKEN" >"$TOKEN_FILE"
+chmod u=rw,go= "$TOKEN_FILE"
+"$SB" acquisition read "$CONSUMER" "$ITEM" "$FIELD" --token-file "$TOKEN_FILE"
+if "$SB" acquisition read "$CONSUMER" "$ITEM" "$FIELD" --token-file "$TOKEN_FILE"; then
+  printf '%s\n' 'the spent token was read a second time'
+  false
+fi
 "$SB" audit --consumer "$CONSUMER"
 printf '%s\n' "demo state: $DEMO_DIR"

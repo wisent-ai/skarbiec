@@ -28,7 +28,7 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
         return Ok(json!({
             "ok": true,
             "status": "completed",
-            "next": "skarbiec acquisition-request --help"
+            "next": "skarbiec acquisition help"
         }));
     }
 
@@ -108,7 +108,7 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
                     "status": "completed",
                     "first_success": "audit_entry_observed",
                     "demo_item": item_id,
-                    "next": "skarbiec acquisition-request --help"
+                    "next": "skarbiec acquisition help"
                 }));
             }
             Some(_) => {
