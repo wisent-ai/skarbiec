@@ -29,7 +29,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &none,
         ),
         "/v1/operator/chain" => runtime("verify-chain", &flags(parsed, &["tail"]), &none),
-        "/v1/operator/policy" => access("policy-get", &no_flags, &none),
+        "/v1/operator/policy" => access("policy get", &no_flags, &none),
         "/v1/operator/grants" => grant("list", &no_flags, &none),
         "/v1/operator/rotation" => rotation("list", &no_flags, &none),
         "/v1/operator/doctor" => crate::runtime::doctor::report(None),
@@ -242,12 +242,12 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &positionals(parsed, &["subject"])?,
         ),
         "/v1/operator/policy/set" => access(
-            "policy-set",
+            "policy set",
             &no_flags,
             &positionals(parsed, &["key", "value"])?,
         ),
         "/v1/operator/policy/unset" => {
-            access("policy-unset", &no_flags, &positionals(parsed, &["key"])?)
+            access("policy unset", &no_flags, &positionals(parsed, &["key"])?)
         }
         // The candidate travels in the request body, never in a command's
         // argv, and the answer never repeats it.

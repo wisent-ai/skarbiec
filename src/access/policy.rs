@@ -4,10 +4,10 @@
 // The supported rules are the rows of `POLICY_KEYS` below, and that registry is
 // the authority: a rule exists because something in this binary reads it. The
 // section is not an open bag of operator metadata. Every command here treats it
-// as enforcement — `policy-check` decides a candidate on it, and the header of
+// as enforcement — `policy check` decides a candidate on it, and the header of
 // this file once advertised a `require_totp` rule that nothing ever read — so a
 // key this binary does not consume is a rule an operator believes is in force
-// and is not. `policy-set` refuses one rather than storing it.
+// and is not. `policy set` refuses one rather than storing it.
 //
 // Consumer capabilities are a different surface, enforced by the tokens module.
 // Vocabulary here is deliberately neutral to keep policy metadata clear.
@@ -39,8 +39,8 @@ fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> &'a mut serde_json::Map<
 /// The shape is carried beside the test on purpose. A key whose value the
 /// reader silently skips is the same defect as a key nothing reads at all:
 /// `min_generated_length` is read through `as_u64`, so storing `soon` for it
-/// would leave `policy-get` showing a configured minimum while
-/// `policy-check` passes everything. Accepting the key is not enough;
+/// would leave `policy get` showing a configured minimum while
+/// `policy check` passes everything. Accepting the key is not enough;
 /// the value has to be one the rule can act on.
 struct PolicyKey {
     name: &'static str,
@@ -74,7 +74,7 @@ fn at_least_length(stored: &Value, candidate: &str) -> Value {
 const POLICY_KEYS: &[PolicyKey] = &[PolicyKey {
     name: "min_generated_length",
     shape: "a whole number",
-    // Decided on by `policy-check` through `at_least_length`.
+    // Decided on by `policy check` through `at_least_length`.
     accepts: whole_number,
     decide: at_least_length,
 }];
@@ -88,7 +88,7 @@ fn supported_shown() -> String {
         .join(", ")
 }
 
-/// Why one `policy-set` is refused, or `Ok` if a registered rule accepts it.
+/// Why one `policy set` is refused, or `Ok` if a registered rule accepts it.
 ///
 /// The refusal names every supported key and its shape, because a refusal that
 /// withholds the allowed set only moves the guessing one step along.
@@ -120,16 +120,63 @@ fn coerce(raw: &str) -> Value {
     json!(raw)
 }
 
+/// `policy get|set|unset|check` is a group: the object is the command and the
+/// verb its first positional; the operator routes call the leaves by their
+/// whole name ("policy get"). The hyphenated spellings (`policy-get`, …) are
+/// still answered, because a host's Weles runs `skarbiec policy-get` against
+/// the Skarbiec installed there; they go once every host runs one with the
+/// group.
 pub fn dispatch(
     command: &str,
     _flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if command == "policy" {
+        return group(positionals).map(Some);
+    }
+    let spelled;
+    let command = match command.strip_prefix("policy-") {
+        Some(verb) => {
+            spelled = format!("policy {verb}");
+            spelled.as_str()
+        }
+        None => command,
+    };
+    leaf(command, positionals)
+}
+
+fn group(positionals: &[String]) -> Result<Value> {
+    let Some((verb, positionals)) = positionals.split_first() else {
+        return Err(crate::cli::args::Usage(
+            "policy needs a subcommand; `skarbiec policy help` lists them".to_string(),
+        )
+        .into());
+    };
+    if verb == "help" {
+        return Ok(json!({
+            "commands": [
+                "policy get",
+                "policy set <key> <value>",
+                "policy unset <key>",
+                "policy check < candidate",
+            ],
+            "usage": "policy get reads the administrative policy, policy set and policy unset write and withdraw one rule the binary enforces, and policy check decides a candidate read from standard input against every rule, without storing it.",
+        }));
+    }
+    leaf(&format!("policy {verb}"), positionals)?.ok_or_else(|| {
+        crate::cli::args::Usage(format!(
+            "unknown policy command: {verb}; `skarbiec policy help` lists them"
+        ))
+        .into()
+    })
+}
+
+fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
     match command {
-        "policy-set" => {
+        "policy set" => {
             let mut args = positionals.iter();
-            let key = args.next().or_usage("usage: policy-set <key> <value>")?;
-            let raw = args.next().or_usage("usage: policy-set <key> <value>")?;
+            let key = args.next().or_usage("usage: policy set <key> <value>")?;
+            let raw = args.next().or_usage("usage: policy set <key> <value>")?;
             let value = coerce(raw);
             if let Err(refusal) = policy_refusal(key, raw, &value) {
                 anyhow::bail!("{refusal}");
@@ -140,10 +187,10 @@ pub fn dispatch(
             crate::runtime::audit::append("policy-set", &json!({"key": key}))?;
             Ok(Some(json!({"ok": true, "key": key})))
         }
-        // The inverse of policy-set: withdraw one rule. A key that is not set
+        // The inverse of policy set: withdraw one rule. A key that is not set
         // is the state asked for, reported rather than refused.
-        "policy-unset" => {
-            let key = positionals.first().or_usage("usage: policy-unset <key>")?;
+        "policy unset" => {
+            let key = positionals.first().or_usage("usage: policy unset <key>")?;
             let mut vault = load()?;
             let removed = ensure_section(vault.doc_mut(), "policy")
                 .remove(key.as_str())
@@ -154,7 +201,7 @@ pub fn dispatch(
             }
             Ok(Some(json!({"ok": true, "key": key, "removed": removed})))
         }
-        "policy-get" => {
+        "policy get" => {
             let vault = load()?;
             Ok(Some(
                 vault
@@ -168,10 +215,10 @@ pub fn dispatch(
         // candidate is a secret, so it is read from standard input and never
         // from argv; one trailing newline is removed and nothing else, since
         // whitespace inside a password is part of it.
-        "policy-check" => {
+        "policy check" => {
             if !positionals.is_empty() {
                 anyhow::bail!(
-                    "policy-check reads the candidate from standard input, never from an argument: an argument stays in the process table and shell history. Pipe it in: `printf '%s' \"$CANDIDATE\" | skarbiec policy-check`"
+                    "policy check reads the candidate from standard input, never from an argument: an argument stays in the process table and shell history. Pipe it in: `printf '%s' \"$CANDIDATE\" | skarbiec policy check`"
                 );
             }
             let mut read = String::new();
@@ -190,13 +237,13 @@ pub fn dispatch(
     }
 }
 
-/// Decide one candidate against every rule the policy declares: `policy-check`
+/// Decide one candidate against every rule the policy declares: `policy check`
 /// on the command line and `POST /v1/operator/policy/check` for Desktop. The
 /// candidate is never part of the answer.
 pub fn check(candidate: &str) -> Result<Value> {
     if candidate.is_empty() {
         anyhow::bail!(
-            "policy-check needs a candidate, and the one it read was empty: standard input on the command line, the candidate field over the operator API"
+            "policy check needs a candidate, and the one it read was empty: standard input on the command line, the candidate field over the operator API"
         );
     }
     let vault = load()?;

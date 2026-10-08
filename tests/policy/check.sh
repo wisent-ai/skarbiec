@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real test of `skarbiec policy-check` through the built binary on a vault of
+# Real test of `skarbiec policy check|set|get` through the built binary on a vault of
 # its own: SKARBIEC_VAULT_FILE, SKARBIEC_AUDIT_FILE and GNUPGHOME point into
 # this checkout's target directory, so the operator's vault and keyring are
 # never read or written.
@@ -9,7 +9,10 @@
 # candidate, then checks a shorter candidate (fails) and that candidate itself
 # (passes) — each read from standard input. The refusals: a candidate given as
 # an argument and an empty standard input are refused naming standard input,
-# and the retired policy-check-length is no command. Every command and whether
+# the retired policy-check-length is no command, and the policy group refuses a
+# missing or unknown subcommand. The hyphenated policy-get, which a host's
+# Weles still runs against its installed Skarbiec, answers the same policy.
+# Every command and whether
 # it succeeded go to the run's report.txt; a candidate is never written there.
 #
 # Usage: SKARBIEC=target/debug/skarbiec tests/policy/check.sh
@@ -66,26 +69,34 @@ WANT=ok run init "policy-test-owner-$RUN"
 LONG="policy-test-candidate-$RUN"
 SHORT="${LONG%-*}"
 printf '%s' "$LONG" >"$ROOT/stdin"
-WANT=ok run policy-check
+WANT=ok run policy check
 says '"configured": false' "with no rule set the rule is reported unconfigured"
 verdict true "with no rule set a candidate passes"
 
 : >"$ROOT/stdin"
-WANT=ok run policy-set min_generated_length "${#LONG}"
+WANT=ok run policy set min_generated_length "${#LONG}"
+WANT=ok run policy get
+says "\"min_generated_length\": ${#LONG}" "policy get reads the rule policy set wrote"
+WANT=ok run policy-get
+says "\"min_generated_length\": ${#LONG}" "the hyphenated policy-get still answers the same policy"
+WANT=refused run policy
+says "needs a subcommand" "the policy group without a subcommand is refused"
+WANT=refused run policy frobnicate
+says "unknown policy command" "an unknown policy subcommand is refused"
 
 printf '%s\n' "$SHORT" >"$ROOT/stdin"
-WANT=ok run policy-check
+WANT=ok run policy check
 verdict false "a candidate shorter than min_generated_length fails"
-case "$out" in *"$SHORT"*) fail "policy-check repeated the candidate" ;; esac
+case "$out" in *"$SHORT"*) fail "policy check repeated the candidate" ;; esac
 
 printf '%s\n' "$LONG" >"$ROOT/stdin"
-WANT=ok run policy-check
+WANT=ok run policy check
 verdict true "a candidate of exactly min_generated_length passes, its trailing newline not counted"
 
 : >"$ROOT/stdin"
-WANT=refused run policy-check "argument-candidate-$RUN"
+WANT=refused run policy check "argument-candidate-$RUN"
 says "standard input" "a candidate given as an argument is refused naming standard input"
-WANT=refused run policy-check
+WANT=refused run policy check
 says "the one it read was empty" "an empty standard input is refused"
 WANT=refused run policy-check-length "argument-candidate-$RUN"
 
