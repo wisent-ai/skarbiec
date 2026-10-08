@@ -145,27 +145,16 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
     }))
 }
 
-/// The journal, oldest first. `--limit N` returns only the final N, read from
-/// the file's tail rather than parsed in full.
-pub(super) fn recent(flags: &HashMap<String, String>) -> Result<Vec<Value>> {
-    let Some(raw) = flags.get("limit") else {
-        return lines();
-    };
-    let limit: usize = raw.parse().context("--limit must be a whole number")?;
-    if limit == usize::MIN {
-        anyhow::bail!("--limit must be at least one");
-    }
-    tail_lines(limit)
-}
-
-/// Matching journal entries, oldest first. Without `limit` every match is
-/// returned; a `limit` keeps the newest that many and must be at least one.
-/// `matched` always counts every match, so a limited answer says how many it
-/// left out.
-pub(super) fn query(flags: &HashMap<String, String>) -> Result<Value> {
+/// `skarbiec audit`: journal entries, oldest first, filtered by operation,
+/// consumer, item and time when those are given. Without `limit` every match
+/// is returned; a `limit` keeps the newest that many and must be at least
+/// one. `matched` always counts every match, so a limited answer says how
+/// many it left out. With no filter the limit is read from the file's tail
+/// rather than by parsing the whole journal.
+pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
     let limit: Option<usize> = flags
         .get("limit")
-        .map(|raw| raw.parse().context("--limit must be a positive integer"))
+        .map(|raw| raw.parse().context("--limit must be a whole number"))
         .transpose()?;
     if limit == Some(usize::MIN) {
         anyhow::bail!("--limit must be at least one");
@@ -175,6 +164,14 @@ pub(super) fn query(flags: &HashMap<String, String>) -> Result<Value> {
     let item = flags.get("item").map(String::as_str);
     let since = flags.get("since").map(String::as_str);
     let until = flags.get("until").map(String::as_str);
+    let filtered = [operation, consumer, item, since, until]
+        .iter()
+        .any(Option::is_some);
+    if let (false, Some(limit)) = (filtered, limit) {
+        let entries = tail_lines(limit)?;
+        let matched = journal_length()?;
+        return Ok(json!({"matched": matched, "returned": entries.len(), "entries": entries}));
+    }
     let mut entries: Vec<Value> = lines()?
         .into_iter()
         .filter(|entry| {
@@ -202,6 +199,17 @@ pub(super) fn query(flags: &HashMap<String, String>) -> Result<Value> {
         entries.drain(..entries.len() - limit);
     }
     Ok(json!({"matched": matched, "returned": entries.len(), "entries": entries}))
+}
+
+/// How many entries the journal holds, counted by line without parsing them.
+fn journal_length() -> Result<usize> {
+    let path = audit_path();
+    if !path.exists() {
+        return Ok(usize::MIN);
+    }
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("reading the audit journal {}", path.display()))?;
+    Ok(text.lines().filter(|line| !line.trim().is_empty()).count())
 }
 
 pub(super) fn start_epoch(flags: &HashMap<String, String>) -> Result<Value> {

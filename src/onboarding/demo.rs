@@ -34,7 +34,7 @@ pub(super) fn audit_evidence(item_id: &str) -> Result<bool> {
     let mut flags = HashMap::new();
     flags.insert("op".to_string(), "onboarding-demo-item-read".to_string());
     flags.insert("item".to_string(), item_id.to_string());
-    let result = crate::runtime::audit::dispatch("audit-query", &flags, &[])?
+    let result = crate::runtime::audit::dispatch("audit", &flags, &[])?
         .context("audit query is unavailable")?;
     Ok(result
         .get("matched")

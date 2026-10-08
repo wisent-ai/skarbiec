@@ -60,7 +60,7 @@ pub(super) fn readiness_check() -> Result<Vec<String>> {
 /// One pass of the daemon memory ceiling, spoken to the log and the journal
 /// only when it changed something or could not measure: a monitor that
 /// prints every healthy minute buries the line that matters. The journal row
-/// names the daemons and their sizes, nothing secret, so `audit-query` can
+/// names the daemons and their sizes, nothing secret, so `audit --op` can
 /// answer when and why the daemons were replaced.
 fn daemon_ceiling_pass() {
     match crate::core::crypto::recycle_oversized_daemons() {

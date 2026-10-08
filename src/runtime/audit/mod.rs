@@ -13,7 +13,7 @@ mod reports;
 pub use journal::{append, append_sync, retired_ports};
 pub use reports::{chain_report, probe};
 
-use reports::{query, recent, start_epoch};
+use reports::{audit, start_epoch};
 
 pub fn dispatch(
     command: &str,
@@ -21,8 +21,7 @@ pub fn dispatch(
     _positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
-        "audit" => Ok(Some(json!(recent(flags)?))),
-        "audit-query" => Ok(Some(query(flags)?)),
+        "audit" => Ok(Some(audit(flags)?)),
         "audit-epoch-start" => Ok(Some(start_epoch(flags)?)),
         "verify-chain" => Ok(Some(chain_report(flags)?)),
         _ => Ok(None),

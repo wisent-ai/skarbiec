@@ -67,5 +67,5 @@ fi
 
 "$SB" acquisition-read "$CONSUMER" "$ITEM" "$FIELD" --token "$ACQUISITION_TOKEN"
 "$SB" acquisition-read "$CONSUMER" "$ITEM" "$FIELD" --token "$ACQUISITION_TOKEN"
-"$SB" audit-query --consumer "$CONSUMER"
+"$SB" audit --consumer "$CONSUMER"
 printf '%s\n' "demo state: $DEMO_DIR"

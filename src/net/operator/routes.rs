@@ -20,9 +20,8 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             crate::cmd_list(&HashMap::from([("all".to_string(), "true".to_string())]))
         }
         "/v1/operator/recipients" => access("users", &no_flags, &none),
-        "/v1/operator/audit" => runtime("audit", &flags(parsed, &["limit"]), &none),
-        "/v1/operator/audit-query" => runtime(
-            "audit-query",
+        "/v1/operator/audit" => runtime(
+            "audit",
             &flags(
                 parsed,
                 &["op", "consumer", "item", "since", "until", "limit"],
