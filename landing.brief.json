@@ -76,7 +76,7 @@
     "The real one-use acquisition transcript from `SKARBIEC_EXAMPLE_DIR=\"${TMPDIR:-/tmp}/skarbiec-acquisition-quickstart\" sh docs/examples/acquire-one-field.sh`, showing the decisive first read `{\"consumer\":\"demo-workload\",\"field\":\"value\",\"item\":\"demo-note\",\"ok\":true,\"value\":\"not-a-secret\"}` immediately followed by the replay `{\"error\":\"unauthorized\",\"ok\":false}`.",
     "The registration output shape for `demo-workload`: `workload_bound: true`, `token: null`, and exactly one `acquire` capability for `demo-note#value`.",
     "The recorded real terminal journeys in `assets/demos/` — `one-use-acquisition.gif`, `delete-and-restore.gif`, and `vault-lifecycle.gif` — with the retained SHA-256 provenance in `assets/demos/manifest.json`.",
-    "Operator diagnostics as printed by the product: `skarbiec status` for the vault path and non-sensitive counts, `skarbiec key-doctor` for key and decryptability diagnosis, and `skarbiec verify-chain` for the audit chain.",
+    "Operator diagnostics as printed by the product: `skarbiec status` for the vault path and non-sensitive counts, `skarbiec key-doctor` for key and decryptability diagnosis, and `skarbiec audit verify` for the audit chain.",
     "The stated deployment boundary: supported release targets `darwin-arm64` and `linux-amd64`, runtime dependencies `gpg`, `openssl`, and `shasum` with `oathtool` only for TOTP, and `sh scripts/install.sh` for a source build."
   ],
   "brand": {

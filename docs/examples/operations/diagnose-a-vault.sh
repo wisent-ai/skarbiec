@@ -24,7 +24,7 @@ SB=${SKARBIEC_BIN:-skarbiec}
 # 2. The chain on its own, with the split that makes it affordable.
 #    Linkage covers every entry because it is two string comparisons; digests
 #    cost one shasum process each, so --tail bounds them to the newest window.
-"$SB" verify-chain --tail 200
+"$SB" audit verify --tail 200
 
 # 3. Declare where the canonical Skarbiec answers. A fresh installation has no
 #    forward file at all, and every `credential` call refuses until it does.

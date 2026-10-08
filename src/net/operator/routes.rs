@@ -21,14 +21,14 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         }
         "/v1/operator/recipients" => access("recipient list", &no_flags, &none),
         "/v1/operator/audit" => runtime(
-            "audit",
+            "audit list",
             &flags(
                 parsed,
                 &["op", "consumer", "item", "since", "until", "limit"],
             ),
             &none,
         ),
-        "/v1/operator/chain" => runtime("verify-chain", &flags(parsed, &["tail"]), &none),
+        "/v1/operator/chain" => runtime("audit verify", &flags(parsed, &["tail"]), &none),
         "/v1/operator/policy" => access("policy get", &no_flags, &none),
         "/v1/operator/grants" => grant("list", &no_flags, &none),
         "/v1/operator/rotation" => rotation("list", &no_flags, &none),

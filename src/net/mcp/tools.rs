@@ -110,7 +110,7 @@ pub(super) fn call_tool(name: &str, args: &Value) -> Result<Value> {
         "skarbiec_audit" => {
             let empty: Vec<String> = Vec::new();
             Ok(text_result(
-                &runtime::audit::dispatch("audit", &HashMap::new(), &empty)?
+                &runtime::audit::dispatch("audit list", &HashMap::new(), &empty)?
                     .context("audit produced no result")?,
             ))
         }

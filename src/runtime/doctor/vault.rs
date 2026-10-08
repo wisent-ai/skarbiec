@@ -36,7 +36,7 @@ pub(super) fn vault_check() -> Value {
     }
 }
 
-/// The hash chain, split the way `verify-chain` splits it: linkage over the
+/// The hash chain, split the way `audit verify` splits it: linkage over the
 /// whole journal, digests over the newest `tail` entries or over all of them.
 pub(super) fn audit_check(tail: Option<&str>) -> Value {
     let mut flags = HashMap::new();
