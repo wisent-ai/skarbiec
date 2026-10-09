@@ -28,6 +28,7 @@ impl std::error::Error for ToolExit {}
 
 mod footprint;
 mod limits;
+mod lock_holder;
 mod recovery;
 
 pub use footprint::{
@@ -38,8 +39,25 @@ pub use footprint::{
 use limits::{crypto_program, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
 use recovery::{gpg_status, recover_gpg_daemons, recoverable_gpg_failure};
 
-// gpg daemon failure gets one serialized daemon recovery and one retry.
+/// Run one crypto program. A gpg run that still fails after its recovery
+/// names every keyring lock held now — the holder's pid, host, what it runs
+/// and since when (`lock_holder`) — so a vault answering 503 because one
+/// process kept the key database says which process.
 pub(super) fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
+    match run_recovering(program, args, input) {
+        Err(error) if program == "gpg" => {
+            let holders = lock_holder::keyring_lock_holders();
+            if holders.is_empty() {
+                return Err(error);
+            }
+            Err(anyhow::anyhow!("{error:#}; {}", holders.join("; ")))
+        }
+        answered => answered,
+    }
+}
+
+// gpg daemon failure gets one serialized daemon recovery and one retry.
+fn run_recovering(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
     let recovery_generation = (program == "gpg").then(|| {
         *GPG_RECOVERY_GENERATION
             .lock()
