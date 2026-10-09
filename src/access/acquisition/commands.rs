@@ -12,9 +12,8 @@ const REQUEST_USAGE: &str = "usage: acquisition request <consumer> <item> <field
 const READ_USAGE: &str = "usage: acquisition read <consumer> <item> <field> --token-file <path>";
 
 /// `acquisition request|read` is a group: the object is the command and the
-/// verb its first positional. The hyphenated spellings (`acquisition-request`,
-/// `acquisition-read`) are still answered for workloads already written
-/// against them; they go once those workloads run the group.
+/// verb its first positional; the operator routes call the leaves by their
+/// whole name. The hyphenated spellings are gone.
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -23,14 +22,6 @@ pub fn dispatch(
     if command == "acquisition" {
         return group(flags, positionals).map(Some);
     }
-    let spelled;
-    let command = match command.strip_prefix("acquisition-") {
-        Some(verb) => {
-            spelled = format!("acquisition {verb}");
-            spelled.as_str()
-        }
-        None => command,
-    };
     leaf(command, flags, positionals)
 }
 

@@ -8,8 +8,8 @@
 # grant for that field, signs a proof, asks `acquisition request` for a one-use
 # token, reads the field once with `acquisition read --token-file`, and checks
 # that the spent token is refused. The group without a subcommand and an
-# unknown subcommand are refused, and the hyphenated `acquisition-request`,
-# which workloads written before the group still run, issues a token too.
+# unknown subcommand are refused, and the withdrawn hyphenated
+# `acquisition-request` is refused as an unknown command, issuing nothing.
 # Every command and whether it succeeded go to the run's report.txt; no token
 # or field value is written there.
 #
@@ -100,10 +100,10 @@ WANT=refused run acquisition frobnicate
 says "unknown acquisition command" "an unknown acquisition subcommand is refused"
 
 proof
-WANT=ok run acquisition-request "$CONSUMER" "$ITEM" "$FIELD" --workload-id "$WORKLOAD_ID" \
+WANT=refused run acquisition-request "$CONSUMER" "$ITEM" "$FIELD" --workload-id "$WORKLOAD_ID" \
   --workload-timestamp "$TIMESTAMP" --workload-nonce "$NONCE" --workload-signature "$SIGNATURE"
-[ -n "$(token_from)" ] || fail "the hyphenated acquisition-request answered no token"
-echo "ok: the hyphenated acquisition-request still issues a token" >>"$REPORT"
+[ -z "$(token_from)" ] || fail "the withdrawn acquisition-request still issued a token"
+echo "ok: the withdrawn acquisition-request is refused and issues no token" >>"$REPORT"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

@@ -8,10 +8,9 @@
 # The owner vault stores one item, sets up its mirror and pushes; the replica
 # sets up its own mirror on the same remote and pulls, and then lists the
 # owner's item. The mirror group without a subcommand and an unknown
-# subcommand are refused; the old sync-push, which Stado runs on hosts against
-# their installed Skarbiec, still pushes; bond status and the old sync-status
-# both answer. Every command and whether it succeeded go to the run's
-# report.txt.
+# subcommand are refused; the withdrawn sync-push and sync-status are refused
+# as unknown commands, and bond status answers. Every command and whether it
+# succeeded go to the run's report.txt.
 #
 # Usage: SKARBIEC=target/debug/skarbiec tests/mirror/group.sh
 set -eu
@@ -58,11 +57,11 @@ WANT=refused run mirror
 says "needs a subcommand" "the mirror group without a subcommand is refused"
 WANT=refused run mirror frobnicate
 says "unknown mirror command" "an unknown mirror subcommand is refused"
-WANT=ok run sync-push
-echo "ok: the old sync-push still pushes" >>"$REPORT"
+WANT=refused run sync-push
+says "unknown command: sync-push" "the withdrawn sync-push is refused"
 WANT=ok run bond status
-WANT=ok run sync-status
-echo "ok: bond status and the old sync-status both answer" >>"$REPORT"
+WANT=refused run sync-status
+says "unknown command: sync-status" "the withdrawn sync-status is refused"
 
 export SKARBIEC_VAULT_FILE="$ROOT/replica.vault.json" SKARBIEC_SYNC_DIR="$ROOT/sync-replica"
 WANT=ok run init "mirror-test-replica-$RUN"

@@ -36,10 +36,6 @@ pub fn dispatch(
         // The operator route reads the list by its whole leaf name.
         "bond list" => cmd_bond_list().map(Some),
         "enroll" => cmd_enroll(flags).map(Some),
-        // `bond status` under its old name: Stado runs it on a host against
-        // the Skarbiec installed there, so it stays until every host runs one
-        // with `bond status`.
-        "sync-status" => cmd_sync_status(flags).map(Some),
         _ => Ok(None),
     }
 }

@@ -10,8 +10,8 @@
 # (passes) — each read from standard input. The refusals: a candidate given as
 # an argument and an empty standard input are refused naming standard input,
 # the retired policy-check-length is no command, and the policy group refuses a
-# missing or unknown subcommand. The hyphenated policy-get, which a host's
-# Weles still runs against its installed Skarbiec, answers the same policy.
+# missing or unknown subcommand. The withdrawn hyphenated policy-get is
+# refused as an unknown command.
 # Every command and whether
 # it succeeded go to the run's report.txt; a candidate is never written there.
 #
@@ -77,8 +77,8 @@ verdict true "with no rule set a candidate passes"
 WANT=ok run policy set min_generated_length "${#LONG}"
 WANT=ok run policy get
 says "\"min_generated_length\": ${#LONG}" "policy get reads the rule policy set wrote"
-WANT=ok run policy-get
-says "\"min_generated_length\": ${#LONG}" "the hyphenated policy-get still answers the same policy"
+WANT=refused run policy-get
+says "unknown command: policy-get" "the withdrawn policy-get is refused"
 WANT=refused run policy
 says "needs a subcommand" "the policy group without a subcommand is refused"
 WANT=refused run policy frobnicate

@@ -79,9 +79,8 @@ fn git(args: &[&str]) -> Result<(bool, String, String)> {
 /// `mirror init|push|pull` is a group over the Git ciphertext mirror: the
 /// object is the command and the verb its first positional; the operator
 /// routes call the leaves by their whole name ("mirror push"). The old
-/// spellings sync-init, sync-push and sync-pull still answer, because Stado
-/// runs them on a host against the Skarbiec installed there; they go once
-/// every host runs one with the group. Audit operation names are unchanged.
+/// spellings sync-init, sync-push and sync-pull are gone: Stado runs the
+/// group. Audit operation names are unchanged.
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -90,14 +89,6 @@ pub fn dispatch(
     if command == "mirror" {
         return group(flags, positionals).map(Some);
     }
-    let spelled;
-    let command = match command.strip_prefix("sync-") {
-        Some(verb) => {
-            spelled = format!("mirror {verb}");
-            spelled.as_str()
-        }
-        None => command,
-    };
     leaf(command, flags, positionals)
 }
 

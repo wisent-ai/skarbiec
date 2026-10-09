@@ -122,10 +122,8 @@ fn coerce(raw: &str) -> Value {
 
 /// `policy get|set|unset|check` is a group: the object is the command and the
 /// verb its first positional; the operator routes call the leaves by their
-/// whole name ("policy get"). The hyphenated spellings (`policy-get`, …) are
-/// still answered, because a host's Weles runs `skarbiec policy-get` against
-/// the Skarbiec installed there; they go once every host runs one with the
-/// group.
+/// whole name ("policy get"). The hyphenated spellings are gone: Weles and
+/// every other caller run the group.
 pub fn dispatch(
     command: &str,
     _flags: &HashMap<String, String>,
@@ -134,14 +132,6 @@ pub fn dispatch(
     if command == "policy" {
         return group(positionals).map(Some);
     }
-    let spelled;
-    let command = match command.strip_prefix("policy-") {
-        Some(verb) => {
-            spelled = format!("policy {verb}");
-            spelled.as_str()
-        }
-        None => command,
-    };
     leaf(command, positionals)
 }
 
