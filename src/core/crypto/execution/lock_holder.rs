@@ -80,7 +80,11 @@ fn gnupg_programs() -> Result<Vec<std::ffi::OsString>, String> {
                 .lines()
                 .filter_map(|line| line.rsplit(':').next())
                 .filter(|program| !program.is_empty())
-                .filter_map(|program| Path::new(program).file_name().map(|name| name.to_os_string()))
+                .filter_map(|program| {
+                    Path::new(program)
+                        .file_name()
+                        .map(|name| name.to_os_string())
+                })
                 .collect()
         })
         .map_err(|error| format!("gpgconf could not list GnuPG's programs: {error:#}"))
@@ -95,7 +99,9 @@ fn executable_of(pid: &str) -> Result<Option<PathBuf>, String> {
     match super::run_once("ps", &["-o", "comm=", "-p", pid], None) {
         Ok(path) if path.trim().is_empty() => Ok(None),
         Ok(path) => Ok(Some(PathBuf::from(path.trim()))),
-        Err(error) => Err(format!("the process table could not name pid {pid}: {error:#}")),
+        Err(error) => Err(format!(
+            "the process table could not name pid {pid}: {error:#}"
+        )),
     }
 }
 
@@ -133,7 +139,9 @@ fn release(lock: &Path, gnupg: &[std::ffi::OsString], node: &str) -> Option<Stri
         Err(why) => format!("left {} alone: {why}", lock.display()),
         Ok(None) => stale(format!("its holder pid {pid} runs nothing here")),
         Ok(Some(program))
-            if !gnupg.iter().any(|known| program.file_name() == Some(known.as_os_str())) =>
+            if !gnupg
+                .iter()
+                .any(|known| program.file_name() == Some(known.as_os_str())) =>
         {
             stale(format!(
                 "pid {pid} now runs {}, not one of GnuPG's programs: the pid was reused",
