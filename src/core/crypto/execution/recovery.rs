@@ -169,7 +169,6 @@ pub(super) fn recover_gpg_daemons() -> Result<()> {
     for sentence in super::lock_holder::release_wedged_locks() {
         eprintln!("skarbiec: keyring lock: {sentence}");
     }
-    let _ = run_once("gpgconf", &["--launch", "keyboxd"], None);
     if answered {
         return Ok(());
     }

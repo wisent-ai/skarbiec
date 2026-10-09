@@ -116,9 +116,9 @@ fn node_name() -> Result<String, String> {
 /// was done. Called only after gpg itself gave up waiting on the lock and
 /// with every gpg of this process drained, so no decryption of ours holds
 /// it:
-/// - a lock written on another host name, or by a pid that runs nothing
-///   here, is stale: GnuPG removes a dead holder's lock only when the host
-///   name still matches, so a renamed host keeps it for ever;
+/// - a lock is considered only when its recorded host is this host; a
+///   different or absent host is not evidence of a stale lock, because the
+///   keyring may be shared with another machine;
 /// - a lock whose pid now runs a program that is not one of GnuPG's is stale
 ///   too: the pid was reused, and GnuPG, seeing it alive, waits;
 /// - a lock one of GnuPG's programs has held past gpg's own wait is wedged,
@@ -126,15 +126,32 @@ fn node_name() -> Result<String, String> {
 fn release(lock: &Path, gnupg: &[std::ffi::OsString], node: &str) -> Option<String> {
     let held = std::fs::read_to_string(lock).ok()?;
     let mut lines = held.lines();
-    let pid = lines.next()?.trim().to_string();
-    let host = lines.next().map(str::trim).filter(|host| !host.is_empty());
+    let recorded_pid = lines.next()?.trim();
+    let pid = match recorded_pid.parse::<std::num::NonZeroI32>() {
+        Ok(pid) if pid.get().is_positive() => pid.to_string(),
+        _ => {
+            return Some(format!(
+                "left {} alone: {recorded_pid:?} is not a positive process id",
+                lock.display()
+            ));
+        }
+    };
+    let Some(host) = lines.next().map(str::trim).filter(|host| !host.is_empty()) else {
+        return Some(format!(
+            "left {} alone: the lock names no host; ownership cannot be established",
+            lock.display()
+        ));
+    };
+    if host != node {
+        return Some(format!(
+            "left {} alone: holder pid {pid} belongs to host {host}, not {node}; a shared keyring lock is not stale merely because its host differs",
+            lock.display()
+        ));
+    }
     let stale = |why: String| match std::fs::remove_file(lock) {
         Ok(()) => format!("removed {}: {why}", lock.display()),
         Err(error) => format!("could not remove {} ({why}): {error}", lock.display()),
     };
-    if let Some(host) = host.filter(|host| *host != node) {
-        return Some(stale(format!("written by pid {pid} on {host}, not {node}")));
-    }
     let sentence = match executable_of(&pid) {
         Err(why) => format!("left {} alone: {why}", lock.display()),
         Ok(None) => stale(format!("its holder pid {pid} runs nothing here")),
