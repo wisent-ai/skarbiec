@@ -163,6 +163,12 @@ pub(super) fn recover_gpg_daemons() -> Result<()> {
             }
         }
     }
+    // A keyring lock whose holder is not one of the daemons above survives
+    // their end: a stale lock of a dead or reused pid, or a gpg client that
+    // never let go. Each is released and said on stderr, the vault's log.
+    for sentence in super::lock_holder::release_wedged_locks() {
+        eprintln!("skarbiec: keyring lock: {sentence}");
+    }
     let _ = run_once("gpgconf", &["--launch", "keyboxd"], None);
     if answered {
         return Ok(());
