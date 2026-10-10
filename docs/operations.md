@@ -84,13 +84,17 @@ Stale-lock removal remains GnuPG's operation on the next read or retry, not
 Skarbiec's `unlink`: a lock can be replaced between observing its recorded
 holder and removing its path. Skarbiec leaves that ownership decision to the
 keyring implementation; it never unlinks a lock based on a process snapshot.
+Live-holder signals are bound to the inspected process lifetime: macOS uses
+one audit token for executable lookup and `SIGTERM`; Linux opens a pidfd before
+lookup and signals that handle. Identity acquisition, path lookup or signaling
+failure leaves the holder alone with the actual kernel error, never a PID-only retry.
 
-The real recovery journey needs an isolated OS account, never a live vault
-host. It refuses pre-existing GnuPG processes before daemon control, creates
-its own encrypted item and keyring, checks the value after recovery, and
-verifies that foreign-host, invalid-PID and live non-GnuPG locks stay intact
-with diagnostics naming the observed lock and PID. Run the explicit test only
-in the authorized qualification stage:
+The real recovery journey needs an isolated OS account, never a live vault host.
+It refuses existing GnuPG processes, checks encrypted values across recovery,
+and preserves foreign-host, invalid-PID and non-GnuPG locks with their diagnostics.
+The native identity case signals an owned pipe-reader process, verifies SIGTERM,
+then requires the dead identity to refuse another signal while a new reader lives.
+Run these explicit tests on each supported OS in the authorized qualification stage:
 
 ```sh
 SKARBIEC=/absolute/path/to/candidate \
