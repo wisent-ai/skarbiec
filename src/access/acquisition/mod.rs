@@ -96,6 +96,7 @@ pub fn issue(
     if !exact_name(consumer)
         || !role::exact_coordinate(item)
         || !exact_name(field)
+        || field == "context"
         || !valid_workload_id(workload_id)
         || !valid_nonce(nonce)
     {
@@ -185,6 +186,7 @@ pub fn consume(
     if !exact_name(consumer)
         || !role::exact_coordinate(item)
         || !exact_name(field)
+        || field == "context"
         || presented.is_empty()
     {
         return Ok(None);
