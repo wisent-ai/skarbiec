@@ -258,6 +258,15 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     journey.skarbiec("recover", &["recover-daemons"]);
     let before = journey.skarbiec("read-before", &["get", &item, "--field", "value"]);
     assert_eq!(String::from_utf8_lossy(&before.stdout).trim(), value);
+    let help_paths = [
+        journey.root.join("vault.json"),
+        journey.root.join("audit.jsonl"),
+    ];
+    let before_help = help_paths.each_ref().map(|path| fs::read(path).unwrap());
+    journey.skarbiec("purge-help", &["purge", &item, "--yes", "--help"]);
+    assert_eq!(help_paths.map(|path| fs::read(path).unwrap()), before_help);
+    let help_read = journey.skarbiec("read-after-help", &["get", &item, "--field", "value"]);
+    assert_eq!(String::from_utf8_lossy(&help_read.stdout).trim(), value);
     let node = journey.run("node", Command::new("uname").arg("-n"));
     let node = String::from_utf8(node.stdout).unwrap();
     let pid = std::process::id().to_string();

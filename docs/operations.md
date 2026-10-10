@@ -92,7 +92,7 @@ failure leaves the holder alone with the actual kernel error, never a PID-only r
 
 The real recovery journey needs an isolated OS account, never a live vault host.
 It refuses existing GnuPG processes, checks encrypted values across recovery,
-and preserves foreign-host, invalid-PID and non-GnuPG locks with their diagnostics. A non-directory keyring must produce a failed recovery receipt naming the rejected control operation, followed by a successful read from the valid isolated keyring.
+and preserves foreign-host, invalid-PID and non-GnuPG locks with their diagnostics. It invokes `purge ITEM --yes --help` on its real encrypted item, requires byte-identical vault and audit files, then reads the original value again. A non-directory keyring must produce a failed recovery receipt naming the rejected control operation, followed by a successful read from the valid isolated keyring.
 The native identity case signals an owned pipe-reader process, verifies SIGTERM,
 then requires the dead identity to refuse another signal while a new reader lives.
 Run these explicit tests on each supported OS in the authorized qualification stage:
