@@ -16,6 +16,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const binary = resolve(required('SKARBIEC'));
 const revision = required('SKARBIEC_TEST_SOURCE_REVISION');
 const configPath = resolve(required('SKARBIEC_TEST_STADO_CONFIG'));
+const clientEndpoint = required('SKARBIEC_TEST_CLIENT_ENDPOINT');
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 assert.ok(config.secrets?.skarbiec?.url, 'a real owner route is required');
 assert.ok(!config.secrets.skarbiec.vault_file, 'this journey must run on a non-owner host');
@@ -54,11 +55,11 @@ function success(program, args, input) {
   return result.stdout;
 }
 function cli(args, input) { return success(binary, args, input); }
-async function operator(path, body, expectedSuccess = true) {
-  const response = await fetch(`${endpoint}${path}`, { method: 'POST',
+async function operator(path, body, expectedSuccess = true, address = endpoint) {
+  const response = await fetch(`${address}${path}`, { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const text = await response.text();
-  report.observations.push({ path, status: response.status, body: text });
+  report.observations.push({ endpoint: address, path, status: response.status, body: text });
   assert.equal(response.ok, expectedSuccess, `${path}: ${text}`);
   return JSON.parse(text);
 }
@@ -71,6 +72,24 @@ try {
   assert.ok(status.vault, 'status must identify the serving vault');
   endpoint = status.source.endpoint;
   report.owner = status;
+  const clientStatus = await operator('/v1/operator/status', {}, true, clientEndpoint);
+  assert.equal(clientStatus.source.kind, 'remote', 'the real client listener must forward to its owner');
+  assert.equal(clientStatus.source.route, config.secrets.skarbiec.url);
+  assert.equal(clientStatus.vault, status.vault, 'CLI and client listener must reach the same serving vault');
+  mayExist = true;
+  for (const [path, body] of [
+    ['/v1/operator/status', {}],
+    ['/v1/operator/items/set-json', {
+      flags: { type: 'login' }, positionals: [id], payload: JSON.stringify(payload),
+    }],
+  ]) {
+    const refusal = await operator(path, { ...body, forwardedToOwner: true }, false, clientEndpoint);
+    assert.ok(refusal.error.includes(path) && refusal.error.includes(config.secrets.skarbiec.url),
+      'second-forwarding refusal must identify the requested operation and conflicting owner route');
+  }
+  assert.ok(!JSON.parse(cli(['list', '--all'])).some(item => item.id === id),
+    'a refused second-forwarding write must not create the test item in the real owner vault');
+  mayExist = false;
   const tags = [`stado:role:${role}`, id];
   mayExist = true;
   const write = JSON.parse(cli(['set-json', id, '--type', 'login', '--tags', tags.join(',')], JSON.stringify(payload)));
