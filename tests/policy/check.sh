@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real test of `skarbiec policy check|set|get` through the built binary on a vault of
+# Real test of `skarbiec policy check|set|get|unset` through the built binary on a vault of
 # its own: SKARBIEC_VAULT_FILE, SKARBIEC_AUDIT_FILE and GNUPGHOME point into
 # this checkout's target directory, so the operator's vault and keyring are
 # never read or written.
@@ -103,6 +103,28 @@ says "the one it read was empty" "an empty standard input is refused"
 [ "$status" != "$ARGUMENT_STATUS" ] \
   || fail "a malformed invocation must not share the empty-input refusal exit status"
 WANT=refused run policy-check-length "argument-candidate-$RUN"
+
+: >"$ROOT/stdin"
+WANT=ok run policy unset min_generated_length
+says '"removed": true' "withdrawing a configured rule reports its removal"
+WANT=ok run policy get
+case "$out" in
+  *'"min_generated_length"'*) fail "the withdrawn policy rule remained persisted" ;;
+esac
+printf '%s\n' "$SHORT" >"$ROOT/stdin"
+WANT=ok run policy check
+says '"configured": false' "the withdrawn rule is reported unconfigured"
+verdict true "the previously rejected candidate passes after withdrawal"
+
+cp "$SKARBIEC_VAULT_FILE" "$ROOT/vault-before-repeat.json"
+cp "$SKARBIEC_AUDIT_FILE" "$ROOT/audit-before-repeat.jsonl"
+: >"$ROOT/stdin"
+WANT=ok run policy unset min_generated_length
+says '"removed": false' "repeated withdrawal reports an already absent rule"
+cmp "$SKARBIEC_VAULT_FILE" "$ROOT/vault-before-repeat.json" \
+  || fail "repeated withdrawal rewrote the vault"
+cmp "$SKARBIEC_AUDIT_FILE" "$ROOT/audit-before-repeat.jsonl" \
+  || fail "repeated withdrawal appended an audit mutation"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"
