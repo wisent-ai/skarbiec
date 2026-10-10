@@ -14,6 +14,8 @@ use std::{
 mod identity;
 #[path = "../../src/core/crypto/execution/lock_holder/process_identity.rs"]
 mod process_identity;
+#[path = "recovery/vault_refusals.rs"]
+mod vault_refusals;
 
 struct Journey {
     root: PathBuf,
@@ -282,6 +284,7 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
         cause.contains("GnuPG daemon recovery incomplete") && cause.contains("gpgconf"),
         "recovery refusal lost the failed operation: {cause}"
     );
+    journey.refused_non_file_vault(&item);
     let after = journey.skarbiec("read-after", &["get", &item, "--field", "value"]);
     assert_eq!(String::from_utf8_lossy(&after.stdout).trim(), value);
     journey.passed = true;
