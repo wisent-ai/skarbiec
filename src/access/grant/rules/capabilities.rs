@@ -81,6 +81,9 @@ pub(in crate::access::grant) fn parse_capabilities(
             capabilities.push(capability);
             continue;
         }
+        if !preserved && field == Some("context") && action != "read" {
+            bail!("context is metadata and may only be named by read capabilities");
+        }
         // Lifecycle scopes can name the item an acquire operation will create.
         // They grant no value access; requiring an existing item here would
         // make acquisition of a new credential through the canonical API impossible.
@@ -89,9 +92,6 @@ pub(in crate::access::grant) fn parse_capabilities(
         // against today's holder here.
         if !preserved && !names_role {
             if let Some(field) = field {
-                if field == "context" && action != "read" {
-                    bail!("context is metadata and may only be named by read capabilities");
-                }
                 let item_exists = vault
                     .doc()
                     .get("items")
