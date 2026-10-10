@@ -197,7 +197,7 @@ pub(crate) fn handle_items_read(
     let payload = match vault.get_item(id) {
         Ok(payload) => payload,
         Err(error) => {
-            let detail = error.to_string();
+            let detail = format!("{error:#}");
             eprintln!("item decryption failed: {id}: {detail}");
             crate::runtime::audit::append(
                 "http-item-read-undecryptable",
