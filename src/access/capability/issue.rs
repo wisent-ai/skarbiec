@@ -123,6 +123,9 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
 
     let capability_id = crypto::sha256_hex(&crypto::random_token()?)?;
     let now = now_epoch()?;
+    let expires_at = now
+        .checked_add(ttl)
+        .context("--ttl exceeds the representable capability expiry timestamp")?;
     let _state_lock = acquire_state_lock()?;
     let mut state = load_state()?;
     state["capabilities"][&capability_id] = json!({
@@ -132,7 +135,7 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
         "target": target,
         "authorization_id": authorization_id,
         "issued_at": now,
-        "expires_at": now + ttl,
+        "expires_at": expires_at,
         "remaining_uses": max_uses,
         "state": "issued",
     });
