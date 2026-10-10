@@ -15,7 +15,6 @@ use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::net::TcpStream;
 use std::path::PathBuf;
-use std::process::Command;
 
 use super::super::grant;
 use super::declaration::Row;
@@ -41,8 +40,11 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn chmod_600(path: &PathBuf) {
-    Command::new("chmod").arg("600").arg(path).status().ok();
+fn write_private(path: &PathBuf, body: &[u8]) -> Result<()> {
+    let absolute = std::path::absolute(path)
+        .with_context(|| format!("resolve output path {}", path.display()))?;
+    crate::core::vault::atomic_write(&absolute, body)
+        .with_context(|| format!("write private route output {}", absolute.display()))
 }
 
 /// The variable one resolved coordinate is exported under: the login kind's
@@ -146,8 +148,7 @@ pub(super) fn emit(
     let mut files: Vec<Value> = Vec::new();
     for (item, body) in &bodies {
         let path = directory.join(format!("{item}.env"));
-        std::fs::write(&path, body).with_context(|| format!("write {}", path.display()))?;
-        chmod_600(&path);
+        write_private(&path, body.as_bytes())?;
         files.push(json!({"item": item, "out_file": path.display().to_string()}));
     }
     names.sort();
@@ -209,8 +210,7 @@ pub(super) fn expand(template: &str, out: &str) -> Result<Value> {
         }
     }
     let out_path = PathBuf::from(out);
-    std::fs::write(&out_path, result)?;
-    chmod_600(&out_path);
+    write_private(&out_path, result.as_bytes())?;
     crate::runtime::audit::append(
         "route-resolve-template",
         &json!({"template": template, "out": out, "names": names}),
