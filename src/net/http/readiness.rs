@@ -62,33 +62,34 @@ pub(super) fn readiness_check() -> Result<Vec<String>> {
 /// prints every healthy minute buries the line that matters. The journal row
 /// names the daemons and their sizes, nothing secret, so `audit --op` can
 /// answer when and why the daemons were replaced.
-fn daemon_ceiling_pass() {
-    match crate::core::crypto::recycle_oversized_daemons() {
-        Ok(recycle) if recycle.recycled => {
+fn daemon_ceiling_pass() -> Result<()> {
+    match crate::core::crypto::recycle_oversized_daemons()
+        .context("skarbiec maintain: GnuPG daemon ceiling")?
+    {
+        recycle if recycle.recycled => {
             let over_limit = recycle.over_limit.join(", ");
             eprintln!(
                 "skarbiec maintain: replaced GnuPG daemons over the {} ceiling: {over_limit}",
                 crate::core::crypto::human_size(recycle.limit_bytes)
             );
-            if let Err(error) = crate::runtime::audit::append(
+            crate::runtime::audit::append(
                 "daemon-recycle",
                 &json!({
                     "limit_bytes": recycle.limit_bytes,
                     "over_limit": recycle.over_limit,
                 }),
-            ) {
-                eprintln!("skarbiec maintain: journal the daemon recycle: {error:#}");
-            }
+            )
+            .context("skarbiec maintain: journal the daemon recycle")?;
         }
-        Ok(_) => {}
-        Err(error) => eprintln!("skarbiec maintain: GnuPG daemon ceiling: {error:#}"),
+        _ => {}
     }
+    Ok(())
 }
 
 /// One maintenance pass: the GnuPG daemon ceiling, then the readiness proof.
 /// `skarbiec maintain` runs it once; a Stado schedule pinned to the vault host
 /// decides how often. A failed proof is the command's error.
 pub(crate) fn maintenance_pass() -> Result<Vec<String>> {
-    daemon_ceiling_pass();
+    daemon_ceiling_pass()?;
     readiness_check()
 }
