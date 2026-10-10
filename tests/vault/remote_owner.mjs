@@ -92,6 +92,13 @@ try {
   const missing = invoke(binary, ['get', id, '--field', 'absent-test-field']);
   assert.ok(missing.status !== null && missing.status);
   assert.ok(missing.stderr.includes('absent-test-field'));
+  assert.ok(missing.stderr.includes(status.vault), 'a missing field must identify the serving vault');
+  assert.ok(missing.stderr.includes('username') && missing.stderr.includes('password'),
+    'a missing field must identify the available fields without exposing their values');
+  assert.ok(!missing.stderr.includes(replacement), 'refusal diagnostics must not reveal the secret');
+  const unbound = invoke(binary, ['get', `role:${randomUUID()}`]);
+  assert.ok(unbound.status !== null && unbound.status);
+  assert.ok(unbound.stderr.includes(status.vault), 'role resolution failure must identify the serving vault');
   const invalid = invoke(binary, ['set-json', id], '{');
   assert.ok(invalid.status !== null && invalid.status);
   assert.equal(cli(['get', id, '--field', 'password']), `${replacement}\n`);
@@ -102,6 +109,7 @@ try {
   assert.ok(!JSON.parse(cli(['list', '--all'])).some(item => item.id === id));
   const absent = invoke(binary, ['get', id]);
   assert.ok(absent.status !== null && absent.status, 'a purged test item must remain absent');
+  assert.ok(absent.stderr.includes(status.vault), 'a missing item must identify the serving vault');
   assert.equal(existsSync(copy) ? hash(copy) : null, originalCopy, 'the client copy must remain untouched');
   report.passed = true;
 } catch (error) {

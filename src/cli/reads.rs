@@ -85,7 +85,16 @@ pub(crate) fn emit_get(flags: &HashMap<String, String>, value: &Value) -> Result
 pub(crate) fn get_value(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let coordinate = positionals.first().or_usage(GET_USAGE)?;
     let path = vault_path();
-    let vault = Vault::open(path.clone())?;
+    read_coordinate(flags, coordinate, &path)
+        .with_context(|| format!("reading {coordinate} from the vault at {}", path.display()))
+}
+
+fn read_coordinate(
+    flags: &HashMap<String, String>,
+    coordinate: &str,
+    path: &std::path::Path,
+) -> Result<Value> {
+    let vault = Vault::open(path.to_path_buf())?;
     // `role:<role>` reads the one live item tagged `stado:role:<role>`, the
     // same coordinate acquisition and scoped reads take, so an owner-side
     // reader names what the secret is for instead of an item id.
@@ -118,9 +127,7 @@ pub(crate) fn get_value(flags: &HashMap<String, String>, positionals: &[String])
             "revision": vault.item_revision(id)?,
         }));
     }
-    let item = vault
-        .get_item(id)
-        .with_context(|| format!("reading item {id} from the vault at {}", path.display()))?;
+    let item = vault.get_item(id)?;
     let Some(field) = flags.get("field") else {
         return Ok(item);
     };
