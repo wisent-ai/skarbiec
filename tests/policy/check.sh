@@ -60,10 +60,14 @@ says() {
   esac
 }
 verdict() {
-  case "$out" in
-    *"\"ok\": $1"* | *"\"ok\":$1"*) echo "ok: $2" >>"$REPORT" ;;
-    *) fail "$2: the verdict was not ok=$1" ;;
-  esac
+  printf '%s' "$out" | jq -e --argjson expected "$1" '.ok == $expected' >/dev/null \
+    || fail "$2: the top-level verdict was not ok=$1"
+  echo "ok: $2" >>"$REPORT"
+}
+actual_length() {
+  printf '%s' "$out" | jq -e --argjson expected "$1" \
+    'any(.rules[]; .key == "min_generated_length" and .actual == $expected)' >/dev/null \
+    || fail "policy check did not report the exact candidate length"
 }
 
 [ "$(git rev-parse HEAD)" = "$SOURCE_REVISION" ] || fail "source revision differs from the candidate declaration"
@@ -99,6 +103,19 @@ case "$out" in *"$SHORT"*) fail "policy check repeated the candidate" ;; esac
 printf '%s\n' "$LONG" >"$ROOT/stdin"
 WANT=ok run policy check
 verdict true "a candidate of exactly min_generated_length passes, its trailing newline not counted"
+actual_length "${#LONG}"
+printf '%s\r\n' "$LONG" >"$ROOT/stdin"
+WANT=ok run policy check
+actual_length "${#LONG}"
+candidate="$LONG"$'\n'
+printf '%s\n' "$candidate" >"$ROOT/stdin"
+WANT=ok run policy check
+actual_length "${#candidate}"
+candidate="$LONG "
+printf '%s\r\n' "$candidate" >"$ROOT/stdin"
+WANT=ok run policy check
+actual_length "${#candidate}"
+case "$out" in *"$LONG"*) fail "policy check repeated the candidate" ;; esac
 
 : >"$ROOT/stdin"
 WANT=refused run policy check "argument-candidate-$RUN"
