@@ -6,7 +6,7 @@
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::net::TcpStream;
-use std::sync::{mpsc, Mutex, PoisonError};
+use std::sync::{mpsc, Mutex};
 use wisent_errors::Code;
 
 use super::routes::handle;
@@ -41,14 +41,14 @@ impl RequestPool {
         let lost = self
             .lost
             .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+            .map_err(|error| anyhow!("lock request-worker failure receiver: {error}"))?
             .recv();
         match lost {
             Ok(error) => Err(error.context(
                 "a request worker encountered a fatal local resource failure; \
                  the serving process cannot continue safely and must end",
             )),
-            Err(_) => Err(anyhow!("the request workers' failure channel closed")),
+            Err(error) => Err(anyhow!("receive request-worker failure: {error}")),
         }
     }
 
