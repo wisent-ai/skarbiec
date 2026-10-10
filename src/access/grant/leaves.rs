@@ -42,14 +42,12 @@ pub(in crate::access::grant) fn group(
                 .get("token-file")
                 .map(Path::new)
                 .or_usage("--token-file is required")?;
-            let mut attempt = 0u32;
             loop {
-                attempt += 1;
                 match ensure_read_once(consumer, item, field, token_file) {
                     Ok(report) => return Ok(Some(report)),
                     // A concurrent writer won; the next attempt re-reads its
                     // generation and applies on top of it.
-                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {}
+                    Err(error) if is_concurrent_change(&error) => {}
                     Err(error) => return Err(error),
                 }
             }
@@ -61,14 +59,12 @@ pub(in crate::access::grant) fn group(
                 .get(std::iter::once(()).count())
                 .or_usage(usage)?;
             let field = flags.get("field").or_usage("--field is required")?;
-            let mut attempt = 0u32;
             loop {
-                attempt += 1;
                 match super::narrow::narrow_read_once(consumer, item, field) {
                     Ok(report) => return Ok(Some(report)),
                     // A concurrent writer won; the next attempt re-reads its
                     // generation and removes the capability from it.
-                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {}
+                    Err(error) if is_concurrent_change(&error) => {}
                     Err(error) => return Err(error),
                 }
             }
@@ -85,12 +81,10 @@ pub(in crate::access::grant) fn group(
             // losing racer re-opens and re-applies instead of surfacing
             // the conflict to callers. Every attempt mints a fresh bearer;
             // only the winner's bearer lands in the report.
-            let mut attempt = 0u32;
             loop {
-                attempt += 1;
-                match issue_once(consumer, flags, attempt) {
+                match issue_once(consumer, flags) {
                     Ok(report) => return Ok(Some(report)),
-                    Err(error) if is_concurrent_change(&error) && attempt < 5 => {}
+                    Err(error) if is_concurrent_change(&error) => {}
                     Err(error) => return Err(error),
                 }
             }

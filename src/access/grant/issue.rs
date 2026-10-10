@@ -17,10 +17,7 @@ use crate::core::{crypto, vault_path};
 pub(in crate::access::grant) fn issue_once(
     consumer: &str,
     flags: &std::collections::HashMap<String, String>,
-    attempt: u32,
 ) -> anyhow::Result<Value> {
-    let _ = attempt;
-
     let mut vault = load()?;
     let existing_capabilities = vault
         .doc()
