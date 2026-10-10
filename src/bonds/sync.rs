@@ -14,7 +14,10 @@ use super::*;
 /// not replication work. A host with no vault yet pulls nothing.
 pub(crate) fn pulled_bonds() -> Result<Vec<String>> {
     let path = vault_path();
-    if !path.exists() {
+    if !path
+        .try_exists()
+        .with_context(|| format!("inspect replication vault {}", path.display()))?
+    {
         return Ok(Vec::new());
     }
     Ok(pulled(Vault::open(path)?.doc()))
@@ -55,7 +58,12 @@ fn pull(name: &str, address: &str, token_file: &str, consumer: &str) -> Result<(
     crate::runtime::audit::append(
         "replication-failed",
         &json!({"bond": name, "address": address, "detail": failure}),
-    )?;
+    )
+    .with_context(|| {
+        format!(
+            "bond {name} did not pull from {address}: {failure}; record replication-failed audit"
+        )
+    })?;
     anyhow::bail!("bond {name} did not pull from {address}: {failure}")
 }
 

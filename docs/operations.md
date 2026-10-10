@@ -29,6 +29,7 @@ step, when any of them did. A Stado schedule pinned to the host runs it:
 ```bash
 stado schedule create --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'
 ```
+Replication discovery distinguishes an absent vault from a failed filesystem inspection: an inaccessible vault fails the pass with its path and operating-system cause. If both a pull and its failure-audit write fail, the refusal retains the bond, source address, original pull cause and audit-write cause together.
 
 Cryptographic children run without a concurrency cap. Each running `gpg`
 holds a shared permit; daemon recovery takes an exclusive permit after those
