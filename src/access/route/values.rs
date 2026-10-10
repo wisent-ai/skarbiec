@@ -77,20 +77,15 @@ fn readable(
     presented: Option<&str>,
     item: &str,
     field: &str,
-) -> bool {
+) -> Result<bool> {
     let Some(consumer) = consumer else {
-        return true;
+        return Ok(true);
     };
-    grant::token_allows_field_action(
-        vault,
-        consumer,
-        presented.unwrap_or_default(),
-        "read",
-        item,
-        field,
+    let presented = presented.context("named route consumer requires a bearer")?;
+    Ok(
+        grant::token_allows_field_action(vault, consumer, presented, "read", item, field)?
+            && !crate::credential::candidate_hidden(vault, item, field, consumer),
     )
-    .unwrap_or(false)
-        && !crate::credential::candidate_hidden(vault, item, field, consumer)
 }
 
 /// The values behind resolved rows, as (item, variable, value).
@@ -99,18 +94,22 @@ fn values(
     rows: &[Row],
     consumer: Option<&str>,
     presented: Option<&str>,
-) -> Vec<(String, String, String)> {
-    rows.iter()
-        .filter(|row| row.field_present)
-        .filter(|row| readable(vault, consumer, presented, &row.item, &row.field))
-        .filter_map(|row| {
-            let payload = vault.get_item(&row.item).ok()?;
-            let value = schema::field(&payload, &row.field)
-                .ok()
-                .and_then(Value::as_str)?;
-            Some((row.item.clone(), exported(row), value.to_string()))
-        })
-        .collect()
+) -> Result<Vec<(String, String, String)>> {
+    let mut result = Vec::new();
+    for row in rows.iter().filter(|row| row.field_present) {
+        if !readable(vault, consumer, presented, &row.item, &row.field)? {
+            continue;
+        }
+        let payload = vault
+            .get_item(&row.item)
+            .with_context(|| format!("read route item {}", row.item))?;
+        let value = schema::field(&payload, &row.field)
+            .with_context(|| format!("read route field {}#{}", row.item, row.field))?
+            .as_str()
+            .with_context(|| format!("route field {}#{} is not text", row.item, row.field))?;
+        result.push((row.item.clone(), exported(row), value.to_string()));
+    }
+    Ok(result)
 }
 
 /// Write one owner-only environment file per item a resolution reached.
@@ -124,13 +123,9 @@ pub(super) fn emit(
     presented: Option<&str>,
 ) -> Result<Value> {
     let vault = Vault::open(vault_path())?;
-    let resolved = values(&vault, rows, consumer, presented);
+    let resolved = values(&vault, rows, consumer, presented)?;
     if resolved.is_empty() {
-        return Ok(json!({
-            "status": "blocked",
-            "consumer": consumer,
-            "reason": "no resolved coordinate is readable by this caller",
-        }));
+        bail!("route materialization refused: no resolved coordinate is readable by this caller");
     }
     let directory = PathBuf::from(directory);
     std::fs::create_dir_all(&directory)
@@ -251,7 +246,17 @@ pub(crate) fn handle_http_resolve(
             )
         }
     };
-    let mapping: HashMap<String, String> = values(&vault, &rows, Some(&consumer), Some(&bearer))
+    let resolved = match values(&vault, &rows, Some(&consumer), Some(&bearer)) {
+        Ok(resolved) => resolved,
+        Err(error) => {
+            return http::write_response(
+                stream,
+                "HTTP/1.1 503 Service Unavailable",
+                &json!({"error": format!("resolve route {name}: {error:#}")}),
+            )
+        }
+    };
+    let mapping: HashMap<String, String> = resolved
         .into_iter()
         .map(|(_, variable, value)| (variable, value))
         .collect();
