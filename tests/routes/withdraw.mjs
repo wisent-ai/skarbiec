@@ -24,6 +24,7 @@ const env = { ...process.env, SKARBIEC_VAULT_FILE: join(directory, 'absent.vault
 const resource = `form:${randomUUID()}`;
 const tag = `stado:role:route-test-${randomUUID()}`;
 const reason = `withdrawal journey ${randomUUID()}`;
+const declarationReason = `declaration journey ${randomUUID()}`;
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const report = { revision, binary, binarySha256: hash(binary), commands: [], passed: false };
 function invoke(program, args) {
@@ -46,7 +47,7 @@ try {
   success('git', ['diff', '--cached', '--quiet']);
   // Declarations are allowed ahead of credential provisioning by the product contract.
   const declared = cli(['route', 'declare', '--resource', resource, '--tag', tag,
-    '--field', 'password', '--reason', reason]);
+    '--field', 'password', '--reason', declarationReason]);
   assert.equal(declared.declared, true);
   const original = readFileSync(table, 'utf8');
   assert.equal(JSON.parse(original)[resource].tag, tag);
@@ -61,7 +62,12 @@ try {
   assert.ok(!Object.hasOwn(JSON.parse(readFileSync(table, 'utf8')), resource));
   const after = hash(table);
   const journal = readFileSync(audit, 'utf8');
-  assert.ok(journal.includes('capability-route-withdrawn') && journal.includes(reason));
+  const withdrawalEntry = journal.split('\n').filter(Boolean).map(JSON.parse)
+    .find(entry => entry.op === 'capability-route-withdrawn' && entry.extra.resource === resource);
+  assert.ok(withdrawalEntry, 'the hash-chained journal must identify this withdrawal');
+  assert.equal(withdrawalEntry.extra.reason, reason);
+  assert.deepEqual(withdrawalEntry.extra.row, JSON.parse(original)[resource]);
+  assert.equal(withdrawalEntry.extra.backup, withdrawn.backup);
   const absent = cli(['route', 'withdraw', '--resource', resource, '--reason', reason]);
   assert.equal(absent.withdrawn, false);
   assert.equal(absent.backup, null);
