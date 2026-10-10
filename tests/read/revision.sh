@@ -18,10 +18,11 @@
 # Every command, curl request and verdict goes to the run's report.txt;
 # values and bearers are never written there.
 #
-# Usage: SKARBIEC=target/debug/skarbiec tests/read/revision.sh
+# Supply SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION, then run tests/read/revision.sh.
 set -eu
 cd "$(dirname "$0")/../.."
 BIN=${SKARBIEC:?set SKARBIEC to the skarbiec binary under test, e.g. SKARBIEC=target/debug/skarbiec}
+SOURCE_REVISION=${SKARBIEC_TEST_SOURCE_REVISION:?set the exact committed source revision under qualification}
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/revision/$RUN"
 REPORT="$ROOT/report.txt"
@@ -30,6 +31,7 @@ mkdir -p "$ROOT" "$KEYRING"
 chmod go-rwx "$ROOT" "$KEYRING"
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
+echo "binary-git-blob: $(git hash-object "$BIN")" >>"$REPORT"
 export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
@@ -46,8 +48,12 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
+  if out=$("$BIN" "$@" &>/dev/stdout); then
+    status=$?; got=ok
+  else
+    status=$?; got=refused
+  fi
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\n\n' "$*" "$status" "$got" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
 }
 says() {
@@ -69,6 +75,10 @@ api() {
   out=$(cat "$ROOT/body")
   printf 'POST %s %s\nstatus: %s\n\n' "$1" "$2" "$status" >>"$REPORT"
 }
+
+[ "$(git rev-parse HEAD)" = "$SOURCE_REVISION" ] || fail "source revision differs from the candidate declaration"
+git diff --quiet || fail "source has uncommitted tracked changes"
+git diff --cached --quiet || fail "source has staged uncommitted changes"
 
 ITEM="revision-note-$RUN"
 FIELD=value
