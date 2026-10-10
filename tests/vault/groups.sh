@@ -37,10 +37,13 @@ export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
 trap 'gpgconf --homedir "$GNUPGHOME" --kill all &>/dev/null; rm -rf "$KEYRING"' EXIT
 
 # One call: stdout lands in $out, stderr in $err, and whether it succeeded in
-# $outcome (succeeded or failed).
+# $outcome (succeeded or failed). stderr reaches the substitution through
+# &>/dev/stdout before stdout moves to the file, so the binary's own exit
+# status decides the outcome; `|&` is not used because macOS ships bash 3.2,
+# which does not have it.
 call() {
   outcome=succeeded
-  err=$({ "$BIN" "$@" </dev/null >"$ROOT/stdout"; } |& cat) || outcome=failed
+  err=$("$BIN" "$@" </dev/null &>/dev/stdout >"$ROOT/stdout") || outcome=failed
   out=$(cat "$ROOT/stdout")
   printf '$ skarbiec %s\noutcome: %s\nstdout: %s\nstderr: %s\n\n' "$*" "$outcome" "$out" "$err" >>"$REPORT"
 }
