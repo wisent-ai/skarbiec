@@ -66,11 +66,18 @@ pub(super) fn resolve(route: &str) -> Result<String> {
                 "--json",
             ])
             .stdin(Stdio::null())
-            .stderr(Stdio::inherit()),
+            .stderr(Stdio::piped()),
     )
     .with_context(|| format!("resolve vault owner {route} through Stado service directory"))?;
     if !output.status.success() {
-        bail!("Stado service directory refused vault owner {route}: {}; its operation cause is on stderr", output.status);
+        bail!(
+            "Stado service directory refused vault owner {route}: {}; {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
     }
     let answer: Value = serde_json::from_slice(&output.stdout)
         .with_context(|| format!("Stado service directory returned invalid JSON for {route}"))?;
