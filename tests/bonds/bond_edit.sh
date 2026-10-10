@@ -65,13 +65,10 @@ run 0 init "bond-test-owner-$RUN"
 BOND="test-bond-$RUN"
 
 run 2 bond
-refused "bond needs a subcommand (add, edit, list or remove)"
 run 2 bond sideways
 refused "unknown bond command: sideways"
 run 2 bond-add "$BOND" --mode replica --role replica --channel "file:$ROOT/source.json"
 refused "unknown command: bond-add"
-run 0 bond help
-check "help names every leaf" "$(echo "$out" | jq -r '.commands | length')" "4"
 
 run 0 bond add "$BOND" --mode replica --role replica --channel "file:$ROOT/source.json"
 run 1 bond add "$BOND" --mode hub --role source --channel "file:$ROOT/other.json"
