@@ -23,6 +23,8 @@ const env = { ...process.env, SKARBIEC_VAULT_FILE: join(directory, 'absent.vault
   SKARBIEC_CAPABILITY_ROUTES_FILE: table, SKARBIEC_AUDIT_FILE: audit };
 const resource = `form:${randomUUID()}`;
 const tag = `stado:role:route-test-${randomUUID()}`;
+const otherResource = `form:${randomUUID()}`;
+const otherTag = `stado:role:route-test-${randomUUID()}`;
 const reason = `withdrawal journey ${randomUUID()}`;
 const declarationReason = `declaration journey ${randomUUID()}`;
 const hash = path => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -49,8 +51,12 @@ try {
   const declared = cli(['route', 'declare', '--resource', resource, '--tag', tag,
     '--field', 'password', '--reason', declarationReason]);
   assert.equal(declared.declared, true);
+  const independent = cli(['route', 'declare', '--resource', otherResource, '--tag', otherTag,
+    '--field', 'password', '--reason', declarationReason]);
+  assert.equal(independent.declared, true);
   const original = readFileSync(table, 'utf8');
   assert.equal(JSON.parse(original)[resource].tag, tag);
+  assert.equal(JSON.parse(original)[otherResource].tag, otherTag);
   const refused = invoke(binary, ['route', 'withdraw', '--resource', resource]);
   assert.ok(refused.status !== null && refused.status);
   assert.ok(refused.stderr.includes('--reason'));
@@ -59,7 +65,10 @@ try {
   assert.equal(withdrawn.withdrawn, true);
   assert.equal(withdrawn.resource, resource);
   assert.equal(readFileSync(withdrawn.backup, 'utf8'), original, 'backup must retain the prior table');
-  assert.ok(!Object.hasOwn(JSON.parse(readFileSync(table, 'utf8')), resource));
+  const expected = JSON.parse(original);
+  delete expected[resource];
+  assert.deepEqual(JSON.parse(readFileSync(table, 'utf8')), expected,
+    'withdrawal must remove only its selected declaration and preserve unrelated routes');
   const after = hash(table);
   const journal = readFileSync(audit, 'utf8');
   const withdrawalEntry = journal.split('\n').filter(Boolean).map(JSON.parse)
