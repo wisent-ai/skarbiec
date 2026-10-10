@@ -76,6 +76,20 @@ fn git(args: &[&str]) -> Result<(bool, String, String)> {
     ))
 }
 
+fn checked_git(args: &[&str]) -> Result<String> {
+    let (ok, stdout, stderr) = git(args)?;
+    if !ok {
+        bail!(
+            "mirror: git {} in {} failed: {}; {}",
+            args.join(" "),
+            sync_dir().display(),
+            stderr.trim(),
+            stdout.trim()
+        );
+    }
+    Ok(stdout)
+}
+
 /// `mirror init|push|pull` is a group over the Git ciphertext mirror: the
 /// object is the command and the verb its first positional; the operator
 /// routes call the leaves by their whole name ("mirror push"). The old
@@ -160,12 +174,15 @@ fn leaf(
             }
             std::fs::create_dir_all(sync_dir())?;
             std::fs::copy(&live, mirror_path()).context("copy vault into sync dir")?;
-            git(&["add", "vault.enc.json"])?;
+            checked_git(&["add", "vault.enc.json"])?;
             let message = flags
                 .get("message")
                 .map(String::as_str)
                 .unwrap_or("skarbiec sync");
-            git(&["commit", "-m", message]).ok(); // no-op commit is fine
+            let staged = checked_git(&["diff", "--cached", "--name-only", "--", "vault.enc.json"])?;
+            if !staged.trim().is_empty() {
+                checked_git(&["commit", "-m", message, "--only", "--", "vault.enc.json"])?;
+            }
             let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
             let remote_ref = format!("HEAD:refs/heads/{branch}");
             let (ok, _o, e) = git(&["push", "origin", &remote_ref])?;
