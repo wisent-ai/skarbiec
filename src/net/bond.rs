@@ -47,9 +47,13 @@ pub(crate) fn serve_request(
         "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nAuthorization: Bearer {bearer}\r\nX-Consumer: {consumer}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         payload.len()
     );
-    stream.write_all(request.as_bytes())?;
+    stream
+        .write_all(request.as_bytes())
+        .with_context(|| format!("write {method} {path} request to {authority}"))?;
     let mut raw = String::new();
-    stream.read_to_string(&mut raw)?;
+    stream
+        .read_to_string(&mut raw)
+        .with_context(|| format!("read {method} {path} response from {authority}"))?;
     let (head, text) = raw
         .split_once("\r\n\r\n")
         .context("malformed HTTP response")?;
