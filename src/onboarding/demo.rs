@@ -84,6 +84,5 @@ pub(super) fn wait_for_enter(flags: &HashMap<String, String>, prompt: &str) -> R
 }
 
 pub(super) fn demo_item_id(attempt_id: &str) -> String {
-    let prefix = attempt_id.get(..8).unwrap_or(attempt_id);
-    format!("onboarding-safe-note-{prefix}")
+    format!("onboarding-safe-note-{attempt_id}")
 }

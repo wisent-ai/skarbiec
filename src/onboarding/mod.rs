@@ -88,13 +88,24 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
                 }
                 let item_id = demo_item_id(&attempt_id);
                 create_and_read_demo(&item_id)?;
+                state
+                    .as_object_mut()
+                    .context("onboarding state is not an object")?
+                    .insert("demo_item".to_string(), Value::String(item_id));
                 let evidence = Map::from_iter([("demo_item_read".to_string(), Value::Bool(true))]);
                 advance_state(&definition, &screen, &mut state, &evidence, &revision)?
                     .context("safe demo evidence did not satisfy the published journey")?;
             }
             Some("first_success") => {
-                let item_id = demo_item_id(&attempt_id);
+                let item_id = state
+                    .get("demo_item")
+                    .and_then(Value::as_str)
+                    .context("stored onboarding progress has no recorded demo item; run `skarbiec onboarding --reset` to start a new journey without removing existing vault items")?
+                    .to_string();
                 let audit = audit_evidence(&item_id)?;
+                if !audit {
+                    bail!("no onboarding-demo-item-read audit evidence exists for recorded item {item_id}; the journey cannot claim that the item was read");
+                }
                 println!("\nObserved hash-chained audit entry for item: {item_id}");
                 println!("The note value is not present in the audit record.");
                 wait_for_enter(flags, "Press Enter to finish onboarding.")?;
