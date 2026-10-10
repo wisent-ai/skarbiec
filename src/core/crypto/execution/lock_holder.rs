@@ -152,13 +152,14 @@ fn release(lock: &Path, gnupg: &[PathBuf], node: &str) -> Option<String> {
             lock.display()
         ));
     }
-    let stale = |why: String| match std::fs::remove_file(lock) {
-        Ok(()) => format!("removed {}: {why}", lock.display()),
-        Err(error) => format!("could not remove {} ({why}): {error}", lock.display()),
-    };
     let sentence = match executable_of(&pid) {
         Err(why) => format!("left {} alone: {why}", lock.display()),
-        Ok(None) => stale(format!("its holder pid {pid} runs nothing here")),
+        // GnuPG owns stale-lock detection on the following retry. Unlinking
+        // here could remove a replacement lock acquired after our snapshot.
+        Ok(None) => format!(
+            "left {} for GnuPG's stale-lock recovery: holder pid {pid} runs nothing here",
+            lock.display()
+        ),
         Ok(Some(program)) => match std::fs::canonicalize(&program) {
             Err(error) => format!(
                 "left {} alone: could not establish executable identity for pid {pid} ({}): {error}",

@@ -80,6 +80,11 @@ and `grant capability` cannot call placeholder text a usable credential.
 | Recovery | Skarbiec preserves the recovery recipient through owner rotation and supplies `recovery status` and `recovery drill`; the custodian stores the private half off-host and exercises it before an incident. If no secret half present on the machine opens the vault and no recovery key is available, the ciphertext is readable by no one — there is no cloud fallback and no vendor-held copy |
 | Owner rotation | `rotate-owner` moves control with the ownership: every item the outgoing owner controlled becomes the new owner's, so retag, rotate and delete keep working. A vault rotated by a release before 0.4.8 left those items under the former owner, which nothing could write (`<id> is not owner-controlled`); `upgrade` reports them as `control.former_owner_items` and `upgrade --apply` moves every item a former owner (a recipient with `owner_until`) controls to the current owner. Items under the credential lifecycle or tagged `managed:weles` keep their controller, and no field, tag or revision changes |
 
+Stale-lock removal remains GnuPG's operation on the next read or retry, not
+Skarbiec's `unlink`: a lock can be replaced between observing its recorded
+holder and removing its path. Skarbiec leaves that ownership decision to the
+keyring implementation; it never unlinks a lock based on a process snapshot.
+
 The operator owns:
 
 - the OS account, file permissions, GPG keyring, and unlock material;
