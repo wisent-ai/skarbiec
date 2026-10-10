@@ -169,7 +169,6 @@ try {
       `routing refusal must identify the declaration and malformed ${field}`);
     assert.equal(malformed.stdout.trim(), '', 'an invalid declaration must not publish vault status');
   }
-  assert.equal(existsSync(copy) ? hash(copy) : null, originalCopy, 'the client copy must remain untouched');
   report.passed = true;
 } catch (error) {
   report.error = error.stack;
@@ -187,6 +186,13 @@ try {
     report.passed = false;
     report.cleanupError = error.stack;
     cleanupFailure = error;
+  }
+  try {
+    assert.equal(existsSync(copy) ? hash(copy) : null, originalCopy, 'the client copy must remain untouched');
+  } catch (error) {
+    report.passed = false;
+    report.clientCopyError = error.stack;
+    cleanupFailure ??= error;
   }
   writeFileSync(join(directory, 'report.json'), JSON.stringify(report));
   console.log(`Retained fleet-vault evidence: ${directory}`);
