@@ -69,25 +69,29 @@ pub(super) fn keyring_lock_holders() -> Vec<String> {
     }
 }
 
-/// The file names of the programs GnuPG consists of, as `gpgconf
-/// --list-components` names them: each line is `name:description:program`,
-/// the program's path last. Compared by file name, because a running
-/// program's path may reach the same file through another link.
-fn gnupg_programs() -> Result<Vec<std::ffi::OsString>, String> {
-    super::run_once("gpgconf", &["--list-components"], None)
-        .map(|components| {
-            components
-                .lines()
-                .filter_map(|line| line.rsplit(':').next())
+/// Canonical executable paths from gpgconf's percent-escaped program field.
+/// Its record is `name:description:pgmname:`; the trailing field is empty.
+fn gnupg_programs() -> Result<Vec<PathBuf>, String> {
+    let components = super::run_once("gpgconf", &["--list-components"], None)
+        .map_err(|error| format!("gpgconf could not list GnuPG's programs: {error:#}"))?;
+    components
+        .lines()
+        .map(|line| {
+            let mut fields = line.split(':');
+            let _name = fields.next();
+            let _description = fields.next();
+            let program = fields
+                .next()
                 .filter(|program| !program.is_empty())
-                .filter_map(|program| {
-                    Path::new(program)
-                        .file_name()
-                        .map(|name| name.to_os_string())
-                })
-                .collect()
+                .ok_or_else(|| format!("gpgconf component has no executable field: {line}"))?;
+            let program = percent_encoding::percent_decode_str(program)
+                .decode_utf8()
+                .map_err(|error| format!("gpgconf executable path is not UTF-8: {error}"))?;
+            std::fs::canonicalize(program.as_ref()).map_err(|error| {
+                format!("could not establish GnuPG executable identity for {program}: {error}")
+            })
         })
-        .map_err(|error| format!("gpgconf could not list GnuPG's programs: {error:#}"))
+        .collect()
 }
 
 /// The executable a pid runs, or none when the pid runs nothing on this host.
@@ -119,11 +123,11 @@ fn node_name() -> Result<String, String> {
 /// - a lock is considered only when its recorded host is this host; a
 ///   different or absent host is not evidence of a stale lock, because the
 ///   keyring may be shared with another machine;
-/// - a lock whose pid now runs a program that is not one of GnuPG's is stale
-///   too: the pid was reused, and GnuPG, seeing it alive, waits;
+/// - an executable outside the configured GnuPG paths is left alone: a
+///   basename or a possibly reused pid does not establish ownership;
 /// - a lock one of GnuPG's programs has held past gpg's own wait is wedged,
 ///   and that program is ended the way a wedged daemon is.
-fn release(lock: &Path, gnupg: &[std::ffi::OsString], node: &str) -> Option<String> {
+fn release(lock: &Path, gnupg: &[PathBuf], node: &str) -> Option<String> {
     let held = std::fs::read_to_string(lock).ok()?;
     let mut lines = held.lines();
     let recorded_pid = lines.next()?.trim();
@@ -155,28 +159,29 @@ fn release(lock: &Path, gnupg: &[std::ffi::OsString], node: &str) -> Option<Stri
     let sentence = match executable_of(&pid) {
         Err(why) => format!("left {} alone: {why}", lock.display()),
         Ok(None) => stale(format!("its holder pid {pid} runs nothing here")),
-        Ok(Some(program))
-            if !gnupg
-                .iter()
-                .any(|known| program.file_name() == Some(known.as_os_str())) =>
-        {
-            stale(format!(
-                "pid {pid} now runs {}, not one of GnuPG's programs: the pid was reused",
-                program.display()
-            ))
-        }
-        // A holder that is one of GnuPG's programs.
-        Ok(Some(program)) => match super::run_once("kill", &["-TERM", &pid], None) {
-            Ok(_) => format!(
-                "ended pid {pid} ({}), which held {} past gpg's own wait",
-                program.display(),
-                lock.display()
-            ),
+        Ok(Some(program)) => match std::fs::canonicalize(&program) {
             Err(error) => format!(
-                "could not end pid {pid} ({}) holding {}: {error:#}",
-                program.display(),
-                lock.display()
+                "left {} alone: could not establish executable identity for pid {pid} ({}): {error}",
+                lock.display(),
+                program.display()
             ),
+            Ok(program) if !gnupg.contains(&program) => format!(
+                "left {} alone: pid {pid} runs {}, not a configured GnuPG executable; a different executable is not proof that this lock is safe to remove",
+                lock.display(),
+                program.display()
+            ),
+            Ok(program) => match super::run_once("kill", &["-TERM", &pid], None) {
+                Ok(_) => format!(
+                    "ended pid {pid} ({}), which held {} past gpg's own wait",
+                    program.display(),
+                    lock.display()
+                ),
+                Err(error) => format!(
+                    "could not end pid {pid} ({}) holding {}: {error:#}",
+                    program.display(),
+                    lock.display()
+                ),
+            },
         },
     };
     Some(sentence)

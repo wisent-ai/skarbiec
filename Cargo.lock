@@ -383,6 +383,7 @@ dependencies = [
  "form_urlencoded",
  "fs2",
  "libc",
+ "percent-encoding",
  "serde_json",
  "sha1",
  "sha2",
