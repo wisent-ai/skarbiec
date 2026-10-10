@@ -37,9 +37,10 @@ const env = { ...process.env, STADO_CONFIG: configPath };
 delete env.SKARBIEC_VAULT_FILE;
 let endpoint;
 let mayExist = false;
-function invoke(program, args, input) {
-  const result = spawnSync(program, args, { cwd: root, env, input, encoding: 'utf8' });
+function invoke(program, args, input, commandEnv = env) {
+  const result = spawnSync(program, args, { cwd: root, env: commandEnv, input, encoding: 'utf8' });
   report.commands.push({ program, args, status: result.status, signal: result.signal,
+    configuration: commandEnv.STADO_CONFIG,
     stdout: result.stdout, stderr: result.stderr, error: result.error?.message });
   assert.ifError(result.error);
   assert.equal(result.signal, null);
@@ -110,6 +111,14 @@ try {
   const absent = invoke(binary, ['get', id]);
   assert.ok(absent.status !== null && absent.status, 'a purged test item must remain absent');
   assert.ok(absent.stderr.includes(status.vault), 'a missing item must identify the serving vault');
+  const invalidConfig = join(directory, 'invalid-stado.json');
+  writeFileSync(invalidConfig, '{');
+  const unreadableRoute = invoke(binary, ['status'], undefined, { ...env, STADO_CONFIG: invalidConfig });
+  assert.ok(unreadableRoute.status !== null && unreadableRoute.status,
+    'a malformed explicit owner declaration must refuse, not select the client copy');
+  assert.ok(unreadableRoute.stderr.includes(invalidConfig),
+    'the routing refusal must name the actual malformed declaration');
+  assert.equal(unreadableRoute.stdout.trim(), '', 'a refused route must not publish vault status');
   assert.equal(existsSync(copy) ? hash(copy) : null, originalCopy, 'the client copy must remain untouched');
   report.passed = true;
 } catch (error) {
