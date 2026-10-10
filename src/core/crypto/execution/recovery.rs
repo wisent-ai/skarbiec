@@ -5,10 +5,6 @@ use anyhow::{bail, Result};
 
 use super::{run_once, ToolExit};
 
-/// pkill's exit status for "nothing matched" (pgrep(1) EXIT STATUS: 1 no
-/// process matched, 2 syntax error, 3 fatal error).
-const PKILL_NO_MATCH: i32 = 1;
-
 /// `gpg_err_code_t` sits in the low 16 bits of a status line's error value
 /// (`GPG_ERR_CODE_MASK` in gpg-error.h); the high bits name the source.
 const GPG_ERR_CODE_MASK: u32 = 0xFFFF;
@@ -107,73 +103,28 @@ pub(super) fn gpg_status(stderr: &str) -> (Vec<u32>, String) {
     (errors, said.join("\n"))
 }
 
-/// Put the gpg daemons back into a state a fresh `gpg` can use.
+/// Stop this keyring's daemons through GnuPG's own control surface.
 ///
-/// `gpgconf --kill` is GnuPG's own control surface, so it is asked first for
-/// every daemon and its answer counts. Only the daemons it could not settle
-/// are escalated to a signal: a keyboxd stuck mid-request makes `--kill` hit
-/// this seam's deadline, which is how one wedged daemon took a vault of 641
-/// items offline.
+/// Every failed control operation remains an error. A successful control of
+/// another daemon does not prove that the failed daemon was recovered.
+/// Never signal account-wide executable-name matches: another keyring may
+/// have a daemon with the same executable.
 ///
-/// Escalating for every daemon regardless is what broke the repair on a
-/// loaded host. Six `pkill` calls each hit the deadline while `gpgconf` had
-/// already killed the daemons, and the repair still reported `no gpg daemon
-/// control surface answered`, failing every credential read behind it. The
-/// error now means what the sentence says: no surface answered, for any
-/// daemon.
-///
-/// Nothing is launched at the end on purpose. `gpg` starts `gpg-agent` and
-/// `keyboxd` on demand, so a kill is a complete repair, while waiting on
-/// `--launch` reintroduces exactly the hang this escalation exists to get
-/// past.
+/// GnuPG starts its daemons on demand on the next read; recovery does not
+/// launch them. Lock-holder recovery retains its kernel-bound identity checks.
 pub(super) fn recover_gpg_daemons() -> Result<()> {
-    let mut answered = false;
-    let mut escalation_errors = Vec::new();
+    let mut errors = Vec::new();
     for daemon in ["keyboxd", "gpg-agent", "scdaemon"] {
-        match run_once("gpgconf", &["--kill", daemon], None) {
-            Ok(_) => {
-                answered = true;
-                continue;
-            }
-            Err(error) => escalation_errors.push(format!("{daemon} gpgconf --kill: {error}")),
-        }
-        for signal in ["-TERM", "-KILL"] {
-            // `pkill` exits 1 when nothing matched, which is the common case
-            // and not a failure: the daemon this call was meant to remove is
-            // already gone. No `-u` filter is needed and none is passed —
-            // an unprivileged process cannot signal another account's
-            // daemons, so the kernel is the filter.
-            match run_once("pkill", &[signal, "-x", daemon], None) {
-                Ok(_) => answered = true,
-                Err(error) => {
-                    // Only pkill's own "nothing matched" status is an answer:
-                    // the daemon is already gone. A syntax or fatal status, a
-                    // pkill that could not start, or a reader that failed is
-                    // an escalation that did not happen. Read from the exit
-                    // status, not the words.
-                    let no_match = error
-                        .downcast_ref::<ToolExit>()
-                        .is_some_and(|exit| exit.status.code() == Some(PKILL_NO_MATCH));
-                    if no_match {
-                        answered = true;
-                    } else {
-                        escalation_errors.push(format!("{daemon} {signal}: {error:#}"));
-                    }
-                }
-            }
+        if let Err(error) = run_once("gpgconf", &["--kill", daemon], None) {
+            errors.push(format!("{daemon} gpgconf --kill: {error:#}"));
         }
     }
-    // A keyring lock whose holder is not one of the daemons above survives
-    // their end: a stale lock of a dead or reused pid, or a gpg client that
-    // never let go. Each is released and said on stderr, the vault's log.
     for sentence in super::lock_holder::release_wedged_locks() {
         eprintln!("skarbiec: keyring lock: {sentence}");
     }
-    if answered {
-        return Ok(());
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        bail!("GnuPG daemon recovery incomplete: {}", errors.join("; "))
     }
-    bail!(
-        "no gpg daemon control surface answered ({})",
-        escalation_errors.join("; ")
-    )
 }

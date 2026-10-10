@@ -1,6 +1,6 @@
-//! Real recovery and ownership refusals. Run on an isolated OS account only:
-//! recover-daemons can control account-wide GnuPG daemons. Requires SKARBIEC
-//! and SKARBIEC_TEST_SOURCE_REVISION; reports and isolated data stay in target.
+//! Real recovery and ownership refusals. Run on an isolated OS account only.
+//! Requires SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION; reports and isolated
+//! keyrings stay in target until cleanup.
 use serde_json::{json, Value};
 use std::{fs, path::PathBuf, process::{Command, Output}, time::{SystemTime, UNIX_EPOCH}};
 use std::os::unix::fs::DirBuilderExt;
@@ -25,7 +25,7 @@ impl Journey {
         fs::write(self.root.join("report.json"), serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     }
 
-    fn run(&mut self, label: &str, command: &mut Command) -> Output {
+    fn observe(&mut self, label: &str, command: &mut Command) -> Output {
         let output = match command.output() {
             Ok(output) => output,
             Err(error) => {
@@ -41,6 +41,11 @@ impl Journey {
             "args": command.get_args().map(|arg| arg.to_string_lossy()).collect::<Vec<_>>(),
             "exit": output.status.code(), "status": output.status.to_string()}));
         self.save();
+        output
+    }
+
+    fn run(&mut self, label: &str, command: &mut Command) -> Output {
+        let output = self.observe(label, command);
         assert!(output.status.success(), "{label}: {}", String::from_utf8_lossy(&output.stderr));
         output
     }
@@ -158,6 +163,19 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     journey.refused_lock("foreign-host", &pid, &format!("{run}.foreign"));
     journey.refused_lock("invalid-pid", "invalid-process", node.trim());
     journey.refused_lock("other-executable", &pid, node.trim());
+    let invalid_home = journey.root.join("non-directory-keyring");
+    fs::write(&invalid_home, "not a keyring directory").unwrap();
+    let mut refusal = Command::new(&journey.binary);
+    refusal.arg("recover-daemons").env("GNUPGHOME", &invalid_home)
+        .env("SKARBIEC_VAULT_FILE", journey.root.join("vault.json"))
+        .env("SKARBIEC_AUDIT_FILE", journey.root.join("audit.jsonl"));
+    let refused = journey.observe("invalid-keyring-control", &mut refusal);
+    assert!(!refused.status.success(), "invalid keyring control must not report success");
+    let receipt: Value = serde_json::from_slice(&refused.stdout).expect("recovery refusal receipt");
+    assert_eq!(receipt["recovered"], json!(false));
+    let cause = receipt["detail"].as_str().expect("recovery refusal cause");
+    assert!(cause.contains("GnuPG daemon recovery incomplete") && cause.contains("gpgconf"),
+        "recovery refusal lost the failed operation: {cause}");
     let after = journey.skarbiec("read-after", &["get", &item, "--field", "value"]);
     assert_eq!(String::from_utf8_lossy(&after.stdout).trim(), value);
     journey.passed = true;

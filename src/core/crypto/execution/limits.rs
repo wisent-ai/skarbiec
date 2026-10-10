@@ -117,7 +117,6 @@ static CRYPTO_PROGRAMS: LazyLock<HashMap<&'static str, PathBuf>> = LazyLock::new
         "gpg-connect-agent",
         "openssl",
         "shasum",
-        "pkill",
     ]
     .into_iter()
     .map(|program| (program, resolve_program_path(program)))

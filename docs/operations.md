@@ -87,11 +87,11 @@ keyring implementation; it never unlinks a lock based on a process snapshot.
 Live-holder signals are bound to the inspected process lifetime: macOS uses
 one audit token for executable lookup and `SIGTERM`; Linux opens a pidfd before
 lookup and signals that handle. Identity acquisition, path lookup or signaling
-failure leaves the holder alone with the actual kernel error, never a PID-only retry.
+failure leaves the holder alone with the actual kernel error, never a PID-only retry. Daemon control uses this keyring's `gpgconf --kill` only: it never falls back to account-wide executable-name signals. Every failed daemon control remains in `recover-daemons`' unsuccessful receipt, with its operation, exit status and cause; one successful daemon control cannot hide another failure.
 
 The real recovery journey needs an isolated OS account, never a live vault host.
 It refuses existing GnuPG processes, checks encrypted values across recovery,
-and preserves foreign-host, invalid-PID and non-GnuPG locks with their diagnostics.
+and preserves foreign-host, invalid-PID and non-GnuPG locks with their diagnostics. A non-directory keyring must produce a failed recovery receipt naming the rejected control operation, followed by a successful read from the valid isolated keyring.
 The native identity case signals an owned pipe-reader process, verifies SIGTERM,
 then requires the dead identity to refuse another signal while a new reader lives.
 Run these explicit tests on each supported OS in the authorized qualification stage:
@@ -107,7 +107,7 @@ exit statuses, stdout, stderr and lock before/after files remain under
 `target/real-tests/recovery/`; `report.json` is passed only after the real
 reads, ownership refusals and keyring cleanup succeed. The isolated keyring is
 removed; the encrypted test vault and audit remain as evidence. The journey is
-ignored by default because it controls account-wide daemon processes.
+ignored by default because it exercises real GnuPG process ownership and recovery.
 
 The operator owns:
 

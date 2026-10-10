@@ -3,14 +3,12 @@
 
 use anyhow::{Context, Result};
 use std::io::{Read, Write};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{Command, Stdio};
 
-/// A crypto program that ran and exited unsuccessfully. The exit status is
-/// kept so a caller that knows the program's status table (pkill: 1 means
-/// nothing matched) can read it; the text is the program's own diagnosis.
+/// A crypto program's failure, retaining its status in the diagnostic and
+/// GnuPG's structured failure fields for the recovery decision.
 #[derive(Debug)]
 pub(super) struct ToolExit {
-    pub(super) status: ExitStatus,
     detail: String,
     /// The error values of gpg's `ERROR`/`FAILURE` status lines.
     pub(super) gpg_errors: Vec<u32>,
@@ -196,14 +194,13 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
             Err(error) if error.kind() == std::io::ErrorKind::BrokenPipe
         );
         let detail = match (said.is_empty(), written) {
-            (false, _) => format!("{program} failed: {said}"),
+            (false, _) => format!("{program} failed ({status}): {said}"),
             (true, Err(error)) => {
                 format!("{program} failed ({status}) and stopped reading stdin: {error}")
             }
             (true, Ok(())) => format!("{program} failed ({status}) without output"),
         };
         return Err(ToolExit {
-            status,
             detail,
             gpg_errors,
             stdin_closed,
