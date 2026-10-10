@@ -53,7 +53,18 @@ pub(crate) fn handle_items_put(
         Some(role) => {
             let item = match mode {
                 "acquire" => crate::credential::pending_role_acquisition(&vault, role),
-                "stage" => crate::access::acquisition::role::item_for(&vault, requested).ok(),
+                "stage" => match crate::access::acquisition::role::item_for(&vault, requested) {
+                    Ok(item) => Some(item),
+                    Err(error) => {
+                        return http::write_response(
+                            stream,
+                            "HTTP/1.1 409 Conflict",
+                            &json!({"error": format!(
+                                "resolve {requested} for stage: {error:#}"
+                            )}),
+                        );
+                    }
+                },
                 _ => None,
             };
             let Some(item) = item else {
