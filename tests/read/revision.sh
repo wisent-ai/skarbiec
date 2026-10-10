@@ -75,8 +75,10 @@ FIELD=value
 CONSUMER="revision-test-$RUN"
 
 WANT=ok run init "revision-test-owner-$RUN"
-WANT=ok run set "$ITEM" --type note "$FIELD=first-$RUN"
-WANT=ok run grant issue "$CONSUMER" --capabilities "read:$ITEM#$FIELD"
+jq -n --arg value "first-$RUN" \
+  '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
+  | WANT=ok run set-json "$ITEM" --type note
+WANT=ok run grant issue "$CONSUMER" --capabilities "read:$ITEM#$FIELD" --until-revoked
 TOKEN=$(member token)
 [ -n "$TOKEN" ] || fail "grant issue answered no token"
 
@@ -111,7 +113,9 @@ api /v1/items/read "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
   || fail "the read did not return the value under the same revision: status $status"
 echo "ok: /v1/items/read returns the value under the same revision" >>"$REPORT"
 
-WANT=ok run set "$ITEM" --type note "$FIELD=second-$RUN"
+jq -n --arg value "second-$RUN" \
+  '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
+  | WANT=ok run set-json "$ITEM" --type note
 api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 SECOND=$(member revision)
 [ "$status" = "200" ] && [ -n "$SECOND" ] && [ "$SECOND" != "$CLI_REVISION" ] \

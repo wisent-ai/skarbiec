@@ -50,7 +50,9 @@ ITEM="mirror-item-$RUN"
 
 export SKARBIEC_VAULT_FILE="$ROOT/owner.vault.json" SKARBIEC_SYNC_DIR="$ROOT/sync-owner"
 WANT=ok run init "mirror-test-owner-$RUN"
-WANT=ok run set "$ITEM" --type note "value=mirror-value-$RUN"
+jq -n --arg value "mirror-value-$RUN" \
+  '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
+  | WANT=ok run set-json "$ITEM" --type note
 WANT=ok run mirror init "$REMOTE"
 WANT=ok run mirror push
 WANT=refused run mirror
