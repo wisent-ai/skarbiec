@@ -28,6 +28,27 @@ impl Journey {
             fs::read_dir(&vault).unwrap().next().is_none(),
             "refused read wrote inside the directory"
         );
+        let mut maintain = self.command(&["maintain"]);
+        maintain
+            .env("SKARBIEC_VAULT_FILE", &vault)
+            .env_remove("SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB");
+        let refused = self.observe("maintenance-multiple-refusals", &mut maintain);
+        assert!(
+            !refused.status.success(),
+            "failed maintenance reported success"
+        );
+        let detail = String::from_utf8_lossy(&refused.stderr);
+        assert!(
+            detail.contains("SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB")
+                && detail.contains("vault is unreadable")
+                && detail.contains(vault.to_str().unwrap()),
+            "maintenance lost a simultaneous ceiling or readiness failure: {detail}"
+        );
+        assert!(vault.is_dir(), "maintenance changed the refused vault path");
+        assert!(
+            fs::read_dir(&vault).unwrap().next().is_none(),
+            "refused maintenance wrote inside the directory"
+        );
         fs::remove_dir(vault).expect("remove isolated non-file vault path");
     }
 }
