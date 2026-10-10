@@ -119,6 +119,22 @@ try {
   assert.ok(unreadableRoute.stderr.includes(invalidConfig),
     'the routing refusal must name the actual malformed declaration');
   assert.equal(unreadableRoute.stdout.trim(), '', 'a refused route must not publish vault status');
+  for (const [declaration, field] of [
+    [[], 'vault routing declaration'],
+    [{ secrets: [] }, 'secrets'],
+    [{ secrets: { skarbiec: [] } }, 'secrets.skarbiec'],
+    [{ secrets: { skarbiec: { vault_file: [], url: config.secrets.skarbiec.url } } }, 'secrets.skarbiec.vault_file'],
+    [{ secrets: { skarbiec: { vault_file: ' ', url: config.secrets.skarbiec.url } } }, 'secrets.skarbiec.vault_file'],
+    [{ secrets: { skarbiec: { url: [] } } }, 'secrets.skarbiec.url'],
+  ]) {
+    writeFileSync(invalidConfig, JSON.stringify(declaration));
+    const malformed = invoke(binary, ['status'], undefined, { ...env, STADO_CONFIG: invalidConfig });
+    assert.ok(malformed.status !== null && malformed.status,
+      `invalid ${field} must refuse instead of choosing another vault`);
+    assert.ok(malformed.stderr.includes(invalidConfig) && malformed.stderr.includes(field),
+      `routing refusal must identify the declaration and malformed ${field}`);
+    assert.equal(malformed.stdout.trim(), '', 'an invalid declaration must not publish vault status');
+  }
   assert.equal(existsSync(copy) ? hash(copy) : null, originalCopy, 'the client copy must remain untouched');
   report.passed = true;
 } catch (error) {

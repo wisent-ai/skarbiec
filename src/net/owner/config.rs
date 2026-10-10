@@ -13,14 +13,37 @@ pub(crate) fn selected() -> Result<Option<String>> {
         .with_context(|| format!("read vault routing declaration {}", path.display()))?;
     let config: Value = serde_json::from_str(&text)
         .with_context(|| format!("parse vault routing declaration {}", path.display()))?;
-    if config
-        .pointer("/secrets/skarbiec/vault_file")
-        .and_then(Value::as_str)
-        .is_some_and(|path| !path.trim().is_empty())
-    {
+    let config = config.as_object().with_context(|| {
+        format!(
+            "{}: vault routing declaration must be an object",
+            path.display()
+        )
+    })?;
+    let Some(secrets) = config.get("secrets") else {
+        return Ok(None);
+    };
+    let secrets = secrets
+        .as_object()
+        .with_context(|| format!("{}: secrets must be an object", path.display()))?;
+    let Some(skarbiec) = secrets.get("skarbiec") else {
+        return Ok(None);
+    };
+    let skarbiec = skarbiec
+        .as_object()
+        .with_context(|| format!("{}: secrets.skarbiec must be an object", path.display()))?;
+    if let Some(vault) = skarbiec.get("vault_file") {
+        vault
+            .as_str()
+            .filter(|value| !value.trim().is_empty())
+            .with_context(|| {
+                format!(
+                    "{}: secrets.skarbiec.vault_file must name a non-empty vault path",
+                    path.display()
+                )
+            })?;
         return Ok(None);
     }
-    let Some(route) = config.pointer("/secrets/skarbiec/url") else {
+    let Some(route) = skarbiec.get("url") else {
         return Ok(None);
     };
     let route = route
