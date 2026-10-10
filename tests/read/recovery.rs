@@ -243,7 +243,11 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     let input = journey.root.join("item-input.json");
     fs::write(
         &input,
-        serde_json::to_vec(&json!({"value": value})).unwrap(),
+        serde_json::to_vec(&json!({
+            "schema": "skarbiec.item.v2", "kind": "note",
+            "fields": {"value": value}, "context": {}
+        }))
+        .unwrap(),
     )
     .unwrap();
     let mut write = journey.command(&["set-json", &item, "--type", "note"]);
