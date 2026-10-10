@@ -15,6 +15,9 @@
 # - retagging (no new value) leaves the revision as it was;
 # - a wrong bearer and an ungranted field are refused 403, a missing id 400,
 #   a trashed item 410, and `get --revision --field` is refused naming both.
+# - a second real broker with an empty keyring can return the revision but
+#   refuses the encrypted value with the actual missing-secret-key cause;
+#   the original broker still reads the unchanged value afterward.
 # Every command, curl request and verdict goes to the run's report.txt;
 # values and bearers are never written there.
 #
@@ -36,8 +39,15 @@ export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
 SERVE_PID=
+EMPTY_KEYRING="$PWD/target/e$$"
+EMPTY_SERVE_PID=
 cleanup() {
   if [ -n "$SERVE_PID" ]; then kill "$SERVE_PID" || true; fi
+  if [ -n "$EMPTY_SERVE_PID" ]; then kill "$EMPTY_SERVE_PID" || true; fi
+  if [ -d "$EMPTY_KEYRING" ]; then
+    gpgconf --homedir "$EMPTY_KEYRING" --kill all || true
+    rm -rf "$EMPTY_KEYRING"
+  fi
   gpgconf --homedir "$GNUPGHOME" --kill all || true
   rm -rf "$KEYRING"
 }
@@ -143,6 +153,38 @@ WANT=ok run retag "$ITEM" --tags "revision-test"
 api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$(member revision)" = "$SECOND" ] || fail "retagging changed the revision: $out"
 echo "ok: retagging leaves the revision as it was" >>"$REPORT"
+
+# The consumer grant lives in the vault envelope, not in the owner's
+# secret keyring. Exercise that distinction with an actual second broker.
+OWNER_ADDRESS=$ADDRESS
+mkdir "$EMPTY_KEYRING"
+chmod go-rwx "$EMPTY_KEYRING"
+mkfifo "$ROOT/empty-keyring-serve.log"
+GNUPGHOME="$EMPTY_KEYRING" LC_ALL=C "$BIN" serve --port "0" &>"$ROOT/empty-keyring-serve.log" &
+EMPTY_SERVE_PID=$!
+ADDRESS=
+while read -r line; do
+  case "$line" in
+    *"listening on http://"*) ADDRESS=${line#*http://}; ADDRESS=${ADDRESS%% *}; break ;;
+  esac
+done <"$ROOT/empty-keyring-serve.log"
+[ -n "$ADDRESS" ] || fail "the empty-keyring broker exited without a listening address"
+cat "$ROOT/empty-keyring-serve.log" >"$ROOT/empty-keyring-server-output" &
+echo "empty-keyring serve: $ADDRESS; keyring: $EMPTY_KEYRING" >>"$REPORT"
+api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
+[ "$status" = "200" ] && [ "$(member item_uid)" = "$CLI_UID" ] && [ "$(member revision)" = "$SECOND" ] \
+  || fail "the empty-keyring broker could not return the actual item revision: status $status"
+api /v1/items/read "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
+[ "$status" = "503" ] || fail "missing decryption authority answered $status instead of an infrastructure refusal"
+printf '%s' "$out" | jq -e '.error_code == "infra_down" and (.detail | contains("No secret key")) and (has("value") | not)' >/dev/null \
+  || fail "the decryption refusal omitted the actual GnuPG cause or returned a value"
+case "$out" in *"second-$RUN"*) fail "the failed decryption response disclosed the secret" ;; esac
+printf '%s\n' "$out" >"$ROOT/decryption-refusal.json"
+ADDRESS=$OWNER_ADDRESS
+api /v1/items/read "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
+[ "$status" = "200" ] && [ "$(member value)" = "second-$RUN" ] && [ "$(member revision)" = "$SECOND" ] \
+  || fail "the refused decryption changed the original broker's stored value or revision"
+echo "ok: missing secret key is an explicit decryption failure; original value and revision remain readable" >>"$REPORT"
 
 api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "not-the-bearer-$RUN"
 [ "$status" = "403" ] || fail "a wrong bearer answered $status"
