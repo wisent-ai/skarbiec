@@ -88,10 +88,10 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     let result = if vault.is_none() {
-        match crate::net::owner::selected()? {
+        crate::net::owner::selected().and_then(|route| match route {
             Some(route) => crate::net::owner::request(&route, path, &parsed),
             None => core::with_vault_override(None, || answer(path, &parsed)),
-        }
+        })
     } else {
         core::with_vault_override(vault, || answer(path, &parsed))
     };
@@ -100,7 +100,7 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
         Err(error) => http::write_response(
             stream,
             BAD_LINE,
-            &json!({"error": http::detail_text(&error.to_string())}),
+            &json!({"error": http::detail_text(&format!("{error:#}"))}),
         )?,
     }
     Ok(true)

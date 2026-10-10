@@ -36,7 +36,7 @@ const report = { revision, binary, binarySha256: hash(binary), testSha256: hash(
 const env = { ...process.env, STADO_CONFIG: configPath };
 delete env.SKARBIEC_VAULT_FILE;
 let endpoint;
-let created = false;
+let mayExist = false;
 function invoke(program, args, input) {
   const result = spawnSync(program, args, { cwd: root, env, input, encoding: 'utf8' });
   report.commands.push({ program, args, status: result.status, signal: result.signal,
@@ -69,8 +69,8 @@ try {
   endpoint = status.source.endpoint;
   report.owner = status;
   const tags = [`stado:role:${role}`, id];
+  mayExist = true;
   const write = JSON.parse(cli(['set-json', id, '--type', 'login', '--tags', tags.join(',')], JSON.stringify(payload)));
-  created = true;
   assert.equal(write.id, id);
   assert.equal(write.created, true);
   assert.deepEqual(JSON.parse(cli(['get', id])), payload);
@@ -98,7 +98,7 @@ try {
   const graphical = await operator('/v1/operator/credential', { operation: 'get', item: id, field: 'password' });
   assert.equal(graphical.value, replacement, 'graphical API and CLI must observe the same owner value');
   await operator('/v1/operator/items/purge', { id });
-  created = false;
+  mayExist = false;
   assert.ok(!JSON.parse(cli(['list', '--all'])).some(item => item.id === id));
   const absent = invoke(binary, ['get', id]);
   assert.ok(absent.status !== null && absent.status, 'a purged test item must remain absent');
@@ -110,7 +110,12 @@ try {
 } finally {
   let cleanupFailure;
   try {
-    if (created) await operator('/v1/operator/items/purge', { id });
+    if (mayExist) {
+      const remaining = await operator('/v1/operator/items/list', { flags: { all: 'true' }, positionals: [] });
+      if (remaining.some(item => item.id === id)) await operator('/v1/operator/items/purge', { id });
+      const afterCleanup = await operator('/v1/operator/items/list', { flags: { all: 'true' }, positionals: [] });
+      assert.ok(!afterCleanup.some(item => item.id === id), 'cleanup must remove a write whose acknowledgement was lost');
+    }
   } catch (error) {
     report.passed = false;
     report.cleanupError = error.stack;
