@@ -15,10 +15,11 @@
 # Every command and whether
 # it succeeded go to the run's report.txt; a candidate is never written there.
 #
-# Usage: SKARBIEC=target/debug/skarbiec tests/policy/check.sh
+# Supply SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION, then run tests/policy/check.sh.
 set -eu
 cd "$(dirname "$0")/../.."
 BIN=${SKARBIEC:?set SKARBIEC to the skarbiec binary under test, e.g. SKARBIEC=target/debug/skarbiec}
+SOURCE_REVISION=${SKARBIEC_TEST_SOURCE_REVISION:?set the exact committed source revision under qualification}
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/policy/$RUN"
 REPORT="$ROOT/report.txt"
@@ -27,6 +28,7 @@ mkdir -p "$ROOT" "$KEYRING"
 chmod go-rwx "$KEYRING"
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
+echo "binary-git-blob: $(git hash-object "$BIN")" >>"$REPORT"
 export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
@@ -63,6 +65,10 @@ verdict() {
     *) fail "$2: the verdict was not ok=$1" ;;
   esac
 }
+
+[ "$(git rev-parse HEAD)" = "$SOURCE_REVISION" ] || fail "source revision differs from the candidate declaration"
+git diff --quiet || fail "source has uncommitted tracked changes"
+git diff --cached --quiet || fail "source has staged uncommitted changes"
 
 : >"$ROOT/stdin"
 WANT=ok run init "policy-test-owner-$RUN"
