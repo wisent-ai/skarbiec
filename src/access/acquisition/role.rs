@@ -37,7 +37,8 @@ pub(crate) fn item_for(vault: &Vault, coordinate: &str) -> Result<String> {
     let tag = format!("{ROLE_TAG}{role}");
     match crate::access::route::declaration::tagged_items(vault, &tag).as_slice() {
         [item] => Ok((*item).to_string()),
-        [] => Err(AcquisitionFieldMissing.into()),
+        [] => Err(anyhow::Error::new(AcquisitionFieldMissing)
+            .context(format!("no live item carries {tag} for role {role}"))),
         several => bail!(
             "{} live items carry {tag}; exactly one item may play role {role}",
             several.len()
