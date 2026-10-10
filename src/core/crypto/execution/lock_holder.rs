@@ -97,7 +97,6 @@ fn gnupg_programs() -> Result<Vec<PathBuf>, String> {
         .collect()
 }
 
-
 /// This host's name as GnuPG writes it into a lock file.
 fn node_name() -> Result<String, String> {
     super::run_once("uname", &["-n"], None)

@@ -16,6 +16,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
     let no_flags = HashMap::new();
     match path {
         // Reads, each delegating to the dispatcher its command twin uses.
+        "/v1/operator/items/get" | "/v1/operator/items/list" | "/v1/operator/items/set-json" => {
+            crate::net::owner::local(path, parsed)
+        }
         "/v1/operator/items" => {
             crate::cmd_list(&HashMap::from([("all".to_string(), "true".to_string())]))
         }
@@ -207,7 +210,8 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
                 }
                 "set-json" => {
                     let item_id = text(parsed, "item")?;
-                    let mut call_flags = flags(parsed, &["type"]);
+                    let mut call_flags =
+                        flags(parsed, &["type", "tags", "recipients", "if-absent"]);
                     // Pass the payload as a special flag to the dispatcher
                     if let Some(payload) = parsed.get("payload") {
                         call_flags.insert("__payload__".to_string(), payload.to_string());

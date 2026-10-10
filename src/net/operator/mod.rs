@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use crate::core;
 use crate::net::http;
 
-const OK_LINE: &str = "HTTP/1.1 200 OK";
+pub(crate) const OK_LINE: &str = "HTTP/1.1 200 OK";
 const BAD_LINE: &str = "HTTP/1.1 400 Bad Request";
 const ROUTE_PREFIX: &str = "/v1/operator/";
 
@@ -35,6 +35,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
         "/v1/operator/vaults/create"
             | "/v1/operator/items/import"
             | "/v1/operator/items/trash"
+            | "/v1/operator/items/set-json"
             | "/v1/operator/items/reclaim"
             | "/v1/operator/items/restore"
             | "/v1/operator/items/purge"
@@ -86,7 +87,14 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
-    let result = core::with_vault_override(vault, || answer(path, &parsed));
+    let result = if vault.is_none() {
+        match crate::net::owner::selected()? {
+            Some(route) => crate::net::owner::request(&route, path, &parsed),
+            None => core::with_vault_override(None, || answer(path, &parsed)),
+        }
+    } else {
+        core::with_vault_override(vault, || answer(path, &parsed))
+    };
     match result {
         Ok(value) => http::write_response(stream, OK_LINE, &value)?,
         Err(error) => http::write_response(

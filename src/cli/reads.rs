@@ -65,6 +65,22 @@ pub(crate) fn cmd_restore_version(positionals: &[String]) -> Result<()> {
 }
 
 pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
+    emit_get(flags, &get_value(flags, positionals)?)
+}
+
+pub(crate) fn emit_get(flags: &HashMap<String, String>, value: &Value) -> Result<()> {
+    if flags.contains_key("field") {
+        println!(
+            "{}",
+            value.as_str().context("get field response is not text")?
+        );
+        Ok(())
+    } else {
+        emit(value)
+    }
+}
+
+pub(crate) fn get_value(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let coordinate = positionals
         .first()
         .or_usage("usage: get <id|role:<role>> [--field <field> | --revision]")?;
@@ -95,7 +111,7 @@ pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -
             .get("items")
             .and_then(|items| items.get(id.as_str()))
             .and_then(crate::core::vault::entry_item_uid);
-        return emit(&json!({
+        return Ok(json!({
             "id": coordinate,
             "item": id,
             "item_uid": item_uid,
@@ -106,7 +122,7 @@ pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -
         .get_item(id)
         .with_context(|| format!("reading item {id} from the vault at {}", path.display()))?;
     let Some(field) = flags.get("field") else {
-        return emit(&item);
+        return Ok(item);
     };
     if field.is_empty() || field.chars().any(char::is_control) {
         bail!("get --field requires one exact field name, got {field:?}");
@@ -138,8 +154,7 @@ pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -
             }
         )
     })?;
-    println!("{value}");
-    Ok(())
+    Ok(Value::String(value.to_string()))
 }
 
 pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {

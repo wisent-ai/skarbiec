@@ -94,6 +94,9 @@ fn run() -> Result<()> {
         }
     }
     let (flags, positionals) = parse_args(&rest);
+    if net::owner::dispatch(&command, &flags, &positionals)? {
+        return Ok(());
+    }
 
     match command.as_str() {
         "version" | "--version" | "-V" => emit(&cmd_version()?),

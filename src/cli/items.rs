@@ -124,18 +124,26 @@ pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[Strin
     // an early answer.
     let mut encoded = String::new();
     std::io::stdin().read_to_string(&mut encoded)?;
+    emit(&set_json_value(flags, id, &encoded)?)
+}
+
+pub(crate) fn set_json_value(
+    flags: &HashMap<String, String>,
+    id: &str,
+    encoded: &str,
+) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     if flag_set(flags, "if-absent")
         && vault
             .list(false)
             .iter()
-            .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id.as_str()))
+            .any(|entry| entry.get("id").and_then(Value::as_str) == Some(id))
     {
-        return emit(&json!({"ok": true, "id": id, "created": false}));
+        return Ok(json!({"ok": true, "id": id, "created": false}));
     }
     ensure_owner_set_allowed(&vault, id)?;
     let payload: Value =
-        serde_json::from_str(&encoded).context("stdin must be one canonical JSON payload")?;
+        serde_json::from_str(encoded).context("stdin must be one canonical JSON payload")?;
     let payload_kind = payload
         .get("kind")
         .and_then(Value::as_str)
@@ -150,7 +158,7 @@ pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[Strin
     ensure_no_reserved_tags(&tags)?;
     let writer = vault.owner_uid().to_string();
     vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;
-    emit(&json!({"ok": true, "id": id, "kind": item_kind, "created": true}))
+    Ok(json!({"ok": true, "id": id, "kind": item_kind, "created": true}))
 }
 
 /// Replace one item's tags, leaving its payload untouched.

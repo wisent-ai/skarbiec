@@ -10,7 +10,7 @@ is and how to install it; this page covers running one.
 
 | Setting | Meaning |
 | --- | --- |
-| `SKARBIEC_VAULT_FILE` | Vault path; defaults to `~/.local/share/skarbiec/skarbiec.vault.json` |
+| `SKARBIEC_VAULT_FILE` | Explicit local vault path. Otherwise Stado's `secrets.skarbiec.vault_file` selects the local owner; with only `secrets.skarbiec.url`, `get`, `list`, `set-json` and `status` use the fleet owner instead of a leftover client copy. Without either declaration, the default remains `~/.local/share/skarbiec/skarbiec.vault.json`. |
 | `SKARBIEC_AUDIT_FILE` | Override the local append-only journal path |
 | `SKARBIEC_UNLOCK_FILE` | Owner-only file supplying a protected key's unlock phrase to a persistent service |
 | `SKARBIEC_UNLOCK` | Single-invocation unlock phrase, passed to `gpg` over stdin; prefer the file for services |
@@ -39,9 +39,9 @@ Other cryptographic tools do not wait for a GnuPG slot.
 holds the exclusive permit. `/livez` and metadata-only routes do not decrypt
 canaries.
 
-Run `skarbiec status` for the vault path and non-sensitive counts,
-`skarbiec key-doctor` for key and decryptability diagnosis, `/livez` for process
-liveness, and `/readyz` (or compatibility alias `/health`) for readiness.
+Run `skarbiec status` for the serving vault path and non-sensitive counts. Remote status also records `source.kind`, `source.route` and `source.endpoint`; `recovery_present_locally` describes the serving owner. A `stado://service/skarbiec?consumer=operator` route is resolved through Stado's declared directory; every wait and actual owner refusal stays on stderr, while credential stdout keeps its local shape.
+The owner and client must carry the owner-item API contract. `get`, including roles, fields and `--revision`, and `set-json`, including metadata preservation and `--if-absent`, share their implementations with the operator API. An unavailable or older owner is refused rather than replaced with a copied vault. See the canonical [get contract](https://skarbiec.wisent.com/docs/cli/get).
+The real fleet journey is `SKARBIEC=/path/to/candidate SKARBIEC_TEST_SOURCE_REVISION=<full-sha> SKARBIEC_TEST_STADO_CONFIG=/path/to/non-owner-config node tests/vault/remote_owner.mjs`; it retains source-bound results under `target/real-tests/remote-owner` and purges only its uniquely created item. Use `skarbiec key-doctor` for key diagnosis, `/livez` for liveness and `/readyz` (or `/health`) for readiness.
 
 ### TOTP diagnostics
 

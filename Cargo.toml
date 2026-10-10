@@ -41,6 +41,7 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 # only 200, 400, 401, 403, 404, 409, 410 and 503, so no caller classifying its
 # replies can meet a 501 or a 505 either.
 wisent-errors = { git = "https://github.com/wisent-ai/wisent-errors", rev = "92da74a839b5d3202183f0a850745f6fc205ed12" }
+stado-wait = { git = "https://github.com/wisent-ai/stado", rev = "692c0438d24117735c61373c0c178f1c1e21b080" }
 csv = "1.3"
 base64 = "0.22"
 zip = { version = "2.4", default-features = false, features = ["deflate"] }
