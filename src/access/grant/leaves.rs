@@ -170,7 +170,7 @@ pub(in crate::access::grant) fn group(
                 "grant ensure <consumer> <item> --field <field> --token-file <path>",
                 "grant narrow <consumer> <item> --field <field>",
                 "grant list",
-                "grant verify <consumer> <item> [--action <action>] [--field <field>] --token <bearer> | --token-file <path>",
+                "grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
                 "grant revoke <consumer>",
             ],
             "usage": "A grant is one declaration: an action, one item, an optional exact field, and the Ed25519 workload public key an acquire capability requires. grant issue writes that declaration and rotates the bearer of that consumer, refusing a changed capability set unless the call states --replace-capabilities; an acquire grant returns no bearer at all and answers instead with the acquisition redemption contract for every exact coordinate it names. grant capability issues one bounded, use-counted redemption of a grant already declared, against a resource the capability-route table maps to a vault field, and refuses at issue time when that route is missing or the credential behind it cannot serve; capability-serve is what redeems it. grant ensure widens an existing direct grant by one exact field read without rotating anything, the owner proving possession through a mode-0600 --token-file that must hash to the recorded bearer. grant list returns metadata only, never a bearer and never a workload public key. grant verify answers one exact action, item and optional field question about one presented bearer, taken from --token or from an owner-only --token-file. grant revoke drops the whole declaration and is idempotent.",
