@@ -30,7 +30,9 @@ const id = `remote-owner-test-${randomUUID()}`;
 const role = `remote-owner-test-${randomUUID()}`;
 const password = randomUUID();
 const replacement = randomUUID();
-const payload = { schema: 'skarbiec.item.v2', kind: 'login', fields: { username: id, password }, context: {} };
+const recoveryCode = randomUUID();
+const payload = { schema: 'skarbiec.item.v2', kind: 'login',
+  fields: { username: id, password, recovery_codes: [recoveryCode] }, context: {} };
 const report = { revision, binary, binarySha256: hash(binary), testSha256: hash(fileURLToPath(import.meta.url)),
   commands: [], observations: [], item: id, passed: false };
 const env = { ...process.env, STADO_CONFIG: configPath };
@@ -52,12 +54,12 @@ function success(program, args, input) {
   return result.stdout;
 }
 function cli(args, input) { return success(binary, args, input); }
-async function operator(path, body) {
+async function operator(path, body, expectedSuccess = true) {
   const response = await fetch(`${endpoint}${path}`, { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   const text = await response.text();
   report.observations.push({ path, status: response.status, body: text });
-  assert.ok(response.ok, `${path}: ${text}`);
+  assert.equal(response.ok, expectedSuccess, `${path}: ${text}`);
   return JSON.parse(text);
 }
 try {
@@ -97,6 +99,19 @@ try {
   assert.ok(missing.stderr.includes('username') && missing.stderr.includes('password'),
     'a missing field must identify the available fields without exposing their values');
   assert.ok(!missing.stderr.includes(replacement), 'refusal diagnostics must not reveal the secret');
+  const nonText = invoke(binary, ['get', id, '--field', 'recovery_codes']);
+  assert.ok(nonText.status !== null && nonText.status);
+  assert.equal(nonText.stdout, '', 'a refused field must not emit a partial value');
+  assert.ok(nonText.stderr.includes(status.vault) && nonText.stderr.includes('recovery_codes'));
+  assert.ok(nonText.stderr.includes('a list'), 'a non-text field must identify its actual type');
+  assert.ok(!nonText.stderr.includes(recoveryCode), 'a type diagnostic must not print array contents');
+  const graphicalRefusal = await operator('/v1/operator/credential',
+    { operation: 'get', item: id, field: 'recovery_codes' }, false);
+  assert.ok(graphicalRefusal.error.includes(status.vault));
+  assert.ok(graphicalRefusal.error.includes('recovery_codes') && graphicalRefusal.error.includes('a list'));
+  assert.ok(!graphicalRefusal.error.includes(recoveryCode));
+  assert.deepEqual(JSON.parse(cli(['get', id])).fields.recovery_codes, [recoveryCode],
+    'refused text projection must preserve the canonical typed value');
   const unbound = invoke(binary, ['get', `role:${randomUUID()}`]);
   assert.ok(unbound.status !== null && unbound.status);
   assert.ok(unbound.stderr.includes(status.vault), 'role resolution failure must identify the serving vault');
