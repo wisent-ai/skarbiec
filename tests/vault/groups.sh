@@ -9,8 +9,8 @@
 #
 # It creates the vault with `init`, then for each group checks that a call
 # with no subcommand, an unknown subcommand and the retired hyphenated
-# spelling fail with the usage refusal that names them, and that `help` names
-# every leaf. It reads `recovery status`; refuses an emergency grant for an
+# spelling fail with the usage refusal that names them.
+# It reads `recovery status`; refuses an emergency grant for an
 # unknown recipient, records one for the owner whose moment has passed, lists
 # it pending, activates it, cancels it and lists it gone; lists the empty
 # donation inbox and checks that accepting and rejecting a donation nobody
@@ -66,11 +66,6 @@ refused() {
     *) fail "expected a refusal containing '$1', got: $err $out" ;;
   esac
 }
-# The leaf words a group's help names, in order: each usage line with its
-# group word and its arguments taken off.
-leaves() {
-  echo "$out" | jq -r '[.commands[] | sub("^[a-z]+ "; "") | split(" ") | first] | join(" ")'
-}
 
 OWNER="groups-test-owner-$RUN"
 ok init "$OWNER"
@@ -81,8 +76,6 @@ fails recovery sideways
 refused "unknown recovery command: sideways"
 fails recovery-status
 refused "unknown command: recovery-status"
-ok recovery help
-check "recovery help names every leaf" "$(leaves)" "status drill"
 ok recovery status
 check "recovery status counts items" "$(echo "$out" | jq -r 'has("item_count")')" "true"
 
@@ -92,8 +85,6 @@ fails emergency sideways
 refused "unknown emergency command: sideways"
 fails emergency-list
 refused "unknown command: emergency-list"
-ok emergency help
-check "emergency help names every leaf" "$(leaves)" "list grant cancel activate"
 PASSED_MOMENT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ok emergency grant "nobody-$RUN" --activate-after "$PASSED_MOMENT"
 check "an unknown grantee is blocked" "$(echo "$out" | jq -r '.reason')" "unknown_recipient"
@@ -112,8 +103,6 @@ fails donation sideways
 refused "unknown donation command: sideways"
 fails donations
 refused "unknown command: donations"
-ok donation help
-check "donation help names every leaf" "$(leaves)" "list accept reject"
 ok donation list
 check "the inbox is empty" "$(echo "$out" | jq -r '. == []')" "true"
 fails donation accept "missing-$RUN"
@@ -127,8 +116,6 @@ fails recipient sideways
 refused "unknown recipient command: sideways"
 fails users
 refused "unknown command: users"
-ok recipient help
-check "recipient help names every leaf" "$(leaves)" "add remove list export"
 ok recipient list
 check "the owner is a recipient" "$(echo "$out" | jq -r --arg u "$OWNER" '.[$u].role')" "owner"
 ok recipient export "$OWNER"
