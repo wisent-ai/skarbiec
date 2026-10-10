@@ -64,15 +64,25 @@ impl RequestPool {
                     return;
                 };
                 if descriptor_lost(&error) {
-                    let _ = lost.send(error);
+                    if let Err(failure) = lost.send(error) {
+                        eprintln!("notify request supervisor failed because its channel closed; original failure: {:#}", failure.0);
+                    }
                     return;
                 }
                 eprintln!("request error: {error:#}");
             });
-        let (Err(refused), Ok(mut stream)) = (started, answer) else {
-            return;
+        let refused = match started {
+            Ok(_) => return,
+            Err(error) => error,
         };
-        let _ = write_response(
+        let mut stream = match answer {
+            Ok(stream) => stream,
+            Err(error) => {
+                eprintln!("start request worker failed: {refused}; clone socket to answer refusal failed: {error}");
+                return;
+            }
+        };
+        if let Err(error) = write_response(
             &mut stream,
             "HTTP/1.1 503 Service Unavailable",
             &json!({
@@ -80,7 +90,11 @@ impl RequestPool {
                 "error_code": Code::InfraDown.as_str(),
                 "retryable": true,
             }),
-        );
+        ) {
+            eprintln!(
+                "start request worker failed: {refused}; write refusal response failed: {error:#}"
+            );
+        }
     }
 }
 
