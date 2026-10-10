@@ -111,12 +111,16 @@ done <"$ROOT/serve.log"
 cat "$ROOT/serve.log" >/dev/null &
 echo "serve: $ADDRESS" >>"$REPORT"
 
+cp "$SKARBIEC_AUDIT_FILE" "$ROOT/audit-before-revision.jsonl"
 api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$status" = "200" ] || fail "revision answered $status: $out"
 [ "$(member item_uid)" = "$CLI_UID" ] && [ "$(member revision)" = "$CLI_REVISION" ] \
   || fail "the API's version differs from the CLI's: $out"
 case "$out" in *"first-$RUN"*|*'"value"'*) fail "the revision answer carries the value" ;; esac
 echo "ok: /v1/items/revision names the CLI's item_uid and revision and no value" >>"$REPORT"
+cmp "$SKARBIEC_AUDIT_FILE" "$ROOT/audit-before-revision.jsonl" \
+  || fail "revision-only API read changed the audit journal"
+echo "ok: revision-only API read leaves the exact audit bytes unchanged" >>"$REPORT"
 
 api /v1/items/read "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$status" = "200" ] && [ "$(member value)" = "first-$RUN" ] && [ "$(member revision)" = "$CLI_REVISION" ] \
