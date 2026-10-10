@@ -11,7 +11,9 @@ pub(super) fn create_and_read_demo(item_id: &str) -> Result<()> {
     let owner = vault.owner_uid().to_string();
     let payload = crate::core::items::build_item(
         "note",
-        &["value=Skarbiec onboarding note; explicitly not a secret".to_string()],
+        &[format!(
+            "value=Skarbiec onboarding note for {item_id}; explicitly not a secret"
+        )],
     )?;
     vault.set_item_written_by(
         item_id,
@@ -21,7 +23,11 @@ pub(super) fn create_and_read_demo(item_id: &str) -> Result<()> {
         &["onboarding".to_string()],
         &owner,
     )?;
-    let _decrypted = vault.get_item(item_id)?;
+    let decrypted = vault.get_item(item_id)?;
+    anyhow::ensure!(
+        decrypted == payload,
+        "onboarding read returned a different payload for demo item {item_id}"
+    );
     crate::runtime::audit::append_sync(
         "onboarding-demo-item-read",
         &json!({"item": item_id, "consumer": "human", "contains_secret": false}),
