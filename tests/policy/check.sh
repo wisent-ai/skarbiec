@@ -42,12 +42,13 @@ fail() {
 # be refused (refused). Outputs of refusals go to the report; a refusal never
 # repeats the candidate, which never reaches argv.
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then status=$?; got=ok; else status=$?; got=refused; fi
   if [ "$got" = ok ]; then
     printf '$ skarbiec %s\nresult: ok\n\n' "$*" >>"$REPORT"
   else
     printf '$ skarbiec %s\nresult: refused\noutput: %s\n\n' "$*" "$out" >>"$REPORT"
   fi
+  printf 'exit: %s\n' "$status" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT"
 }
 says() {
@@ -96,8 +97,11 @@ verdict true "a candidate of exactly min_generated_length passes, its trailing n
 : >"$ROOT/stdin"
 WANT=refused run policy check "argument-candidate-$RUN"
 says "standard input" "a candidate given as an argument is refused naming standard input"
+ARGUMENT_STATUS=$status
 WANT=refused run policy check
 says "the one it read was empty" "an empty standard input is refused"
+[ "$status" != "$ARGUMENT_STATUS" ] \
+  || fail "a malformed invocation must not share the empty-input refusal exit status"
 WANT=refused run policy-check-length "argument-candidate-$RUN"
 
 touch "$ROOT/passed"
