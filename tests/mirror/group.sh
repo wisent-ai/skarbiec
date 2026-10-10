@@ -102,6 +102,8 @@ export SKARBIEC_VAULT_FILE="$ROOT/replica.vault.json" SKARBIEC_SYNC_DIR="$ROOT/s
 WANT=ok run init "mirror-test-replica-$RUN"
 WANT=ok run mirror init "$REMOTE"
 WANT=ok run mirror pull
+cmp "$ROOT/published-vault.json" "$SKARBIEC_VAULT_FILE" \
+  || fail "the pulled replica must retain the exact published ciphertext, not an older value under the same item id"
 WANT=ok run list
 says "$ITEM" "the replica lists the owner's item after mirror pull"
 
