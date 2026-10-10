@@ -62,11 +62,15 @@ impl Vault {
         if let Some(refusal) = crate::core::unchosen_copy_refusal(&path) {
             bail!(refusal);
         }
-        if !path.exists() {
-            bail!("vault not initialized at {} (run: init)", path.display());
-        }
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("read vault file {}", path.display()))?;
+        let text = match fs::read_to_string(&path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                bail!("vault not initialized at {} (run: init)", path.display());
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("read vault file {}", path.display()));
+            }
+        };
         let doc: Value = serde_json::from_str(&text).with_context(|| {
             format!(
                 "parse vault file {}: it is not the JSON document skarbiec writes",
