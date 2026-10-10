@@ -96,13 +96,18 @@ fn resolve(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
     let names = exact_names(asked)?;
     let consumer = flags.get("consumer").map(String::as_str);
     let presented = match consumer {
-        Some(_) => Some(
-            flags
-                .get("token")
-                .map(String::as_str)
-                .ok_or_else(|| anyhow!("--token required with --consumer"))?,
-        ),
-        None => None,
+        Some(_)
+            if flags.get("emit").map(String::as_str) == Some("true")
+                || flags.contains_key("template") =>
+        {
+            Some(
+                flags
+                    .get("token")
+                    .map(String::as_str)
+                    .ok_or_else(|| anyhow!("--token required with --consumer"))?,
+            )
+        }
+        _ => None,
     };
     if let Some(template) = flags.get("template") {
         let out = route_values::require_out(flags, "template")?;
