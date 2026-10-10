@@ -11,6 +11,9 @@ use crate::core::{schema, vault_path};
 
 use super::args::{emit, flag_set, OrUsage};
 
+pub(crate) const SET_JSON_USAGE: &str =
+    "usage: set-json <id> [--type <canonical-kind>] [--if-absent]";
+
 pub(crate) fn ensure_owner_mutation_allowed(
     vault: &Vault,
     id: &str,
@@ -117,9 +120,7 @@ fn requested_or_existing(
 /// cannot both write: one wins, the other is refused and its caller reads the
 /// winner's value.
 pub(crate) fn cmd_set_json(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
-    let id = positionals
-        .first()
-        .or_usage("usage: set-json <id> [--type <canonical-kind>] [--if-absent]")?;
+    let id = positionals.first().or_usage(SET_JSON_USAGE)?;
     // The payload is read first, so a caller writing it is never cut off by
     // an early answer.
     let mut encoded = String::new();

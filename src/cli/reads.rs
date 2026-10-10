@@ -11,6 +11,8 @@ use crate::core::vault_path;
 use super::args::{emit, flag_set, OrUsage};
 use super::items::ensure_owner_mutation_allowed;
 
+pub(crate) const GET_USAGE: &str = "usage: get <id|role:<role>> [--field <field> | --revision]";
+
 pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().or_usage("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;
@@ -81,9 +83,7 @@ pub(crate) fn emit_get(flags: &HashMap<String, String>, value: &Value) -> Result
 }
 
 pub(crate) fn get_value(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    let coordinate = positionals
-        .first()
-        .or_usage("usage: get <id|role:<role>> [--field <field> | --revision]")?;
+    let coordinate = positionals.first().or_usage(GET_USAGE)?;
     let path = vault_path();
     let vault = Vault::open(path.clone())?;
     // `role:<role>` reads the one live item tagged `stado:role:<role>`, the

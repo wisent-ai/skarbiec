@@ -1,4 +1,5 @@
-use anyhow::{bail, Context, Result};
+use crate::cli::args::OrUsage;
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Read;
@@ -54,12 +55,15 @@ pub(crate) fn dispatch(
     };
     let mut body = json!({"flags": flags, "positionals": positionals});
     let path = match command {
-        "get" => "/v1/operator/items/get",
+        "get" => {
+            positionals.first().or_usage(crate::cli::reads::GET_USAGE)?;
+            "/v1/operator/items/get"
+        }
         "list" => "/v1/operator/items/list",
         "set-json" => {
-            if positionals.is_empty() {
-                bail!("usage: set-json <id> [--type <canonical-kind>] [--if-absent]");
-            }
+            positionals
+                .first()
+                .or_usage(crate::cli::items::SET_JSON_USAGE)?;
             let mut encoded = String::new();
             std::io::stdin().read_to_string(&mut encoded)?;
             body["payload"] = Value::String(encoded);
