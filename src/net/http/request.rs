@@ -6,7 +6,6 @@ use std::io::{BufRead, BufReader};
 use std::net::TcpStream;
 
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
-use crate::net::operator;
 
 // `GET /v1/credential/operations/<item>` names one exact item and nothing else.
 pub(super) fn credential_status_item<'a>(method: &str, path: &'a str) -> Option<&'a str> {
@@ -18,13 +17,14 @@ pub(super) fn credential_status_item<'a>(method: &str, path: &'a str) -> Option<
         .filter(|item| !item.is_empty() && !item.contains('/') && !item.contains('?'))
 }
 
+/// The non-operator routes that mutate the vault, for the listener's write
+/// lock. Operator routes take the lock themselves, and only for work served
+/// from this host's vault (`operator::handle`), since one may be forwarded
+/// to the vault owner instead.
 pub(super) fn is_mutation(method: &str, path: &str) -> bool {
     // A credential status poll commits or rolls back a staged revision, so it
     // serializes with every other writer despite being a GET.
     if credential_status_item(method, path).is_some() {
-        return true;
-    }
-    if operator::is_mutation(path) {
         return true;
     }
     matches!(

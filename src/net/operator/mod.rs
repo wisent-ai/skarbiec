@@ -13,7 +13,7 @@
 // names its vault in the body's optional `vault` member; the request-scoped
 // override in core applies it for exactly the thread answering here.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -88,13 +88,27 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
+    let forwarded = parsed.get(crate::net::owner::FORWARDED).is_some();
+    let local = |vault: Option<PathBuf>| {
+        let serve = || core::with_vault_override(vault, || answer(path, &parsed));
+        if is_mutation(path) {
+            http::serialized(serve)
+        } else {
+            serve()
+        }
+    };
     let result = if vault.is_none() {
         crate::net::owner::selected().and_then(|route| match route {
+            // A request another host forwarded here named this host as the
+            // vault owner; forwarding it again would loop between hosts.
+            Some(route) if forwarded => bail!(
+                "{path} was forwarded to this host as the vault owner, but this host routes to the owner {route} itself; declare the owner's vault on it instead of secrets.skarbiec.url"
+            ),
             Some(route) => crate::net::owner::request(&route, path, &parsed),
-            None => core::with_vault_override(None, || answer(path, &parsed)),
+            None => local(None),
         })
     } else {
-        core::with_vault_override(vault, || answer(path, &parsed))
+        local(vault)
     };
     match result {
         Ok(value) => http::write_response(stream, OK_LINE, &value)?,

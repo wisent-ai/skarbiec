@@ -11,8 +11,8 @@ use wisent_errors::Code;
 use super::readiness::readiness_check;
 use super::request::{credential_status_item, is_mutation, read_line};
 use super::{
-    detail_text, load, presented_identity, request_field, request_id, request_json, write_response,
-    WRITE_LOCK,
+    detail_text, load, presented_identity, request_field, request_id, request_json, write_guard,
+    write_response,
 };
 use crate::access::grant;
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
@@ -26,12 +26,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or("").to_string();
     let path = parts.next().unwrap_or("").to_string();
-    let _write_guard = is_mutation(&method, &path).then(|| {
-        WRITE_LOCK
-            .get_or_init(Default::default)
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    });
+    let _write_guard = is_mutation(&method, &path).then(write_guard);
 
     let mut headers: HashMap<String, String> = HashMap::new();
     loop {

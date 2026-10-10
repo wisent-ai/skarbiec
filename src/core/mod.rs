@@ -41,8 +41,12 @@ pub fn vault_path() -> PathBuf {
     if let Some(path) = REQUEST_VAULT.with(|cell| cell.borrow().clone()) {
         return path;
     }
-    if let Ok(p) = std::env::var("SKARBIEC_VAULT_FILE") {
-        return PathBuf::from(p);
+    // Read as the operating system holds it, the same way owner routing
+    // (`net::owner::selected`) detects the override, so a path that is not
+    // UTF-8 selects that vault instead of disabling routing and then being
+    // ignored here.
+    if let Some(path) = std::env::var_os("SKARBIEC_VAULT_FILE") {
+        return PathBuf::from(path);
     }
     if let Some(declared) = stado_declared_vault() {
         return declared;

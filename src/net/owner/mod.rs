@@ -9,15 +9,23 @@ mod config;
 pub(crate) use commands::local;
 pub(crate) use config::selected;
 
+/// The member an owner request carries, so the owner serves it from its own
+/// vault and never forwards it again.
+pub(crate) const FORWARDED: &str = "forwardedToOwner";
+
 pub(crate) fn request(route: &str, path: &str, body: &Value) -> Result<Value> {
     let endpoint = config::resolve(route)?;
+    let mut body = body.clone();
+    body.as_object_mut()
+        .context("owner request body is not a JSON object")?
+        .insert(FORWARDED.into(), Value::Bool(true));
     let value = stado_wait::blocking(
         stado_wait::Kind::Network,
         format!("Skarbiec owner POST {path}"),
         &endpoint,
         || -> std::io::Result<Value> {
             let (status, value) =
-                super::bond::serve_request(&endpoint, "POST", path, "", "", Some(body))
+                super::bond::serve_request(&endpoint, "POST", path, "", "", Some(&body))
                     .map_err(std::io::Error::other)?;
             if status != super::operator::OK_LINE {
                 return Err(std::io::Error::other(format!(

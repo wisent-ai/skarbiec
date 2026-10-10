@@ -64,7 +64,26 @@ pub(crate) fn write_response(
 // Mutating routes serialize process-wide (the listener is threaded): a
 // read-modify-write on the vault file must never interleave with another
 // writer. Read-only routes stay parallel.
-static WRITE_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The process-wide write lock, held until the guard drops. A poisoned lock
+/// is taken over, as the listener always has, rather than refusing every
+/// later write.
+fn write_guard() -> std::sync::MutexGuard<'static, ()> {
+    match WRITE_LOCK.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+/// Run `work` holding the process-wide write lock. Operator routes take it
+/// only around work this host serves from its own vault, never while a
+/// request is forwarded to the vault owner, so a forwarded write cannot wait
+/// on the lock its own forwarding holds.
+pub(crate) fn serialized<T>(work: impl FnOnce() -> T) -> T {
+    let _guard = write_guard();
+    work()
+}
 
 pub fn dispatch(
     command: &str,
