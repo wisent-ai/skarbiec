@@ -14,6 +14,10 @@ autotests = false
 name = "skarbiec"
 path = "src/main.rs"
 
+[[test]]
+name = "read-recovery"
+path = "tests/read/recovery.rs"
+
 [dependencies]
 anyhow = "1.0"
 serde_json = "1.0"

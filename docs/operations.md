@@ -85,6 +85,26 @@ Skarbiec's `unlink`: a lock can be replaced between observing its recorded
 holder and removing its path. Skarbiec leaves that ownership decision to the
 keyring implementation; it never unlinks a lock based on a process snapshot.
 
+The real recovery journey needs an isolated OS account, never a live vault
+host. It refuses pre-existing GnuPG processes before daemon control, creates
+its own encrypted item and keyring, checks the value after recovery, and
+verifies that foreign-host, invalid-PID and live non-GnuPG locks stay intact
+with diagnostics naming the observed lock and PID. Run the explicit test only
+in the authorized qualification stage:
+
+```sh
+SKARBIEC=/absolute/path/to/candidate \
+SKARBIEC_TEST_SOURCE_REVISION=<full-source-revision> \
+cargo test --test read-recovery -- --ignored
+```
+
+The source checkout must be clean and match that revision. Command arguments,
+exit statuses, stdout, stderr and lock before/after files remain under
+`target/real-tests/recovery/`; `report.json` is passed only after the real
+reads, ownership refusals and keyring cleanup succeed. The isolated keyring is
+removed; the encrypted test vault and audit remain as evidence. The journey is
+ignored by default because it controls account-wide daemon processes.
+
 The operator owns:
 
 - the OS account, file permissions, GPG keyring, and unlock material;
