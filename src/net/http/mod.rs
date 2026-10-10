@@ -141,7 +141,13 @@ pub fn dispatch(
                     Vec::new()
                 }
             };
-            let bonds = crate::bonds::pulled_bonds()?;
+            let bonds = match crate::bonds::pulled_bonds() {
+                Ok(bonds) => bonds,
+                Err(error) => {
+                    failures.push(format!("list pulled bonds: {error:#}"));
+                    Vec::new()
+                }
+            };
             for bond in &bonds {
                 if let Err(error) = crate::bonds::pull_once(bond) {
                     failures.push(format!("{error:#}"));
