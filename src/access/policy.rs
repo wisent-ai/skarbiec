@@ -207,9 +207,9 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
         // whitespace inside a password is part of it.
         "policy check" => {
             if !positionals.is_empty() {
-                anyhow::bail!(
-                    "policy check reads the candidate from standard input, never from an argument: an argument stays in the process table and shell history. Pipe it in: `printf '%s' \"$CANDIDATE\" | skarbiec policy check`"
-                );
+                return Err(crate::cli::args::Usage(
+                    "policy check reads the candidate from standard input, never from an argument: an argument stays in the process table and shell history. Pipe it in: `printf '%s' \"$CANDIDATE\" | skarbiec policy check`".into()
+                ).into());
             }
             let mut read = String::new();
             std::io::Read::read_to_string(&mut std::io::stdin(), &mut read).map_err(|error| {
