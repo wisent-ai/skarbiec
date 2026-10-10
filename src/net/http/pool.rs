@@ -45,9 +45,8 @@ impl RequestPool {
             .recv();
         match lost {
             Ok(error) => Err(error.context(
-                "a request worker found the socket of a connection this process had just \
-                 accepted already closed (EBADF); no client can close a descriptor inside this \
-                 process, so no answer it writes can be trusted to reach the caller it is for",
+                "a request worker encountered a fatal local resource failure; \
+                 the serving process cannot continue safely and must end",
             )),
             Err(_) => Err(anyhow!("the request workers' failure channel closed")),
         }
@@ -68,7 +67,7 @@ impl RequestPool {
                     let _ = lost.send(error);
                     return;
                 }
-                eprintln!("request error: {error}");
+                eprintln!("request error: {error:#}");
             });
         let (Err(refused), Ok(mut stream)) = (started, answer) else {
             return;
