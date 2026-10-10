@@ -131,9 +131,8 @@ WANT=refused run policy-check-length "argument-candidate-$RUN"
 WANT=ok run policy unset min_generated_length
 says '"removed": true' "withdrawing a configured rule reports its removal"
 WANT=ok run policy get
-case "$out" in
-  *'"min_generated_length"'*) fail "the withdrawn policy rule remained persisted" ;;
-esac
+printf '%s' "$out" | jq -e 'type == "object" and (has("min_generated_length") | not)' >/dev/null \
+  || fail "policy get must return a valid object without the withdrawn rule"
 printf '%s\n' "$SHORT" >"$ROOT/stdin"
 WANT=ok run policy check
 says '"configured": false' "the withdrawn rule is reported unconfigured"
