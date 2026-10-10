@@ -48,12 +48,16 @@ static WEDGED_GPG_ERRORS: std::sync::LazyLock<Vec<u32>> = std::sync::LazyLock::n
         .iter()
         .filter_map(|name| {
             let answer = std::process::Command::new("gpg-error").arg(name).output();
-            let code = answer.as_ref().ok().and_then(|output| {
-                String::from_utf8_lossy(&output.stdout)
-                    .split_whitespace()
-                    .next()
-                    .and_then(|code| code.parse::<u32>().ok())
-            });
+            let code = answer
+                .as_ref()
+                .ok()
+                .filter(|output| output.status.success())
+                .and_then(|output| {
+                    String::from_utf8_lossy(&output.stdout)
+                        .split_whitespace()
+                        .next()
+                        .and_then(|code| code.parse::<u32>().ok())
+                });
             if code.is_none() {
                 eprintln!(
                     "skarbiec: gpg-error did not resolve {name} ({answer:?}); a gpg failure with \
