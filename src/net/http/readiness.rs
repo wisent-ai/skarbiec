@@ -90,6 +90,13 @@ fn daemon_ceiling_pass() -> Result<()> {
 /// `skarbiec maintain` runs it once; a Stado schedule pinned to the vault host
 /// decides how often. A failed proof is the command's error.
 pub(crate) fn maintenance_pass() -> Result<Vec<String>> {
-    daemon_ceiling_pass()?;
-    readiness_check()
+    let ceiling = daemon_ceiling_pass();
+    let readiness = readiness_check();
+    match (ceiling, readiness) {
+        (Ok(()), Ok(canaries)) => Ok(canaries),
+        (Err(error), Ok(_)) | (Ok(()), Err(error)) => Err(error),
+        (Err(ceiling), Err(readiness)) => {
+            anyhow::bail!("{ceiling:#}; readiness proof: {readiness:#}")
+        }
+    }
 }
