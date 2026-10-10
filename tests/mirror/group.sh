@@ -60,6 +60,8 @@ jq -n --arg value "mirror-value-$RUN" \
 WANT=ok run mirror init "$REMOTE"
 WANT=ok run mirror push
 PUBLISHED=$(git --git-dir="$REMOTE" rev-parse refs/heads/main)
+printf '%s\n' "$RUN" >"$SKARBIEC_SYNC_DIR/unrelated.txt"
+git -C "$SKARBIEC_SYNC_DIR" add unrelated.txt
 WANT=ok run mirror push
 [ "$(git --git-dir="$REMOTE" rev-parse refs/heads/main)" = "$PUBLISHED" ] \
   || fail "pushing unchanged ciphertext must not create another commit"
@@ -82,6 +84,10 @@ WANT=ok run mirror push
 git --git-dir="$REMOTE" show main:vault.enc.json >"$ROOT/published-vault.json"
 cmp "$ROOT/published-vault.json" "$SKARBIEC_VAULT_FILE" \
   || fail "the published ciphertext must equal the current owner vault"
+[ -z "$(git --git-dir="$REMOTE" ls-tree --name-only main -- unrelated.txt)" ] \
+  || fail "publishing a vault must not publish unrelated staged files"
+[ "$(git -C "$SKARBIEC_SYNC_DIR" diff --cached --name-only -- unrelated.txt)" = "unrelated.txt" ] \
+  || fail "publishing a vault must preserve unrelated staged work"
 WANT=refused run mirror
 says "needs a subcommand" "the mirror group without a subcommand is refused"
 WANT=refused run mirror frobnicate
