@@ -114,6 +114,22 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             rotation("remove", &no_flags, &positionals(parsed, &["item"])?)
         }
         "/v1/operator/rotation/run" => rotation("run", &flags(parsed, &["item"]), &none),
+        "/v1/operator/grants/capability" => grant(
+            "capability",
+            &flags(
+                parsed,
+                &[
+                    "agent",
+                    "purpose",
+                    "resource",
+                    "target",
+                    "ttl",
+                    "max-uses",
+                    "authorization-id",
+                ],
+            ),
+            &none,
+        ),
         "/v1/operator/grants/issue" => grant(
             "issue",
             &flags(

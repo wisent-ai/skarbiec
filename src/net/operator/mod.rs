@@ -47,6 +47,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/rotation/remove"
             | "/v1/operator/rotation/run"
             | "/v1/operator/grants/issue"
+            | "/v1/operator/grants/capability"
             | "/v1/operator/grants/ensure"
             | "/v1/operator/grants/narrow"
             | "/v1/operator/grants/revoke"
