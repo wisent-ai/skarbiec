@@ -14,10 +14,11 @@
 # audit-epoch-start. Every command, whether it succeeded and its output go to
 # the run's report.txt; no item value is written there.
 #
-# Usage: SKARBIEC=target/debug/skarbiec tests/audit/read.sh
+# Supply SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION, then run tests/audit/read.sh.
 set -eu
 cd "$(dirname "$0")/../.."
 BIN=${SKARBIEC:?set SKARBIEC to the skarbiec binary under test, e.g. SKARBIEC=target/debug/skarbiec}
+SOURCE_REVISION=${SKARBIEC_TEST_SOURCE_REVISION:?set the exact committed source revision under qualification}
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/audit/$RUN"
 REPORT="$ROOT/report.txt"
@@ -26,6 +27,7 @@ mkdir -p "$ROOT" "$KEYRING"
 chmod go-rwx "$KEYRING"
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
+echo "binary-git-blob: $(git hash-object "$BIN")" >>"$REPORT"
 export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
@@ -36,13 +38,21 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then
+    status=$?; got=ok
+  else
+    status=$?; got=refused
+  fi
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\n\n' "$*" "$status" "$got" "$out" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT"
 }
 field() {
   echo "$out" | jq -e -r "$@"
 }
+
+[ "$(git rev-parse HEAD)" = "$SOURCE_REVISION" ] || fail "source revision differs from the candidate declaration"
+git diff --quiet || fail "source has uncommitted tracked changes"
+git diff --cached --quiet || fail "source has staged uncommitted changes"
 
 : >"$ROOT/stdin"
 WANT=ok run init "audit-test-owner-$RUN"
@@ -51,6 +61,7 @@ WANT=ok run set-json "audit-test-login-$RUN" --type login
 : >"$ROOT/stdin"
 
 WANT=ok run audit list
+whole=$out
 field '.entries | first | has("op")' >/dev/null || fail "the journal of a vault that was just written holds no entry"
 total=$(field '.matched')
 [ "$(field '.returned')" = "$total" ] || fail "an unlimited read returned fewer entries than it matched"
@@ -61,10 +72,14 @@ newest=$(printf 'x' | wc -c | tr -d ' ')
 WANT=ok run audit list --limit "$newest"
 [ "$(field '.matched')" = "$total" ] || fail "the tail read did not count every entry as matched"
 [ "$(field '.returned')" = "$newest" ] || fail "the tail read returned other than the newest entry"
+expected_tail=$(printf '%s' "$whole" | jq -c '.entries | last')
+[ "$(field -c '.entries | last')" = "$expected_tail" ] || fail "the tail read did not return the actual newest journal entry"
 echo "ok: --limit without a filter reads the tail and counts every entry" >>"$REPORT"
 
 operation=$(field '.entries | last | .op')
 WANT=ok run audit list --op "$operation"
+expected_entries=$(printf '%s' "$whole" | jq -c --arg op "$operation" '[.entries[] | select(.op == $op)]')
+[ "$(field -c '.entries')" = "$expected_entries" ] || fail "the filtered read omitted or changed matching journal entries"
 field --arg op "$operation" '.entries | all(.op == $op)' >/dev/null || fail "--op returned an entry of another operation"
 echo "ok: --op $operation returns only that operation" >>"$REPORT"
 
