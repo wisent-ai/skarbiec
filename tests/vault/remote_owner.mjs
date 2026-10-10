@@ -66,6 +66,9 @@ async function operator(path, body, expectedSuccess = true, address = endpoint) 
 try {
   assert.equal(success('git', ['rev-parse', 'HEAD']).trim(), revision);
   assert.equal(success('git', ['status', '--porcelain', '--untracked-files=no']).trim(), '', 'candidate must be committed');
+  report.candidate = JSON.parse(cli(['version']));
+  assert.equal(report.candidate.commit, revision,
+    'candidate executable must report the declared release source revision before vault access');
   const status = JSON.parse(cli(['status']));
   assert.equal(status.source.kind, 'remote');
   assert.equal(status.source.route, config.secrets.skarbiec.url);
