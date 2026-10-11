@@ -59,25 +59,25 @@ pub fn dispatch(
     }
 }
 
-/// Check whether the operator is allowed to write this item.
+/// Check whether the operator may write this item, exactly as the CLI's set
+/// does: never on a replica, and on an existing item only through the owner's
+/// mutation check.
+///
+/// This read a `writer` field out of `get_item`'s decrypted payload, which
+/// never carries one, and took any failure to decrypt as a new item; the
+/// console's set therefore wrote over items owned by someone else, managed
+/// items, and items on a replica that the next pull would undo.
 fn ensure_owner_set_allowed(vault: &Vault, id: &str) -> Result<()> {
-    let item = vault.get_item(id).ok();
-    match item {
-        None => Ok(()), // New item, always allowed
-        Some(item) => {
-            // Existing item: only the owner can change it
-            if let Some(writer) = item.get("writer").and_then(Value::as_str) {
-                if writer != vault.owner_uid() {
-                    bail!(
-                        "item {} is owned by {}, only the owner can modify it",
-                        id,
-                        writer
-                    );
-                }
-            }
-            Ok(())
-        }
+    crate::cli::items::ensure_not_replica(vault, "set")?;
+    let item_exists = vault
+        .doc()
+        .get("items")
+        .and_then(Value::as_object)
+        .is_some_and(|items| items.contains_key(id));
+    if !item_exists {
+        return Ok(());
     }
+    crate::cli::items::ensure_owner_mutation_allowed(vault, id, "rotate")
 }
 
 /// One metadata list: what the caller asked for, or what the item's envelope
