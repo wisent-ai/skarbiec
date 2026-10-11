@@ -66,22 +66,33 @@ pub fn generate_password(
         .collect())
 }
 
-// Words available for a passphrase: system dictionary if present, else built-in.
-fn words() -> Vec<String> {
-    let dict = std::fs::read_to_string("/usr/share/dict/words").ok();
-    let source = dict.as_deref().unwrap_or(BUILTIN_WORDS);
-    source
+// Words available for a passphrase: the system dictionary, or the built-in list
+// on a host that has none. A dictionary that exists but cannot be read is
+// refused with its path and cause: swallowed, a passphrase was drawn from the
+// small built-in list in silence, a far weaker secret than the caller expected.
+fn words() -> Result<Vec<String>> {
+    let path = "/usr/share/dict/words";
+    let dict = match std::fs::read_to_string(path) {
+        Ok(text) => Some(text),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => bail!("passphrase dictionary {path} cannot be read: {error}"),
+    };
+    let source = match dict.as_deref() {
+        Some(text) => text,
+        None => BUILTIN_WORDS,
+    };
+    Ok(source
         .split_whitespace()
         .map(|w| w.trim().to_lowercase())
         .filter(|w| !w.is_empty() && w.chars().all(|c| c.is_ascii_lowercase()))
-        .collect()
+        .collect())
 }
 
 pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
     if count == usize::MIN {
         bail!("passphrase word count must be positive");
     }
-    let pool = words();
+    let pool = words()?;
     if pool.is_empty() {
         bail!("no words available for passphrase");
     }
