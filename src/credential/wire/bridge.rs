@@ -129,8 +129,7 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
     let mut errors = child.stderr.take().context("open Weles bridge stderr")?;
     let diagnostics = std::thread::spawn(move || {
         let mut captured = Vec::new();
-        let _ = errors.read_to_end(&mut captured);
-        captured
+        errors.read_to_end(&mut captured).map(|_| captured)
     });
     child
         .stdin
@@ -147,7 +146,13 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
     let status = child
         .wait()
         .context("wait for Weles credential acquisition bridge")?;
-    let detail = sanitized_diagnostics(&diagnostics.join().unwrap_or_default());
+    // A stderr that could not be read is said as such: read as empty, a
+    // failed bridge was reported as one that gave no diagnostics.
+    let detail = match diagnostics.join() {
+        Ok(Ok(captured)) => sanitized_diagnostics(&captured),
+        Ok(Err(error)) => format!("its stderr could not be read: {error}"),
+        Err(_) => "the thread reading its stderr stopped before it finished".to_string(),
+    };
     if !status.success() {
         if detail.is_empty() {
             bail!("Weles credential-operation bridge exited with {status} and no diagnostics");
