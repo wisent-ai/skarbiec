@@ -140,11 +140,21 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             );
         };
         let (consumer, acquisition_token) = presented_identity(&headers);
+        // A redemption that failed to read its own state is not a wrong
+        // token: it answers unavailable with the cause, never 401.
         let acquired = if consumer.is_empty() {
             None
         } else {
-            crate::access::acquisition::consume(&consumer, &acquisition_token, item, field)
-                .unwrap_or(None)
+            match crate::access::acquisition::consume(&consumer, &acquisition_token, item, field) {
+                Ok(acquired) => acquired,
+                Err(error) => {
+                    return write_response(
+                        &mut stream,
+                        unavailable_line,
+                        &json!({"error": format!("the acquisition could not be redeemed: {error:#}")}),
+                    );
+                }
+            }
         };
         let Some(acquired) = acquired else {
             return write_response(
