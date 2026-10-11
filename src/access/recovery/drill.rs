@@ -93,12 +93,15 @@ pub(super) fn dispatch(
         }
         "recovery status" => {
             let vault = load()?;
-            let items = vault
-                .doc()
-                .get("items")
-                .and_then(Value::as_object)
-                .map(|m| m.len())
-                .unwrap_or_default();
+            // A vault document without an items object is damaged, not empty:
+            // reporting zero items would read as a vault with nothing to recover.
+            let items = match vault.doc().get("items") {
+                Some(Value::Object(items)) => items.len(),
+                other => anyhow::bail!(
+                    "the vault document's items section is {}, not an object of id -> item",
+                    other.map_or_else(|| "missing".to_string(), Value::to_string)
+                ),
+            };
             let fpr = vault.recovery_fpr().to_string();
             // Reporting the fingerprint proved nothing about recoverability:
             // this command answered identically whether the offline material
@@ -127,12 +130,15 @@ pub(super) fn dispatch(
             let recovery = vault.recovery_fpr().to_string();
             let mut recipients = Vec::new();
             let mut openers = Vec::new();
-            let registry = vault
-                .doc()
-                .get("recipients")
-                .and_then(Value::as_object)
-                .cloned()
-                .unwrap_or_default();
+            // A vault document without a recipients object is damaged: reading it
+            // as no recipients would report that no key can open the vault.
+            let registry = match vault.doc().get("recipients") {
+                Some(Value::Object(entries)) => entries.clone(),
+                other => anyhow::bail!(
+                    "the vault document's recipients section is {}, not an object of uid -> recipient, so key-doctor cannot say which key opens it",
+                    other.map_or_else(|| "missing".to_string(), Value::to_string)
+                ),
+            };
             for (uid, entry) in &registry {
                 let fpr = entry
                     .get("fingerprint")
