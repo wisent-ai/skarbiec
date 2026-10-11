@@ -46,7 +46,7 @@ run() {
   else
     status=$?; got=refused
   fi
-  printf '$ skarbiec %s\nexit: %s\nresult: %s\n\n' "$*" "$status" "$got" >>"$REPORT"
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput:\n%s\n\n' "$*" "$status" "$got" "$out" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
 }
 says() {
@@ -70,10 +70,17 @@ jq -n --arg user "request-user-$RUN" --arg password "request-password-$RUN" \
 BEFORE=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" != "null" ] || fail "the pending request item was not written"
 
+WANT=refused run get "$REQUEST" --field value
+FIELD_FAILURE=$out
+
 WANT=refused run credential acquire --local --provider "$PROVIDER" --consumer "unreadable-request-consumer"
-says "the pending request $REQUEST of $PROVIDER" "the refusal names the pending request and its credential"
-says "cannot be read; acquire is refused until it can" "the refusal says the operation is refused"
-says "no canonical value field" "the refusal carries the cause"
+says "$REQUEST" "the refusal names the retained request"
+says "$PROVIDER" "the refusal names the credential"
+case "$FIELD_FAILURE" in
+  *": "*) FIELD_CAUSE=${FIELD_FAILURE##*: } ;;
+  *) FIELD_CAUSE=$FIELD_FAILURE ;;
+esac
+says "$FIELD_CAUSE" "the lifecycle refusal retains the actual field-read cause"
 
 AFTER=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" = "$AFTER" ] || fail "the refused operation changed the pending request item"

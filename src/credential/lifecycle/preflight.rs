@@ -2,7 +2,7 @@
 // credential is managed, whether an earlier request of the same operation is
 // still open, and which revision the provider will be answering against.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -98,7 +98,21 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
         }
         _ => {}
     }
-    if let Ok(existing) = vault.get_item(&request_item).and_then(request_payload) {
+    let recorded = if live_item_exists(&vault, &request_item) {
+        Some(
+            vault
+                .get_item(&request_item)
+                .and_then(request_payload)
+                .with_context(|| {
+                    format!(
+                        "the pending request {request_item} of {credential_id} cannot be read; {operation} is refused until it can"
+                    )
+                })?,
+        )
+    } else {
+        None
+    };
+    if let Some(existing) = recorded {
         enforce_retry_barrier(&existing, credential_id, operation)?;
         if matches!(
             existing.get("status").and_then(Value::as_str),
