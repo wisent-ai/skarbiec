@@ -2,7 +2,7 @@
 // answers with. Quarantine is read from the record and from the item's own
 // tag: either one is enough to stop an operation.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
 use crate::core::inbox;
@@ -25,33 +25,49 @@ pub(in crate::credential) fn quarantine_tagged(vault: &Vault, id: &str) -> bool 
         .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some(QUARANTINE_TAG)))
 }
 
-pub(in crate::credential) fn record_quarantined(vault: &Vault, credential_id: &str) -> bool {
-    vault
-        .get_item(&request_item_id(credential_id))
-        .and_then(request_payload)
-        .ok()
-        .and_then(|request| {
-            request
-                .get("status")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .as_deref()
-        == Some(STATE_QUARANTINED)
+/// Whether the credential's request record says quarantined. Only an absent
+/// request item reads as not quarantined; one that cannot be decrypted or
+/// parsed is an error naming it, because read as "not quarantined" it let a
+/// lifecycle operation start on a credential nobody can vouch for.
+pub(in crate::credential) fn record_quarantined(vault: &Vault, credential_id: &str) -> Result<bool> {
+    let request_item = request_item_id(credential_id);
+    if !live_item_exists(vault, &request_item) {
+        return Ok(false);
+    }
+    let request = vault.get_item(&request_item).and_then(request_payload).with_context(|| {
+        format!("{credential_id}: request item {request_item} cannot be read, so its quarantine cannot be checked")
+    })?;
+    Ok(request.get("status").and_then(Value::as_str) == Some(STATE_QUARANTINED))
 }
 
-pub(in crate::credential) fn quarantine_active(vault: &Vault, credential_id: &str) -> bool {
-    if record_quarantined(vault, credential_id) || quarantine_tagged(vault, credential_id) {
-        return true;
+/// Whether the credential is quarantined, or the error that keeps it from
+/// being known; `lifecycle_state`, `refuse_quarantined` and `credential status`
+/// name that error.
+pub(in crate::credential) fn quarantine_state(vault: &Vault, credential_id: &str) -> Result<bool> {
+    if record_quarantined(vault, credential_id)? || quarantine_tagged(vault, credential_id) {
+        return Ok(true);
     }
-    context_block(vault, credential_id, "quarantine")
-        .is_some_and(|block| block.get("state").and_then(Value::as_str) == Some(STATE_QUARANTINED))
+    Ok(context_block(vault, credential_id, "quarantine")
+        .is_some_and(|block| block.get("state").and_then(Value::as_str) == Some(STATE_QUARANTINED)))
+}
+
+/// The same answer for callers that can only refuse or proceed: a quarantine
+/// that cannot be checked counts as one, so a managed write never lands on a
+/// credential whose request record is unreadable.
+pub(in crate::credential) fn quarantine_active(vault: &Vault, credential_id: &str) -> bool {
+    match quarantine_state(vault, credential_id) {
+        Ok(quarantined) => quarantined,
+        Err(error) => {
+            eprintln!("{error:#}; treated as quarantined");
+            true
+        }
+    }
 }
 
 // unmanaged, managed, adopting, or quarantined. An unknown stored state is a
 // refusal, never a guess.
 pub(crate) fn lifecycle_state(vault: &Vault, credential_id: &str) -> Result<String> {
-    if quarantine_active(vault, credential_id) {
+    if quarantine_state(vault, credential_id)? {
         return Ok(STATE_QUARANTINED.to_string());
     }
     if let Some(state) = context_block(vault, credential_id, "lifecycle")
@@ -75,7 +91,7 @@ pub(in crate::credential) fn refuse_quarantined(
     credential_id: &str,
     operation: &str,
 ) -> Result<()> {
-    if quarantine_active(vault, credential_id) {
+    if quarantine_state(vault, credential_id)? {
         bail!(
             "{credential_id} is quarantined: nobody knows which password the provider accepts, so {operation} is refused. Resolve it with credential resolve-quarantine {credential_id} --confirm '{QUARANTINE_CONFIRMATION}'"
         );

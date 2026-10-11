@@ -16,7 +16,7 @@ use crate::core::inbox;
 use crate::core::schema;
 use crate::core::vault::Vault;
 
-use super::state::{live_item_exists, quarantine_active};
+use super::state::{live_item_exists, quarantine_state};
 use super::wire::operation_contract_field;
 use super::FIELD_CONTRACT_MISMATCH;
 
@@ -137,13 +137,17 @@ pub(super) fn lifecycle_blockers(
             ),
         ));
     }
-    if quarantine_active(vault, credential_id) {
-        blockers.push(blocker(
+    match quarantine_state(vault, credential_id) {
+        Ok(true) => blockers.push(blocker(
             BLOCKER_QUARANTINED,
             format!(
                 "{credential_id} is quarantined until credential resolve-quarantine settles it"
             ),
-        ));
+        )),
+        Ok(false) => {}
+        // Not knowing is a blocker too, and it says why rather than calling
+        // the credential quarantined or clear.
+        Err(error) => blockers.push(blocker(BLOCKER_QUARANTINED, format!("{error:#}"))),
     }
     blockers
 }

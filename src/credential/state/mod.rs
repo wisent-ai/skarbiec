@@ -12,7 +12,7 @@ pub(crate) use records::{
 };
 pub(crate) use writes::authorize_managed_write;
 
-pub(super) use lifecycle::{quarantine_active, refuse_quarantined};
+pub(super) use lifecycle::{quarantine_active, quarantine_state, refuse_quarantined};
 pub(super) use records::{
     context_block, context_string, item_revision, live_item_exists, request_item_id, save_request,
     save_seal, update_request,
