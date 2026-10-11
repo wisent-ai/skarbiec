@@ -24,11 +24,20 @@ fn record() -> PathBuf {
 
 /// The ports the record holds and whether it exists. A host the previous
 /// release converged kept no record, and its journal's `unit-retired` entries
-/// name the ports instead.
-pub(super) fn remembered() -> (BTreeSet<u16>, bool) {
-    match std::fs::read(record()) {
-        Ok(bytes) => (serde_json::from_slice(&bytes).unwrap_or_default(), true),
-        Err(_) => (crate::runtime::audit::retired_ports(), false),
+/// name the ports instead. A record that exists and cannot be read or parsed
+/// is an error naming it: read as empty, the next write replaced it with
+/// only the ports retired at that start, and consumers dialing the others
+/// found nothing answering.
+pub(super) fn remembered() -> Result<(BTreeSet<u16>, bool)> {
+    let path = record();
+    match std::fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes)
+            .map(|ports| (ports, true))
+            .with_context(|| format!("{} is not a list of ports", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok((crate::runtime::audit::retired_ports(), false))
+        }
+        Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
     }
 }
 

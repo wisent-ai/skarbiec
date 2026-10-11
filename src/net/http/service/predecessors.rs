@@ -44,11 +44,22 @@ pub(crate) fn take_over() -> BTreeSet<u16> {
     if !declared() {
         return BTreeSet::new();
     }
-    let (mut ports, recorded) = super::inherited::remembered();
+    // A record that cannot be read is left exactly as it is: this start
+    // answers on the ports the journal and launchd name, and says why, but
+    // never replaces the record with that partial set.
+    let (mut ports, recorded, rewritable) = match super::inherited::remembered() {
+        Ok((ports, recorded)) => (ports, recorded, true),
+        Err(error) => {
+            eprintln!(
+                "skarbiec serve: the inherited ports record cannot be read, so it is left as it is and this start answers only on the ports the journal and the retired units name: {error:#}"
+            );
+            (crate::runtime::audit::retired_ports(), true, false)
+        }
+    };
     let retired = launchd::take_over();
     let grown = !retired.is_subset(&ports);
     ports.extend(retired);
-    if grown || !recorded {
+    if rewritable && (grown || !recorded) {
         if let Err(error) = super::inherited::remember(&ports) {
             eprintln!(
                 "skarbiec serve: answering on the retired units' ports {ports:?}, but they are not kept for the next start: {error:#}"
