@@ -92,8 +92,19 @@ pub fn inventory() -> Result<Value> {
                 }
             };
             let name = path.file_name().and_then(std::ffi::OsStr::to_str);
-            if !name.is_some_and(|name| name.ends_with(SUFFIX)) || !path.is_file() {
+            if !name.is_some_and(|name| name.ends_with(SUFFIX)) {
                 continue;
+            }
+            match std::fs::metadata(&path) {
+                Ok(metadata) if metadata.is_file() => {}
+                Ok(_) => continue,
+                Err(error) => {
+                    unreadable.push(json!({
+                        "path": path.display().to_string(),
+                        "cause": format!("metadata cannot be read: {error}"),
+                    }));
+                    continue;
+                }
             }
             let key = path.display().to_string();
             if seen.contains(&key) {
