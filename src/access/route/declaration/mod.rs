@@ -19,10 +19,12 @@
 // a sign-in form's own name for itself -- is answered from the hand-declared
 // table, by exact id, where a rename fails loudly instead of quietly.
 
-use super::values::login_fields;
 use crate::core::schema::exact_token;
 use crate::core::vault::Vault;
 use serde_json::{json, Map, Value};
+
+mod fields;
+pub(super) use fields::{credential_field, login_targets};
 
 // The tag vocabulary Brama's gateway and its desktop console already decide
 // item identity by. Reading a declared tag is not reading a name: the tag is a
@@ -242,64 +244,4 @@ pub(crate) fn agent_items(vault: &Vault, agent: Option<&str>) -> Vec<(String, St
         .collect();
     declared.sort();
     declared
-}
-
-/// The one credential field an item declares, or the sentence saying why it
-/// declares none this can act on.
-pub(super) fn credential_field(vault: &Vault, item: &str) -> Result<String, String> {
-    let payload = vault.get_item(item).map_err(|error| error.to_string())?;
-    let fields = payload
-        .get("fields")
-        .and_then(Value::as_object)
-        .ok_or_else(|| format!("vault item {item} carries no fields object"))?;
-    let candidates: Vec<&str> = CREDENTIAL_FIELDS
-        .iter()
-        .copied()
-        .filter(|name| fields.get(*name).is_some_and(Value::is_string))
-        .collect();
-    match candidates[..] {
-        [field] => Ok(field.to_string()),
-        _ => Err(format!(
-            "vault item {item} declares {} credential fields: {}",
-            candidates.len(),
-            candidates.join(", ")
-        )),
-    }
-}
-
-/// The fields one login item declares, under their canonical exported names.
-pub(super) fn login_targets(vault: &Vault, item: &str) -> Result<Vec<Target>, String> {
-    let record = items(vault)
-        .and_then(|items| items.get(item))
-        .filter(|record| live(record))
-        .ok_or_else(|| format!("no vault item {item}"))?;
-    let kind = record
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    if kind != LOGIN_KIND {
-        return Err(format!(
-            "vault item {item} declares kind {kind}, not {LOGIN_KIND}: only a {LOGIN_KIND} declares the fields a sign-in exports"
-        ));
-    }
-    let payload = vault.get_item(item).map_err(|error| error.to_string())?;
-    let fields = payload
-        .get("fields")
-        .and_then(Value::as_object)
-        .ok_or_else(|| format!("vault item {item} carries no fields object"))?;
-    let targets: Vec<Target> = login_fields()
-        .iter()
-        .filter(|(field, _)| fields.contains_key(*field))
-        .map(|(field, exported)| Target {
-            item: item.to_string(),
-            field: (*field).to_string(),
-            exported: Some(*exported),
-            declared_by: "kind",
-            item_uid: None,
-        })
-        .collect();
-    if targets.is_empty() {
-        return Err(format!("vault item {item} declares no {LOGIN_KIND} field"));
-    }
-    Ok(targets)
 }
