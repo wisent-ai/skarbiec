@@ -8,7 +8,7 @@ use crate::core::vault::Vault;
 
 use super::super::directory::resolved_directory;
 use super::super::eligibility::lifecycle_blockers;
-use super::super::state::{context_block, item_revision, lifecycle_state};
+use super::super::state::{context_block_checked, item_revision, lifecycle_state};
 use super::super::wire::DIAGNOSTIC_KEYS;
 use super::super::STATE_MANAGED;
 use super::commit::Record;
@@ -57,8 +57,10 @@ pub(super) fn emit(
         "externally_verified": confirmed && lifecycle == STATE_MANAGED,
         "revision": item_revision(&vault, credential_id),
         "directory": directory,
-        "receipt": context_block(&vault, credential_id, "receipt").or(receipt),
-        "quarantine": context_block(&vault, credential_id, "quarantine"),
+        // An item that exists but cannot be read is refused by name, never
+        // reported as carrying no receipt and no quarantine.
+        "receipt": context_block_checked(&vault, credential_id, "receipt")?.or(receipt),
+        "quarantine": context_block_checked(&vault, credential_id, "quarantine")?,
         "lifecycle_eligible": blockers.is_empty(),
         "lifecycle_blockers": blockers,
     });

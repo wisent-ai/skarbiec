@@ -13,7 +13,7 @@ use super::super::directory::{resolved_directory, sealed_record};
 use super::super::eligibility::lifecycle_blockers;
 use super::super::quarantine::enforce_provider_effect;
 use super::super::state::{
-    context_block, item_revision, lifecycle_state, live_item_exists, request_item_id,
+    context_block_checked, item_revision, lifecycle_state, live_item_exists, request_item_id,
     update_request,
 };
 use super::super::wire::{request_payload, run_weles, wire_request, WIRE_VERSION};
@@ -48,8 +48,10 @@ pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> 
                 "credential": credential_id,
                 "revision": item_revision(&vault, credential_id),
                 "directory": directory,
-                "receipt": context_block(&vault, credential_id, "receipt"),
-                "quarantine": context_block(&vault, credential_id, "quarantine"),
+                // An item that exists but cannot be read is refused by name,
+                // never reported as carrying no receipt and no quarantine.
+                "receipt": context_block_checked(&vault, credential_id, "receipt")?,
+                "quarantine": context_block_checked(&vault, credential_id, "quarantine")?,
                 "externally_verified": false,
                 "lifecycle_eligible": blockers.is_empty(),
                 "lifecycle_blockers": blockers,
