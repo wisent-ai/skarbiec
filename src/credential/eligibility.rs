@@ -9,7 +9,7 @@
 // migration: two names for one credential is the ambiguity being removed, not
 // a case to paper over.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use crate::core::inbox;
