@@ -217,7 +217,7 @@ pub(super) fn dispatch(
                 "remedy": if opened || canary.is_none() {
                     Value::Null
                 } else {
-                    json!("no secret half on this machine opens the vault: restore one recipient's key_files into ~/.gnupg/, then rotate-owner onto a key you hold")
+                    json!("the canary item could not be decrypted: inspect canary_error and the recipient key inventory before choosing key restoration or owner rotation")
                 },
             })))
         }
