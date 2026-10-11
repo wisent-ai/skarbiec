@@ -13,7 +13,7 @@ use super::super::{
     ITEM_STATES, QUARANTINE_CONFIRMATION, QUARANTINE_TAG, STATE_MANAGED, STATE_QUARANTINED,
     STATE_UNMANAGED,
 };
-use super::records::{context_block, live_item_exists, request_item_id};
+use super::records::{context_block_checked, live_item_exists, request_item_id};
 
 pub(in crate::credential) fn quarantine_tagged(vault: &Vault, id: &str) -> bool {
     vault
@@ -50,7 +50,7 @@ pub(in crate::credential) fn quarantine_state(vault: &Vault, credential_id: &str
     if record_quarantined(vault, credential_id)? || quarantine_tagged(vault, credential_id) {
         return Ok(true);
     }
-    Ok(context_block(vault, credential_id, "quarantine")
+    Ok(context_block_checked(vault, credential_id, "quarantine")?
         .is_some_and(|block| block.get("state").and_then(Value::as_str) == Some(STATE_QUARANTINED)))
 }
 
@@ -73,7 +73,7 @@ pub(crate) fn lifecycle_state(vault: &Vault, credential_id: &str) -> Result<Stri
     if quarantine_state(vault, credential_id)? {
         return Ok(STATE_QUARANTINED.to_string());
     }
-    if let Some(state) = context_block(vault, credential_id, "lifecycle")
+    if let Some(state) = context_block_checked(vault, credential_id, "lifecycle")?
         .as_ref()
         .and_then(|block| block.get("state"))
         .and_then(Value::as_str)

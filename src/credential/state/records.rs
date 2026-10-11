@@ -223,6 +223,24 @@ pub(in crate::credential) fn context_block(vault: &Vault, id: &str, key: &str) -
         .cloned()
 }
 
+/// The same block for lifecycle admission: `Ok(None)` when the item does not
+/// exist or holds no such block, and an error naming the item when it exists
+/// but cannot be decrypted or read, so a quarantine or lifecycle state it
+/// records is never read as absent.
+pub(in crate::credential) fn context_block_checked(vault: &Vault, id: &str, key: &str) -> Result<Option<Value>> {
+    if !live_item_exists(vault, id) {
+        return Ok(None);
+    }
+    let payload = vault
+        .get_item(id)
+        .with_context(|| format!("{id} cannot be read, so its {key} block cannot be checked"))?;
+    Ok(payload
+        .get("context")
+        .and_then(|context| context.get(key))
+        .filter(|value| !value.is_null())
+        .cloned())
+}
+
 pub(in crate::credential) fn context_string(vault: &Vault, id: &str, key: &str) -> Option<String> {
     let payload = vault.get_item(id).ok()?;
     schema::field(&payload, "context")
