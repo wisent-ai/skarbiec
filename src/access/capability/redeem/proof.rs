@@ -123,8 +123,8 @@ pub(super) fn verify_proof(
             .context("verify capability proof with openssl")?;
         Ok(status.success())
     })();
-    let _ = fs::remove_file(&key_path);
-    let _ = fs::remove_file(&signature_path);
-    let _ = fs::remove_file(&payload_path);
+    for path in [&key_path, &signature_path, &payload_path] {
+        crate::core::staging::remove_said(path, "a capability proof verification file");
+    }
     result
 }
