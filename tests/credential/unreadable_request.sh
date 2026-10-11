@@ -79,6 +79,19 @@ AFTER=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" = "$AFTER" ] || fail "the refused operation changed the pending request item"
 echo "ok: the refused operation left the pending request item unchanged" >>"$REPORT"
 
+# A present canonical value is still not a pending operation unless it is
+# an object. Reading the field succeeds, but lifecycle submission must refuse.
+jq -n --arg user "request-user-$RUN" --arg password "request-password-$RUN" \
+  '{schema:"skarbiec.item.v2",kind:"login",fields:{username:$user,password:$password,value:[]},context:{}}' \
+  | WANT=ok run set-json "$REQUEST" --type login
+WANT=ok run get "$REQUEST" --field value
+BEFORE=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
+WANT=refused run credential acquire --local --provider "$PROVIDER" --consumer "unreadable-request-consumer"
+says "$REQUEST" "the malformed-record refusal names the retained request"
+AFTER=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
+[ "$BEFORE" = "$AFTER" ] || fail "the refused malformed record was changed"
+echo "ok: a readable non-object value did not bypass the pending-request guard" >>"$REPORT"
+
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"
 echo "PASS: $REPORT"

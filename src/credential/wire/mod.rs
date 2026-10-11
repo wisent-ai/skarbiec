@@ -57,9 +57,12 @@ pub(super) const DIAGNOSTIC_KEYS: &[&str] = &[
 ];
 
 pub(super) fn request_payload(request: Value) -> Result<Value> {
-    schema::field(&request, "value")
-        .cloned()
-        .context("credential operation record has no canonical value field")
+    let payload = schema::field(&request, "value")
+        .context("credential operation record has no canonical value field")?;
+    payload
+        .as_object()
+        .context("credential operation record canonical value is not an object")?;
+    Ok(payload.clone())
 }
 
 // The canonical envelope one lifecycle-owned record is stored in. `kind` is the
