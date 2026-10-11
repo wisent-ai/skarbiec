@@ -56,7 +56,7 @@ pub(crate) fn serve_request(
         .with_context(|| format!("read {method} {path} response from {authority}"))?;
     let (head, text) = raw
         .split_once("\r\n\r\n")
-        .context("malformed HTTP response")?;
+        .with_context(|| format!("malformed HTTP response to {method} {path} from {authority}"))?;
     let status = head
         .lines()
         .next()
@@ -65,7 +65,7 @@ pub(crate) fn serve_request(
         })?
         .to_string();
     let parsed: Value = serde_json::from_str(text)
-        .with_context(|| format!("response from {path} is not JSON (status: {status})"))?;
+        .with_context(|| format!("response to {method} {path} from {authority} is not JSON (status: {status})"))?;
     Ok((status, parsed))
 }
 
