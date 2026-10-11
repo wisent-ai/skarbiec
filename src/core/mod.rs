@@ -60,10 +60,13 @@ pub fn default_vault_path() -> PathBuf {
     home_dir().join(".local/share/skarbiec/skarbiec.vault.json")
 }
 
-fn home_dir() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
+/// The user's home: HOME, else the home the user database records. With
+/// neither, Skarbiec stops with the cause; reading `.` as home opened, or
+/// created, a second empty vault under whatever directory it started from.
+pub(crate) fn home_dir() -> PathBuf {
+    std::env::home_dir().expect(
+        "neither HOME nor the user database names a home directory, so the default vault cannot be found",
+    )
 }
 
 /// Stado's config file, the way Stado itself finds it: `$STADO_CONFIG`, then

@@ -25,8 +25,7 @@ fn sync_dir() -> PathBuf {
     if let Ok(d) = std::env::var("SKARBIEC_SYNC_DIR") {
         return PathBuf::from(d);
     }
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home).join(".skarbiec-sync")
+    crate::core::home_dir().join(".skarbiec-sync")
 }
 
 fn mirror_path() -> PathBuf {
