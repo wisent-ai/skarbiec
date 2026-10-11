@@ -48,7 +48,7 @@ pub fn vault_path() -> PathBuf {
     if let Some(path) = std::env::var_os("SKARBIEC_VAULT_FILE") {
         return PathBuf::from(path);
     }
-    if let Some(declared) = stado_declared_vault() {
+    if let Ok(Some(declared)) = stado_declared_vault() {
         return declared;
     }
     default_vault_path()
@@ -83,24 +83,39 @@ pub fn stado_config_file() -> Option<PathBuf> {
     .find(|candidate| candidate.is_file())
 }
 
+/// Stado's config document, the way `stado_config_file` finds it; `None`
+/// when there is no config file. A config that exists but cannot be read or
+/// is not JSON is an error naming the file and cause: whether this machine
+/// holds a vault cannot be told from it.
+fn stado_document() -> Result<Option<serde_json::Value>, String> {
+    let Some(file) = stado_config_file() else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&file)
+        .map_err(|error| format!("Stado's config {} cannot be read: {error}", file.display()))?;
+    serde_json::from_str(&text)
+        .map(Some)
+        .map_err(|error| format!("Stado's config {} is not JSON: {error}", file.display()))
+}
+
 /// The vault Stado declares for this machine as `secrets.skarbiec.vault_file`,
-/// tilde-expanded; `None` when no config file, no declaration, or an
-/// unreadable file - an unreadable declaration is not a different vault.
-pub fn stado_declared_vault() -> Option<PathBuf> {
-    let file = stado_config_file()?;
-    let text = std::fs::read_to_string(&file).ok()?;
-    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let declared = document
-        .pointer("/secrets/skarbiec/vault_file")?
-        .as_str()?
-        .trim();
+/// tilde-expanded; `None` when no config file or no declaration, and the
+/// cause when the config cannot be read.
+pub fn stado_declared_vault() -> Result<Option<PathBuf>, String> {
+    let Some(document) = stado_document()? else {
+        return Ok(None);
+    };
+    let declared = match document.pointer("/secrets/skarbiec/vault_file").and_then(|value| value.as_str()) {
+        Some(declared) => declared.trim(),
+        None => return Ok(None),
+    };
     if declared.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(match declared.strip_prefix("~/") {
+    Ok(Some(match declared.strip_prefix("~/") {
         Some(rest) => home_dir().join(rest),
         None => PathBuf::from(declared),
-    })
+    }))
 }
 
 /// The route this machine reads the fleet vault through, when Stado says it
@@ -110,20 +125,21 @@ pub fn stado_declared_vault() -> Option<PathBuf> {
 /// vault, and a write into a copy is a credential the owner never sees (a
 /// subscription signed in on a laptop was stored in the laptop's leftover
 /// file while the gateway kept reading the owner's). `None` when Stado names
-/// no route, names a vault file here, or cannot be read.
-pub fn remote_owner_route() -> Option<String> {
-    let file = stado_config_file()?;
-    let text = std::fs::read_to_string(&file).ok()?;
-    let document: serde_json::Value = serde_json::from_str(&text).ok()?;
-    if stado_declared_vault().is_some() {
-        return None;
+/// no route or names a vault file here; the cause when the config cannot be
+/// read.
+pub fn remote_owner_route() -> Result<Option<String>, String> {
+    let Some(document) = stado_document()? else {
+        return Ok(None);
+    };
+    if stado_declared_vault()?.is_some() {
+        return Ok(None);
     }
-    document
-        .pointer("/secrets/skarbiec/url")?
-        .as_str()
+    Ok(document
+        .pointer("/secrets/skarbiec/url")
+        .and_then(|value| value.as_str())
         .map(str::trim)
         .filter(|url| !url.is_empty())
-        .map(str::to_string)
+        .map(str::to_string))
 }
 
 /// Why `path` may not be opened, when nothing chose it: no request override
@@ -138,7 +154,17 @@ pub fn unchosen_copy_refusal(path: &std::path::Path) -> Option<String> {
     if chosen || path != default_vault_path() {
         return None;
     }
-    let route = remote_owner_route()?;
+    let route = match remote_owner_route() {
+        Ok(Some(route)) => route,
+        Ok(None) => return None,
+        Err(cause) => {
+            return Some(format!(
+                "{} is the default vault and {cause}, so whether this machine holds a vault of its own \
+                 cannot be told; repair the config, or name a vault with SKARBIEC_VAULT_FILE",
+                path.display()
+            ))
+        }
+    };
     Some(format!(
         "this machine holds no Skarbiec vault: Stado reads the fleet vault through \
          secrets.skarbiec.url ({route}), so {} is a copy and is neither read nor written; \

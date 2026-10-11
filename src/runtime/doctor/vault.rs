@@ -126,20 +126,18 @@ const ROUTES_TABLE: &str = "capability-routes.json";
 pub(super) fn selection_check() -> Value {
     let resolved = vault_path();
     let declaration = crate::core::stado_config_file();
-    let selected_by = if std::env::var_os("SKARBIEC_VAULT_FILE").is_some() {
-        "SKARBIEC_VAULT_FILE".to_string()
-    } else if crate::core::stado_declared_vault().is_some() {
-        format!(
-            "Stado's declaration secrets.skarbiec.vault_file in {}",
-            declaration
-                .as_deref()
-                .map(|p| p.display().to_string())
-                .unwrap_or_default()
-        )
+    let (selected_by, explicit) = if std::env::var_os("SKARBIEC_VAULT_FILE").is_some() {
+        ("SKARBIEC_VAULT_FILE".to_string(), true)
     } else {
-        "the HOME fallback".to_string()
+        match (crate::core::stado_declared_vault(), declaration.as_deref()) {
+            (Ok(Some(_)), Some(file)) => {
+                (format!("Stado's declaration secrets.skarbiec.vault_file in {}", file.display()), true)
+            }
+            (Ok(Some(_)), None) => ("Stado's declaration secrets.skarbiec.vault_file".to_string(), true),
+            (Ok(None), _) => ("the HOME fallback".to_string(), false),
+            (Err(cause), _) => (format!("the HOME fallback, because {cause}"), false),
+        }
     };
-    let explicit = selected_by != "the HOME fallback";
 
     let visible = vaults::inventory()
         .ok()
