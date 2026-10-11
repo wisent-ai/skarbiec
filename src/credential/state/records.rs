@@ -95,8 +95,40 @@ pub(crate) fn credential_for_role(vault: &Vault, role: &str, operation: &str) ->
     }
     match pending_role_acquisition(vault, role) {
         Some(credential_id) => Ok(credential_id),
-        None => crate::core::crypto::random_token(),
+        None => {
+            // An acquisition whose request item cannot be read may be this
+            // role's: minting a fresh id over it would start a second
+            // acquisition and orphan the first.
+            let unreadable = unreadable_requests(vault);
+            if !unreadable.is_empty() {
+                anyhow::bail!(
+                    "no readable acquisition is recorded for role {role}, but these request items cannot be read, so no fresh credential is minted: {}",
+                    unreadable.join("; ")
+                );
+            }
+            crate::core::crypto::random_token()
+        }
     }
+}
+
+/// Every credential request item that cannot be read or carries no value, as
+/// `item: cause`.
+fn unreadable_requests(vault: &Vault) -> Vec<String> {
+    vault
+        .doc()
+        .get("items")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flat_map(|items| items.keys())
+        .filter(|key| key.starts_with("operation:credential/"))
+        .filter_map(|key| {
+            vault
+                .get_item(key)
+                .and_then(|payload| schema::field(&payload, "value").map(|_| ()))
+                .err()
+                .map(|error| format!("{key}: {error:#}"))
+        })
+        .collect()
 }
 
 /// The item id of an acquisition recorded for `role` whose item does not
