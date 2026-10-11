@@ -138,7 +138,20 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         Ok((item, field)) => (item, field),
         Err(_) => (challenge_item(&resource), "value".to_string()),
     };
-    let secret = item_field(&vault, &coordinate.0, &coordinate.1);
+    // An item that exists but cannot be opened is its own denial, with the
+    // cause; only an absent item or field is "nothing written yet".
+    let secret = match item_field(&vault, &coordinate.0, &coordinate.1) {
+        Ok(secret) => secret,
+        Err(error) => {
+            return denied_because(
+                stream,
+                &format!(
+                    "cannot read {}#{} for resource {resource}: {error:#}",
+                    coordinate.0, coordinate.1
+                ),
+            );
+        }
+    };
     let Some(secret) = secret else {
         // The route exists but nothing has written the value yet. For a challenge that
         // is the normal state between issuing and the relay storing.

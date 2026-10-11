@@ -2,9 +2,11 @@
 // reading the one field it is allowed to spend.
 
 use anyhow::{Context, Result};
+use base64::alphabet;
+use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
+use base64::Engine;
 use serde_json::Value;
 use std::fs;
-use std::io::Write;
 use std::process::{Command, Stdio};
 
 use crate::access::capability::openssl_bin;
@@ -41,42 +43,50 @@ pub(super) fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> 
 /// credential reduction expects to peel. Refusing the object here parked
 /// every signed-in subscription behind "capability redemption denied" while
 /// the vault held a working grant.
-pub(super) fn item_field(vault: &Vault, item: &str, field: &str) -> Option<String> {
-    let payload = vault.get_item(item).ok()?;
-    let value = payload.get("fields").and_then(|fields| fields.get(field))?;
+///
+/// `None` is only "nothing is written there": no such item, or the field is
+/// absent or null. An item that exists but cannot be opened (GnuPG refused,
+/// legacy envelope, trashed, not the declared shape) is an error naming the
+/// item; read as `None`, it answered "no value" - or, for a challenge,
+/// "pending" forever - while the cause sat in the keyring.
+pub(super) fn item_field(vault: &Vault, item: &str, field: &str) -> Result<Option<String>> {
+    let present = vault
+        .doc()
+        .get("items")
+        .and_then(|items| items.get(item))
+        .is_some();
+    if !present {
+        return Ok(None);
+    }
+    let payload = vault
+        .get_item(item)
+        .with_context(|| format!("vault item {item} exists but cannot be read"))?;
+    let Some(value) = payload.get("fields").and_then(|fields| fields.get(field)) else {
+        return Ok(None);
+    };
     match value {
-        Value::String(text) => Some(text.clone()),
-        Value::Null => None,
-        other => serde_json::to_string(other).ok(),
+        Value::String(text) => Ok(Some(text.clone())),
+        Value::Null => Ok(None),
+        other => serde_json::to_string(other)
+            .map(Some)
+            .with_context(|| format!("serialize {item}#{field} as text")),
     }
 }
 
-// `len() % 4` is the base64 padding rule as the format itself states it, and the
-// loop reads as "pad until the quantum is whole". `is_multiple_of` would say the
-// same thing about a number without saying it about base64.
-#[allow(clippy::manual_is_multiple_of)]
+/// The signature's bytes, or `None` when it is not base64. Decoded here
+/// rather than by an openssl child: a missing or failing openssl used to read
+/// as an invalid proof and denied a correctly signed redemption. Both the
+/// URL-safe and the standard alphabet are read, padded or not, as before.
 fn decode_base64url(value: &str) -> Option<Vec<u8>> {
-    let mut normalised = value.replace('-', "+").replace('_', "/");
-    while normalised.len() % 4 != 0 {
-        normalised.push('=');
-    }
-    let mut child = Command::new(openssl_bin())
-        .args(["base64", "-d", "-A"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .ok()?;
-    child
-        .stdin
-        .as_mut()?
-        .write_all(normalised.as_bytes())
-        .ok()?;
-    let done = child.wait_with_output().ok()?;
-    if !done.status.success() || done.stdout.is_empty() {
-        return None;
-    }
-    Some(done.stdout)
+    let standard = value.replace('-', "+").replace('_', "/");
+    let engine = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+    );
+    engine
+        .decode(standard)
+        .ok()
+        .filter(|bytes| !bytes.is_empty())
 }
 
 pub(super) fn verify_proof(
