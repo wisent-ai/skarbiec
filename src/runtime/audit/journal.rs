@@ -206,6 +206,15 @@ pub fn append(op: &str, extra: &Value) -> Result<()> {
     append_sync(op, extra)
 }
 
+/// The journal opened for appending, created owner-only when it is new.
+pub(super) fn open_for_append(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+}
+
 /// Append one hash-chained entry inline. `prev` is the previous line's hash
 /// (empty for the genesis line). Never records any stored value.
 ///
@@ -227,11 +236,7 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     let hash = sha256_hex(&digest_input(&prev, &at, op, extra));
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
     let fresh = !path.exists();
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(&path)?;
+    let mut file = open_for_append(&path)?;
     writeln!(file, "{entry}")?;
     file.sync_data()?;
     if fresh {

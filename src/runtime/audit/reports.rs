@@ -1,16 +1,14 @@
-// Reading the journal back: the chain report an operator verifies with, the
-// bounded recent query, and the epoch a new chain starts from.
+// Reading the journal back: the chain report an operator verifies with and
+// the bounded recent query.
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
+use std::fs;
 
 use super::journal::{
-    acquire_append_lock, audit_path, digest_input, lines, lines_with_faults, now_iso, sha256_hex,
-    tail_hash, tail_lines,
+    acquire_append_lock, audit_path, digest_input, lines, lines_with_faults, open_for_append,
+    sha256_hex, tail_lines,
 };
 
 /// Readiness check for the journal without adding health-probe noise to it.
@@ -20,11 +18,7 @@ pub fn probe() -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     let _lock = acquire_append_lock(&path)?;
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(path)?;
+    let file = open_for_append(&path)?;
     file.sync_data()?;
     Ok(())
 }
@@ -242,78 +236,4 @@ fn journal_length() -> Result<usize> {
     let text = std::fs::read_to_string(&path)
         .with_context(|| format!("reading the audit journal {}", path.display()))?;
     Ok(text.lines().filter(|line| !line.trim().is_empty()).count())
-}
-
-pub(super) fn start_epoch(flags: &HashMap<String, String>) -> Result<Value> {
-    let reason = flags
-        .get("reason")
-        .map(String::as_str)
-        .filter(|reason| !reason.trim().is_empty())
-        .context("--reason is required")?;
-    let report = chain_report(&HashMap::new())?;
-    if report.get("intact").and_then(Value::as_bool) == Some(true) {
-        anyhow::bail!("audit journal is intact; refusing to create an unnecessary epoch");
-    }
-    let path = audit_path();
-    let previous_tail = tail_hash()?;
-    let _lock = acquire_append_lock(&path)?;
-    if tail_hash()? != previous_tail {
-        anyhow::bail!("audit journal changed while preparing checkpoint; retry");
-    }
-    let vault = crate::core::vault::Vault::open(crate::core::vault_path())?;
-    let owner = vault
-        .doc()
-        .get("owner")
-        .and_then(Value::as_str)
-        .context("vault owner is missing")?;
-    let signer = vault
-        .doc()
-        .get("recipients")
-        .and_then(Value::as_object)
-        .and_then(|recipients| recipients.get(owner))
-        .and_then(|recipient| recipient.get("fingerprint"))
-        .and_then(Value::as_str)
-        .context("vault owner fingerprint is missing")?;
-    let at = now_iso();
-    let checkpoint = serde_json::to_string(&json!({
-        "at": at,
-        "reason": reason,
-        "previous_tail": previous_tail,
-        "broken_at": report.get("broken_at").cloned().unwrap_or(Value::Null),
-        "faults": report
-            .get("faults")
-            .and_then(Value::as_array)
-            .map(Vec::len)
-            .unwrap_or_default(),
-    }))?;
-    let signed_checkpoint = crate::core::crypto::clearsign(signer, &checkpoint)?;
-    let extra = json!({
-        "reason": reason,
-        "previous_tail": previous_tail,
-        "signer": signer,
-        "checkpoint": checkpoint,
-        "signed_checkpoint": signed_checkpoint,
-    });
-    let prev = String::new();
-    let hash = sha256_hex(&digest_input(&prev, &at, "audit-epoch-start", &extra));
-    let entry = json!({
-        "at": at,
-        "op": "audit-epoch-start",
-        "extra": extra,
-        "prev": prev,
-        "hash": hash,
-    });
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .open(&path)?;
-    writeln!(file, "{entry}")?;
-    file.sync_data()?;
-    Ok(json!({
-        "started": true,
-        "signer": signer,
-        "previous_tail": previous_tail,
-        "hash": hash,
-    }))
 }

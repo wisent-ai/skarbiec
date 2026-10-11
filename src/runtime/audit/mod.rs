@@ -7,13 +7,15 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+mod epoch;
 mod journal;
 mod reports;
 
 pub use journal::{append, append_sync, retired_ports};
 pub use reports::{chain_report, probe};
 
-use reports::{audit, start_epoch};
+use epoch::start_epoch;
+use reports::audit;
 
 /// `audit list|verify|epoch` is a group: the journal is the object and the
 /// verb its first positional; the operator routes call the leaves by their
