@@ -164,7 +164,7 @@ pub(super) fn save_state(path: &Path, state: &Value) -> Result<()> {
         validate_owned_regular(path)
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temp);
+        crate::core::staging::remove_said(&temp, "a failed acquisition state write left its temporary file");
     }
     result
 }

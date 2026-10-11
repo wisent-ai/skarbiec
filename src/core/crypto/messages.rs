@@ -182,7 +182,7 @@ fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
         ],
         Some(phrase),
     );
-    let _ = std::fs::remove_file(&path);
+    crate::core::staging::remove_said(&path, "the staged ciphertext");
     out
 }
 

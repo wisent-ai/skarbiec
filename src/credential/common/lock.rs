@@ -11,7 +11,7 @@ pub(in crate::credential) struct CredentialOperationLock(PathBuf);
 
 impl Drop for CredentialOperationLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        crate::core::staging::remove_said(&self.0, "the credential operation lock is not released");
     }
 }
 

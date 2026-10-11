@@ -47,8 +47,10 @@ struct WritePolicy<'a> {
 struct VaultWriteLock(PathBuf);
 
 impl Drop for VaultWriteLock {
+    // A lock that stays refuses every later writer as owned by another
+    // process while none is; that is said with its path and cause.
     fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
+        crate::core::staging::remove_said(&self.0, "the vault write lock is not released");
     }
 }
 
@@ -174,7 +176,7 @@ pub fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
         Ok(())
     })();
     if result.is_err() {
-        let _ = fs::remove_file(&temp);
+        crate::core::staging::remove_said(&temp, "a failed vault write left its temporary file");
     }
     result
 }

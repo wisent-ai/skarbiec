@@ -10,6 +10,7 @@ pub mod inbox;
 pub mod items;
 pub mod migrate;
 pub mod schema;
+pub mod staging;
 pub mod totp;
 pub mod values;
 pub mod vault;
