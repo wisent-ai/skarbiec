@@ -40,23 +40,26 @@ pub(super) fn text_result(value: &Value) -> Value {
     json!({"content": [{"type": "text", "text": text}]})
 }
 
-// Service grant: env var first, then a grant file. Absent/empty => None.
-pub(super) fn configured_token() -> Option<String> {
+// Service grant: env var first, then a grant file. Absent/empty => None; a
+// grant file that is named but cannot be read is refused with its path and
+// cause, so the refusal does not tell the operator to configure what is set.
+pub(super) fn configured_token() -> Result<Option<String>> {
     if let Ok(value) = std::env::var("SKARBIEC_MCP_TOKEN") {
         let value = value.trim().to_string();
         if !value.is_empty() {
-            return Some(value);
+            return Ok(Some(value));
         }
     }
     if let Ok(path) = std::env::var("SKARBIEC_MCP_TOKEN_FILE") {
-        if let Ok(body) = std::fs::read_to_string(&path) {
-            let value = body.trim().to_string();
-            if !value.is_empty() {
-                return Some(value);
-            }
+        let body = std::fs::read_to_string(&path).map_err(|error| {
+            anyhow::anyhow!("SKARBIEC_MCP_TOKEN_FILE names {path}, which cannot be read: {error}")
+        })?;
+        let value = body.trim().to_string();
+        if !value.is_empty() {
+            return Ok(Some(value));
         }
     }
-    None
+    Ok(None)
 }
 
 pub(super) fn configured_consumer() -> Option<String> {
@@ -89,7 +92,7 @@ pub(super) fn resolve_tool(args: &Value) -> Result<Value> {
     let consumer = configured_consumer().context(
         "skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_CONSUMER on the MCP server",
     )?;
-    let bearer = configured_token()
+    let bearer = configured_token()?
         .context("skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_TOKEN or SKARBIEC_MCP_TOKEN_FILE on the MCP server")?;
     let out_dir = configured_out_dir()?;
     // Same path as `route resolve <name> --consumer c --token t --emit --out dir`.
