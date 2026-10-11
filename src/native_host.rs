@@ -9,11 +9,15 @@ use std::io::{Read, Write};
 
 use crate::core::totp;
 
-fn token_file() -> String {
-    std::env::var("SKARBIEC_BROWSER_TOKEN_FILE").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_default();
-        format!("{home}/.local/state/skarbiec/browser-host-token")
-    })
+/// The browser-host grant file: `SKARBIEC_BROWSER_TOKEN_FILE`, else under HOME.
+/// An unset HOME is refused rather than read as the empty path, which would put
+/// the grant under whatever directory the host was started from.
+fn token_file() -> Result<String> {
+    if let Ok(named) = std::env::var("SKARBIEC_BROWSER_TOKEN_FILE") {
+        return Ok(named);
+    }
+    let home = std::env::var("HOME").context("HOME cannot be read, so the browser-host grant cannot be found")?;
+    Ok(format!("{home}/.local/state/skarbiec/browser-host-token"))
 }
 
 fn consumer() -> String {
@@ -25,7 +29,7 @@ fn consumer() -> String {
 /// TcpStream keeps the crate's dependency posture (no HTTP client library).
 fn api_post(path: &str, body: &Value) -> Result<Value> {
     let base = crate::credential::canonical_authority()?;
-    let token = std::fs::read_to_string(token_file())
+    let token = std::fs::read_to_string(token_file()?)
         .context("read browser-host grant (run `skarbiec browser-host-install`)")?;
     let payload = serde_json::to_string(body)?;
     let request = format!(
