@@ -84,19 +84,20 @@ pub(super) fn dispatch(
                     json!({"status": "not_yet", "grantee": grantee, "activate_after": activate_after, "now": current}),
                 ));
             }
-            let ids: Vec<String> = vault
-                .doc()
-                .get("items")
-                .and_then(Value::as_object)
-                .map(|m| {
-                    m.iter()
-                        .filter(|(_, item)| {
-                            item.get("state").and_then(Value::as_str) == Some("active")
-                        })
-                        .map(|(id, _)| id.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
+            // A vault document without an items object is damaged, not empty:
+            // activating on it would mark the grant activated with nothing shared.
+            let items = match vault.doc().get("items") {
+                Some(Value::Object(items)) => items,
+                other => anyhow::bail!(
+                    "the vault document's items section is {}, not an object of id -> item; the emergency grant for {grantee} was not activated",
+                    other.map_or_else(|| "missing".to_string(), Value::to_string)
+                ),
+            };
+            let ids: Vec<String> = items
+                .iter()
+                .filter(|(_, item)| item.get("state").and_then(Value::as_str) == Some("active"))
+                .map(|(id, _)| id.clone())
+                .collect();
             let mut shared = Vec::new();
             for id in &ids {
                 let item = vault
