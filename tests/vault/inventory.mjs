@@ -98,5 +98,10 @@ try {
   throw error;
 } finally {
   try { rmSync(home, { recursive: true }); }
+  catch (error) {
+    report.passed = false;
+    report.cleanupFailure = error.stack;
+    throw error;
+  }
   finally { writeFileSync(join(directory, 'report.json'), `${JSON.stringify(report)}\n`); }
 }
