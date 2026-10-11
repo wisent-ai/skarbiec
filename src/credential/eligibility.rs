@@ -53,9 +53,9 @@ fn item_fields(vault: &Vault, credential_id: &str) -> Result<Option<Vec<String>>
     if !live_item_exists(vault, credential_id) || legacy_envelope(vault, credential_id) {
         return Ok(None);
     }
-    let payload = vault
-        .get_item(credential_id)
-        .with_context(|| format!("{credential_id} cannot be read, so its field contract cannot be checked"))?;
+    let payload = vault.get_item(credential_id).with_context(|| {
+        format!("{credential_id} cannot be read, so its field contract cannot be checked")
+    })?;
     let mut names: Vec<String> = schema::fields(&payload)
         .with_context(|| format!("{credential_id} carries no readable fields, so its field contract cannot be checked"))?
         .keys()
@@ -132,7 +132,9 @@ pub(super) fn lifecycle_blockers(
                     ));
                 }
                 Ok(_) => {}
-                Err(error) => blockers.push(blocker(BLOCKER_NONCANONICAL_FIELD, format!("{error:#}"))),
+                Err(error) => {
+                    blockers.push(blocker(BLOCKER_NONCANONICAL_FIELD, format!("{error:#}")))
+                }
             }
         }
     }

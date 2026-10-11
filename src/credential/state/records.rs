@@ -227,7 +227,11 @@ pub(in crate::credential) fn context_block(vault: &Vault, id: &str, key: &str) -
 /// exist or holds no such block, and an error naming the item when it exists
 /// but cannot be decrypted or read, so a quarantine or lifecycle state it
 /// records is never read as absent.
-pub(in crate::credential) fn context_block_checked(vault: &Vault, id: &str, key: &str) -> Result<Option<Value>> {
+pub(in crate::credential) fn context_block_checked(
+    vault: &Vault,
+    id: &str,
+    key: &str,
+) -> Result<Option<Value>> {
     if !live_item_exists(vault, id) {
         return Ok(None);
     }
