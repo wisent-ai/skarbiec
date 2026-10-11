@@ -20,6 +20,14 @@ is and how to install it; this page covers running one.
 | `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
 | `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB` | Required for the daemon ceiling: physical footprint above which `skarbiec maintain` replaces `keyboxd` or `gpg-agent`. No default; without it `maintain` and `doctor` report the setting as missing |
 
+Every override is read one way: only an unset or blank variable is absent.
+A path override is taken as the operating system hands it over, so a path that
+is not UTF-8 is still that path and never the default file. A text override
+(`SKARBIEC_UNLOCK`, an MCP token) that is set but not UTF-8 is refused naming
+the variable. The default unlock file `~/.stado/skarbiec-unlock` is absent
+only when it does not exist; one that cannot be inspected is refused with its
+cause.
+
 `skarbiec serve` answers requests and nothing else. The recurring work is one
 command, `skarbiec maintain`: it replaces GnuPG daemons over their memory
 ceiling, proves readiness by decrypting the canary items, and pulls every bond
