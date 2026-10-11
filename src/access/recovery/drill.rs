@@ -67,7 +67,11 @@ pub(super) fn dispatch(
             let canary = ids
                 .first()
                 .context("recovery drill requires at least one live item")?;
-            let passed = vault.get_item(canary).is_ok();
+            let open_error = vault
+                .get_item(canary)
+                .err()
+                .map(|error| format!("{error:#}"));
+            let passed = open_error.is_none();
             crate::runtime::audit::append_sync(
                 "recovery-drill",
                 &json!({
@@ -75,6 +79,7 @@ pub(super) fn dispatch(
                     "fingerprint": expected_fingerprint,
                     "canary_item": canary,
                     "passed": passed,
+                    "canary_error": open_error,
                 }),
             )?;
             Ok(Some(json!({
@@ -82,6 +87,7 @@ pub(super) fn dispatch(
                 "recipient": expected,
                 "fingerprint": expected_fingerprint,
                 "canary_item": canary,
+                "canary_error": open_error,
                 "isolated_keyring": true,
             })))
         }
@@ -185,10 +191,14 @@ pub(super) fn dispatch(
                 .collect();
             ids.sort();
             let canary = ids.first().cloned();
-            let opened = match &canary {
-                Some(id) => vault.get_item(id).map(|_| true).unwrap_or(false),
-                None => false,
+            // Why the canary did not open is the evidence the remedy rests on:
+            // a missing secret half reads differently from an agent that is
+            // down or an item that is damaged.
+            let open_error = match &canary {
+                Some(id) => vault.get_item(id).err().map(|error| format!("{error:#}")),
+                None => None,
             };
+            let opened = canary.is_some() && open_error.is_none();
             let readable = if canary.is_none() {
                 "empty"
             } else if opened {
@@ -201,6 +211,7 @@ pub(super) fn dispatch(
                 "owner": owner,
                 "status": readable,
                 "canary_item": canary,
+                "canary_error": open_error,
                 "keys_that_could_open_it": openers,
                 "recipients": recipients,
                 "remedy": if opened || canary.is_none() {

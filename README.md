@@ -169,7 +169,9 @@ their temporary vaults and keyrings after capture.
 At the failure boundary, authorization failures remain authorization failures.
 An item that exists but cannot be decrypted returns `infra_down` rather than
 masquerading as missing or dropping the connection. `key-doctor` reads the
-vault and keyring directly, so diagnosis does not depend on a healthy broker.
+vault and keyring directly, so diagnosis does not depend on a healthy broker;
+when its canary item does not open, `canary_error` carries the decryption
+error, as it does for a failed `recovery drill`.
 
 The `error_code` in those replies is not skarbiec's own word. The vocabulary,
 and what each code means -- its severity, whether it is retryable, whether it
