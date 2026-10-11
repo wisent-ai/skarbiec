@@ -80,32 +80,41 @@ fn ensure_owner_set_allowed(vault: &Vault, id: &str) -> Result<()> {
     }
 }
 
-/// Get the value for a field, using requested if present, otherwise existing.
+/// One metadata list: what the caller asked for, or what the item's envelope
+/// already carries when the caller said nothing about it.
+///
+/// This read `get_item`, which answers the decrypted payload, where neither
+/// list lives; every `credential set` from the console without `--tags` and
+/// `--recipients` therefore wrote empty lists over the item's own, stripping
+/// the tags its consumers enumerate it by and narrowing its recipients to the
+/// owner, and a vault that could not decrypt the item did the same.
 fn requested_or_existing(
     flags: &HashMap<String, String>,
     vault: &Vault,
     id: &str,
-    field: &str,
+    key: &str,
 ) -> Vec<String> {
-    if let Some(value) = flags.get(field) {
+    if let Some(value) = flags.get(key) {
         return value
             .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(str::to_string)
             .collect();
     }
-    match vault.get_item(id) {
-        Ok(item) => item
-            .get(field)
-            .and_then(Value::as_array)
-            .map(|array| {
-                array
-                    .iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        Err(_) => Vec::new(),
+    match vault
+        .doc()
+        .get("items")
+        .and_then(|items| items.get(id))
+        .and_then(|item| item.get(key))
+        .and_then(Value::as_array)
+    {
+        Some(values) => values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+        None => Vec::new(),
     }
 }
 
