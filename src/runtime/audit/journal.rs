@@ -1,7 +1,7 @@
 // The journal file itself: where it is, how a line is hashed onto the one
 // before it, and the lock that keeps two writers from sharing a predecessor.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -98,22 +98,39 @@ pub(super) fn tail_hash() -> Result<String> {
     file.seek(std::io::SeekFrom::Start(skip))?;
     let mut buf = String::new();
     file.read_to_string(&mut buf)?;
-    // The window may open mid-line; walk back to the last line that parses as
-    // a journal entry rather than trusting the first '{' after the cut.
-    for line in buf.lines().rev() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with('{') {
-            continue;
-        }
-        if let Ok(entry) = serde_json::from_str::<Value>(trimmed) {
-            return Ok(entry
-                .get("hash")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string());
-        }
+    // The window may open mid-line, so only its first line may be a cut
+    // fragment. The last entry must parse and carry its hash: walking back
+    // past a damaged last line chained the next entry onto an older hash, and
+    // an entry without one restarted the chain - both silently forked the
+    // tamper-evident journal.
+    let cut = len > window;
+    let mut lines = buf.lines().map(str::trim).filter(|line| !line.is_empty());
+    if cut {
+        lines.next();
     }
-    Ok(String::new())
+    let Some(last) = lines.last() else {
+        if cut {
+            bail!(
+                "audit journal {} holds no complete entry in its last {window} bytes",
+                path.display()
+            );
+        }
+        // An empty journal: the chain starts here.
+        return Ok(String::new());
+    };
+    let entry: Value = serde_json::from_str(last).with_context(|| {
+        format!(
+            "audit journal {} ends with a line that is not an entry",
+            path.display()
+        )
+    })?;
+    let hash = entry.get("hash").and_then(Value::as_str).with_context(|| {
+        format!(
+            "audit journal {}'s last entry carries no hash",
+            path.display()
+        )
+    })?;
+    Ok(hash.to_string())
 }
 
 /// The journal's cross-process critical section. The kernel owns lock lifetime:
