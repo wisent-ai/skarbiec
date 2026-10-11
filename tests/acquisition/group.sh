@@ -13,14 +13,15 @@
 # Every command and whether it succeeded go to the run's report.txt; no token
 # or field value is written there.
 #
-# Supply SKARBIEC, SKARBIEC_TEST_SOURCE_REVISION, SKARBIEC_OPENSSL and
-# SKARBIEC_TEST_GRANT_TTL_SECONDS, then run tests/acquisition/group.sh.
+# Supply SKARBIEC, SKARBIEC_TEST_SOURCE_REVISION, SKARBIEC_OPENSSL,
+# SKARBIEC_TEST_GRANT_TTL_SECONDS and SKARBIEC_TEST_HTTP_PORT, then run this file.
 set -eu
 cd "$(dirname "$0")/../.."
 BIN=${SKARBIEC:?set SKARBIEC to the skarbiec binary under test, e.g. SKARBIEC=target/debug/skarbiec}
 GRANT_TTL=${SKARBIEC_TEST_GRANT_TTL_SECONDS:?set the acquire grant lifetime in seconds for this real journey}
 OPENSSL=${SKARBIEC_OPENSSL:?set SKARBIEC_OPENSSL to an Ed25519-capable OpenSSL binary}
 SOURCE_REVISION=${SKARBIEC_TEST_SOURCE_REVISION:?set the exact committed source revision under qualification}
+HTTP_PORT=${SKARBIEC_TEST_HTTP_PORT:?set the isolated broker bind port for real HTTP qualification}
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/acquisition/$RUN"
 REPORT="$ROOT/report.txt"
@@ -127,6 +128,19 @@ WANT=refused run acquisition-request "$CONSUMER" "$ITEM" "$FIELD" --workload-id 
   --workload-timestamp "$TIMESTAMP" --workload-nonce "$NONCE" --workload-signature "$SIGNATURE"
 [ -z "$(token_from)" ] || fail "the withdrawn acquisition-request still issued a token"
 echo "ok: the withdrawn acquisition-request is refused and issues no token" >>"$REPORT"
+
+proof
+WANT=ok run acquisition request "$CONSUMER" "$ITEM" "$FIELD" --workload-id "$WORKLOAD_ID" \
+  --workload-timestamp "$TIMESTAMP" --workload-nonce "$NONCE" --workload-signature "$SIGNATURE"
+TOKEN=$(token_from)
+[ -n "$TOKEN" ] || fail "HTTP qualification requires a genuinely issued bearer"
+printf '%s' "$TOKEN" >"$ROOT/token"
+chmod u=rw,go= "$ROOT/token"
+SKARBIEC="$BIN" SKARBIEC_TEST_SOURCE_REVISION="$SOURCE_REVISION" \
+  SKARBIEC_TEST_HTTP_PORT="$HTTP_PORT" SKARBIEC_TEST_CONSUMER="$CONSUMER" \
+  SKARBIEC_TEST_ITEM="$ITEM" SKARBIEC_TEST_FIELD="$FIELD" SKARBIEC_TEST_VALUE="$VALUE" \
+  SKARBIEC_TEST_TOKEN_FILE="$ROOT/token" node tests/acquisition/http.mjs
+echo "ok: real HTTP storage refusal, unchanged bearer, recovery and replay; $ROOT/http-report.json" >>"$REPORT"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"
