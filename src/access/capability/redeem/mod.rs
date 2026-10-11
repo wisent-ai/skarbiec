@@ -65,11 +65,21 @@ impl CapabilityListener {
                 }
             };
             if let Err(error) = handle(&mut stream) {
-                let _ = crate::runtime::audit::append_sync(
+                // A failure that cannot be audited, or a refusal that cannot be
+                // delivered, still leaves a line naming both causes.
+                if let Err(audit) = crate::runtime::audit::append_sync(
                     "capability-request-failed",
                     &json!({"detail": error.to_string()}),
-                );
-                let _ = denied(&mut stream);
+                ) {
+                    eprintln!(
+                        "skarbiec capability broker: a request failed ({error}) and the failure could not be audited: {audit}"
+                    );
+                }
+                if let Err(answer) = denied(&mut stream) {
+                    eprintln!(
+                        "skarbiec capability broker: the refusal of a failed request ({error}) could not be delivered: {answer}"
+                    );
+                }
             }
         }
         Ok(json!({"status": "stopped"}))
