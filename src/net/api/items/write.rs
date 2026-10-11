@@ -213,8 +213,9 @@ pub(crate) fn handle_items_put(
             let base_revision = match parsed.get("base_revision").and_then(Value::as_u64) {
                 Some(revision) => Some(revision),
                 None => match crate::credential::recorded_request(&vault, id) {
-                    Ok(request) => request
-                        .and_then(|request| request.get("baseline_revision").and_then(Value::as_u64)),
+                    Ok(request) => request.and_then(|request| {
+                        request.get("baseline_revision").and_then(Value::as_u64)
+                    }),
                     Err(error) => {
                         return http::write_response(
                             stream,
