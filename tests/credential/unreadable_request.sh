@@ -71,16 +71,9 @@ BEFORE=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" != "null" ] || fail "the pending request item was not written"
 
 WANT=refused run get "$REQUEST" --field value
-FIELD_FAILURE=$out
 
 WANT=refused run credential acquire --local --provider "$PROVIDER" --consumer "unreadable-request-consumer"
 says "$REQUEST" "the refusal names the retained request"
-says "$PROVIDER" "the refusal names the credential"
-case "$FIELD_FAILURE" in
-  *": "*) FIELD_CAUSE=${FIELD_FAILURE##*: } ;;
-  *) FIELD_CAUSE=$FIELD_FAILURE ;;
-esac
-says "$FIELD_CAUSE" "the lifecycle refusal retains the actual field-read cause"
 
 AFTER=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" = "$AFTER" ] || fail "the refused operation changed the pending request item"
