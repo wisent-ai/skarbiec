@@ -108,10 +108,28 @@ mod launchd {
                 }
             }
             let inherited = pid.map(listening_ports).unwrap_or_default();
-            let _ = Command::new("/bin/launchctl")
-                .arg("bootout")
-                .arg(format!("{domain}/{label}"))
-                .output();
+            // A bootout that failed while the old job was running leaves it on
+            // its ports: reporting it "retired" and deleting its plist hid a
+            // second listener. Such a job is kept and the failure named; a job
+            // with no pid has nothing to stop, so its bootout answer is moot.
+            let target = format!("{domain}/{label}");
+            let bootout =
+                stado_wait::output(Command::new("/bin/launchctl").arg("bootout").arg(&target));
+            let failure = match bootout {
+                Ok(output) if output.status.success() => None,
+                Ok(output) => Some(format!(
+                    "exited {}: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                )),
+                Err(error) => Some(format!("could not run: {error}")),
+            };
+            if let (Some(failure), Some(pid)) = (failure, pid) {
+                eprintln!(
+                    "skarbiec serve: kept {label} (pid {pid}): launchctl bootout {target} {failure}"
+                );
+                continue;
+            }
             match std::fs::remove_file(&plist) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
