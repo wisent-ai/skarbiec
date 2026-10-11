@@ -14,34 +14,35 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
-/// The keys `Vault::create` writes. A file missing any of them is some other
-/// JSON that happens to sit in the same directory.
-const REQUIRED_KEYS: [&str; 5] = ["version", "owner", "recovery", "recipients", "items"];
-
 const SUFFIX: &str = ".vault.json";
 
-/// Directories this product and its own examples write vaults into.
-fn search_directories() -> Vec<PathBuf> {
-    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
-        return Vec::new();
-    };
-    vec![
+/// Directories this product and its own examples write vaults into. HOME
+/// unset is refused: read as no directories, the inventory said this machine
+/// holds no vault.
+fn search_directories() -> Result<Vec<PathBuf>> {
+    let home = std::env::home_dir()
+        .filter(|home| !home.as_os_str().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("HOME is not set, so the directories vaults are written to are unknown")
+        })?;
+    Ok(vec![
         home.join(".local/share/skarbiec"),
         home.join(".stado"),
         home,
-    ]
+    ])
 }
 
-/// Parse one candidate, or decide it is not a vault. A backup or a
-/// half-written file is simply absent from the list rather than an error the
-/// caller has to interpret.
-fn read(path: &PathBuf) -> Option<Value> {
-    let raw = std::fs::read_to_string(path).ok()?;
-    let document: Value = serde_json::from_str(&raw).ok()?;
-    let object = document.as_object()?;
-    if !REQUIRED_KEYS.iter().all(|key| object.contains_key(*key)) {
-        return None;
-    }
+/// Parse one `.vault.json`: the suffix `Vault::create` writes is what makes
+/// a file a vault. One that cannot be read, does not parse, or whose root is
+/// not an object is the error, with its cause, so the inventory lists it as
+/// unreadable instead of leaving it out.
+fn read(path: &PathBuf) -> std::result::Result<Value, String> {
+    let raw = std::fs::read_to_string(path).map_err(|error| format!("cannot be read: {error}"))?;
+    let document: Value =
+        serde_json::from_str(&raw).map_err(|error| format!("is not valid JSON: {error}"))?;
+    let object = document
+        .as_object()
+        .ok_or_else(|| "does not hold a JSON object".to_string())?;
     let count = |key: &str| -> usize {
         object
             .get(key)
@@ -49,7 +50,7 @@ fn read(path: &PathBuf) -> Option<Value> {
             .map(serde_json::Map::len)
             .unwrap_or_default()
     };
-    Some(json!({
+    Ok(json!({
         "path": path.display().to_string(),
         "owner": object.get("owner").and_then(Value::as_str).unwrap_or_default(),
         "items": count("items"),
@@ -58,21 +59,40 @@ fn read(path: &PathBuf) -> Option<Value> {
     }))
 }
 
-/// Every vault in the conventional locations, largest first.
+/// Every vault in the conventional locations, largest first, and every
+/// candidate that could not be read (`unreadable`, with its path and cause):
+/// a directory or vault file this process cannot read is reported, never
+/// counted as no vault.
 pub fn inventory() -> Result<Value> {
+    let directories = search_directories()?;
     let mut seen: Vec<String> = Vec::new();
     let mut found: Vec<Value> = Vec::new();
-    for directory in search_directories() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
+    let mut unreadable: Vec<Value> = Vec::new();
+    for directory in &directories {
+        let entries = match std::fs::read_dir(directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                unreadable.push(json!({
+                    "path": directory.display().to_string(),
+                    "cause": format!("cannot be listed: {error}"),
+                }));
                 continue;
             }
+        };
+        for entry in entries {
+            let path = match entry {
+                Ok(entry) => entry.path(),
+                Err(error) => {
+                    unreadable.push(json!({
+                        "path": directory.display().to_string(),
+                        "cause": format!("an entry cannot be read: {error}"),
+                    }));
+                    continue;
+                }
+            };
             let name = path.file_name().and_then(std::ffi::OsStr::to_str);
-            if !name.is_some_and(|name| name.ends_with(SUFFIX)) {
+            if !name.is_some_and(|name| name.ends_with(SUFFIX)) || !path.is_file() {
                 continue;
             }
             let key = path.display().to_string();
@@ -80,8 +100,12 @@ pub fn inventory() -> Result<Value> {
                 continue;
             }
             seen.push(key);
-            if let Some(vault) = read(&path) {
-                found.push(vault);
+            match read(&path) {
+                Ok(vault) => found.push(vault),
+                Err(cause) => unreadable.push(json!({
+                    "path": path.display().to_string(),
+                    "cause": cause,
+                })),
             }
         }
     }
@@ -105,11 +129,12 @@ pub fn inventory() -> Result<Value> {
     });
     Ok(json!({
         "host": hostname(),
-        "searched": search_directories()
+        "searched": directories
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<String>>(),
         "vaults": found,
+        "unreadable": unreadable,
     }))
 }
 

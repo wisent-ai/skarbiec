@@ -146,11 +146,28 @@ pub(super) fn selection_check() -> Value {
         }
     };
 
-    let visible = vaults::inventory()
-        .ok()
-        .and_then(|report| report.get("vaults").cloned())
-        .and_then(|found| found.as_array().cloned())
-        .unwrap_or_default();
+    // A vault the inventory could not read, or an inventory that failed, is
+    // said beside the visible ones: read as none, the doctor called a choice
+    // unambiguous that another, unreadable vault might contest.
+    let inventory = vaults::inventory();
+    let visible: Vec<Value> = match &inventory {
+        Ok(report) => report["vaults"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .cloned()
+            .collect(),
+        Err(_) => Vec::new(),
+    };
+    let unread: Vec<String> = match &inventory {
+        Ok(report) => report["unreadable"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|entry| format!("{} {}", entry["path"], entry["cause"]))
+            .collect(),
+        Err(error) => vec![format!("the vault inventory failed: {error}")],
+    };
     let others: Vec<String> = visible
         .iter()
         .filter_map(|vault| vault.get("path").and_then(Value::as_str))
@@ -173,6 +190,7 @@ pub(super) fn selection_check() -> Value {
         entry["resolved"] = json!(resolved.display().to_string());
         entry["selected_by"] = json!(selected_by);
         entry["candidates"] = json!(visible);
+        entry["unreadable"] = json!(unread);
         return entry;
     }
 
@@ -186,6 +204,9 @@ pub(super) fn selection_check() -> Value {
             others.len(),
             others.join(", ")
         ));
+    }
+    if !unread.is_empty() {
+        detail.push_str(&format!("; not read: {}", unread.join("; ")));
     }
     if ambiguous {
         detail.push_str("; declare it: `stado config set secrets.skarbiec.vault_file <path>`, or set SKARBIEC_VAULT_FILE for one process");
