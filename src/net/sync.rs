@@ -22,8 +22,8 @@ use std::process::Command;
 use crate::core::vault_path;
 
 fn sync_dir() -> PathBuf {
-    if let Ok(d) = std::env::var("SKARBIEC_SYNC_DIR") {
-        return PathBuf::from(d);
+    if let Some(directory) = crate::core::env::path("SKARBIEC_SYNC_DIR") {
+        return directory;
     }
     crate::core::home_dir().join(".skarbiec-sync")
 }

@@ -14,10 +14,8 @@ use super::{
 };
 
 pub(in crate::credential) fn forwards_dir() -> Result<PathBuf> {
-    if let Ok(configured) = std::env::var(FORWARDS_DIR_ENV) {
-        if !configured.trim().is_empty() {
-            return Ok(PathBuf::from(configured.trim()));
-        }
+    if let Some(configured) = crate::core::env::path(FORWARDS_DIR_ENV) {
+        return Ok(configured);
     }
     let home = std::env::var("HOME")
         .ok()

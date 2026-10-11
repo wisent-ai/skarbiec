@@ -40,19 +40,20 @@ pub(super) fn text_result(value: &Value) -> Value {
     json!({"content": [{"type": "text", "text": text}]})
 }
 
-// Service grant: env var first, then a grant file. Absent/empty => None; a
-// grant file that is named but cannot be read is refused with its path and
-// cause, so the refusal does not tell the operator to configure what is set.
+// Service grant: env var first, then a grant file. Unset/blank => None; a
+// token that is set but not UTF-8, or a grant file that is named but cannot
+// be read, is refused with its cause, so the refusal does not tell the
+// operator to configure what is set.
 pub(super) fn configured_token() -> Result<Option<String>> {
-    if let Ok(value) = std::env::var("SKARBIEC_MCP_TOKEN") {
-        let value = value.trim().to_string();
-        if !value.is_empty() {
-            return Ok(Some(value));
-        }
+    if let Some(value) = crate::core::env::text("SKARBIEC_MCP_TOKEN")? {
+        return Ok(Some(value.trim().to_string()));
     }
-    if let Ok(path) = std::env::var("SKARBIEC_MCP_TOKEN_FILE") {
+    if let Some(path) = crate::core::env::path("SKARBIEC_MCP_TOKEN_FILE") {
         let body = std::fs::read_to_string(&path).map_err(|error| {
-            anyhow::anyhow!("SKARBIEC_MCP_TOKEN_FILE names {path}, which cannot be read: {error}")
+            anyhow::anyhow!(
+                "SKARBIEC_MCP_TOKEN_FILE names {}, which cannot be read: {error}",
+                path.display()
+            )
         })?;
         let value = body.trim().to_string();
         if !value.is_empty() {

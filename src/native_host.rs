@@ -12,13 +12,14 @@ use crate::core::totp;
 /// The browser-host grant file: `SKARBIEC_BROWSER_TOKEN_FILE`, else under HOME.
 /// An unset HOME is refused rather than read as the empty path, which would put
 /// the grant under whatever directory the host was started from.
-fn token_file() -> Result<String> {
-    if let Ok(named) = std::env::var("SKARBIEC_BROWSER_TOKEN_FILE") {
+fn token_file() -> Result<std::path::PathBuf> {
+    if let Some(named) = crate::core::env::path("SKARBIEC_BROWSER_TOKEN_FILE") {
         return Ok(named);
     }
-    let home = std::env::var("HOME")
-        .context("HOME cannot be read, so the browser-host grant cannot be found")?;
-    Ok(format!("{home}/.local/state/skarbiec/browser-host-token"))
+    let home = std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .context("HOME is not set, so the browser-host grant cannot be found")?;
+    Ok(std::path::PathBuf::from(home).join(".local/state/skarbiec/browser-host-token"))
 }
 
 fn consumer() -> String {

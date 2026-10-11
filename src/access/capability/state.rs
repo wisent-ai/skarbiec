@@ -43,8 +43,8 @@ pub(in crate::access::capability) fn acquire_state_lock() -> Result<StateLock> {
 /// `.capabilities.json` beside it, so a second vault never shares the first
 /// one's records.
 pub(in crate::access::capability) fn state_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SKARBIEC_CAPABILITY_FILE") {
-        return PathBuf::from(path);
+    if let Some(path) = crate::core::env::path("SKARBIEC_CAPABILITY_FILE") {
+        return path;
     }
     let vault = vault_path();
     let name = vault
@@ -60,8 +60,8 @@ pub(in crate::access::capability) fn state_path() -> PathBuf {
 /// for it -- a table beside the vault while the broker reads beside its state
 /// file resolves nothing and says nothing about why.
 pub(in crate::access) fn routes_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SKARBIEC_CAPABILITY_ROUTES_FILE") {
-        return PathBuf::from(path);
+    if let Some(path) = crate::core::env::path("SKARBIEC_CAPABILITY_ROUTES_FILE") {
+        return path;
     }
     state_path().with_file_name("capability-routes.json")
 }

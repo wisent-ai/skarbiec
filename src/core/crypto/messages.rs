@@ -93,24 +93,24 @@ pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
 /// never argv. With no phrase, an unprotected key decrypts normally while a
 /// protected key fails without opening an interactive prompt.
 fn unlock_phrase() -> Result<Option<String>> {
-    if let Ok(phrase) = std::env::var("SKARBIEC_UNLOCK") {
-        if !phrase.is_empty() {
-            return Ok(Some(phrase));
-        }
+    if let Some(phrase) = crate::core::env::text("SKARBIEC_UNLOCK")? {
+        return Ok(Some(phrase));
     }
-    let path = match std::env::var("SKARBIEC_UNLOCK_FILE") {
-        Ok(path) if !path.trim().is_empty() => std::path::PathBuf::from(path),
-        _ => {
+    let path = match crate::core::env::path("SKARBIEC_UNLOCK_FILE") {
+        Some(path) => path,
+        None => {
             let Some(home) = std::env::var_os("HOME") else {
                 return Ok(None);
             };
             let candidate = std::path::PathBuf::from(home)
                 .join(".stado")
                 .join("skarbiec-unlock");
-            if !candidate.is_file() {
-                return Ok(None);
+            // Only a default file that does not exist means "no phrase"; one
+            // that cannot be inspected is reported below with its cause.
+            match std::fs::symlink_metadata(&candidate) {
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                _ => candidate,
             }
-            candidate
         }
     };
     let metadata = std::fs::symlink_metadata(&path)

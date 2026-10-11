@@ -12,14 +12,14 @@ use std::path::{Path, PathBuf};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+/// The audit journal: `SKARBIEC_AUDIT_FILE`, else under the user's home as
+/// `crate::core::home_dir` resolves it. An unset HOME no longer puts the
+/// journal under whatever directory the process started in.
 pub(super) fn audit_path() -> PathBuf {
-    if let Ok(p) = std::env::var("SKARBIEC_AUDIT_FILE") {
-        return PathBuf::from(p);
+    if let Some(path) = crate::core::env::path("SKARBIEC_AUDIT_FILE") {
+        return path;
     }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".local/state/skarbiec/audit.jsonl")
+    crate::core::home_dir().join(".local/state/skarbiec/audit.jsonl")
 }
 
 pub(super) fn now_iso() -> String {

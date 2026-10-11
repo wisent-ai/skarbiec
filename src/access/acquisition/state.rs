@@ -44,8 +44,8 @@ pub(super) fn effective_uid() -> Result<u32> {
 }
 
 pub(super) fn state_path() -> PathBuf {
-    if let Ok(path) = std::env::var("SKARBIEC_ACQUISITION_FILE") {
-        return PathBuf::from(path);
+    if let Some(path) = crate::core::env::path("SKARBIEC_ACQUISITION_FILE") {
+        return path;
     }
     let vault = vault_path();
     let name = vault
