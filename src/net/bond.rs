@@ -64,8 +64,9 @@ pub(crate) fn serve_request(
             format!("{method} {path} response from {authority} has no HTTP status line")
         })?
         .to_string();
-    let parsed: Value = serde_json::from_str(text)
-        .with_context(|| format!("response to {method} {path} from {authority} is not JSON (status: {status})"))?;
+    let parsed: Value = serde_json::from_str(text).with_context(|| {
+        format!("response to {method} {path} from {authority} is not JSON (status: {status})")
+    })?;
     Ok((status, parsed))
 }
 

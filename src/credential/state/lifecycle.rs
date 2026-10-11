@@ -29,7 +29,10 @@ pub(in crate::credential) fn quarantine_tagged(vault: &Vault, id: &str) -> bool 
 /// request item reads as not quarantined; one that cannot be decrypted or
 /// parsed is an error naming it, because read as "not quarantined" it let a
 /// lifecycle operation start on a credential nobody can vouch for.
-pub(in crate::credential) fn record_quarantined(vault: &Vault, credential_id: &str) -> Result<bool> {
+pub(in crate::credential) fn record_quarantined(
+    vault: &Vault,
+    credential_id: &str,
+) -> Result<bool> {
     let request_item = request_item_id(credential_id);
     if !live_item_exists(vault, &request_item) {
         return Ok(false);

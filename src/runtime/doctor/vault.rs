@@ -130,10 +130,17 @@ pub(super) fn selection_check() -> Value {
         ("SKARBIEC_VAULT_FILE".to_string(), true)
     } else {
         match (crate::core::stado_declared_vault(), declaration.as_deref()) {
-            (Ok(Some(_)), Some(file)) => {
-                (format!("Stado's declaration secrets.skarbiec.vault_file in {}", file.display()), true)
-            }
-            (Ok(Some(_)), None) => ("Stado's declaration secrets.skarbiec.vault_file".to_string(), true),
+            (Ok(Some(_)), Some(file)) => (
+                format!(
+                    "Stado's declaration secrets.skarbiec.vault_file in {}",
+                    file.display()
+                ),
+                true,
+            ),
+            (Ok(Some(_)), None) => (
+                "Stado's declaration secrets.skarbiec.vault_file".to_string(),
+                true,
+            ),
             (Ok(None), _) => ("the HOME fallback".to_string(), false),
             (Err(cause), _) => (format!("the HOME fallback, because {cause}"), false),
         }

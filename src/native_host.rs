@@ -16,7 +16,8 @@ fn token_file() -> Result<String> {
     if let Ok(named) = std::env::var("SKARBIEC_BROWSER_TOKEN_FILE") {
         return Ok(named);
     }
-    let home = std::env::var("HOME").context("HOME cannot be read, so the browser-host grant cannot be found")?;
+    let home = std::env::var("HOME")
+        .context("HOME cannot be read, so the browser-host grant cannot be found")?;
     Ok(format!("{home}/.local/state/skarbiec/browser-host-token"))
 }
 

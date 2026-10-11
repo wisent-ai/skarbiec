@@ -108,7 +108,10 @@ pub fn stado_declared_vault() -> Result<Option<PathBuf>, String> {
     let Some(document) = stado_document()? else {
         return Ok(None);
     };
-    let declared = match document.pointer("/secrets/skarbiec/vault_file").and_then(|value| value.as_str()) {
+    let declared = match document
+        .pointer("/secrets/skarbiec/vault_file")
+        .and_then(|value| value.as_str())
+    {
         Some(declared) => declared.trim(),
         None => return Ok(None),
     };
