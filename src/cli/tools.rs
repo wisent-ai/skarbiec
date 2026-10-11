@@ -1,7 +1,7 @@
 // The commands that do not read one item: generating a value, exporting a
 // runtime view of the vault, and reporting which build this is.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -51,12 +51,17 @@ pub(crate) fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]
             rows.push(vault.get_item(id)?);
         }
     }
-    std::fs::write(out, serde_json::to_string(&Value::Array(rows.clone()))?)?;
-    std::process::Command::new("chmod")
-        .arg("600")
-        .arg(out)
-        .status()
-        .ok();
+    // Decrypted items: the file is written owner-only from the first byte
+    // (atomic_write), never readable under the umask and narrowed afterwards by
+    // a chmod whose failure went unread while the export reported ok.
+    let target = std::env::current_dir()
+        .context("the working directory cannot be read to place the export")?
+        .join(out);
+    crate::core::vault::atomic_write(
+        &target,
+        serde_json::to_string(&Value::Array(rows.clone()))?.as_bytes(),
+    )
+    .with_context(|| format!("write export {}", target.display()))?;
     emit(&json!({"ok": true, "exported": rows.len(), "out": out}))
 }
 
