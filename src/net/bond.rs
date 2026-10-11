@@ -57,7 +57,13 @@ pub(crate) fn serve_request(
     let (head, text) = raw
         .split_once("\r\n\r\n")
         .context("malformed HTTP response")?;
-    let status = head.lines().next().unwrap_or_default().to_string();
+    let status = head
+        .lines()
+        .next()
+        .with_context(|| {
+            format!("{method} {path} response from {authority} has no HTTP status line")
+        })?
+        .to_string();
     let parsed: Value = serde_json::from_str(text)
         .with_context(|| format!("response from {path} is not JSON (status: {status})"))?;
     Ok((status, parsed))
