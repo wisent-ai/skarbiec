@@ -79,6 +79,12 @@ AFTER=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" = "$AFTER" ] || fail "the refused operation changed the pending request item"
 echo "ok: the refused operation left the pending request item unchanged" >>"$REPORT"
 
+ITEMS_BEFORE=$(jq -cS '.items' "$SKARBIEC_VAULT_FILE")
+WANT=refused run credential acquire "role:$PROVIDER" --local --provider "$PROVIDER" --consumer "unreadable-request-consumer"
+says "$REQUEST" "role resolution retains the unreadable request cause"
+ITEMS_AFTER=$(jq -cS '.items' "$SKARBIEC_VAULT_FILE")
+[ "$ITEMS_BEFORE" = "$ITEMS_AFTER" ] || fail "role resolution created or changed an item despite an unreadable request"
+
 # A present canonical value is still not a pending operation unless it is
 # an object. Reading the field succeeds, but lifecycle submission must refuse.
 jq -n --arg user "request-user-$RUN" --arg password "request-password-$RUN" \
@@ -91,6 +97,13 @@ says "$REQUEST" "the malformed-record refusal names the retained request"
 AFTER=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" = "$AFTER" ] || fail "the refused malformed record was changed"
 echo "ok: a readable non-object value did not bypass the pending-request guard" >>"$REPORT"
+
+ITEMS_BEFORE=$(jq -cS '.items' "$SKARBIEC_VAULT_FILE")
+WANT=refused run credential acquire "role:$PROVIDER" --local --provider "$PROVIDER" --consumer "unreadable-request-consumer"
+says "$REQUEST" "role resolution retains the non-object request cause"
+ITEMS_AFTER=$(jq -cS '.items' "$SKARBIEC_VAULT_FILE")
+[ "$ITEMS_BEFORE" = "$ITEMS_AFTER" ] || fail "role resolution minted a replacement acquisition for a malformed request"
+echo "ok: unresolved roles preserve malformed pending requests without creating replacements" >>"$REPORT"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

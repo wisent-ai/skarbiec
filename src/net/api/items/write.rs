@@ -40,12 +40,8 @@ pub(crate) fn handle_items_put(
     let mode = parsed.get("mode").and_then(Value::as_str).unwrap_or("");
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
-    // A Weles writer may name the role an item plays instead of the item
-    // (`stage:role:<role>#<field>` grants, `id: role:<role>`). The grant is
-    // checked against the coordinate it names; everything else -- the
-    // operation record, the managed authority, the write -- uses the item the
-    // role resolves to: the one live holder for `stage`, and for `acquire` the
-    // item the acquisition recorded for that role will create.
+    // Grants name the requested coordinate; records and writes use its resolved
+    // item. An unreadable acquisition refuses resolution before any mutation.
     let requested = id;
     let resolved;
     let id = match requested.strip_prefix("role:") {
@@ -53,28 +49,27 @@ pub(crate) fn handle_items_put(
         Some(role) => {
             let item = match mode {
                 "acquire" => crate::credential::pending_role_acquisition(&vault, role),
-                "stage" => match crate::access::acquisition::role::item_for(&vault, requested) {
-                    Ok(item) => Some(item),
-                    Err(error) => {
-                        return http::write_response(
-                            stream,
-                            "HTTP/1.1 409 Conflict",
-                            &json!({"error": format!(
-                                "resolve {requested} for stage: {error:#}"
-                            )}),
-                        );
-                    }
-                },
-                _ => None,
+                "stage" => crate::access::acquisition::role::item_for(&vault, requested).map(Some),
+                _ => Ok(None),
             };
-            let Some(item) = item else {
-                return http::write_response(
-                    stream,
-                    "HTTP/1.1 409 Conflict",
-                    &json!({"error": format!(
-                        "role {role} resolves to no item for {mode}: stage needs the one live item tagged stado:role:{role}, acquire needs an acquisition started with credential acquire role:{role}, and rotate names an item"
-                    )}),
-                );
+            let item = match item {
+                Ok(Some(item)) => item,
+                Ok(None) => {
+                    return http::write_response(
+                        stream,
+                        "HTTP/1.1 409 Conflict",
+                        &json!({"error": format!(
+                            "role {role} resolves to no item for {mode}: stage needs the one live item tagged stado:role:{role}, acquire needs an acquisition started with credential acquire role:{role}, and rotate names an item"
+                        )}),
+                    );
+                }
+                Err(error) => {
+                    return http::write_response(
+                        stream,
+                        "HTTP/1.1 409 Conflict",
+                        &json!({"error": format!("resolve {requested} for {mode}: {error:#}")}),
+                    );
+                }
             };
             resolved = item;
             resolved.as_str()
@@ -148,7 +143,7 @@ pub(crate) fn handle_items_put(
                 .context("canonical payload kind required for acquire")?;
             schema::field(&payload, field)
                 .context("acquired payload does not contain authorized field")?;
-            crate::credential::authorize_managed_write(
+            if let Err(error) = crate::credential::authorize_managed_write(
                 &vault,
                 id,
                 field,
@@ -157,17 +152,28 @@ pub(crate) fn handle_items_put(
                 &["acquire"],
                 u64::MIN,
                 parsed.get("capture_origin").and_then(Value::as_str),
-            )?;
-            // An acquisition started for a role tags the item it creates, so
-            // every later reader finds it by that role.
+            ) {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": format!("{error:#}")}),
+                );
+            }
+            let request = match crate::credential::recorded_request(&vault, id) {
+                Ok(request) => request,
+                Err(error) => {
+                    return http::write_response(
+                        stream,
+                        "HTTP/1.1 409 Conflict",
+                        &json!({"error": format!("{error:#}")}),
+                    );
+                }
+            };
             let mut tags = vec!["managed:weles".to_string()];
-            if let Some(role) =
-                crate::credential::recorded_request(&vault, id).and_then(|request| {
-                    request
-                        .get("role")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
+            if let Some(role) = request
+                .as_ref()
+                .and_then(|request| request.get("role"))
+                .and_then(Value::as_str)
             {
                 tags.push(format!("stado:role:{role}"));
             }
@@ -204,18 +210,20 @@ pub(crate) fn handle_items_put(
                     &json!({"error": "value required for stage"}),
                 );
             };
-            let base_revision = parsed
-                .get("base_revision")
-                .and_then(Value::as_u64)
-                .or_else(|| {
-                    vault
-                        .get_item(&format!("operation:credential/{id}"))
-                        .ok()
-                        .and_then(|payload| schema::field(&payload, "value").ok().cloned())
-                        .and_then(|request| {
-                            request.get("baseline_revision").and_then(Value::as_u64)
-                        })
-                });
+            let base_revision = match parsed.get("base_revision").and_then(Value::as_u64) {
+                Some(revision) => Some(revision),
+                None => match crate::credential::recorded_request(&vault, id) {
+                    Ok(request) => request
+                        .and_then(|request| request.get("baseline_revision").and_then(Value::as_u64)),
+                    Err(error) => {
+                        return http::write_response(
+                            stream,
+                            "HTTP/1.1 409 Conflict",
+                            &json!({"error": format!("{error:#}")}),
+                        );
+                    }
+                },
+            };
             let Some(base_revision) = base_revision else {
                 return http::write_response(
                     stream,
@@ -223,7 +231,7 @@ pub(crate) fn handle_items_put(
                     &json!({"error": "base_revision unavailable for stage"}),
                 );
             };
-            crate::credential::authorize_managed_write(
+            if let Err(error) = crate::credential::authorize_managed_write(
                 &vault,
                 id,
                 field,
@@ -232,7 +240,13 @@ pub(crate) fn handle_items_put(
                 &["rotate", "reset", "verify"],
                 base_revision,
                 parsed.get("capture_origin").and_then(Value::as_str),
-            )?;
+            ) {
+                return http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": format!("{error:#}")}),
+                );
+            }
             vault.stage_managed_field(
                 id,
                 field,

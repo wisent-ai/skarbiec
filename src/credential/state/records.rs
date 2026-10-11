@@ -9,7 +9,7 @@ use crate::core::schema;
 use crate::core::vault::{ManagedWrite, Vault};
 
 use super::super::common::now_iso;
-use super::super::wire::record_envelope;
+use super::super::wire::{record_envelope, request_payload};
 use super::super::{REQUEST_KIND, REQUEST_WRITER, SEAL_KIND};
 
 pub(in crate::credential) fn request_item_id(credential_id: &str) -> String {
@@ -64,11 +64,16 @@ pub(in crate::credential) fn live_item_exists(vault: &Vault, id: &str) -> bool {
 }
 
 /// The operation request recorded for `credential_id`, when one exists.
-pub(crate) fn recorded_request(vault: &Vault, credential_id: &str) -> Option<Value> {
+pub(crate) fn recorded_request(vault: &Vault, credential_id: &str) -> Result<Option<Value>> {
+    let item = request_item_id(credential_id);
+    if !live_item_exists(vault, &item) {
+        return Ok(None);
+    }
     vault
-        .get_item(&request_item_id(credential_id))
-        .ok()
-        .and_then(|payload| schema::field(&payload, "value").ok().cloned())
+        .get_item(&item)
+        .and_then(request_payload)
+        .with_context(|| format!("read credential request {item} for {credential_id}"))
+        .map(Some)
 }
 
 /// The item a `role:<role>` credential coordinate names for `operation`.
@@ -93,62 +98,35 @@ pub(crate) fn credential_for_role(vault: &Vault, role: &str, operation: &str) ->
             "no live item plays role {role}: tag the item {tag}, or create it with credential acquire role:{role}"
         );
     }
-    match pending_role_acquisition(vault, role) {
+    match pending_role_acquisition(vault, role)? {
         Some(credential_id) => Ok(credential_id),
-        None => {
-            // An acquisition whose request item cannot be read may be this
-            // role's: minting a fresh id over it would start a second
-            // acquisition and orphan the first.
-            let unreadable = unreadable_requests(vault);
-            if !unreadable.is_empty() {
-                anyhow::bail!(
-                    "no readable acquisition is recorded for role {role}, but these request items cannot be read, so no fresh credential is minted: {}",
-                    unreadable.join("; ")
-                );
-            }
-            crate::core::crypto::random_token()
-        }
+        None => crate::core::crypto::random_token(),
     }
-}
-
-/// Every credential request item that cannot be read or carries no value, as
-/// `item: cause`.
-fn unreadable_requests(vault: &Vault) -> Vec<String> {
-    vault
-        .doc()
-        .get("items")
-        .and_then(Value::as_object)
-        .into_iter()
-        .flat_map(|items| items.keys())
-        .filter(|key| key.starts_with("operation:credential/"))
-        .filter_map(|key| {
-            vault
-                .get_item(key)
-                .and_then(|payload| schema::field(&payload, "value").map(|_| ()))
-                .err()
-                .map(|error| format!("{key}: {error:#}"))
-        })
-        .collect()
 }
 
 /// The item id of an acquisition recorded for `role` whose item does not
 /// exist yet: the item that acquisition's managed write will create.
-pub(crate) fn pending_role_acquisition(vault: &Vault, role: &str) -> Option<String> {
-    vault
+pub(crate) fn pending_role_acquisition(vault: &Vault, role: &str) -> Result<Option<String>> {
+    for credential_id in vault
         .doc()
         .get("items")
         .and_then(Value::as_object)
         .into_iter()
         .flat_map(|items| items.keys())
         .filter_map(|key| key.strip_prefix("operation:credential/"))
-        .find(|credential_id| {
-            !live_item_exists(vault, credential_id)
-                && recorded_request(vault, credential_id).is_some_and(|request| {
-                    request.get("role").and_then(Value::as_str) == Some(role)
-                        && request.get("operation").and_then(Value::as_str) == Some("acquire")
-                })
-        })
-        .map(str::to_string)
+    {
+        if live_item_exists(vault, credential_id) {
+            continue;
+        }
+        if let Some(request) = recorded_request(vault, credential_id)? {
+            if request.get("role").and_then(Value::as_str) == Some(role)
+                && request.get("operation").and_then(Value::as_str) == Some("acquire")
+            {
+                return Ok(Some(credential_id.to_string()));
+            }
+        }
+    }
+    Ok(None)
 }
 
 // One writer, two declared families. The kind travels with the record instead
