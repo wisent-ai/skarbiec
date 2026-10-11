@@ -35,7 +35,18 @@ fn command_of(pid: &str) -> String {
 /// One lock file's holder, as a sentence: its pid, host and what the pid
 /// runs now, and when the lock was taken.
 fn describe(lock: &Path) -> Option<String> {
-    let held = std::fs::read_to_string(lock).ok()?;
+    // A lock that exists and cannot be read is a held lock nobody can name;
+    // omitting it left a waiting gpg with no holder in the answer.
+    let held = match std::fs::read_to_string(lock) {
+        Ok(held) => held,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            return Some(format!(
+                "{} exists and cannot be read: {error}",
+                lock.display()
+            ))
+        }
+    };
     let mut lines = held.lines();
     let pid = lines.next()?.trim().to_string();
     let host = lines.next().map(str::trim).filter(|host| !host.is_empty());
@@ -116,7 +127,16 @@ fn node_name() -> Result<String, String> {
 /// - a lock one of GnuPG's programs has held past gpg's own wait is wedged,
 ///   and that program is ended the way a wedged daemon is.
 fn release(lock: &Path, gnupg: &[PathBuf], node: &str) -> Option<String> {
-    let held = std::fs::read_to_string(lock).ok()?;
+    let held = match std::fs::read_to_string(lock) {
+        Ok(held) => held,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(error) => {
+            return Some(format!(
+                "left {} alone: cannot read it: {error}",
+                lock.display()
+            ))
+        }
+    };
     let mut lines = held.lines();
     let recorded_pid = lines.next()?.trim();
     let pid = match recorded_pid.parse::<std::num::NonZeroI32>() {
