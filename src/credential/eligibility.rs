@@ -44,14 +44,25 @@ fn legacy_envelope(vault: &Vault, credential_id: &str) -> bool {
     item.get("format").and_then(Value::as_u64) != Some(crate::core::vault::current_envelope())
 }
 
-// The fields the item actually carries, sorted, or None when the payload
-// cannot be read: no item, a legacy envelope, or a key this operator does not
-// hold. An unreadable payload is never treated as a matching one.
-fn item_fields(vault: &Vault, credential_id: &str) -> Option<Vec<String>> {
-    let payload = vault.get_item(credential_id).ok()?;
-    let mut names: Vec<String> = schema::fields(&payload).ok()?.keys().cloned().collect();
+// The fields the item actually carries, sorted. `Ok(None)` when there is no
+// item or it is still on a legacy envelope (the envelope guards refuse that);
+// an item that exists but cannot be decrypted or read is an error naming it,
+// because read as "no item" it let a lifecycle operation write the contract
+// field beside whatever the item really holds.
+fn item_fields(vault: &Vault, credential_id: &str) -> Result<Option<Vec<String>>> {
+    if !live_item_exists(vault, credential_id) || legacy_envelope(vault, credential_id) {
+        return Ok(None);
+    }
+    let payload = vault
+        .get_item(credential_id)
+        .with_context(|| format!("{credential_id} cannot be read, so its field contract cannot be checked"))?;
+    let mut names: Vec<String> = schema::fields(&payload)
+        .with_context(|| format!("{credential_id} carries no readable fields, so its field contract cannot be checked"))?
+        .keys()
+        .cloned()
+        .collect();
     names.sort();
-    Some(names)
+    Ok(Some(names))
 }
 
 // The one field this provider's contract writes, refused unless the managed
@@ -67,10 +78,9 @@ pub(super) fn enforce_field_contract(
     if !inbox::managed_by_weles(vault, credential_id) {
         return Ok(());
     }
-    // No readable payload means no item to contradict the contract: acquire
-    // and adopt create one, and a legacy envelope is refused by the envelope
-    // guards themselves.
-    let Some(fields) = item_fields(vault, credential_id) else {
+    // No item means nothing to contradict the contract: acquire and adopt
+    // create one, and a legacy envelope is refused by the envelope guards.
+    let Some(fields) = item_fields(vault, credential_id)? else {
         return Ok(());
     };
     if fields.iter().any(|name| name == required) {
@@ -111,8 +121,8 @@ pub(super) fn lifecycle_blockers(
             .or(sealed_provider)
             .map(|provider| operation_contract_field(operation.unwrap_or_default(), provider))
         {
-            if let Some(fields) = item_fields(vault, credential_id) {
-                if !fields.iter().any(|name| name == required) {
+            match item_fields(vault, credential_id) {
+                Ok(Some(fields)) if !fields.iter().any(|name| name == required) => {
                     let carried = fields.join(", ");
                     blockers.push(blocker(
                         BLOCKER_NONCANONICAL_FIELD,
@@ -121,6 +131,8 @@ pub(super) fn lifecycle_blockers(
                         ),
                     ));
                 }
+                Ok(_) => {}
+                Err(error) => blockers.push(blocker(BLOCKER_NONCANONICAL_FIELD, format!("{error:#}"))),
             }
         }
     }
