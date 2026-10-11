@@ -83,12 +83,23 @@ pub(super) fn acquire_lock(path: &Path) -> Result<StateLock> {
 }
 
 pub(super) fn validate_owned_regular(path: &Path) -> Result<()> {
-    let metadata = fs::symlink_metadata(path)?;
+    let metadata = fs::symlink_metadata(path)
+        .with_context(|| format!("inspect acquisition state {}", path.display()))?;
+    validate_owned_metadata(path, &metadata)
+}
+
+fn validate_owned_metadata(path: &Path, metadata: &fs::Metadata) -> Result<()> {
     if !metadata.file_type().is_file() || metadata.uid() != effective_uid()? {
-        bail!("acquisition state must be an owner-controlled regular file");
+        bail!(
+            "acquisition state {} must be an owner-controlled regular file",
+            path.display()
+        );
     }
     if metadata.mode() & unsafe_mode_bits()? != u32::MIN {
-        bail!("acquisition state permissions must not grant group or other access");
+        bail!(
+            "acquisition state {} permissions must not grant group or other access",
+            path.display()
+        );
     }
     Ok(())
 }
@@ -100,12 +111,19 @@ fn fresh_state() -> Value {
 }
 
 pub(super) fn load_state(path: &Path) -> Result<Value> {
-    if !path.exists() {
-        return Ok(fresh_state());
-    }
-    validate_owned_regular(path)?;
-    let mut state: Value =
-        serde_json::from_str(&fs::read_to_string(path)?).context("parse acquisition state")?;
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(fresh_state()),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("inspect acquisition state {}", path.display()));
+        }
+    };
+    validate_owned_metadata(path, &metadata)?;
+    let document = fs::read_to_string(path)
+        .with_context(|| format!("read acquisition state {}", path.display()))?;
+    let mut state: Value = serde_json::from_str(&document)
+        .with_context(|| format!("parse acquisition state {}", path.display()))?;
     if state.get("version").and_then(Value::as_str) != Some("v1")
         || !state.get("tokens").is_some_and(Value::is_object)
     {

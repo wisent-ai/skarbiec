@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { constants } from 'node:http2';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmdirSync,
+  symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -58,6 +59,7 @@ const ready = new Promise((resolveReady, rejectReady) => {
 });
 let displaced = false;
 let directoryCreated = false;
+let linkCreated = false;
 const retained = join(root, 'acquisitions.retained.json');
 try {
   const address = await ready;
@@ -94,6 +96,18 @@ try {
   assert.deepEqual(readFileSync(retained), original, 'storage refusal must preserve the original state');
   rmdirSync(state);
   directoryCreated = false;
+  const missingTarget = join(root, randomUUID());
+  symlinkSync(missingTarget, state);
+  linkCreated = true;
+  const linked = await redeem(token);
+  assert.equal(linked.status, constants.HTTP_STATUS_SERVICE_UNAVAILABLE);
+  assert.equal(linked.body.error, unavailable.body.error,
+    'a dangling symlink must receive the actual non-regular-file refusal, not fresh empty state');
+  assert.ok(lstatSync(state).isSymbolicLink());
+  assert.equal(readlinkSync(state), missingTarget, 'refusal must not replace the dangling link');
+  assert.deepEqual(readFileSync(retained), original, 'link refusal must preserve the genuine bearer');
+  unlinkSync(state);
+  linkCreated = false;
   renameSync(retained, state);
   displaced = false;
   const recovered = await redeem(token);
@@ -109,6 +123,7 @@ try {
 } finally {
   try {
     if (directoryCreated) rmdirSync(state);
+    if (linkCreated) unlinkSync(state);
     if (displaced) renameSync(retained, state);
   } catch (error) {
     report.cleanupFailure = error.stack ?? String(error);
