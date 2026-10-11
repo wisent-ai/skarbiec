@@ -78,32 +78,50 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
     let mut epochs = usize::MIN;
     let mut previous_hash = String::new();
     for (offset, entry) in entries.iter().enumerate() {
-        let at = entry.get("at").and_then(Value::as_str).unwrap_or("");
-        let op = entry.get("op").and_then(Value::as_str).unwrap_or("");
-        let stored_prev = entry.get("prev").and_then(Value::as_str).unwrap_or("");
-        let stored_hash = entry.get("hash").and_then(Value::as_str).unwrap_or("");
-        let extra = entry.get("extra").cloned().unwrap_or(Value::Null);
         let line = offset.saturating_add(one);
+        let mut missing = Vec::new();
+        let at = required(entry, "at", &mut missing);
+        let op = required(entry, "op", &mut missing);
+        let stored_prev = required(entry, "prev", &mut missing);
+        let stored_hash = required(entry, "hash", &mut missing);
+        if !missing.is_empty() {
+            // Read as empty, a missing prev passed the first line's linkage
+            // and a missing hash or op read as tampering. The line is
+            // malformed, and says which fields; its hash still carries on,
+            // so the next line's link is checked against what is there.
+            faults.push(json!({
+                "line": line,
+                "at": at,
+                "op": op,
+                "fault": "malformed",
+                "detail": format!("missing or not text: {}", missing.join(", ")),
+            }));
+            previous_hash = stored_hash.to_string();
+            continue;
+        }
+        let extra = entry.get("extra").cloned().unwrap_or(Value::Null);
         let epoch_link = if op == "audit-epoch-start" {
-            let prior = extra
-                .get("previous_tail")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let payload = extra
-                .get("checkpoint")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let signed = extra
-                .get("signed_checkpoint")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
+            let mut absent = Vec::new();
+            let prior = required(&extra, "previous_tail", &mut absent);
+            let payload = required(&extra, "checkpoint", &mut absent);
+            let signed = required(&extra, "signed_checkpoint", &mut absent);
+            if !absent.is_empty() {
+                faults.push(json!({
+                    "line": line,
+                    "at": at,
+                    "op": op,
+                    "fault": "malformed",
+                    "detail": format!("epoch start missing or not text: {}", absent.join(", ")),
+                }));
+            }
             let verified = crate::core::crypto::verify_clearsigned(signed)
                 .map(|cleartext| cleartext.trim_end() == payload.trim_end())
                 .unwrap_or(false);
-            let valid = stored_prev.is_empty() && prior == previous_hash && verified;
+            let valid =
+                absent.is_empty() && stored_prev.is_empty() && prior == previous_hash && verified;
             if valid {
                 epochs = epochs.saturating_add(one);
-            } else {
+            } else if absent.is_empty() {
                 faults.push(json!({"line": line, "at": at, "op": op, "fault": "epoch"}));
             }
             valid
@@ -143,6 +161,20 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
         "broken_at": broken_at,
         "faults": faults,
     }))
+}
+
+/// The text field `name` of a journal line or its `extra`, or `name` noted in
+/// `missing` when it is absent or not text. The empty answer then stands in
+/// only for the fault report; the caller reports the line as malformed
+/// instead of checking it.
+fn required<'a>(object: &'a Value, name: &'static str, missing: &mut Vec<&'static str>) -> &'a str {
+    match object.get(name).and_then(Value::as_str) {
+        Some(value) => value,
+        None => {
+            missing.push(name);
+            ""
+        }
+    }
 }
 
 /// `skarbiec audit`: journal entries, oldest first, filtered by operation,
