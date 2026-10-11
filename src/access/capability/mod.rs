@@ -36,11 +36,9 @@ const WIRE_VERSION: &str = "skarbiec.redeem.v1";
 ///
 /// Prefer an OpenSSL 3 build when one is installed, and let SKARBIEC_OPENSSL
 /// name it when it lives somewhere else.
-fn openssl_bin() -> String {
-    if let Ok(configured) = std::env::var("SKARBIEC_OPENSSL") {
-        if !configured.is_empty() {
-            return configured;
-        }
+fn openssl_bin() -> std::path::PathBuf {
+    if let Some(configured) = crate::core::env::path("SKARBIEC_OPENSSL") {
+        return configured;
     }
     for candidate in [
         "/opt/homebrew/opt/openssl@3/bin/openssl",
@@ -48,10 +46,10 @@ fn openssl_bin() -> String {
         "/usr/local/opt/openssl@3/bin/openssl",
     ] {
         if Path::new(candidate).exists() {
-            return candidate.to_string();
+            return candidate.into();
         }
     }
-    "openssl".to_string()
+    "openssl".into()
 }
 
 pub fn dispatch(
