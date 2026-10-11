@@ -12,7 +12,7 @@ use crate::core::{schema, vault_path};
 use super::args::{emit, flag_set, OrUsage};
 
 pub(crate) const SET_JSON_USAGE: &str =
-    "usage: set-json <id> [--type <canonical-kind>] [--if-absent]";
+    "usage: set-json <id> [--type <canonical-kind>] [--if-absent | --if-unchanged]";
 
 pub(crate) fn ensure_owner_mutation_allowed(
     vault: &Vault,
@@ -134,6 +134,9 @@ pub(crate) fn set_json_value(
     encoded: &str,
 ) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
+    if flag_set(flags, "if-absent") && flag_set(flags, "if-unchanged") {
+        bail!("set-json accepts only one of --if-absent or --if-unchanged");
+    }
     if flag_set(flags, "if-absent")
         && vault
             .list(false)
@@ -143,8 +146,23 @@ pub(crate) fn set_json_value(
         return Ok(json!({"ok": true, "id": id, "created": false}));
     }
     ensure_owner_set_allowed(&vault, id)?;
-    let payload: Value =
+    let mut payload: Value =
         serde_json::from_str(encoded).context("stdin must be one canonical JSON payload")?;
+    if flag_set(flags, "if-unchanged") {
+        let expected = payload
+            .get("expected")
+            .context("set-json --if-unchanged requires expected and payload on stdin")?;
+        let current = vault
+            .get_item(id)
+            .with_context(|| format!("set-json --if-unchanged cannot read existing item {id}"))?;
+        if &current != expected {
+            bail!("item_payload_changed: set-json {id} refused because its payload changed since the caller read it; nothing was written");
+        }
+        payload = payload
+            .get_mut("payload")
+            .context("set-json --if-unchanged requires expected and payload on stdin")?
+            .take();
+    }
     let payload_kind = payload
         .get("kind")
         .and_then(Value::as_str)

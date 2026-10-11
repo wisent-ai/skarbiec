@@ -226,8 +226,10 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
                 }
                 "set-json" => {
                     let item_id = text(parsed, "item")?;
-                    let mut call_flags =
-                        flags(parsed, &["type", "tags", "recipients", "if-absent"]);
+                    let mut call_flags = flags(
+                        parsed,
+                        &["type", "tags", "recipients", "if-absent", "if-unchanged"],
+                    );
                     // Pass the payload as a special flag to the dispatcher
                     if let Some(payload) = parsed.get("payload") {
                         call_flags.insert("__payload__".to_string(), payload.to_string());
