@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::Read;
 
+use crate::bonds::{Mode, Role};
 use crate::core::vault::Vault;
 use crate::core::{schema, vault_path};
 
@@ -34,8 +35,10 @@ pub(crate) fn ensure_not_replica(vault: &Vault, operation: &str) -> Result<()> {
         return Ok(());
     };
     for (name, bond) in bonds {
-        let text = |key: &str| bond.get(key).and_then(Value::as_str).unwrap_or_default();
-        if text("mode") == "replica" && text("role") == "replica" {
+        let text = |key: &str| bond.get(key).and_then(Value::as_str);
+        let replica = text("mode").and_then(Mode::parse) == Some(Mode::Replica)
+            && text("role").and_then(Role::parse) == Some(Role::Replica);
+        if replica {
             let source = bond
                 .get("channel")
                 .and_then(|channel| channel.get("address"))

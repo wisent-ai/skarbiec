@@ -9,12 +9,6 @@
 use super::*;
 use crate::cli::args::OrUsage;
 
-/// Modes, roles and channel types a bond may declare, from
-/// docs/design/bond.md.
-const MODES: [&str; 4] = ["replica", "hub", "p2p", "git"];
-const ROLES: [&str; 4] = ["source", "replica", "consumer", "peer"];
-const CHANNEL_TYPES: [&str; 3] = ["serve", "git", "file"];
-
 /// A new bond. A name already configured is refused with its mode and role;
 /// `bond edit` changes it.
 pub(crate) fn cmd_bond_add(
@@ -109,18 +103,18 @@ fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Resu
     let mode = flags.get("mode").or_usage("--mode required")?;
     let role = flags.get("role").or_usage("--role required")?;
     let channel = flags.get("channel").or_usage("--channel required")?;
-    if !MODES.contains(&mode.as_str()) {
-        anyhow::bail!("mode must be one of: {}", MODES.join(", "));
+    if Mode::parse(mode).is_none() {
+        anyhow::bail!("mode must be one of: {}", Mode::names());
     }
-    if !ROLES.contains(&role.as_str()) {
-        anyhow::bail!("role must be one of: {}", ROLES.join(", "));
+    if Role::parse(role).is_none() {
+        anyhow::bail!("role must be one of: {}", Role::names());
     }
     let (channel_type, address) = channel
         .split_once(':')
         .context("channel must be <type:address>")?;
-    if !CHANNEL_TYPES.contains(&channel_type) {
-        anyhow::bail!("channel type must be one of: {}", CHANNEL_TYPES.join(", "));
-    }
+    let Some(kind) = Channel::parse(channel_type) else {
+        anyhow::bail!("channel type must be one of: {}", Channel::names());
+    };
     let interval: Option<u64> = flags
         .get("interval")
         .map(|value| {
@@ -139,7 +133,7 @@ fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Resu
     // bond the service could not authenticate with is refused now.
     let token_file = flags.get("token-file").map(|path| path.trim().to_string());
     if let Some(path) = &token_file {
-        if channel_type != "serve" {
+        if kind != Channel::Serve {
             anyhow::bail!(
                 "--token-file applies only to a serve channel: only serve channels are pulled"
             );

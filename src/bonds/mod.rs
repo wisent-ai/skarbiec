@@ -6,6 +6,7 @@
 // | part | what it owns |
 // |---|---|
 // | `config` | adding, listing and removing a bond in the vault |
+// | `kinds` | the modes, roles and channel types a bond may declare |
 // | `enroll` | registering this replica's key with a source serve |
 // | `sync` | one pull per pulled bond, and the status report |
 //
@@ -20,7 +21,10 @@ pub(crate) use crate::core::{crypto, vault::Vault, vault_path};
 
 mod config;
 mod enroll;
+mod kinds;
 mod sync;
+
+pub(crate) use kinds::{Channel, Mode, Role};
 
 pub(crate) use config::*;
 pub(crate) use enroll::*;

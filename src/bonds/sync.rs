@@ -31,7 +31,10 @@ fn pulled(doc: &Value) -> Vec<String> {
         .filter(|(_, entry)| {
             let channel = entry.get("channel");
             let field = |key: &str| channel.and_then(|c| c.get(key));
-            field("type").and_then(Value::as_str) == Some("serve")
+            field("type")
+                .and_then(Value::as_str)
+                .and_then(Channel::parse)
+                == Some(Channel::Serve)
                 && field("token_file").and_then(Value::as_str).is_some()
                 && field("interval_seconds").and_then(Value::as_u64).is_some()
         })
@@ -163,8 +166,8 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
 /// cannot be reached, or when no bearer was presented — a status report
 /// says what it observed, and an unreachable source is not a healthy one.
 fn remote_state(channel: &Value, consumer: &str, token: Option<&String>) -> (Value, Value) {
-    let channel_type = channel.get("type").and_then(Value::as_str).unwrap_or("");
-    if channel_type != "serve" {
+    let channel_type = channel.get("type").and_then(Value::as_str);
+    if channel_type.and_then(Channel::parse) != Some(Channel::Serve) {
         return (Value::Null, Value::Null);
     }
     let address = channel.get("address").and_then(Value::as_str).unwrap_or("");

@@ -38,10 +38,12 @@ pub(in crate::credential) fn resolve_quarantine(
     if flags.get("confirm").map(String::as_str) != Some(QUARANTINE_CONFIRMATION) {
         bail!("{usage}");
     }
-    let staged_decision = flags.get("staged").map(String::as_str).unwrap_or("keep");
-    if !["keep", "activate", "discard"].contains(&staged_decision) {
-        bail!("--staged must be keep, activate, or discard");
-    }
+    // Without --staged the candidate is kept as it is.
+    let decision = match flags.get("staged") {
+        Some(name) => Staged::parse(name).context("--staged must be keep, activate, or discard")?,
+        None => Staged::Keep,
+    };
+    let staged_decision = decision.as_str();
     let _lock = acquire_credential_operation_lock(vault_path)?;
     let mut vault = Vault::open(vault_path.to_path_buf())?;
     if !quarantine_active(&vault, credential_id) {
@@ -90,16 +92,16 @@ pub(in crate::credential) fn resolve_quarantine(
     let staged = !request_id.is_empty()
         && pending_matches_request(&vault, credential_id, &request_id, &field, &writer);
     if staged {
-        match staged_decision {
-            "activate" => {
+        match decision {
+            Staged::Activate => {
                 vault.activate_staged_revision(credential_id, &request_id, &field, &writer)?;
             }
-            "discard" => {
+            Staged::Discard => {
                 vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
             }
-            _ => {}
+            Staged::Keep => {}
         }
-    } else if staged_decision != "keep" {
+    } else if decision != Staged::Keep {
         bail!("{credential_id} has no staged revision belonging to the quarantined operation");
     }
     let resolved_at = now_iso();
@@ -170,4 +172,34 @@ pub(in crate::credential) fn resolve_quarantine(
         "staged_decision": staged_decision,
         "resolved_at": resolved_at,
     }))
+}
+
+/// What `--staged` decides about the quarantined operation's staged candidate.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Staged {
+    /// Leave the candidate staged.
+    Keep,
+    /// Make the candidate the current value.
+    Activate,
+    /// Drop the candidate.
+    Discard,
+}
+
+impl Staged {
+    const ALL: &'static [Staged] = &[Staged::Keep, Staged::Activate, Staged::Discard];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Staged::Keep => "keep",
+            Staged::Activate => "activate",
+            Staged::Discard => "discard",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Staged> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|choice| choice.as_str() == name)
+    }
 }

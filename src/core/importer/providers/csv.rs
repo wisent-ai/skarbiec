@@ -22,32 +22,27 @@ pub(in crate::core::importer) fn document(bytes: &[u8], requested: &str) -> Resu
         bail!("import CSV contains an empty or duplicate header");
     }
     let has = |name: &str| headers.iter().any(|header| header == name);
-    let detected = if has("type") && has("name") && has("login_username") && has("login_password") {
-        "bitwarden"
-    } else if has("title") && has("website") && has("username") && has("password") {
-        "1password"
-    } else if (has("name") || has("title")) && has("url") && has("username") && has("password") {
-        "browser-csv"
-    } else {
-        bail!("CSV does not have supported 1Password, Bitwarden, or browser export headers");
-    };
+    let detected = Export::DETECTION_ORDER
+        .iter()
+        .copied()
+        .find(|export| export.headers_present(&has))
+        .context("CSV does not have supported 1Password, Bitwarden, or browser export headers")?;
     let format = if requested == "auto" {
         detected
     } else {
-        requested
+        Export::DETECTION_ORDER
+            .iter()
+            .copied()
+            .find(|export| export.name() == requested)
+            .context("CSV requires the 1Password, Bitwarden, or browser-csv format")?
     };
-    if (format == "bitwarden" && detected != "bitwarden")
-        || (format == "browser-csv" && detected != "browser-csv")
-        || (format == "1password" && !has("title"))
-    {
+    // A 1Password export is accepted whenever it has its title column; the
+    // other two must be the format their headers were detected as.
+    let accepted = format == detected || (format == Export::OnePassword && has("title"));
+    if !accepted {
         bail!("CSV headers do not match the selected import format");
     }
-    let provider = match format {
-        "1password" => "1password-csv",
-        "bitwarden" => "bitwarden-csv",
-        "browser-csv" => "browser-csv",
-        _ => bail!("CSV requires the 1Password, Bitwarden, or browser-csv format"),
-    };
+    let provider = format.provider();
     let mut rows = Vec::new();
     for (index, record) in reader.records().enumerate() {
         let record = record.with_context(|| format!("invalid CSV record {}", index + 2))?;
@@ -132,4 +127,51 @@ pub(in crate::core::importer) fn document(bytes: &[u8], requested: &str) -> Resu
         format: provider,
         rows,
     })
+}
+
+/// A CSV export format, recognised by the header columns its exporter writes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Export {
+    Bitwarden,
+    OnePassword,
+    Browser,
+}
+
+impl Export {
+    /// Bitwarden's columns are the most specific, then 1Password's, and a
+    /// browser export is what remains.
+    const DETECTION_ORDER: &'static [Export] =
+        &[Export::Bitwarden, Export::OnePassword, Export::Browser];
+
+    /// The name `import --format` takes.
+    fn name(self) -> &'static str {
+        match self {
+            Export::Bitwarden => "bitwarden",
+            Export::OnePassword => "1password",
+            Export::Browser => "browser-csv",
+        }
+    }
+
+    /// The source an imported row records.
+    fn provider(self) -> &'static str {
+        match self {
+            Export::Bitwarden => "bitwarden-csv",
+            Export::OnePassword => "1password-csv",
+            Export::Browser => "browser-csv",
+        }
+    }
+
+    fn headers_present(self, has: &impl Fn(&str) -> bool) -> bool {
+        match self {
+            Export::Bitwarden => {
+                has("type") && has("name") && has("login_username") && has("login_password")
+            }
+            Export::OnePassword => {
+                has("title") && has("website") && has("username") && has("password")
+            }
+            Export::Browser => {
+                (has("name") || has("title")) && has("url") && has("username") && has("password")
+            }
+        }
+    }
 }
