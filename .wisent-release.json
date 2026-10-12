@@ -124,7 +124,8 @@
       "argv": [
         "stado",
         "release",
-        "install-local",
+        "local",
+        "install",
         "--member",
         "bin/skarbiec"
       ],
@@ -138,7 +139,8 @@
       "argv": [
         "stado",
         "release",
-        "install-local",
+        "local",
+        "install",
         "--member",
         "bin/skarbiec"
       ],
