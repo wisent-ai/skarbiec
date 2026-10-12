@@ -25,7 +25,8 @@
             "fmt",
             "--",
             "--check"
-          ]
+          ],
+          "kind": "format"
         },
         {
           "name": "clippy",
@@ -38,7 +39,8 @@
             "--",
             "-D",
             "warnings"
-          ]
+          ],
+          "kind": "lint"
         }
       ],
       "build": {
@@ -65,7 +67,8 @@
             "fmt",
             "--",
             "--check"
-          ]
+          ],
+          "kind": "format"
         },
         {
           "name": "clippy",
@@ -78,7 +81,8 @@
             "--",
             "-D",
             "warnings"
-          ]
+          ],
+          "kind": "lint"
         }
       ],
       "build": {
