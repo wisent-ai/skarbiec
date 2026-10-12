@@ -59,7 +59,16 @@ pub(in crate::credential) fn resolve_quarantine(
         bail!("{consumer} holds no admin capability for {admin_target}");
     }
     let request_item = request_item_id(credential_id);
-    let record = vault.get_item(&request_item).and_then(request_payload).ok();
+    // No record means nothing is staged; a record that exists but cannot be
+    // read is refused, never read as nothing staged.
+    let record = if live_item_exists(&vault, &request_item) {
+        let read = vault.get_item(&request_item).and_then(request_payload);
+        Some(read.with_context(|| {
+            format!("{request_item} cannot be read, so whether a value is staged cannot be checked")
+        })?)
+    } else {
+        None
+    };
     let request_id = record
         .as_ref()
         .and_then(|record| record.get("request_id"))
