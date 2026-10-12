@@ -14,8 +14,8 @@ use super::super::common::{
     acquire_credential_operation_lock, client_identity, exact_name, now_iso,
 };
 use super::super::state::{
-    context_block, live_item_exists, pending_matches_request, quarantine_active, request_item_id,
-    store_context, update_request,
+    context_block_checked, live_item_exists, pending_matches_request, quarantine_active,
+    request_item_id, store_context, update_request,
 };
 use super::super::wire::request_payload;
 use super::super::{QUARANTINE_CONFIRMATION, STATE_UNMANAGED};
@@ -103,7 +103,9 @@ pub(in crate::credential) fn resolve_quarantine(
             .and_then(|item| item.get("pending"))
             .is_some();
         if !has_staged {
-            let previous = context_block(&vault, credential_id, "quarantine");
+            // The resolved record keeps the quarantine it replaced; one that cannot
+            // be read is refused rather than recorded as none.
+            let previous = context_block_checked(&vault, credential_id, "quarantine")?;
             store_context(
                 &mut vault,
                 credential_id,

@@ -14,7 +14,7 @@ pub(crate) use writes::authorize_managed_write;
 
 pub(super) use lifecycle::{quarantine_active, quarantine_state, refuse_quarantined};
 pub(super) use records::{
-    context_block, context_block_checked, context_string, item_revision, live_item_exists,
-    request_item_id, save_request, save_seal, update_request,
+    context_block_checked, context_string, item_revision, live_item_exists, request_item_id,
+    save_request, save_seal, update_request,
 };
 pub(super) use writes::{item_matches_request, pending_matches_request, store_context};

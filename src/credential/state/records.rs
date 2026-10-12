@@ -192,15 +192,6 @@ pub(in crate::credential) fn item_revision(vault: &Vault, id: &str) -> Option<u6
     item.get("revision").and_then(Value::as_u64)
 }
 
-pub(in crate::credential) fn context_block(vault: &Vault, id: &str, key: &str) -> Option<Value> {
-    let payload = vault.get_item(id).ok()?;
-    schema::field(&payload, "context")
-        .ok()?
-        .get(key)
-        .filter(|value| !value.is_null())
-        .cloned()
-}
-
 /// The same block for lifecycle admission: `Ok(None)` when the item does not
 /// exist or holds no such block, and an error naming the item when it exists
 /// but cannot be decrypted or read, so a quarantine or lifecycle state it

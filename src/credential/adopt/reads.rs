@@ -7,7 +7,7 @@ use serde_json::Value;
 use crate::core::vault::Vault;
 use crate::core::{crypto, inbox, schema};
 
-use super::super::state::{context_block, pending_matches_request, request_item_id};
+use super::super::state::{context_block_checked, pending_matches_request, request_item_id};
 use super::super::wire::{request_payload, WIRE_VERSION};
 use super::super::STATE_ADOPTING;
 use super::ManagedRead;
@@ -51,7 +51,12 @@ pub(crate) fn managed_read(
     field: &str,
     consumer: &str,
 ) -> Result<ManagedRead> {
-    let lifecycle = context_block(vault, credential_id, "lifecycle").unwrap_or_default();
+    // An item that exists but cannot be read is refused, never taken for one
+    // with no lifecycle block, which would decide no adopt is in flight.
+    let lifecycle = match context_block_checked(vault, credential_id, "lifecycle")? {
+        Some(lifecycle) => lifecycle,
+        None => Value::Null,
+    };
     let adopting = lifecycle.get("state").and_then(Value::as_str) == Some(STATE_ADOPTING);
     let candidate_is_current =
         lifecycle.get("candidate").and_then(Value::as_str) == Some("current");
