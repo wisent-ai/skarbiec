@@ -111,8 +111,8 @@ fn policy_refusal(key: &str, raw: &str, value: &Value) -> Result<(), String> {
 
 /// Interpret a policy value string as bool / number / string (in that order).
 fn coerce(raw: &str) -> Value {
-    if raw == "true" || raw == "false" {
-        return json!(raw == "true");
+    if let Ok(flag) = raw.parse::<bool>() {
+        return json!(flag);
     }
     if let Ok(n) = raw.parse::<u64>() {
         return json!(n);
