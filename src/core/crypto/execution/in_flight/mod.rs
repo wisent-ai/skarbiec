@@ -8,10 +8,16 @@
 //! thread holds its connection for as long as the daemons stay wedged.
 //! Nothing here is a clock: a run whose last status is `ENC_TO` is measured
 //! as waiting on the agent, whatever the time, and that measurement is what
-//! the readiness check, a new decrypt and the daemon recovery read.
+//! the readiness check, a new decrypt and the daemon recovery read. The runs
+//! of every other Skarbiec process of this account are read too
+//! (`published`): they wait on the same agent.
+
+mod published;
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex, MutexGuard};
+
+use published::PublishedRun;
 
 /// The status keyword gpg writes once it has read the key a message is
 /// encrypted to and before it asks the agent to use it.
@@ -39,19 +45,36 @@ fn runs() -> MutexGuard<'static, BTreeMap<u32, Run>> {
     }
 }
 
+/// Publish this process's runs as they stand in `held`.
+fn publish(held: &BTreeMap<u32, Run>) {
+    let listed: Vec<PublishedRun> = held
+        .iter()
+        .map(|(pid, run)| PublishedRun {
+            pid: *pid,
+            verb: run.verb.clone(),
+            started: run.started.clone(),
+            last_status: run.last_status.clone(),
+        })
+        .collect();
+    published::publish(&listed);
+}
+
 /// The register's entry for one child, removed when dropped.
 pub(super) struct Registered(u32);
 
 impl Drop for Registered {
     fn drop(&mut self) {
-        runs().remove(&self.0);
+        let mut held = runs();
+        held.remove(&self.0);
+        publish(&held);
     }
 }
 
 /// Register the `gpg` child `pid` that `verb` (its first non-option
 /// argument) runs.
 pub(super) fn register(pid: u32, verb: &str) -> Registered {
-    runs().insert(
+    let mut held = runs();
+    held.insert(
         pid,
         Run {
             verb: verb.to_owned(),
@@ -59,6 +82,7 @@ pub(super) fn register(pid: u32, verb: &str) -> Registered {
             last_status: None,
         },
     );
+    publish(&held);
     Registered(pid)
 }
 
@@ -72,9 +96,11 @@ pub(super) fn noted(registered: &Registered, line: &str) {
         Some(keyword) => keyword,
         None => status,
     };
-    if let Some(run) = runs().get_mut(&registered.0) {
+    let mut held = runs();
+    if let Some(run) = held.get_mut(&registered.0) {
         run.last_status = Some(keyword.to_owned());
     }
+    publish(&held);
 }
 
 /// Whether `run` has asked the agent for a key and heard nothing since.
@@ -88,37 +114,80 @@ pub(super) fn waiting_on_agent() -> usize {
     runs().values().filter(|run| waits_on_agent(run)).count()
 }
 
-/// One sentence per `gpg` child waiting on the agent: its pid, what it runs,
-/// since when and the status it stopped at. Empty when none waits.
+/// One sentence per `gpg` child waiting on the agent, this process's and
+/// every other Skarbiec process's of this account: its pid, whose it is,
+/// what it runs, since when and the status it stopped at. Empty when none
+/// waits; a published file that cannot be read is said as one more sentence.
 pub fn agent_waits() -> Vec<String> {
-    runs()
-        .iter()
-        .filter(|(_, run)| waits_on_agent(run))
-        .map(|(pid, run)| {
+    let (all, unreadable) = everyone();
+    let mut waits = sentences(&all);
+    waits.extend(unreadable);
+    waits
+}
+
+fn published_waits_on_agent(run: &PublishedRun) -> bool {
+    run.last_status.as_deref() == Some(ASKING_THE_AGENT)
+}
+
+fn sentences(all: &[(String, PublishedRun)]) -> Vec<String> {
+    all.iter()
+        .filter(|(_, run)| published_waits_on_agent(run))
+        .map(|(owner, run)| {
             format!(
-                "gpg {} (pid {pid}) since {} stopped at status {ASKING_THE_AGENT}: it asked \
-                 gpg-agent for its key and the agent has not answered",
-                run.verb, run.started
+                "gpg {} (pid {}, of {owner}) since {} stopped at status {ASKING_THE_AGENT}: it \
+                 asked gpg-agent for its key and the agent has not answered",
+                run.verb, run.pid, run.started
             )
         })
         .collect()
 }
 
+/// Every `gpg` run of this account now, each with whose it is (`this
+/// process` or `skarbiec process <pid>`), and the published file that could
+/// not be read, when one could not.
+fn everyone() -> (Vec<(String, PublishedRun)>, Option<String>) {
+    let mut all: Vec<(String, PublishedRun)> = runs()
+        .iter()
+        .map(|(pid, run)| {
+            (
+                "this process".to_owned(),
+                PublishedRun {
+                    pid: *pid,
+                    verb: run.verb.clone(),
+                    started: run.started.clone(),
+                    last_status: run.last_status.clone(),
+                },
+            )
+        })
+        .collect();
+    match published::others() {
+        Ok(others) => {
+            all.extend(
+                others
+                    .into_iter()
+                    .map(|(process, run)| (format!("skarbiec process {process}"), run)),
+            );
+            (all, None)
+        }
+        Err(unreadable) => (all, Some(unreadable)),
+    }
+}
+
 /// Why a `gpg` run would queue behind wedged daemons right now, when it
-/// would: every child in flight is waiting on the agent. A child that is
+/// would: every child in flight, in this process and in every other Skarbiec
+/// process of this account, is waiting on the agent. A child that is
 /// progressing (any other last status, or none yet) means the daemons answer,
 /// and a new run joins the queue as usual.
 pub fn agent_refusal() -> Option<String> {
-    let held = runs();
-    if held.is_empty() || !held.values().all(waits_on_agent) {
+    let (all, _) = everyone();
+    if all.is_empty() || !all.iter().all(|(_, run)| published_waits_on_agent(run)) {
         return None;
     }
-    drop(held);
-    let waits = agent_waits();
+    let waits = sentences(&all);
     Some(format!(
-        "{} gpg run(s) of this vault are in flight and every one has asked gpg-agent for its key \
-         without an answer, so a run now would wait behind the same daemons: {}. Recover them \
-         with `skarbiec maintain`",
+        "{} gpg run(s) of this account are in flight and every one has asked gpg-agent for its \
+         key without an answer, so a run now would wait behind the same daemons: {}. Recover \
+         them with `skarbiec maintain`",
         waits.len(),
         waits.join("; ")
     ))
