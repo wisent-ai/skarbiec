@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::core::vault::items::duplicates;
 use crate::core::vault::{
-    current_envelope, entry_item_uid, mint_item_uid, now, Vault, WritePolicy,
+    current_envelope, entry_item_uid, mint_item_uid, now, ManagementMode, Vault, WritePolicy,
 };
 use crate::core::{crypto, schema};
 
@@ -23,7 +23,7 @@ impl Vault {
         let writer = policy.writer;
         let requested_management = policy
             .managed
-            .map(|write| json!({"mode": "managed", "controller": write.controller}));
+            .map(|write| json!({"mode": ManagementMode::Managed.as_str(), "controller": write.controller}));
         let preserve_metadata = policy.managed.is_some();
         let operation_id = policy.managed.and_then(|write| write.operation_id);
         schema::validate_payload(payload, item_kind)?;
@@ -73,13 +73,9 @@ impl Vault {
             }
         }
         if requested_management.is_none()
-            && previous.as_ref().is_some_and(|entry| {
-                entry
-                    .get("management")
-                    .and_then(|management| management.get("mode"))
-                    .and_then(Value::as_str)
-                    != Some("owner")
-            })
+            && previous
+                .as_ref()
+                .is_some_and(|entry| ManagementMode::of(entry) != Some(ManagementMode::Owner))
         {
             let existing = previous.as_ref().context("protected item disappeared")?;
             let current_payload = self.get_item(id)?;
@@ -170,11 +166,11 @@ impl Vault {
             .unwrap_or_else(|| {
                 let controller = writer.unwrap_or_else(|| self.owner_uid());
                 let mode = if controller == self.owner_uid() {
-                    "owner"
+                    ManagementMode::Owner
                 } else {
-                    "external"
+                    ManagementMode::External
                 };
-                json!({"mode": mode, "controller": controller})
+                json!({"mode": mode.as_str(), "controller": controller})
             });
         let revision = previous
             .as_ref()

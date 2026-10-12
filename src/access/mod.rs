@@ -4,6 +4,7 @@
 // this router simply forwards to them in turn; a real error propagates via `?`.
 
 pub mod acquisition;
+pub(crate) mod actions;
 pub mod agent;
 pub mod capability;
 pub mod grant;

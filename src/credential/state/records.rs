@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::Path;
 
-use crate::core::vault::{ManagedWrite, Vault};
+use crate::core::vault::{ManagedWrite, ManagementMode, Vault};
 
 use super::super::common::now_iso;
 use super::super::wire::{record_envelope, request_payload};
@@ -49,10 +49,12 @@ pub(crate) fn lifecycle_owned_item(vault: &Vault, id: &str) -> bool {
     ) {
         return false;
     }
-    item.get("management").is_some_and(|management| {
-        management.get("mode").and_then(Value::as_str) == Some("managed")
-            && management.get("controller").and_then(Value::as_str) == Some(REQUEST_WRITER)
-    })
+    ManagementMode::of(item) == Some(ManagementMode::Managed)
+        && item
+            .get("management")
+            .and_then(|management| management.get("controller"))
+            .and_then(Value::as_str)
+            == Some(REQUEST_WRITER)
 }
 
 pub(in crate::credential) fn live_item_exists(vault: &Vault, id: &str) -> bool {

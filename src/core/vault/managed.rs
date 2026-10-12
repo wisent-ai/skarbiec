@@ -5,7 +5,10 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
-use super::{current_envelope, entry_item_uid, mint_item_uid, now, obj_mut, ManagedWrite, Vault};
+use super::{
+    current_envelope, entry_item_uid, mint_item_uid, now, obj_mut, ManagedWrite, ManagementMode,
+    Vault,
+};
 use crate::core::{crypto, schema};
 
 impl Vault {
@@ -82,7 +85,7 @@ impl Vault {
             .get("management")
             .and_then(Value::as_object)
             .context("managed item has no management envelope")?;
-        if management.get("mode").and_then(Value::as_str) != Some("managed")
+        if ManagementMode::of(item) != Some(ManagementMode::Managed)
             || management.get("controller").and_then(Value::as_str) != Some(write.controller)
         {
             bail!("{id} is controlled by a different management authority");
@@ -158,7 +161,7 @@ impl Vault {
             .and_then(Value::as_object)
             .context("managed item has no management envelope")?;
         if item.get("state").and_then(Value::as_str) != Some("active")
-            || management.get("mode").and_then(Value::as_str) != Some("managed")
+            || ManagementMode::of(item) != Some(ManagementMode::Managed)
             || management.get("controller").and_then(Value::as_str) != Some(controller)
             || item
                 .get("current")

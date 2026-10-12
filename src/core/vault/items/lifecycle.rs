@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use crate::core::vault::items::duplicates;
-use crate::core::vault::{current_envelope, now, obj_mut, Vault};
+use crate::core::vault::{current_envelope, now, obj_mut, ManagementMode, Vault};
 use crate::core::{crypto, schema};
 
 impl Vault {
@@ -219,12 +219,8 @@ impl Vault {
             .get("management")
             .and_then(Value::as_object)
             .context("item has no canonical management metadata")?;
-        let mode = management
-            .get("mode")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        if mode == "managed" {
+        let mode = ManagementMode::of(entry);
+        if mode == Some(ManagementMode::Managed) {
             bail!("{id} is under the credential lifecycle; use a credential operation");
         }
         if entry
@@ -235,7 +231,9 @@ impl Vault {
             bail!("{id} is managed by Weles; use a credential operation");
         }
         let owner = self.owner_uid().to_string();
-        if mode == "owner" && management.get("controller").and_then(Value::as_str) == Some(&owner) {
+        if mode == Some(ManagementMode::Owner)
+            && management.get("controller").and_then(Value::as_str) == Some(&owner)
+        {
             return Ok(());
         }
         let previous = management
@@ -250,7 +248,7 @@ impl Vault {
             .with_context(|| format!("no item: {id}"))?;
         entry.insert(
             "management".to_string(),
-            json!({"mode": "owner", "controller": owner}),
+            json!({"mode": ManagementMode::Owner.as_str(), "controller": owner}),
         );
         entry.insert("updated_at".to_string(), json!(stamp));
         self.save()?;

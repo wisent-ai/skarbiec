@@ -17,7 +17,8 @@ use std::path::PathBuf;
 mod admission;
 pub use admission::{admission, Admission};
 
-use crate::core::{crypto, vault::Vault, vault_path};
+use crate::core::vault::{ManagementMode, Vault};
+use crate::core::{crypto, vault_path};
 
 fn now_iso() -> String {
     crate::core::clock::now_iso()
@@ -65,10 +66,13 @@ pub fn managed_by_weles(vault: &Vault, id: &str) -> bool {
         .doc()
         .get("items")
         .and_then(|items| items.get(id))
-        .and_then(|item| item.get("management"))
-        .is_some_and(|management| {
-            management.get("mode").and_then(Value::as_str) == Some("managed")
-                && management.get("controller").and_then(Value::as_str) == Some("weles")
+        .is_some_and(|item| {
+            ManagementMode::of(item) == Some(ManagementMode::Managed)
+                && item
+                    .get("management")
+                    .and_then(|management| management.get("controller"))
+                    .and_then(Value::as_str)
+                    == Some("weles")
         })
 }
 

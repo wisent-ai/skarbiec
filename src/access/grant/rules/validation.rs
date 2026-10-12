@@ -78,38 +78,6 @@ pub(in crate::access::grant) fn exact_resource(value: &str) -> bool {
         })
 }
 
-pub(in crate::access::grant) fn allowed_action(action: &str) -> bool {
-    matches!(
-        action,
-        "acquire"
-            | "read"
-            | "stage"
-            | "rotate"
-            | "verify"
-            | "revoke"
-            | "share"
-            | "trash"
-            | "purge"
-            | "admin"
-            | "sync"
-            | "enroll"
-            | "donate"
-            // Credential lifecycle: drive operations on one exact item, and
-            // reseal its directory contract. Neither reads a value.
-            | "lifecycle"
-            | "reseal"
-            // Ask what an inbound bearer is. Held by a gateway that has to
-            // decide whether to serve a request, so that deciding does not
-            // require keeping a copy of every credential in the fleet. Reads no
-            // value: the answer is an identity and its capabilities.
-            | "introspect"
-            // Be called. The right to reach a service, and with `#field` the
-            // exact route within it, so a client's reach is a grant here rather
-            // than a list compiled into the service it calls.
-            | "call"
-    )
-}
-
 /// A route within a service: components joined by `/`, each one exact.
 ///
 /// Separators are allowed because a route has them; nothing else is. No empty

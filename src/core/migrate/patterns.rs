@@ -79,22 +79,3 @@ pub(super) fn future_contract_field(item: &str, requested: Option<&str>) -> Opti
         None
     }
 }
-
-pub(super) fn supported_action(action: &str) -> bool {
-    matches!(
-        action,
-        "read"
-            | "stage"
-            | "rotate"
-            | "verify"
-            | "share"
-            | "trash"
-            | "purge"
-            | "admin"
-            | "acquire"
-            | "revoke"
-            | "sync"
-            | "enroll"
-            | "donate"
-    )
-}

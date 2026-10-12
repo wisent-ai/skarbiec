@@ -8,9 +8,8 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use super::validation::{
-    allowed_action, effective_uid, exact_component, exact_resource, exact_route,
-};
+use super::validation::{effective_uid, exact_component, exact_resource, exact_route};
+use crate::access::actions::Action;
 use crate::access::grant::lookup::{active, capability_matches};
 use crate::core::{schema, vault::Vault};
 
@@ -24,12 +23,12 @@ pub(in crate::access::grant) fn parse_capabilities(
     }
     let mut capabilities = Vec::new();
     for encoded in raw.split(',') {
-        let (action, target) = encoded
+        let (action_name, target) = encoded
             .split_once(':')
             .context("capabilities use action:item[#field]")?;
-        if !allowed_action(action) {
-            bail!("unsupported capability action: {action}");
-        }
+        let Some(action) = Action::parse(action_name) else {
+            bail!("unsupported capability action: {action_name}");
+        };
         let (item, field) = match target.split_once('#') {
             Some((item, field)) => (item, Some(field)),
             None => (target, None),
@@ -39,17 +38,17 @@ pub(in crate::access::grant) fn parse_capabilities(
         // Everywhere else a field is a single component of an item.
         let field_ok = match field {
             None => true,
-            Some(field) if action == "call" => exact_route(field),
+            Some(field) if action.reaches_service() => exact_route(field),
             Some(field) => exact_component(field),
         };
         if !exact_resource(item) || !field_ok {
             bail!("capabilities require exact resource and field names without globs");
         }
-        if matches!(action, "acquire" | "stage" | "rotate" | "verify") && field.is_none() {
-            bail!("{action} capability requires one exact field");
+        if action.needs_field() && field.is_none() {
+            bail!("{action_name} capability requires one exact field");
         }
-        if matches!(action, "lifecycle" | "reseal") && field.is_some() {
-            bail!("{action} capability is item-scoped and must not name a field");
+        if action.forbids_field() && field.is_some() {
+            bail!("{action_name} capability is item-scoped and must not name a field");
         }
         // `role:<role>` is a coordinate that acquisition, a scoped read and a
         // Weles managed write (stage, and the acquire write that creates the
@@ -57,12 +56,12 @@ pub(in crate::access::grant) fn parse_capabilities(
         // resolves a role, so on any other action it would name an item
         // literally called that.
         let names_role = item.starts_with("role:");
-        if names_role && !matches!(action, "acquire" | "read" | "stage") {
+        if names_role && !action.names_role() {
             bail!(
-                "only acquire, read and stage name a role (acquire:role:<role>#<field>, read:role:<role>#<field>, stage:role:<role>#<field>); {action} names an item"
+                "only acquire, read and stage name a role (acquire:role:<role>#<field>, read:role:<role>#<field>, stage:role:<role>#<field>); {action_name} names an item"
             );
         }
-        let capability = json!({"action": action, "item": item, "field": field});
+        let capability = json!({"action": action_name, "item": item, "field": field});
         if capabilities.contains(&capability) {
             bail!("duplicate capability: {encoded}");
         }
@@ -77,11 +76,11 @@ pub(in crate::access::grant) fn parse_capabilities(
         // item and one of its fields, so there is nothing here to exist yet.
         // Checking would tie the right to reach a service to that service
         // happening to keep a secret.
-        if action == "call" {
+        if action.reaches_service() {
             capabilities.push(capability);
             continue;
         }
-        if !preserved && field == Some("context") && action != "read" {
+        if !preserved && field == Some("context") && !action.reads_context() {
             bail!("context is metadata and may only be named by read capabilities");
         }
         // Lifecycle scopes can name the item an acquire operation will create.
@@ -100,15 +99,14 @@ pub(in crate::access::grant) fn parse_capabilities(
                 if item_exists {
                     let payload = vault.get_item(item)?;
                     if schema::field(&payload, field).is_err()
-                        && !(matches!(action, "stage" | "acquire")
-                            && schema::allows_field(&payload, field))
+                        && !(action.may_create() && schema::allows_field(&payload, field))
                     {
                         bail!("capability names a missing field: {item}#{field}");
                     }
-                } else if !matches!(action, "stage" | "acquire") {
+                } else if !action.may_create() {
                     bail!("capability names a missing item: {item}");
                 }
-            } else if matches!(action, "share" | "trash" | "purge" | "admin" | "reseal") {
+            } else if action.needs_item() {
                 vault
                     .doc()
                     .get("items")

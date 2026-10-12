@@ -4,7 +4,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
-use crate::core::vault::Vault;
+use crate::core::vault::{ManagementMode, Vault};
 use crate::core::{crypto, schema};
 
 pub(super) fn canonical_item_id(id: &str) -> String {
@@ -165,15 +165,15 @@ pub(super) fn migrate_item(
     let managed_by_weles = tags.iter().any(|tag| tag.as_str() == Some("managed:weles"));
     let management = if kind == "credential-operation" {
         json!({
-            "mode": "managed",
+            "mode": ManagementMode::Managed.as_str(),
             "controller": "skarbiec-credential-lifecycle"
         })
     } else if managed_by_weles {
-        json!({"mode": "managed", "controller": "weles"})
+        json!({"mode": ManagementMode::Managed.as_str(), "controller": "weles"})
     } else if writer == vault.owner_uid() {
-        json!({"mode": "owner", "controller": vault.owner_uid()})
+        json!({"mode": ManagementMode::Owner.as_str(), "controller": vault.owner_uid()})
     } else {
-        json!({"mode": "external", "controller": writer})
+        json!({"mode": ManagementMode::External.as_str(), "controller": writer})
     };
     let state = if entry
         .get("deleted")

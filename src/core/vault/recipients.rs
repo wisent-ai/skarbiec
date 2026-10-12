@@ -4,7 +4,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
-use super::{current_envelope, now, obj_mut, Vault};
+use super::{current_envelope, now, obj_mut, ManagementMode, Vault};
 use crate::core::crypto;
 
 impl Vault {
@@ -18,7 +18,7 @@ impl Vault {
             .get("management")
             .and_then(Value::as_object)
             .context("item has no canonical management metadata")?;
-        if management.get("mode").and_then(Value::as_str) != Some("owner")
+        if ManagementMode::of(item) != Some(ManagementMode::Owner)
             || management.get("controller").and_then(Value::as_str) != Some(self.owner_uid())
         {
             bail!("{id} is not owner-controlled");
@@ -177,18 +177,22 @@ impl Vault {
                 .get("controller")
                 .and_then(Value::as_str)
                 .is_some_and(|controller| former.iter().any(|uid| uid == controller));
-            let mode = management.get("mode").and_then(Value::as_str);
+            // Owner and external writes move with the ownership; a managed
+            // controller keeps its own items, and an unrecorded mode is left
+            // as it is.
+            let movable =
+                ManagementMode::of(entry).is_some_and(|mode| mode != ManagementMode::Managed);
             let weles = entry
                 .get("tags")
                 .and_then(Value::as_array)
                 .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some("managed:weles")));
-            if !held_by_former || !matches!(mode, Some("owner" | "external")) || weles {
+            if !held_by_former || !movable || weles {
                 continue;
             }
             if let Some(entry) = entry.as_object_mut() {
                 entry.insert(
                     "management".to_string(),
-                    json!({"mode": "owner", "controller": owner}),
+                    json!({"mode": ManagementMode::Owner.as_str(), "controller": owner}),
                 );
                 moved.push(id.clone());
             }

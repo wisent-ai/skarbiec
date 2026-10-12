@@ -6,7 +6,8 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::items::canonical_item_id;
-use super::patterns::{canonical_field, future_contract_field, glob_matches, supported_action};
+use super::patterns::{canonical_field, future_contract_field, glob_matches};
+use crate::access::actions::Action;
 
 fn expand_capability(
     raw_action: &str,
@@ -14,14 +15,16 @@ fn expand_capability(
     item_fields: &BTreeMap<String, Vec<String>>,
     output: &mut BTreeSet<String>,
 ) -> Result<()> {
-    let action = match raw_action {
+    // A legacy grant spelled two actions by older names.
+    let renamed = match raw_action {
         "write" => "stage",
         "delete" => "trash",
         action => action,
     };
-    if !supported_action(action) {
+    let Some(kind) = Action::parse(renamed).filter(|kind| kind.legacy()) else {
         bail!("unsupported legacy grant action: {raw_action}");
-    }
+    };
+    let action = kind.as_str();
     let (item_pattern, requested_field) = target
         .split_once('#')
         .map_or((target, None), |(item, field)| (item, Some(field)));
@@ -38,14 +41,11 @@ fn expand_capability(
                 return Ok(());
             }
         }
-        if action == "read" && requested_field.is_none() && !wildcard {
+        if kind.reads_context() && requested_field.is_none() && !wildcard {
             output.insert(format!("{action}\u{0}{canonical_pattern}\u{0}"));
             return Ok(());
         }
-        if !matches!(action, "stage" | "rotate" | "verify" | "acquire")
-            && requested_field.is_none()
-            && !wildcard
-        {
+        if !kind.needs_field() && requested_field.is_none() && !wildcard {
             output.insert(format!("{action}\u{0}{canonical_pattern}\u{0}"));
             return Ok(());
         }
@@ -76,11 +76,11 @@ fn expand_capability(
                 );
                 continue;
             };
-            if field == "context" && action != "read" {
+            if field == "context" && !kind.reads_context() {
                 bail!("context metadata may only be named by read capabilities");
             }
             output.insert(format!("{action}\u{0}{item}\u{0}{field}"));
-        } else if matches!(action, "read" | "stage" | "rotate" | "verify" | "acquire") {
+        } else if kind.per_field() {
             for field in fields {
                 output.insert(format!("{action}\u{0}{item}\u{0}{field}"));
             }

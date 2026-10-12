@@ -2,6 +2,7 @@
 // against the item it names, and every capability route checked against the
 // credential it resolves to.
 
+use crate::access::actions::Action;
 use crate::access::grant;
 use crate::access::route::{resolution as route_resolution, table as route_table};
 use crate::core::vault::Vault;
@@ -9,32 +10,6 @@ use crate::core::{schema, vault_path};
 use serde_json::{json, Value};
 
 use super::{check, FAIL, NOT_CONFIGURED, PASS};
-
-/// Actions whose resource is a vault item.
-///
-/// The rest name something else in the same slot and have no item to check:
-/// `call` names a service and a route inside it, `sync` names the replication
-/// channel as `sync:pull`, `enroll` names a recipient uid, and `introspect`
-/// names the token table. `grant issue` already declines to resolve those
-/// against the vault for the same reason.
-fn names_vault_item(action: &str) -> bool {
-    matches!(
-        action,
-        "acquire"
-            | "read"
-            | "stage"
-            | "rotate"
-            | "verify"
-            | "revoke"
-            | "share"
-            | "trash"
-            | "purge"
-            | "admin"
-            | "donate"
-            | "lifecycle"
-            | "reseal"
-    )
-}
 
 /// One grant against the vault, in `route verify`'s words.
 ///
@@ -110,7 +85,7 @@ pub(super) fn grants_check() -> Value {
             ) else {
                 continue;
             };
-            if !names_vault_item(action) {
+            if !Action::parse(action).is_some_and(Action::names_vault_item) {
                 continue;
             }
             let field = capability.get("field").and_then(Value::as_str);

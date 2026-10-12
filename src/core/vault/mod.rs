@@ -34,6 +34,47 @@ pub struct ManagedWrite<'a> {
     pub operation_id: Option<&'a str>,
 }
 
+/// Who writes an item, as its `management.mode` records it: the vault owner,
+/// a managed controller (the credential lifecycle, Weles) through
+/// [`ManagedWrite`], or another writer outside both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ManagementMode {
+    Owner,
+    Managed,
+    External,
+}
+
+impl ManagementMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            ManagementMode::Owner => "owner",
+            ManagementMode::Managed => "managed",
+            ManagementMode::External => "external",
+        }
+    }
+
+    /// The mode a stored `management.mode` names, read back through
+    /// [`ManagementMode::as_str`]; nothing for a value no writer records.
+    pub(crate) fn parse(name: &str) -> Option<ManagementMode> {
+        [
+            ManagementMode::Owner,
+            ManagementMode::Managed,
+            ManagementMode::External,
+        ]
+        .into_iter()
+        .find(|mode| mode.as_str() == name)
+    }
+
+    /// The mode an item's `management` object records, when it records one
+    /// this vault writes.
+    pub(crate) fn of(item: &Value) -> Option<ManagementMode> {
+        item.get("management")
+            .and_then(|management| management.get("mode"))
+            .and_then(Value::as_str)
+            .and_then(ManagementMode::parse)
+    }
+}
+
 #[derive(Default)]
 struct WritePolicy<'a> {
     writer: Option<&'a str>,

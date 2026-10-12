@@ -5,9 +5,10 @@ use anyhow::{bail, Context, Result};
 use serde_json::Value;
 
 use super::items::revision_payload;
-use super::patterns::{exact_resource, future_contract_field, supported_action};
+use super::patterns::{exact_resource, future_contract_field};
+use crate::access::actions::Action;
 use crate::core::schema;
-use crate::core::vault::Vault;
+use crate::core::vault::{ManagementMode, Vault};
 
 pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
     let items = vault
@@ -43,7 +44,7 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
             .get("mode")
             .and_then(Value::as_str)
             .context("v2 item management has no mode")?;
-        if !matches!(mode, "owner" | "managed" | "external") {
+        if ManagementMode::parse(mode).is_none() {
             bail!("{id} has an invalid management mode");
         }
         let controller = management
@@ -55,7 +56,8 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
         // authority; a stored record claiming either kind without it did not
         // come from the lifecycle.
         if matches!(kind, "credential-operation" | "credential-directory-seal")
-            && (mode != "managed" || controller != "skarbiec-credential-lifecycle")
+            && (mode != ManagementMode::Managed.as_str()
+                || controller != "skarbiec-credential-lifecycle")
         {
             bail!("{id} credential record is not lifecycle-managed");
         }
@@ -114,7 +116,7 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
             capability
                 .get("action")
                 .and_then(Value::as_str)
-                .is_some_and(|action| !supported_action(action))
+                .is_some_and(|action| Action::parse(action).is_none())
         }) {
             bail!("{consumer} has an unsupported capability action");
         }
@@ -126,10 +128,12 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
             bail!("{consumer} mixes acquisition and direct capabilities");
         }
         for capability in capabilities {
-            let action = capability
+            let action_name = capability
                 .get("action")
                 .and_then(Value::as_str)
                 .context("capability has no action")?;
+            let action = Action::parse(action_name)
+                .with_context(|| format!("{consumer} has an unsupported capability action"))?;
             let item = capability
                 .get("item")
                 .and_then(Value::as_str)
@@ -138,10 +142,10 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
                 bail!("{consumer} has a non-exact capability resource");
             }
             let field = capability.get("field").and_then(Value::as_str);
-            if matches!(action, "acquire" | "stage" | "rotate" | "verify") && field.is_none() {
+            if action.needs_field() && field.is_none() {
                 bail!("{consumer} field action has no exact field");
             }
-            if let Some(field) = field {
+            if let Some(field) = field.filter(|_| !action.reaches_service()) {
                 if let Some(current) = items.get(item).and_then(|entry| entry.get("current")) {
                     let payload = revision_payload(current)?;
                     if schema::field(&payload, field).is_err() {
@@ -150,12 +154,10 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
                 } else if future_contract_field(item, Some(field)) != Some(field) {
                     bail!("{consumer} field capability item has no canonical contract");
                 }
-                if field == "context" && action != "read" {
+                if field == "context" && !action.reads_context() {
                     bail!("{consumer} mutation capability targets context metadata");
                 }
-            } else if matches!(action, "share" | "trash" | "purge" | "admin")
-                && !items.contains_key(item)
-            {
+            } else if action.needs_item() && !items.contains_key(item) {
                 bail!("{consumer} item action names a missing item");
             }
         }

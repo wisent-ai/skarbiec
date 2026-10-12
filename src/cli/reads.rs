@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::core::vault::Vault;
+use crate::core::vault::{ManagementMode, Vault};
 use crate::core::vault_path;
 
 use super::args::{emit, flag_set, OrUsage};
@@ -25,7 +25,7 @@ pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().or_usage("usage: reclaim <id>")?;
     let mut vault = Vault::open(vault_path())?;
     vault.reclaim_item(id)?;
-    Ok(json!({"ok": true, "id": id, "mode": "owner"}))
+    Ok(json!({"ok": true, "id": id, "mode": ManagementMode::Owner.as_str()}))
 }
 
 pub(crate) fn cmd_restore(positionals: &[String]) -> Result<Value> {
