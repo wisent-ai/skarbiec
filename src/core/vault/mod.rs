@@ -88,7 +88,9 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
     Ok(guard)
 }
 
-fn private_file_mode() -> Result<u32> {
+/// The owner-only mode every private file the vault and its companions
+/// write is given.
+pub(crate) fn private_file_mode() -> Result<u32> {
     Ok(0o600)
 }
 

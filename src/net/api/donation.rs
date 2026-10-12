@@ -59,15 +59,15 @@ pub(crate) fn handle_donation(
         .map(str::to_string)
         .unwrap_or_else(|| consumer.clone());
     let rule = inbox::admission(&vault, item_id, &from);
-    if rule != "append" && rule != "overwrite" {
+    if !rule.admits() {
         crate::runtime::audit::append(
             "http-donation-refused",
-            &json!({"item": item_id, "consumer": consumer, "from": from, "status": rule}),
+            &json!({"item": item_id, "consumer": consumer, "from": from, "status": rule.name()}),
         )?;
         return http::write_response(
             stream,
             "HTTP/1.1 200 OK",
-            &json!({"ok": false, "status": rule, "id": item_id}),
+            &json!({"ok": false, "status": rule.name(), "id": item_id}),
         );
     }
     let item_kind = parsed

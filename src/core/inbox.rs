@@ -13,7 +13,9 @@ use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
+
+mod admission;
+pub use admission::{admission, Admission};
 
 use crate::core::{crypto, vault::Vault, vault_path};
 
@@ -35,11 +37,15 @@ fn load_inbox() -> Result<Value> {
     Ok(serde_json::from_str(&body)?)
 }
 
+/// Writes the donation inbox owner-only. An inbox left readable by others
+/// exposes the donated secrets, so a mode that cannot be set fails the save.
 fn save_inbox(doc: &Value) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
     let path = inbox_path();
     std::fs::write(&path, serde_json::to_string_pretty(doc)?)?;
-    Command::new("chmod").arg("600").arg(&path).status().ok();
-    Ok(())
+    let private = std::fs::Permissions::from_mode(crate::core::vault::private_file_mode()?);
+    std::fs::set_permissions(&path, private)
+        .with_context(|| format!("make inbox {} owner-only", path.display()))
 }
 
 /// Writer of the active canonical revision.
@@ -64,31 +70,6 @@ pub fn managed_by_weles(vault: &Vault, id: &str) -> bool {
             management.get("mode").and_then(Value::as_str) == Some("managed")
                 && management.get("controller").and_then(Value::as_str) == Some("weles")
         })
-}
-
-/// What an inbound donation for `item_id` may do, given current provenance.
-/// `from` is the writer identity claimed by the donor (v1: the consumer).
-pub fn admission(vault: &Vault, item_id: &str, from: &str) -> &'static str {
-    if crate::credential::lifecycle_owned_item(vault, item_id) {
-        return "credential-lifecycle";
-    }
-    let exists = vault
-        .doc()
-        .get("items")
-        .and_then(Value::as_object)
-        .is_some_and(|items| items.contains_key(item_id));
-    if !exists {
-        return "append";
-    }
-    if managed_by_weles(vault, item_id) {
-        return "managed";
-    }
-    match written_by(vault, item_id) {
-        Some(owner) if owner == from => "overwrite",
-        Some(_) => "not-owner",
-        // Items written before provenance existed keep the original v1 rule.
-        None => "exists",
-    }
 }
 
 /// Queue a donation record in the inbox, returning its donation id.
@@ -214,14 +195,15 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
             // Re-apply the admission rule at merge time: the vault may have
             // changed since the donation was queued.
             let rule = admission(&vault, &item_id, &from);
-            if rule != "append" && rule != "overwrite" {
+            if !rule.admits() {
                 save_inbox(&inbox)?;
                 crate::runtime::audit::append(
                     "donation-accept-refused",
-                    &json!({"donation": donation_id, "item": item_id, "status": rule}),
+                    &json!({"donation": donation_id, "item": item_id, "status": rule.name()}),
                 )?;
                 anyhow::bail!(
-                    "donation accept: donation {donation_id} for item {item_id} from {from} was refused at merge: admission rule {rule}; the donation is removed from the inbox"
+                    "donation accept: donation {donation_id} for item {item_id} from {from} was refused at merge: admission rule {}; the donation is removed from the inbox",
+                    rule.name()
                 );
             }
             let plain = crypto::decrypt(armor).context("decrypt donation armor")?;
@@ -257,11 +239,11 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
             save_inbox(&inbox)?;
             crate::runtime::audit::append(
                 "donation-accept",
-                &json!({"donation": donation_id, "item": item_id, "from": from, "rule": rule}),
+                &json!({"donation": donation_id, "item": item_id, "from": from, "rule": rule.name()}),
             )?;
             Ok(Some(json!({
                 "ok": true,
-                "status": if rule == "overwrite" { "overwritten" } else { "merged" },
+                "status": if rule == Admission::Overwrite { "overwritten" } else { "merged" },
                 "donation_id": donation_id,
                 "id": item_id,
             })))
