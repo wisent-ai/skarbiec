@@ -16,7 +16,8 @@ use super::common::{
     now_iso, safe_string, uuid_shaped,
 };
 use super::state::{
-    context_block, live_item_exists, refuse_quarantined, save_seal, seal_item_id, store_context,
+    context_block_checked, live_item_exists, refuse_quarantined, save_seal, seal_item_id,
+    store_context,
 };
 use super::wire::request_payload;
 use super::EXPECTATION_MISMATCH;
@@ -82,7 +83,9 @@ pub(super) fn sealed_record(vault: &Vault, credential_id: &str) -> Result<Option
 // contract failure, never a preference.
 pub(super) fn resolved_directory(vault: &Vault, credential_id: &str) -> Result<Option<Value>> {
     let record = sealed_record(vault, credential_id)?;
-    let inside = context_block(vault, credential_id, "directory");
+    // An item that exists but cannot be read is refused, so a divergence it
+    // may carry is never skipped as an item with no directory block.
+    let inside = context_block_checked(vault, credential_id, "directory")?;
     match (record, inside) {
         (Some(record), Some(inside)) => {
             let sealed = checked_directory(&record)?;

@@ -8,7 +8,7 @@ use std::io::Read;
 
 use crate::core::vault::Vault;
 
-use super::state::context_block;
+use super::state::context_block_checked;
 
 mod reads;
 mod staging;
@@ -104,10 +104,12 @@ pub(super) fn adopt_shape_of(request: &Value) -> Result<AdoptShape> {
     )
 }
 
-pub(super) fn lifecycle_request(vault: &Vault, credential_id: &str) -> Option<String> {
-    context_block(vault, credential_id, "lifecycle")
+/// The adopt request the item's lifecycle block names; an item that exists
+/// but cannot be read is refused, never taken for one no request touched.
+pub(super) fn lifecycle_request(vault: &Vault, credential_id: &str) -> Result<Option<String>> {
+    Ok(context_block_checked(vault, credential_id, "lifecycle")?
         .as_ref()
         .and_then(|block| block.get("request_id"))
         .and_then(Value::as_str)
-        .map(str::to_string)
+        .map(str::to_string))
 }

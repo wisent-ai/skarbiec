@@ -10,7 +10,7 @@ use crate::core::vault::{ManagedWrite, Vault};
 use crate::runtime::audit;
 
 use super::super::common::now_iso;
-use super::super::state::{context_block, item_revision, live_item_exists, store_context};
+use super::super::state::{context_block_checked, item_revision, live_item_exists, store_context};
 use super::super::STATE_ADOPTING;
 use super::{adopt_candidate_kind, lifecycle_request, AdoptShape};
 
@@ -47,7 +47,7 @@ pub(in crate::credential) fn stage_adopted_candidate(
     let stamp = now_iso();
     match shape {
         AdoptShape::Staged => {
-            if lifecycle_request(&vault, credential_id).as_deref() != Some(request_id) {
+            if lifecycle_request(&vault, credential_id)?.as_deref() != Some(request_id) {
                 store_context(
                     &mut vault,
                     credential_id,
@@ -82,7 +82,7 @@ pub(in crate::credential) fn stage_adopted_candidate(
         }
         AdoptShape::Created => {
             if live_item_exists(&vault, credential_id) {
-                if lifecycle_request(&vault, credential_id).as_deref() != Some(request_id) {
+                if lifecycle_request(&vault, credential_id)?.as_deref() != Some(request_id) {
                     bail!("{credential_id} exists but was not created by this adopt request");
                 }
                 return item_revision(&vault, credential_id)
@@ -153,7 +153,10 @@ pub(in crate::credential) fn trash_adopted_item(
         .and_then(|items| items.get(credential_id))
         .cloned()
         .with_context(|| format!("adopted item disappeared: {credential_id}"))?;
-    let lifecycle = context_block(vault, credential_id, "lifecycle").unwrap_or_default();
+    let lifecycle = match context_block_checked(vault, credential_id, "lifecycle")? {
+        Some(lifecycle) => lifecycle,
+        None => Value::Null,
+    };
     let first_revision: u64 = 1;
     let created_here = lifecycle.get("created").and_then(Value::as_bool) == Some(true)
         && lifecycle.get("request_id").and_then(Value::as_str) == Some(request_id)
