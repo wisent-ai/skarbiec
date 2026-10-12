@@ -9,13 +9,14 @@ use std::path::Path;
 
 use crate::core::vault::Vault;
 
+use super::common::Operation;
 use super::common::{exact_name, present, safe_string};
 use super::directory::resolved_directory;
 use super::lifecycle::{resume, start_operation};
 use super::state::{context_string, live_item_exists, request_item_id};
 use super::status::status_once;
 use super::wire::{generic_provider_slug, request_payload, GENERIC_PROVIDER_SHAPE};
-use super::{ACCOUNT_PROVIDER, REMOTE_OPERATIONS};
+use super::ACCOUNT_PROVIDER;
 
 pub(crate) fn endpoint_item(body: &Value) -> Result<String> {
     let item = safe_string(body, "item").context("credential operation request needs an item")?;
@@ -66,10 +67,12 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
     }
     let operation = safe_string(body, "operation")
         .context("credential operation request needs an operation")?;
-    if !REMOTE_OPERATIONS.contains(&operation.as_str()) {
-        bail!(
+    match Operation::parse(&operation) {
+        Some(known) if known.remote() => {}
+        Some(_) => bail!(
             "{operation} is not available through the canonical endpoint; credential adopt reads the current password from operator stdin and runs with --local"
-        );
+        ),
+        None => bail!("{operation} is not a credential operation"),
     }
     let consumer =
         safe_string(body, "consumer").context("credential operation request needs a consumer")?;

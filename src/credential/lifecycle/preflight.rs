@@ -10,6 +10,7 @@ use crate::core::inbox;
 use crate::core::vault::Vault;
 
 use super::super::adopt::{adopt_shape_of, AdoptShape};
+use super::super::common::Operation;
 use super::super::quarantine::enforce_retry_barrier;
 use super::super::state::{item_revision, lifecycle_state, live_item_exists, request_item_id};
 use super::super::wire::{request_payload, WIRE_VERSION};
@@ -48,8 +49,9 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
     let live = live_item_exists(&vault, credential_id);
     let managed = live && inbox::managed_by_weles(&vault, credential_id);
     let state = lifecycle_state(&vault, credential_id)?;
-    match operation {
-        "acquire" if managed => {
+    let declared = Operation::parse(operation);
+    match declared {
+        Some(Operation::Acquire) if managed => {
             return Ok(Preflight::Answered(json!({
                 "ok": true,
                 "status": "managed",
@@ -57,17 +59,17 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
                 "revision": item_revision(&vault, credential_id),
             })));
         }
-        "acquire" if live => {
+        Some(Operation::Acquire) if live => {
             bail!(
                 "{credential_id} already exists but has no Weles provenance; refusing to call it acquired"
             );
         }
-        "adopt" if state == STATE_MANAGED => {
+        Some(Operation::Adopt) if state == STATE_MANAGED => {
             bail!(
                 "{credential_id} is already a managed credential; rotate or verify it instead of adopting it"
             );
         }
-        "adopt" => {
+        Some(Operation::Adopt) => {
             if live && !managed {
                 bail!(
                     "{credential_id} exists outside Weles management, and an item can only enter managed state at creation; adopt cannot take it over"
@@ -86,12 +88,12 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
                 AdoptShape::Created
             });
         }
-        "rotate" | "reset" | "verify" | "remove" if !managed => {
+        Some(known) if known.on_managed_item() && !managed => {
             bail!(
                 "{credential_id} is not an active Weles-managed credential; refusing external {operation}"
             );
         }
-        "rotate" | "reset" | "verify" | "remove" if state != STATE_MANAGED => {
+        Some(known) if known.on_managed_item() && state != STATE_MANAGED => {
             bail!(
                 "{credential_id} is {state}, not managed; finish the adoption before {operation}"
             );

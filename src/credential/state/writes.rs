@@ -7,7 +7,9 @@ use serde_json::Value;
 
 use crate::core::inbox;
 use crate::core::schema;
-use crate::core::vault::{ManagedWrite, Vault};
+use crate::core::vault::{ManagedWrite, ManagementMode, Vault};
+
+use super::super::common::Operation;
 
 use super::super::wire::{request_payload, WIRE_VERSION};
 use super::lifecycle::quarantine_active;
@@ -65,7 +67,7 @@ pub(in crate::credential) fn store_context(
         .unwrap_or_default();
     let recipients = vault.item_recipient_uids(id);
     let management = entry.get("management").cloned().unwrap_or_default();
-    if management.get("mode").and_then(Value::as_str) == Some("managed") {
+    if ManagementMode::of(&entry) == Some(ManagementMode::Managed) {
         let controller = management
             .get("controller")
             .and_then(Value::as_str)
@@ -158,7 +160,7 @@ pub(crate) fn authorize_managed_write(
     field: &str,
     writer: &str,
     operation_id: &str,
-    allowed_operations: &[&str],
+    admits: impl Fn(Operation) -> bool,
     expected_revision: u64,
     capture_origin: Option<&str>,
 ) -> Result<()> {
@@ -171,7 +173,8 @@ pub(crate) fn authorize_managed_write(
         .get("operation")
         .and_then(Value::as_str)
         .context("credential operation has no operation")?;
-    if !allowed_operations.contains(&request_operation)
+    let declared = Operation::parse(request_operation);
+    if !declared.is_some_and(&admits)
         || request.get("version").and_then(Value::as_str) != Some(WIRE_VERSION)
         || request.get("request_id").and_then(Value::as_str) != Some(operation_id)
         || request.get("credential_id").and_then(Value::as_str) != Some(credential_id)
@@ -197,28 +200,28 @@ pub(crate) fn authorize_managed_write(
     if quarantine_active(vault, credential_id) {
         bail!("{credential_id} is quarantined; refusing every managed write until it is resolved");
     }
-    match request_operation {
-        "acquire" => {
+    match declared {
+        Some(Operation::Acquire) => {
             if expected_revision != u64::MIN || live_item_exists(vault, credential_id) {
                 bail!("credential acquisition requires an absent item at baseline revision zero");
             }
         }
         // adopt never authorizes a remote write: Skarbiec itself stages the
         // operator-supplied candidate and Weles only returns a verdict.
-        "adopt" => {
+        Some(Operation::Adopt) => {
             bail!("credential adopt stages locally and authorizes no Weles managed write");
         }
         // rotate, reset, and verify all stage against a live managed item;
         // remove trashes one. reset differs from rotate only in whether the
         // current provider password was known, never in local authority.
-        "rotate" | "reset" | "verify" | "remove" => {
+        Some(known) if known.on_managed_item() => {
             if item_revision(vault, credential_id) != Some(expected_revision)
                 || !inbox::managed_by_weles(vault, credential_id)
             {
                 bail!("credential mutation baseline is no longer current and managed");
             }
         }
-        other => bail!("credential operation {other} cannot authorize a managed write"),
+        _ => bail!("credential operation {request_operation} cannot authorize a managed write"),
     }
     Ok(())
 }

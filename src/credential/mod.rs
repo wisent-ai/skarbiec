@@ -14,7 +14,7 @@
 mod adopt;
 mod client;
 mod common;
-pub(crate) use common::{bearer_from_file, read_secret_file};
+pub(crate) use common::{bearer_from_file, read_secret_file, Operation};
 mod directory;
 mod eligibility;
 mod lifecycle;
@@ -66,15 +66,11 @@ const REQUEST_KIND: &str = "credential-operation";
 // An absent declaration narrows what a reader can prove; it never breaks one.
 const SEAL_KIND: &str = "credential-directory-seal";
 
-// Every credential operation, in the order a lifecycle uses them.
-pub(crate) const OPERATIONS: &[&str] = &["acquire", "adopt", "rotate", "reset", "verify", "remove"];
-
 // Providers whose password lifecycle is bound to one exact directory identity.
 const IDENTITY_PROVIDER: &str = "microsoft_entra";
 
 // Provider bound to one exact consumer account address only.
 const ACCOUNT_PROVIDER: &str = "microsoft";
-const IDENTITY_OPERATIONS: &[&str] = &["adopt", "rotate", "verify", "reset"];
 
 /// What `declare-endpoint` says when asked to declare nothing: the marker it
 /// writes is the one Stado's service directory materializes from the
@@ -86,10 +82,6 @@ const IDENTITY_OPERATIONS: &[&str] = &["adopt", "rotate", "verify", "reset"];
 const DECLARE_ENDPOINT_USAGE: &str = "usage: credential declare-endpoint <url> (or --url <url>): \
      the canonical Skarbiec's address from this machine; `stado service directory publish` \
      writes the same marker from the fleet's declaration";
-
-// Operations the canonical endpoint accepts. adopt is missing on purpose: the
-// current password is read from operator stdin and never travels.
-const REMOTE_OPERATIONS: &[&str] = &["acquire", "rotate", "reset", "verify", "remove"];
 
 // Lifecycle state of one credential item.
 const STATE_UNMANAGED: &str = "unmanaged";
@@ -200,7 +192,7 @@ pub fn dispatch(
         "reseal" => seal_directory(vault_path, &client_flags, args, true)?,
         "resolve-quarantine" => resolve_quarantine(vault_path, &client_flags, args)?,
         "adopt" => start_operation("adopt", vault_path, &client_flags, args)?,
-        operation @ ("acquire" | "rotate" | "reset" | "verify" | "remove" | "reauth") => {
+        operation if Operation::parse(operation).is_some_and(Operation::remote) => {
             if local {
                 start_operation(operation, vault_path, &client_flags, args)?
             } else {

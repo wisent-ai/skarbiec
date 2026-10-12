@@ -4,9 +4,8 @@
 use anyhow::{bail, Result};
 use serde_json::Value;
 
-use super::super::{
-    ACCOUNT_PROVIDER, EXPECTATION_MISMATCH, IDENTITY_OPERATIONS, IDENTITY_PROVIDER,
-};
+use super::super::common::Operation;
+use super::super::{ACCOUNT_PROVIDER, EXPECTATION_MISMATCH, IDENTITY_PROVIDER};
 
 // The one field a provider's credential contract writes. `provider_contract`
 // decides the whole contract per operation; this is the field half of it on
@@ -170,7 +169,7 @@ pub(in crate::credential) fn provider_contract(
                     "--account is not accepted for {IDENTITY_PROVIDER}: the account address is part of the sealed directory contract"
                 );
             }
-            if !IDENTITY_OPERATIONS.contains(&operation) {
+            if !Operation::parse(operation).is_some_and(Operation::directory_bound) {
                 bail!(
                     "{IDENTITY_PROVIDER} supports only adopt, rotate, verify, or reset; refusing {operation}"
                 );

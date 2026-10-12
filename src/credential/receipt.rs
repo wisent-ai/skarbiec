@@ -7,9 +7,9 @@ use serde_json::{json, Value};
 
 use super::common::{
     checked_enum, checked_timestamp, checked_uuid, exact_name, hex_digest, now_iso, opaque_handle,
-    present, safe_string, timestamp_shaped, zulu_seconds,
+    present, safe_string, timestamp_shaped, zulu_seconds, Operation,
 };
-use super::{OPERATIONS, PROVIDER_EFFECTS, RESPONSE_PHASES};
+use super::{PROVIDER_EFFECTS, RESPONSE_PHASES};
 
 // Receipt fields that must name the same principal as the sealed contract.
 pub(super) const DIRECTORY_IDENTITY_KEYS: &[&str] =
@@ -79,7 +79,7 @@ pub(super) fn checked_receipt(value: &Value) -> Result<Option<Value>> {
     let account_upn = safe_string(receipt, "account_upn")
         .map(|upn| upn.to_lowercase())
         .context("receipt is missing account_upn")?;
-    let operation = checked_enum(receipt, "operation", OPERATIONS)?
+    let operation = checked_enum(receipt, "operation", &Operation::names())?
         .context("receipt is missing an accepted operation")?;
     let request_id = safe_string(receipt, "request_id").context("receipt is missing request_id")?;
     let evidence_digest =

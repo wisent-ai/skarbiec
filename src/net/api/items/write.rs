@@ -8,6 +8,7 @@ use std::net::TcpStream;
 
 use crate::access::grant;
 use crate::core::{inbox, schema};
+use crate::credential::Operation;
 use crate::net::http;
 
 pub(crate) fn handle_items_put(
@@ -149,7 +150,7 @@ pub(crate) fn handle_items_put(
                 field,
                 &consumer,
                 operation_id,
-                &["acquire"],
+                |operation| operation == Operation::Acquire,
                 u64::MIN,
                 parsed.get("capture_origin").and_then(Value::as_str),
             ) {
@@ -238,7 +239,7 @@ pub(crate) fn handle_items_put(
                 field,
                 &consumer,
                 operation_id,
-                &["rotate", "reset", "verify"],
+                Operation::stages_revision,
                 base_revision,
                 parsed.get("capture_origin").and_then(Value::as_str),
             ) {

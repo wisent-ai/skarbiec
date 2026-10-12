@@ -5,6 +5,9 @@
 mod checks;
 mod inputs;
 mod lock;
+mod operation;
+
+pub(crate) use operation::Operation;
 
 pub(super) const TOKEN_FILE_ENV: &str = "SKARBIEC_CREDENTIAL_TOKEN_FILE";
 

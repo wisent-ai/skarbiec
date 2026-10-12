@@ -11,6 +11,7 @@ use crate::runtime::audit;
 
 use super::super::adopt::{adopt_shape_of, trash_adopted_item, AdoptShape};
 use super::super::common::now_iso;
+use super::super::common::Operation;
 use super::super::quarantine::quarantine_credential;
 use super::super::receipt::receipt_matches;
 use super::super::state::{
@@ -84,8 +85,8 @@ pub(super) fn settle(
             update_request(vault_path, request_item, request, STATE_QUARANTINED, None)?;
             current_status = STATE_QUARANTINED.to_string();
         } else {
-            confirmed = match operation.as_str() {
-                "acquire" => {
+            confirmed = match Operation::parse(&operation) {
+                Some(Operation::Acquire) => {
                     inbox::managed_by_weles(vault, credential_id)
                         && inbox::written_by(vault, credential_id).as_deref()
                             == Some(writer.as_str())
@@ -100,7 +101,7 @@ pub(super) fn settle(
                 // adopt commits the operator's own value: the staged candidate
                 // is activated, or the item this adopt created is promoted out
                 // of the adopting state.
-                "adopt" => match adopt_shape_of(request)? {
+                Some(Operation::Adopt) => match adopt_shape_of(request)? {
                     AdoptShape::Staged => {
                         if !pending_matches_request(
                             vault,
@@ -135,7 +136,7 @@ pub(super) fn settle(
                 },
                 // reset commits the same way as rotate: the staged provider value
                 // becomes current only after Weles reports the change landed.
-                "rotate" | "reset" => {
+                Some(Operation::Rotate | Operation::Reset) => {
                     if !pending_matches_request(vault, credential_id, &request_id, &field, &writer)
                     {
                         false
@@ -149,7 +150,7 @@ pub(super) fn settle(
                         true
                     }
                 }
-                "verify" => {
+                Some(Operation::Verify) => {
                     let same = vault
                         .doc()
                         .get("items")
@@ -178,12 +179,12 @@ pub(super) fn settle(
                         true
                     }
                 }
-                "remove" => {
+                Some(Operation::Remove) => {
                     vault.trash_managed_item(credential_id, "weles", &writer)?;
                     true
                 }
-                "reauth" => named_subscription_present(vault, credential_id),
-                _ => false,
+                Some(Operation::Reauth) => named_subscription_present(vault, credential_id),
+                None => false,
             };
             if confirmed {
                 // The receipt is persisted with the revision it proves, so
