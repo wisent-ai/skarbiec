@@ -12,7 +12,7 @@ use crate::core::vault::Vault;
 use super::common::{exact_name, present, safe_string};
 use super::directory::resolved_directory;
 use super::lifecycle::{resume, start_operation};
-use super::state::{context_string, request_item_id};
+use super::state::{context_string, live_item_exists, request_item_id};
 use super::status::status_once;
 use super::wire::{generic_provider_slug, request_payload, GENERIC_PROVIDER_SHAPE};
 use super::{ACCOUNT_PROVIDER, REMOTE_OPERATIONS};
@@ -76,10 +76,21 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
     let (provider, account) = {
         let vault = Vault::open(vault_path.to_path_buf())?;
         let directory = resolved_directory(&vault, &credential_id)?;
-        let record = vault
-            .get_item(&request_item_id(&credential_id))
-            .and_then(request_payload)
-            .ok();
+        // A request record that exists but cannot be read is refused: read as
+        // absent, its provider would be guessed from the item's name.
+        let request_item = request_item_id(&credential_id);
+        let record = if live_item_exists(&vault, &request_item) {
+            Some(
+                vault
+                    .get_item(&request_item)
+                    .and_then(request_payload)
+                    .with_context(|| {
+                        format!("{request_item} cannot be read, so its provider is unknown")
+                    })?,
+            )
+        } else {
+            None
+        };
         let provider = directory
             .as_ref()
             .and_then(|block| block.get("provider"))
