@@ -118,12 +118,17 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
                     "{credential_id} has no sealed directory contract and no earlier credential operation, so its provider is unknown; seal the directory first, or name the item after a generic provider slug ({GENERIC_PROVIDER_SHAPE}) to acquire one"
                 )
             })?;
-        let account = record
+        let recorded = record
             .as_ref()
             .and_then(|record| record.get("account_email"))
             .and_then(Value::as_str)
-            .map(str::to_string)
-            .or_else(|| context_string(&vault, &credential_id, "account_ref"));
+            .map(str::to_string);
+        // An item that cannot be read is refused, not taken as one with no
+        // recorded account.
+        let account = match recorded {
+            Some(account) => Some(account),
+            None => context_string(&vault, &credential_id, "account_ref")?,
+        };
         (provider, account)
     };
     flags.insert("provider".to_string(), provider.clone());

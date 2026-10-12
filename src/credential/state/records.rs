@@ -5,7 +5,6 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use std::path::Path;
 
-use crate::core::schema;
 use crate::core::vault::{ManagedWrite, Vault};
 
 use super::super::common::now_iso;
@@ -214,11 +213,15 @@ pub(in crate::credential) fn context_block_checked(
         .cloned())
 }
 
-pub(in crate::credential) fn context_string(vault: &Vault, id: &str, key: &str) -> Option<String> {
-    let payload = vault.get_item(id).ok()?;
-    schema::field(&payload, "context")
-        .ok()?
-        .get(key)
+/// A text field of the item's context block: `Ok(None)` when the item or the
+/// field is absent, an error naming the item when it exists but cannot be read.
+pub(in crate::credential) fn context_string(
+    vault: &Vault,
+    id: &str,
+    key: &str,
+) -> Result<Option<String>> {
+    Ok(context_block_checked(vault, id, key)?
+        .as_ref()
         .and_then(Value::as_str)
-        .map(str::to_string)
+        .map(str::to_string))
 }
