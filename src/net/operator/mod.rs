@@ -122,6 +122,7 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
 }
 
 mod calls;
+mod credential;
 mod routes;
 
 use routes::answer;
