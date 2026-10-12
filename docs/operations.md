@@ -45,8 +45,13 @@ children finish, so it cannot replace their daemons during a decryption.
 Other cryptographic tools do not wait for a GnuPG slot.
 
 `/readyz` decrypts its canaries and therefore waits while daemon recovery
-holds the exclusive permit. `/livez` and metadata-only routes do not decrypt
-canaries.
+holds the exclusive permit. It does not wait behind a held keyring lock: when
+a `gpg` run of this vault is in flight and a keyring lock file names a holder,
+`/readyz` answers 503 with that holder — pid, host, what it runs now and since
+when — instead of accepting the connection and never answering, which is what
+every reader through Stado's resolver and every hook judge saw while one
+process kept the key database. `/livez` and metadata-only routes do not
+decrypt canaries.
 
 Run `skarbiec status` for the serving vault path and non-sensitive counts. Remote status also records `source.kind`, `source.route` and `source.endpoint`; `recovery_present_locally` describes the serving owner. A `stado://service/skarbiec?consumer=operator` route is resolved through Stado's declared directory; every wait and actual owner refusal stays on stderr, while credential stdout keeps its local shape.
 The owner and client must carry the owner-item API contract. `get`, including roles, fields and `--revision`, and `set-json`, including metadata preservation and `--if-absent`, share their implementations with the operator API. An unavailable or older owner is refused rather than replaced with a copied vault. The graphical operator API returns configuration selection failures and the complete owner error chain in its JSON `error`; it does not drop the connection or replace the underlying cause with only the forwarding step. See the canonical [get contract](https://skarbiec.wisent.com/docs/cli/get).

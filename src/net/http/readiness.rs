@@ -45,9 +45,31 @@ fn canary_item_ids(vault: &Vault) -> Vec<String> {
     canaries
 }
 
+/// What `/health` proves, or the one thing it will not wait for.
+///
+/// The canary decrypt runs `gpg`, and a `gpg` whose keyring lock another
+/// process holds waits on that lock for as long as the holder keeps it, so a
+/// `/health` that decrypted behind a held lock accepted its connection and
+/// never answered: every reader through the resolver, and every hook judge
+/// that needs a credential, stalled with no cause to act on. The lock files
+/// name their holder, so when a `gpg` child of this process is in flight and
+/// a keyring lock is held, the check answers with the holders — pid, host,
+/// what it runs, since when — instead of becoming one more waiter behind it.
+/// Nothing here is a clock: a held lock is a measured state of the host.
 pub(super) fn readiness_check() -> Result<Vec<String>> {
     crate::runtime::audit::probe().context("audit journal is not writable")?;
     let vault = load().context("vault is unreadable")?;
+    let (_, gpg_in_flight) = crate::core::crypto::executor_status();
+    if let Some(in_flight) = std::num::NonZeroUsize::new(gpg_in_flight) {
+        let holders = crate::core::crypto::keyring_lock_holders();
+        if !holders.is_empty() {
+            anyhow::bail!(
+                "{in_flight} gpg run(s) of this vault are in flight and the keyring lock is \
+                 held, so a decrypt would queue behind it: {}",
+                holders.join("; ")
+            );
+        }
+    }
     let canaries = canary_item_ids(&vault);
     for id in &canaries {
         vault

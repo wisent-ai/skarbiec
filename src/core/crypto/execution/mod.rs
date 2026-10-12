@@ -293,3 +293,10 @@ fn recover_exclusively() -> Result<()> {
 pub fn executor_status() -> (usize, usize) {
     (CRYPTO_LIMIT.in_use(), GPG_LIMIT.in_use())
 }
+
+/// Every keyring lock held now, one sentence each naming the holder's pid,
+/// host, what it runs and since when; empty when no lock is held. What a
+/// gpg run of this process would queue behind before it could answer.
+pub fn keyring_lock_holders() -> Vec<String> {
+    lock_holder::keyring_lock_holders()
+}
