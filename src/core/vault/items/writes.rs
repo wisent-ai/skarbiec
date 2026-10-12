@@ -218,7 +218,7 @@ impl Vault {
             return Err(error);
         }
         for audit in audits {
-            crate::runtime::audit::append_sync("item-write", &audit).ok();
+            audited(&audit);
         }
         Ok(())
     }
@@ -248,7 +248,18 @@ impl Vault {
             }
             return Err(error);
         }
-        crate::runtime::audit::append_sync("item-write", &audit).ok();
+        audited(&audit);
         Ok(())
+    }
+}
+
+/// Records an item write that has already been saved. The write stands either
+/// way, so an audit entry that cannot be appended is said with its cause
+/// rather than failing a write the vault already holds.
+fn audited(audit: &Value) {
+    if let Err(error) = crate::runtime::audit::append_sync("item-write", audit) {
+        eprintln!(
+            "skarbiec: an item write was saved but its audit entry was not recorded: {error:#}"
+        );
     }
 }

@@ -160,7 +160,9 @@ pub(super) fn save_state(path: &Path, state: &Value) -> Result<()> {
         file.sync_all()?;
         fs::set_permissions(&temp, fs::Permissions::from_mode(private_file_mode()?))?;
         fs::rename(&temp, path)?;
-        let _ = File::open(parent).and_then(|directory| directory.sync_all());
+        File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .with_context(|| format!("flush acquisition state directory {}", parent.display()))?;
         validate_owned_regular(path)
     })();
     if result.is_err() {

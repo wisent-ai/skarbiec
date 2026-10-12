@@ -63,7 +63,9 @@ fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
         file.sync_all()?;
         fs::set_permissions(&temp, fs::Permissions::from_mode(private_file_mode()?))?;
         fs::rename(&temp, path)?;
-        let _ = File::open(parent).and_then(|directory| directory.sync_all());
+        File::open(parent)
+            .and_then(|directory| directory.sync_all())
+            .with_context(|| format!("flush browser integration directory {}", parent.display()))?;
         Ok(())
     })();
     if result.is_err() {
