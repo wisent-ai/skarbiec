@@ -38,7 +38,8 @@ impl ExecutionLimit {
     }
 
     /// Take the whole set, so that nothing holding it can be running while
-    /// this permit lives.
+    /// this permit lives — except the runs that `stalled` counts, which are
+    /// waiting on the very daemons the holder is about to replace.
     ///
     /// Recovering the GnuPG daemons is not an operation on this process: it
     /// kills and relaunches host daemons that every concurrent `gpg` child is
@@ -48,13 +49,18 @@ impl ExecutionLimit {
     /// caller that asked for nothing but a credential read. That is how one
     /// slow read turned into `503 infra_down` for a release publisher, a
     /// capability broker and an agent reading the same vault at once. The
-    /// recovery therefore waits for every run to finish instead.
-    pub(super) fn acquire_exclusive(&self) -> ExclusivePermit<'_> {
+    /// recovery therefore waits for every progressing run to finish. A run
+    /// that has asked the agent for its key and heard nothing is not
+    /// progressing: waiting for it would wait on the wedge the recovery
+    /// exists to clear, so the recovery goes ahead past those; each ends with
+    /// the lost socket's own error and its caller retries once, as a run
+    /// that meets a daemon failure always has.
+    pub(super) fn acquire_exclusive(&self, stalled: impl Fn() -> usize) -> ExclusivePermit<'_> {
         let mut runs = self
             .runs
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        while runs.active > 0 || runs.exclusive {
+        while runs.active > stalled() || runs.exclusive {
             runs = self
                 .available
                 .wait(runs)

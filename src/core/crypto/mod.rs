@@ -13,6 +13,7 @@ mod execution;
 mod keys;
 mod messages;
 
+pub use execution::in_flight::{agent_refusal, agent_waits};
 pub use execution::{
     daemon_footprints, daemon_memory_limit_bytes, executor_status, human_size,
     keyring_lock_holders, recover_daemons, recycle_oversized_daemons, DAEMON_MEMORY_LIMIT_SETTING,

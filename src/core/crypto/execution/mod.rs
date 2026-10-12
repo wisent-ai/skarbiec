@@ -2,7 +2,7 @@
 // failure, and the capacity and process rules the modules beside this own.
 
 use anyhow::{Context, Result};
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::process::{Command, Stdio};
 
 /// A crypto program's failure, retaining its status in the diagnostic and
@@ -25,6 +25,7 @@ impl std::fmt::Display for ToolExit {
 impl std::error::Error for ToolExit {}
 
 mod footprint;
+pub mod in_flight;
 mod limits;
 mod lock_holder;
 mod recovery;
@@ -86,7 +87,7 @@ fn run_recovering(program: &str, args: &[&str], input: Option<&str>) -> Result<S
         // until a person intervenes. A recovery that cannot
         // complete must still let the next request try something else.
         let recovery = {
-            let _exclusive = GPG_LIMIT.acquire_exclusive();
+            let _exclusive = GPG_LIMIT.acquire_exclusive(in_flight::waiting_on_agent);
             recover_gpg_daemons()
         };
         *current_generation = current_generation.wrapping_add(1);
@@ -108,6 +109,14 @@ fn run_recovering(program: &str, args: &[&str], input: Option<&str>) -> Result<S
 }
 
 pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
+    // A gpg run that would queue behind daemons every run in flight is
+    // already waiting on is refused here with those runs named, instead of
+    // becoming one more child that never answers (`in_flight`).
+    if program == "gpg" {
+        if let Some(refusal) = in_flight::agent_refusal() {
+            anyhow::bail!(refusal);
+        }
+    }
     // The narrow permit FIRST, then the general one.
     //
     // Taken the other way round, a `gpg` child that is waiting for one of the
@@ -162,11 +171,26 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
         stdout.read_to_end(&mut bytes)?;
         Ok(bytes)
     });
-    let mut stderr = child.stderr.take().context("child stderr unavailable")?;
+    let stderr = child.stderr.take().context("child stderr unavailable")?;
+    // gpg's status lines are read as they come, so the register knows where
+    // a child stopped while it is still running; the bytes are kept whole for
+    // the failure report.
+    // The arguments name the run; a passphrase travels on stdin, never here.
+    let registered = (program == "gpg").then(|| in_flight::register(child.id(), &args.join(" ")));
     let stderr_reader = std::thread::spawn(move || -> std::io::Result<Vec<u8>> {
+        let mut stderr = std::io::BufReader::new(stderr);
         let mut bytes = Vec::new();
-        stderr.read_to_end(&mut bytes)?;
-        Ok(bytes)
+        let mut line = Vec::new();
+        loop {
+            stderr.read_until(b'\n', &mut line)?;
+            if line.is_empty() {
+                return Ok(bytes);
+            }
+            if let Some(registered) = &registered {
+                in_flight::noted(registered, String::from_utf8_lossy(&line).trim_end());
+            }
+            bytes.append(&mut line);
+        }
     });
 
     // The tool's own exit is the answer. A gpg agent asking the keychain on a
@@ -282,7 +306,7 @@ fn recover_exclusively() -> Result<()> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let outcome = {
-        let _exclusive = GPG_LIMIT.acquire_exclusive();
+        let _exclusive = GPG_LIMIT.acquire_exclusive(in_flight::waiting_on_agent);
         recover_gpg_daemons()
     };
     *generation = generation.wrapping_add(1);

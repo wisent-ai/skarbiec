@@ -70,6 +70,11 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     if method == "GET" && matches!(path.as_str(), "/health" | "/readyz") {
         let readiness = readiness_check();
         let (crypto_active, gpg_active) = crate::core::crypto::executor_status();
+        let crypto = json!({
+            "active": crypto_active,
+            "gpg_active": gpg_active,
+            "gpg_waiting_on_agent": crate::core::crypto::agent_waits(),
+        });
         match readiness {
             Err(error) => write_response(
                 &mut stream,
@@ -79,10 +84,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "service": "skarbiec",
                     "error_code": Code::InfraDown.as_str(),
                     "detail": detail_text(&error.to_string()),
-                    "crypto": {
-                        "active": crypto_active,
-                        "gpg_active": gpg_active,
-                    },
+                    "crypto": crypto,
                 }),
             ),
             Ok(canaries) => write_response(
@@ -92,10 +94,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "ok": true,
                     "service": "skarbiec",
                     "canaries": canaries,
-                    "crypto": {
-                        "active": crypto_active,
-                        "gpg_active": gpg_active,
-                    },
+                    "crypto": crypto,
                 }),
             ),
         }?;

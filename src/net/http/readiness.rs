@@ -55,7 +55,12 @@ fn canary_item_ids(vault: &Vault) -> Vec<String> {
 /// name their holder, so when a `gpg` child of this process is in flight and
 /// a keyring lock is held, the check answers with the holders — pid, host,
 /// what it runs, since when — instead of becoming one more waiter behind it.
-/// Nothing here is a clock: a held lock is a measured state of the host.
+/// A `gpg` child that asked gpg-agent for its key and heard nothing is the
+/// same wedge seen from inside this process: when every child in flight is
+/// in that state the check answers with those children — pid, arguments,
+/// since when, the status they stopped at — and the repair to run, instead
+/// of decrypting a canary behind them. Nothing here is a clock: a held lock
+/// and a silent agent are measured states of the host.
 pub(super) fn readiness_check() -> Result<Vec<String>> {
     crate::runtime::audit::probe().context("audit journal is not writable")?;
     let vault = load().context("vault is unreadable")?;
@@ -69,6 +74,9 @@ pub(super) fn readiness_check() -> Result<Vec<String>> {
                 holders.join("; ")
             );
         }
+    }
+    if let Some(refusal) = crate::core::crypto::agent_refusal() {
+        anyhow::bail!("{refusal}");
     }
     let canaries = canary_item_ids(&vault);
     for id in &canaries {
