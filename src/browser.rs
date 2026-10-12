@@ -69,7 +69,10 @@ fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
         Ok(())
     })();
     if result.is_err() {
-        crate::core::staging::remove_said(&temp, "a failed browser integration write left its temporary file");
+        crate::core::staging::remove_said(
+            &temp,
+            "a failed browser integration write left its temporary file",
+        );
     }
     result
 }
