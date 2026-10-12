@@ -95,7 +95,7 @@ pub(super) fn settle(
                             &request_id,
                             &operation,
                             account.as_deref(),
-                        )
+                        )?
                 }
                 // adopt commits the operator's own value: the staged candidate
                 // is activated, or the item this adopt created is promoted out
@@ -130,7 +130,7 @@ pub(super) fn settle(
                                 &request_id,
                                 &operation,
                                 account.as_deref(),
-                            )
+                            )?
                     }
                 },
                 // reset commits the same way as rotate: the staged provider value

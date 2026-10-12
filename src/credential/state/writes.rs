@@ -91,29 +91,36 @@ pub(in crate::credential) fn store_context(
     vault.set_item(id, &kind, &payload, &recipients, &tags)
 }
 
+/// Whether the item holds this operation's value: `Ok(false)` when it does not
+/// exist or does not match, an error naming it when it exists but cannot be
+/// read, so an unreadable item is never reported as an unconfirmed write.
 pub(in crate::credential) fn item_matches_request(
     vault: &Vault,
     credential_id: &str,
     request_id: &str,
     operation: &str,
     account_email: Option<&str>,
-) -> bool {
-    vault.get_item(credential_id).is_ok_and(|payload| {
-        schema::field(&payload, "context")
-            .ok()
-            .and_then(Value::as_object)
-            .is_some_and(|context| {
-                context.get("request_id").and_then(Value::as_str) == Some(request_id)
-                    && context.get("operation").and_then(Value::as_str) == Some(operation)
-                    && account_email.is_none_or(|email| {
-                        context.get("account_ref").and_then(Value::as_str) == Some(email)
-                            && schema::field(&payload, "username")
-                                .ok()
-                                .and_then(Value::as_str)
-                                == Some(email)
-                    })
-            })
-    })
+) -> Result<bool> {
+    if !live_item_exists(vault, credential_id) {
+        return Ok(false);
+    }
+    let payload = vault.get_item(credential_id).with_context(|| {
+        format!("{credential_id} cannot be read, so whether it holds this operation's value cannot be checked")
+    })?;
+    Ok(schema::field(&payload, "context")
+        .ok()
+        .and_then(Value::as_object)
+        .is_some_and(|context| {
+            context.get("request_id").and_then(Value::as_str) == Some(request_id)
+                && context.get("operation").and_then(Value::as_str) == Some(operation)
+                && account_email.is_none_or(|email| {
+                    context.get("account_ref").and_then(Value::as_str) == Some(email)
+                        && schema::field(&payload, "username")
+                            .ok()
+                            .and_then(Value::as_str)
+                            == Some(email)
+                })
+        }))
 }
 
 pub(in crate::credential) fn pending_matches_request(
