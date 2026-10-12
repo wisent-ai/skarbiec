@@ -8,6 +8,8 @@ use std::net::TcpStream;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use stado_wait as wait;
+
 use super::super::common::effective_uid;
 use super::{
     CANONICAL_FORWARD, ENDPOINT_TLS_UNSUPPORTED, ENDPOINT_UNRESOLVED, FORWARDS_DIR_ENV, LOOPBACK,
@@ -76,12 +78,29 @@ pub(crate) fn canonical_endpoint_report() -> Result<Value> {
     let path = forwards_dir()?.join(CANONICAL_FORWARD);
     let endpoint = canonical_endpoint()?;
     let authority = endpoint_authority(&endpoint)?;
+    let (answering, connect_error) = connect_probe(&authority);
     Ok(json!({
         "forward": path.display().to_string(),
         "endpoint": endpoint,
         "authority": authority,
-        "answering": TcpStream::connect(&authority).is_ok(),
+        "answering": answering,
+        "connect_error": connect_error,
     }))
+}
+
+/// What a connect probe announces it waits for.
+const PROBE: &str = "a connection to the canonical Skarbiec";
+
+/// Whether anything accepts a connection at `authority`, and the operating
+/// system's refusal when nothing does. "Connection refused" and "permission
+/// denied" call for different repairs, and a bare `false` told the operator
+/// neither.
+fn connect_probe(authority: &str) -> (bool, Value) {
+    let network = wait::Kind::Network;
+    match wait::blocking(network, PROBE, authority, || TcpStream::connect(authority)) {
+        Ok(_) => (true, Value::Null),
+        Err(error) => (false, Value::String(error.to_string())),
+    }
 }
 
 /// Write the canonical forward file this module reads.
@@ -116,12 +135,13 @@ pub(in crate::credential) fn declare_canonical_endpoint(endpoint: &str) -> Resul
     // Whether anything answers is a separate question from whether the
     // declaration is well formed, and the report says both rather than
     // conflating them the way a bare connection error does.
-    let answering = TcpStream::connect(&authority).is_ok();
+    let (answering, connect_error) = connect_probe(&authority);
     Ok(json!({
         "forward": path.display().to_string(),
         "endpoint": declared,
         "authority": authority,
         "answering": answering,
+        "connect_error": connect_error,
     }))
 }
 

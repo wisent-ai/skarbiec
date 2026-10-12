@@ -56,9 +56,13 @@ SB=${SKARBIEC_BIN:-skarbiec}
 #     → the state of every fresh install. Run step 3.
 #
 #   {"check":"endpoint","status":"fail","detail":"nothing answers
-#   http://127.0.0.1:8785, declared by ~/.stado/forwards/skarbiec.local"}
-#     → the file names an address no Skarbiec serves. Re-run step 3 with the
-#       URL `skarbiec serve --port` listens on.
+#   http://127.0.0.1:8785 (Connection refused (os error 61)), declared by
+#   ~/.stado/forwards/skarbiec.local"}
+#     → the parenthesis is the operating system's answer to the connect.
+#       "Connection refused": the file names an address no Skarbiec serves;
+#       re-run step 3 with the URL `skarbiec serve --port` listens on.
+#       "Operation not permitted" or "Permission denied": something on this
+#       machine blocks the connection itself, and the address may be right.
 #
 #   {"check":"audit","status":"fail","detail":"... 1 fault(s), first at line
 #   2311 ..."}

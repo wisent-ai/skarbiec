@@ -30,10 +30,14 @@ pub(super) fn endpoint_check() -> Value {
                     format!("{endpoint}, declared by {forward}"),
                 )
             } else {
+                let cause = match report.get("connect_error").and_then(Value::as_str) {
+                    Some(error) => format!(" ({error})"),
+                    None => String::new(),
+                };
                 check(
                     "endpoint",
                     FAIL,
-                    format!("nothing answers {endpoint}, declared by {forward}"),
+                    format!("nothing answers {endpoint}{cause}, declared by {forward}"),
                 )
             }
         }
