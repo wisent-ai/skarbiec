@@ -9,6 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
+pub(super) mod children;
 mod process_identity;
 use process_identity::Identity;
 
