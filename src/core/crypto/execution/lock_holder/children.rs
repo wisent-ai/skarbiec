@@ -1,17 +1,15 @@
 //! The `gpg` children a daemon recovery strands. A child a Skarbiec process
-//! started against the daemons being replaced keeps waiting on them: on a
-//! vault host several hundred such children of `skarbiec serve` stood for
-//! hours after the daemons were replaced, each holding the request thread
-//! and the crypto slot it ran in, and the vault stayed unhealthy. They are
-//! found in the process table, not in a register: a serve of an older
-//! release publishes none, and a child stuck on the key database rather than
-//! on the agent reports a status the register would not name. Every process
-//! whose parent runs this very Skarbiec executable (as the parent's
-//! kernel-bound identity says), and which itself runs a configured GnuPG
-//! executable, is taken before the daemons are stopped and ended after them:
-//! its caller is answered with the child's failure and its slot is given
-//! back, and the next run meets fresh daemons. This process's own children
-//! are left to it.
+//! started against the daemons being replaced keeps waiting on them, holding
+//! its caller's request thread and the crypto slot it ran in, so the vault
+//! stays unhealthy after the daemons are back. They are found in the process
+//! table, not in a register: a serve of an older release publishes none, and
+//! a child stuck on the key database rather than on the agent reports a
+//! status the register would not name. Every process whose parent runs this
+//! very Skarbiec executable (as the parent's kernel-bound identity says), and
+//! which itself runs a configured GnuPG executable, is taken before the
+//! daemons are stopped and ended after them: its caller is answered with the
+//! child's failure and its slot is given back, and the next run meets fresh
+//! daemons. This process's own children are left to it.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
