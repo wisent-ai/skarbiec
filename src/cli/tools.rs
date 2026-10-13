@@ -14,10 +14,13 @@ pub(crate) fn cmd_generate(flags: &HashMap<String, String>) -> Result<()> {
     if flag_set(flags, "passphrase") {
         let count: usize = flags
             .get("words")
-            .or_usage("usage: generate --passphrase --words N")?
+            .or_usage("usage: generate --passphrase --words N --separator TEXT")?
             .parse()
             .or_usage("--words must be a number")?;
-        let sep = flags.get("separator").map(String::as_str).unwrap_or("-");
+        // What joins the words is the caller's choice, as the count is.
+        let sep = flags
+            .get("separator")
+            .or_usage("usage: generate --passphrase --words N --separator TEXT")?;
         return emit(&json!({"passphrase": items::generate_passphrase(count, sep)?}));
     }
     let length: usize = flags

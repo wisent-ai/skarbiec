@@ -52,7 +52,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("restore", "skarbiec restore <id>", "Restore a trashed owner-controlled item to the live inventory."),
     row("purge", "skarbiec purge <id> --yes", "Permanently remove a trashed owner-controlled item and every saved version; without --yes nothing is removed."),
     row("restore-version", "skarbiec restore-version <id> <at>", "Make the historical revision recorded at <at> the item's new current revision."),
-    row("generate", "skarbiec generate --length <N> [--lower] [--upper] [--digits] [--symbols] | --passphrase --words <N> [--separator <text>]", "Generate a password or a word-list passphrase locally."),
+    row("generate", "skarbiec generate --length <N> [--lower] [--upper] [--digits] [--symbols] | --passphrase --words <N> --separator <text>", "Generate a password or a word-list passphrase locally."),
     row("import", "skarbiec import <export-file> [--format auto|canonical|1password|bitwarden|browser-csv] [--conflict keep|replace|error]", "Seed the vault from a password-manager, browser or canonical Skarbiec export."),
     row("migrate", "skarbiec migrate --from <source-vault> --to <target-vault> [--force]", "Copy live items between vaults, re-encrypting them to the target's recipients."),
     row("upgrade", "skarbiec upgrade [--apply] [--snapshot <path>]", "Bring the vault to the current schema: v2 envelope, item_uid on every item, payload fingerprint on every active item, owner control of items a former owner still controls; without --apply it only reports."),
