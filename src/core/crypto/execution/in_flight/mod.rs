@@ -129,17 +129,6 @@ fn published_waits_on_agent(run: &PublishedRun) -> bool {
     run.last_status.as_deref() == Some(ASKING_THE_AGENT)
 }
 
-/// The pids of every `gpg` child of this account, in this process and every
-/// other Skarbiec process, that asked the agent for its key and heard
-/// nothing: the children a daemon recovery strands.
-pub(in crate::core::crypto::execution) fn waiting_pids() -> Vec<u32> {
-    let (all, _) = everyone();
-    all.into_iter()
-        .filter(|(_, run)| published_waits_on_agent(run))
-        .map(|(_, run)| run.pid)
-        .collect()
-}
-
 fn sentences(all: &[(String, PublishedRun)]) -> Vec<String> {
     all.iter()
         .filter(|(_, run)| published_waits_on_agent(run))

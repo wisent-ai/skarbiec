@@ -116,12 +116,21 @@ pub(super) fn gpg_status(stderr: &str) -> (Vec<u32>, String) {
 ///
 /// GnuPG starts its daemons on demand on the next read; recovery does not
 /// launch them. Lock-holder recovery retains its kernel-bound identity checks.
-/// The `gpg` children that were waiting on the stopped agent are ended after
-/// it (`lock_holder::children`), so their callers are answered and their
-/// slots given back instead of waiting on a daemon that no longer exists.
+/// The `gpg` children Skarbiec processes started against the stopped daemons
+/// are taken from the process table first and ended after them
+/// (`lock_holder::children`), so their callers are answered and their slots
+/// given back instead of waiting on daemons that no longer exist.
 pub(super) fn recover_gpg_daemons() -> Result<()> {
-    let stranded = super::in_flight::waiting_pids();
     let mut errors = Vec::new();
+    let stranded = match super::lock_holder::children::of_skarbiec() {
+        Ok(stranded) => stranded,
+        Err(why) => {
+            errors.push(format!(
+                "stranded gpg children could not be looked for: {why}"
+            ));
+            Vec::new()
+        }
+    };
     for daemon in ["keyboxd", "gpg-agent", "scdaemon"] {
         if let Err(error) = run_once("gpgconf", &["--kill", daemon], None) {
             errors.push(format!("{daemon} gpgconf --kill: {error:#}"));
