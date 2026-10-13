@@ -139,7 +139,7 @@ pub fn inventory() -> Result<Value> {
         })
     });
     Ok(json!({
-        "host": hostname(),
+        "host": hostname()?,
         "searched": directories
             .iter()
             .map(|path| path.display().to_string())
@@ -150,13 +150,25 @@ pub fn inventory() -> Result<Value> {
 }
 
 /// The machine's own name, so a fleet-wide collection can say where each
-/// answer came from without the collector having to label it.
-fn hostname() -> String {
-    std::process::Command::new("hostname")
-        .output()
-        .ok()
-        .and_then(|output| String::from_utf8(output.stdout).ok())
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "unknown".to_string())
+/// answer came from without the collector having to label it. A name that
+/// cannot be read is the inventory's error with its cause: an invented label
+/// would file this machine's vaults under a host that does not exist.
+fn hostname() -> Result<String> {
+    let output = stado_wait::output(&mut std::process::Command::new("hostname"))
+        .map_err(|error| anyhow::anyhow!("the hostname program could not run: {error}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "the hostname program ended with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let name = String::from_utf8(output.stdout).map_err(|error| {
+        anyhow::anyhow!("the hostname program answered a name that is not UTF-8: {error}")
+    })?;
+    let name = name.trim();
+    if name.is_empty() {
+        anyhow::bail!("the hostname program answered no name");
+    }
+    Ok(name.to_string())
 }
