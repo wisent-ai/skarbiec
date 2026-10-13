@@ -127,10 +127,13 @@ pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> 
             .map(str::to_string),
         _ => None,
     };
+    // Whether the request is still with Weles is read from its status; a
+    // record without one was read as status "unknown", which is neither
+    // pending nor settled, so it was never polled and reported as if final.
     let mut current_status = request
         .get("status")
         .and_then(Value::as_str)
-        .unwrap_or("unknown")
+        .with_context(|| format!("credential request {request_item} records no status"))?
         .to_string();
     if matches!(
         current_status.as_str(),

@@ -137,10 +137,10 @@ pub(in crate::credential) fn enforce_retry_barrier(
         .get("status")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let previous = existing
-        .get("operation")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
+    let previous = match existing.get("operation").and_then(Value::as_str) {
+        Some(previous) => previous.to_string(),
+        None => "operation (its record names none)".to_string(),
+    };
     // A completed operation, or one an operator settled explicitly, is not a
     // provider state anybody still has to guess at.
     if matches!(status, "completed" | "quarantine_resolved") {

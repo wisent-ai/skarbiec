@@ -128,7 +128,11 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
             let existing_operation = existing
                 .get("operation")
                 .and_then(Value::as_str)
-                .unwrap_or("unknown");
+                .with_context(|| {
+                    format!(
+                        "{credential_id} has a pending request that records no operation; resolve it before {operation}"
+                    )
+                })?;
             if existing_operation != operation {
                 bail!(
                     "{credential_id} already has pending {existing_operation}; finish it before {operation}"
