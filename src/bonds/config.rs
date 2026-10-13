@@ -20,10 +20,14 @@ pub(crate) fn cmd_bond_add(
     )?;
     let vault = Vault::open(vault_path())?;
     if let Some(existing) = vault.doc().get("bond").and_then(|bonds| bonds.get(name)) {
+        let stored = |field: &str| match existing[field].as_str() {
+            Some(value) => value.to_string(),
+            None => format!("no {field} recorded"),
+        };
         anyhow::bail!(
             "bond {name} is already configured (mode {}, role {}); `skarbiec bond edit {name}` changes it",
-            existing["mode"].as_str().unwrap_or("-"),
-            existing["role"].as_str().unwrap_or("-"),
+            stored("mode"),
+            stored("role"),
         );
     }
     drop(vault);
