@@ -81,7 +81,7 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
     let fingerprints = vault.stamp_fingerprints(apply)?;
     // Control held by a former owner: a vault rotated before rotate-owner
     // moved control with the ownership still has items nobody may write.
-    let moved = vault.transfer_former_owner_control();
+    let moved = vault.transfer_former_owner_control()?;
     if apply && !moved.is_empty() {
         vault.save()?;
         crate::runtime::audit::append_sync(

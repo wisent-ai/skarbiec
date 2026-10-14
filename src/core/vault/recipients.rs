@@ -112,7 +112,7 @@ impl Vault {
             .insert("owner".to_string(), json!(new_owner_uid));
         // The outgoing owner no longer writes as the owner, so whatever it
         // controlled has to move with the ownership or keep no writer at all.
-        self.transfer_former_owner_control();
+        self.transfer_former_owner_control()?;
 
         // Deleted items still hold secrets and are still restorable, so they
         // rotate too.
@@ -154,7 +154,7 @@ impl Vault {
     /// (retag, rotate, delete) refused "<id> is not owner-controlled". Items
     /// under the credential lifecycle or managed by Weles keep their
     /// controller; only control moves, no field, tag or revision changes.
-    pub fn transfer_former_owner_control(&mut self) -> Vec<String> {
+    pub fn transfer_former_owner_control(&mut self) -> Result<Vec<String>> {
         let owner = self.owner_uid().to_string();
         let former: Vec<String> = self
             .doc
@@ -182,10 +182,11 @@ impl Vault {
             // as it is.
             let movable =
                 ManagementMode::of(entry).is_some_and(|mode| mode != ManagementMode::Managed);
-            let weles = entry
-                .get("tags")
-                .and_then(Value::as_array)
-                .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some("managed:weles")));
+            // A tags field that is not a list of text is refused: read as no
+            // tags, a Weles-managed item's control moved to the owner.
+            let weles = crate::core::vault::entry_texts(id, entry, "tags")?
+                .iter()
+                .any(|tag| tag == "managed:weles");
             if !held_by_former || !movable || weles {
                 continue;
             }
@@ -197,7 +198,7 @@ impl Vault {
                 moved.push(id.clone());
             }
         }
-        moved
+        Ok(moved)
     }
 
     /// Re-encrypt every current and historical revision of one item onto
