@@ -224,13 +224,10 @@ pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
     }
     let remote_count = item_count(&pulled);
     let live = vault_path();
-    let local: Value = if live.exists() {
-        serde_json::from_str(
-            &std::fs::read_to_string(&live)
-                .with_context(|| format!("read vault {}", live.display()))?,
-        )?
-    } else {
-        json!({})
+    let local: Value = match crate::core::read_present(&live, "vault")? {
+        Some(text) => serde_json::from_str(&text)
+            .with_context(|| format!("parse vault {}", live.display()))?,
+        None => json!({}),
     };
     let local_count = item_count(&local);
     if remote_count < local_count && !flags.contains_key("force") {

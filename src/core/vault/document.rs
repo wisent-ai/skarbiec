@@ -90,9 +90,9 @@ impl Vault {
             bail!(refusal);
         }
         let _write_lock = acquire_write_lock(&self.path)?;
-        if self.path.exists() {
-            let persisted: Value = serde_json::from_str(&fs::read_to_string(&self.path)?)
-                .context("parse persisted vault under write lock")?;
+        if let Some(text) = crate::core::read_present(&self.path, "persisted vault")? {
+            let persisted: Value =
+                serde_json::from_str(&text).context("parse persisted vault under write lock")?;
             let persisted_generation = document_generation(&persisted);
             if persisted_generation != self.base_generation {
                 return Err(VaultChangedConcurrently {

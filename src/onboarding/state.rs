@@ -58,12 +58,13 @@ pub(super) fn load_or_start_state(
     reset: bool,
 ) -> Result<Value> {
     let path = state_path();
-    if !reset && path.exists() {
-        let existing: Value = serde_json::from_str(
-            &fs::read_to_string(&path)
-                .with_context(|| format!("read onboarding state {}", path.display()))?,
-        )
-        .context("parse onboarding state")?;
+    let stored = if reset {
+        None
+    } else {
+        crate::core::read_present(&path, "onboarding state")?
+    };
+    if let Some(text) = stored {
+        let existing: Value = serde_json::from_str(&text).context("parse onboarding state")?;
         if existing.get("schema").and_then(Value::as_str) != Some(STATE_SCHEMA)
             || existing.get("product_id").and_then(Value::as_str) != Some(PRODUCT_ID)
             || existing.get("journey_id").and_then(Value::as_str) != Some(JOURNEY_ID)
