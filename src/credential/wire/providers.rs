@@ -27,7 +27,7 @@ pub(in crate::credential) fn operation_contract_field(
     operation: &str,
     provider: &str,
 ) -> &'static str {
-    if operation == "reauth" {
+    if Operation::parse(operation) == Some(Operation::Reauth) {
         return "password";
     }
     contract_field(provider)
@@ -129,7 +129,7 @@ pub(in crate::credential) fn provider_contract(
     account: Option<&str>,
     directory: Option<&Value>,
 ) -> Result<&'static str> {
-    if operation == "reauth" {
+    if Operation::parse(operation) == Some(Operation::Reauth) {
         // Every subscription provider, not one of them: a reauth that only
         // one provider could run leaves every other provider's account dead
         // until somebody signs it in by hand. A subscription is held with

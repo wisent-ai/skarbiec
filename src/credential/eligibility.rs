@@ -16,6 +16,7 @@ use crate::core::inbox;
 use crate::core::schema;
 use crate::core::vault::Vault;
 
+use super::common::Operation;
 use super::state::{live_item_exists, quarantine_state};
 use super::wire::operation_contract_field;
 use super::FIELD_CONTRACT_MISMATCH;
@@ -143,7 +144,7 @@ pub(super) fn lifecycle_blockers(
     // Subscription reauth names a login item, which no directory holds and no
     // seal describes; demanding one would report a blocker the operation does
     // not have.
-    if directory.is_none() && operation != Some("reauth") {
+    if directory.is_none() && operation.and_then(Operation::parse) != Some(Operation::Reauth) {
         blockers.push(blocker(
             BLOCKER_NO_DIRECTORY_CONTRACT,
             format!(
