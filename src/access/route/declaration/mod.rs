@@ -160,6 +160,11 @@ pub(super) fn provider_items(vault: &Vault) -> Vec<(&str, &str, Option<&str>)> {
         .iter()
         .filter(|(_, record)| live(record))
         .filter_map(|(item, record)| {
+            // A tags field that is not a list of text declares nothing that can
+            // be acted on; [`ambiguous`] reports it with its cause.
+            if crate::core::vault::entry_texts(item, record, "tags").is_err() {
+                return None;
+            }
             let providers = declared_tags(record, PROVIDER_TAG);
             let [provider] = providers[..] else {
                 return None;
@@ -189,6 +194,10 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
     };
     let mut problems = Vec::new();
     for (item, record) in items.iter().filter(|(_, record)| live(record)) {
+        if let Err(error) = crate::core::vault::entry_texts(item, record, "tags") {
+            problems.push(json!({"item": item, "problem": format!("{error:#}")}));
+            continue;
+        }
         let providers = declared_tags(record, PROVIDER_TAG);
         if providers.len() > 1 {
             problems.push(json!({
