@@ -22,9 +22,13 @@ fn token_file() -> Result<std::path::PathBuf> {
     Ok(std::path::PathBuf::from(home).join(".local/state/skarbiec/browser-host-token"))
 }
 
-fn consumer() -> String {
-    std::env::var("SKARBIEC_BROWSER_CONSUMER")
-        .unwrap_or_else(|_| "skarbiec-browser-host".to_string())
+fn consumer() -> Result<String> {
+    // Unset is the host's own name; set but not text is refused, not replaced.
+    match std::env::var("SKARBIEC_BROWSER_CONSUMER") {
+        Ok(name) => Ok(name),
+        Err(std::env::VarError::NotPresent) => Ok("skarbiec-browser-host".to_string()),
+        Err(error) => anyhow::bail!("SKARBIEC_BROWSER_CONSUMER cannot be read: {error}"),
+    }
 }
 
 /// One POST against the loopback API; the reply body parsed as JSON. Raw
@@ -36,7 +40,7 @@ fn api_post(path: &str, body: &Value) -> Result<Value> {
     let payload = serde_json::to_string(body)?;
     let request = format!(
         "POST {path} HTTP/1.1\r\nHost: {base}\r\nX-Consumer: {}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
-        consumer(),
+        consumer()?,
         token.trim(),
         payload.len(),
     );
