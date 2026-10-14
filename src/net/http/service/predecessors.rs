@@ -83,10 +83,13 @@ mod launchd {
     pub(super) fn take_over() -> BTreeSet<u16> {
         // SAFETY: getuid has no preconditions and cannot fail.
         let domain = format!("gui/{}", unsafe { libc::getuid() });
-        let agents = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default()
-            .join("Library/LaunchAgents");
+        let Some(home) = std::env::var_os("HOME") else {
+            eprintln!(
+                "skarbiec serve: HOME is not set, so no predecessor's launch agent can be found and none is taken over"
+            );
+            return BTreeSet::new();
+        };
+        let agents = PathBuf::from(home).join("Library/LaunchAgents");
         let mut ports = BTreeSet::new();
         for label in PREDECESSORS {
             let plist = agents.join(format!("{label}.plist"));
@@ -97,8 +100,23 @@ mod launchd {
             if !plist.exists() {
                 continue;
             }
-            let pid = running_pid(&domain, label);
-            let arguments = program_arguments(&plist);
+            // A unit whose state cannot be read is kept and the cause named:
+            // retiring it blind could stop a job whose ports nothing then
+            // serves, or lose the bond bearer a sync-daemon carries in argv.
+            let pid = match running_pid(&domain, label) {
+                Ok(pid) => pid,
+                Err(error) => {
+                    eprintln!("skarbiec serve: kept {label}: whether it runs could not be read: {error:#}");
+                    continue;
+                }
+            };
+            let arguments = match program_arguments(&plist) {
+                Ok(arguments) => arguments,
+                Err(error) => {
+                    eprintln!("skarbiec serve: kept {label}: its launch agent's arguments could not be read: {error:#}");
+                    continue;
+                }
+            };
             if arguments.iter().any(|argument| argument == "sync-daemon") {
                 if let Err(error) = adopt_replica_bond(&arguments) {
                     eprintln!(
@@ -107,7 +125,16 @@ mod launchd {
                     continue;
                 }
             }
-            let inherited = pid.map(listening_ports).unwrap_or_default();
+            let inherited = match pid {
+                None => BTreeSet::new(),
+                Some(pid) => match listening_ports(pid) {
+                    Ok(ports) => ports,
+                    Err(error) => {
+                        eprintln!("skarbiec serve: kept {label} (pid {pid}): the ports it serves could not be read: {error:#}");
+                        continue;
+                    }
+                },
+            };
             // A bootout that failed while the old job was running leaves it on
             // its ports: reporting it "retired" and deleting its plist hid a
             // second listener. Such a job is kept and the failure named; a job
@@ -152,38 +179,45 @@ mod launchd {
         ports
     }
 
-    /// The pid launchd reports for a loaded, running job.
-    fn running_pid(domain: &str, label: &str) -> Option<u32> {
-        let output = Command::new("/bin/launchctl")
-            .arg("print")
-            .arg(format!("{domain}/{label}"))
-            .output()
-            .ok()?;
+    /// The pid launchd reports for a loaded, running job; none when launchd
+    /// has no such job loaded.
+    fn running_pid(domain: &str, label: &str) -> Result<Option<u32>> {
+        let target = format!("{domain}/{label}");
+        let output = stado_wait::output(Command::new("/bin/launchctl").arg("print").arg(&target))
+            .map_err(|error| {
+            anyhow::anyhow!("launchctl print {target} could not run: {error}")
+        })?;
         if !output.status.success() {
-            return None;
+            return Ok(None);
         }
-        String::from_utf8_lossy(&output.stdout)
+        Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
-            .find_map(|line| line.trim().strip_prefix("pid = ")?.trim().parse().ok())
+            .find_map(|line| line.trim().strip_prefix("pid = ")?.trim().parse().ok()))
     }
 
-    /// Loopback TCP ports the process is listening on.
-    fn listening_ports(pid: u32) -> BTreeSet<u16> {
-        let Ok(output) = Command::new("/usr/sbin/lsof")
-            .args([
-                "-nP",
-                "-a",
-                "-p",
-                &pid.to_string(),
-                "-iTCP",
-                "-sTCP:LISTEN",
-                "-Fn",
-            ])
-            .output()
-        else {
-            return BTreeSet::new();
-        };
-        String::from_utf8_lossy(&output.stdout)
+    /// Loopback TCP ports the process is listening on. lsof answers a process
+    /// with no listening socket with a failed status and nothing on stderr; a
+    /// failure that says something is the error.
+    fn listening_ports(pid: u32) -> Result<BTreeSet<u16>> {
+        let output = stado_wait::output(Command::new("/usr/sbin/lsof").args([
+            "-nP",
+            "-a",
+            "-p",
+            &pid.to_string(),
+            "-iTCP",
+            "-sTCP:LISTEN",
+            "-Fn",
+        ]))
+        .map_err(|error| anyhow::anyhow!("lsof could not run for pid {pid}: {error}"))?;
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !output.status.success() && !stderr.trim().is_empty() {
+            anyhow::bail!(
+                "lsof for pid {pid} exited {}: {}",
+                output.status,
+                stderr.trim()
+            );
+        }
+        Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| line.strip_prefix('n'))
             .filter_map(|address| {
@@ -193,19 +227,30 @@ mod launchd {
                     .then(|| port.parse().ok())
                     .flatten()
             })
-            .collect()
+            .collect())
     }
 
     /// The unit's argv, as its launch agent declares it.
-    fn program_arguments(plist: &Path) -> Vec<String> {
-        Command::new("/usr/bin/plutil")
-            .args(["-extract", "ProgramArguments", "json", "-o", "-"])
-            .arg(plist)
-            .output()
-            .ok()
-            .filter(|output| output.status.success())
-            .and_then(|output| serde_json::from_slice::<Vec<String>>(&output.stdout).ok())
-            .unwrap_or_default()
+    fn program_arguments(plist: &Path) -> Result<Vec<String>> {
+        let output = stado_wait::output(
+            Command::new("/usr/bin/plutil")
+                .args(["-extract", "ProgramArguments", "json", "-o", "-"])
+                .arg(plist),
+        )
+        .map_err(|error| anyhow::anyhow!("plutil could not run on {}: {error}", plist.display()))?;
+        anyhow::ensure!(
+            output.status.success(),
+            "plutil could not read ProgramArguments of {}: exited {}: {}",
+            plist.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        serde_json::from_slice(&output.stdout).with_context(|| {
+            format!(
+                "ProgramArguments of {} is not a list of strings",
+                plist.display()
+            )
+        })
     }
 
     /// The removed `sync-daemon` carried its bond's bearer file and consumer
