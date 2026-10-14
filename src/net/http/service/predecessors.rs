@@ -53,7 +53,16 @@ pub(crate) fn take_over() -> BTreeSet<u16> {
             eprintln!(
                 "skarbiec serve: the inherited ports record cannot be read, so it is left as it is and this start answers only on the ports the journal and the retired units name: {error:#}"
             );
-            (crate::runtime::audit::retired_ports(), true, false)
+            let journal = match crate::runtime::audit::retired_ports() {
+                Ok(ports) => ports,
+                Err(journal_error) => {
+                    eprintln!(
+                        "skarbiec serve: the journal cannot name the retired units' ports either, so this start answers only on the ports retired now: {journal_error:#}"
+                    );
+                    BTreeSet::new()
+                }
+            };
+            (journal, true, false)
         }
     };
     let retired = launchd::take_over();

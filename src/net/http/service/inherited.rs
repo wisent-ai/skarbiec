@@ -35,7 +35,7 @@ pub(super) fn remembered() -> Result<(BTreeSet<u16>, bool)> {
             .map(|ports| (ports, true))
             .with_context(|| format!("{} is not a list of ports", path.display())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok((crate::runtime::audit::retired_ports(), false))
+            Ok((crate::runtime::audit::retired_ports()?, false))
         }
         Err(error) => Err(error).with_context(|| format!("read {}", path.display())),
     }
