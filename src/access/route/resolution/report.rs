@@ -33,7 +33,7 @@ pub(in crate::access) fn walk(
     let table = route_table::load()?;
     let whole = asked.is_empty();
     let names = if whole {
-        selected(names(&vault, &table), consumer)
+        selected(names(&vault, &table).map_err(anyhow::Error::msg)?, consumer)
     } else {
         asked.to_vec()
     };

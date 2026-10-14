@@ -54,7 +54,7 @@ pub(super) fn targets(
             }
         }
     } else if let Some(agent) = name.strip_prefix(AGENT_PREFIX) {
-        let candidates: Vec<String> = agent_items(vault, Some(agent))
+        let candidates: Vec<String> = agent_items(vault, Some(agent))?
             .into_iter()
             .map(|(_, item)| item)
             .collect();
@@ -144,8 +144,9 @@ fn declared(item: &str, field: &str, declared_by: &'static str) -> Target {
 /// not the table carries a row for it, which is the listing half of the same
 /// defect -- a renamed item used to drop out of the listing while its stale row
 /// stayed. `login:` names are resolved on request and never listed: every login
-/// item in a vault would answer one.
-pub(super) fn names(vault: &Vault, table: &Map<String, Value>) -> Vec<String> {
+/// item in a vault would answer one. An agent identity the vault cannot read
+/// refuses the listing, naming it.
+pub(super) fn names(vault: &Vault, table: &Map<String, Value>) -> Result<Vec<String>, String> {
     let mut names: Vec<String> = Vec::new();
     for (_, provider, subscription) in provider_items(vault) {
         names.push(format!("{PROVIDER_PREFIX}{provider}"));
@@ -153,13 +154,13 @@ pub(super) fn names(vault: &Vault, table: &Map<String, Value>) -> Vec<String> {
             names.push(format!("{PROVIDER_PREFIX}{provider}:{id}"));
         }
     }
-    for (agent, _) in agent_items(vault, None) {
+    for (agent, _) in agent_items(vault, None)? {
         names.push(format!("{AGENT_PREFIX}{agent}"));
     }
     names.extend(table.keys().cloned());
     names.sort();
     names.dedup();
-    names
+    Ok(names)
 }
 
 /// One name resolved, with the vault's answer for every coordinate it names.

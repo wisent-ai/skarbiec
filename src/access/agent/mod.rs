@@ -28,7 +28,11 @@ pub fn enrol(positionals: &[String]) -> Result<Value> {
     }
     let mut vault = Vault::open(vault_path())?;
     ensure_not_replica(&vault, "agent-enrol")?;
-    if let Some((_, item)) = agent_items(&vault, Some(agent)).into_iter().next() {
+    if let Some((_, item)) = agent_items(&vault, Some(agent))
+        .map_err(anyhow::Error::msg)?
+        .into_iter()
+        .next()
+    {
         bail!(
             "agent {agent} already has a signing identity in item {item}; \
              `skarbiec route resolve agent:{agent}` shows it"

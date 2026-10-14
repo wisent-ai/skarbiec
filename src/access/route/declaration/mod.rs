@@ -219,29 +219,45 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
 
 /// Every agent signing identity the vault declares: an `internal-authority`
 /// item carrying `agent_auth_secret` whose own `id` field names the agent.
-pub(crate) fn agent_items(vault: &Vault, agent: Option<&str>) -> Vec<(String, String)> {
+/// An identity item the vault cannot read is refused naming it: skipped, the
+/// agent would read as undeclared and could be enrolled a second time.
+pub(crate) fn agent_items(
+    vault: &Vault,
+    agent: Option<&str>,
+) -> Result<Vec<(String, String)>, String> {
     let Some(items) = items(vault) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    let mut declared: Vec<(String, String)> = items
-        .iter()
-        .filter(|(_, record)| {
-            live(record) && record.get("kind").and_then(Value::as_str) == Some(AGENT_IDENTITY_KIND)
-        })
-        .filter_map(|(item, _)| {
-            let payload = vault.get_item(item).ok()?;
-            let fields = payload.get("fields").and_then(Value::as_object)?;
-            fields.get(AGENT_SECRET_FIELD).and_then(Value::as_str)?;
-            let declared = fields
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|value| exact_token(value))?;
-            if agent.is_some_and(|needle| needle != declared) {
-                return None;
-            }
-            Some((declared.to_string(), item.clone()))
-        })
-        .collect();
+    let mut declared: Vec<(String, String)> = Vec::new();
+    let identities = items.iter().filter(|(_, record)| {
+        live(record) && record.get("kind").and_then(Value::as_str) == Some(AGENT_IDENTITY_KIND)
+    });
+    for (item, _) in identities {
+        let payload = vault
+            .get_item(item)
+            .map_err(|error| format!("agent identity item {item} cannot be read: {error:#}"))?;
+        let Some(fields) = payload.get("fields").and_then(Value::as_object) else {
+            continue;
+        };
+        if fields
+            .get(AGENT_SECRET_FIELD)
+            .and_then(Value::as_str)
+            .is_none()
+        {
+            continue;
+        }
+        let Some(named) = fields
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|value| exact_token(value))
+        else {
+            continue;
+        };
+        if agent.is_some_and(|needle| needle != named) {
+            continue;
+        }
+        declared.push((named.to_string(), item.clone()));
+    }
     declared.sort();
-    declared
+    Ok(declared)
 }
