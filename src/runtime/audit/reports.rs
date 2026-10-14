@@ -230,10 +230,8 @@ pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
 /// How many entries the journal holds, counted by line without parsing them.
 fn journal_length() -> Result<usize> {
     let path = audit_path();
-    if !path.exists() {
+    let Some(text) = crate::core::read_present(&path, "audit journal")? else {
         return Ok(usize::MIN);
-    }
-    let text = std::fs::read_to_string(&path)
-        .with_context(|| format!("reading the audit journal {}", path.display()))?;
+    };
     Ok(text.lines().filter(|line| !line.trim().is_empty()).count())
 }

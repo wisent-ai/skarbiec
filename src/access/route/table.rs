@@ -56,11 +56,9 @@ pub(super) fn shadowed(table: &Map<String, Value>, rows: &[super::declaration::R
 /// hand-declared row would be written to.
 pub(super) fn load() -> Result<Map<String, Value>> {
     let path = routes_path();
-    if !path.exists() {
+    let Some(raw) = crate::core::read_present(&path, "capability routes")? else {
         return Ok(Map::new());
-    }
-    let raw = fs::read_to_string(&path)
-        .with_context(|| format!("read capability routes {}", path.display()))?;
+    };
     let parsed: Value = serde_json::from_str(&raw)
         .with_context(|| format!("parse capability routes {}", path.display()))?;
     match parsed {

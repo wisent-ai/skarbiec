@@ -48,16 +48,8 @@ pub(super) fn lines() -> Result<Vec<Value>> {
 /// fault, so the reader it is built on cannot either.
 pub(super) fn lines_with_faults() -> Result<(Vec<Value>, Vec<Value>)> {
     let path = audit_path();
-    // Only a journal that does not exist is empty; one that cannot be read
-    // (`exists()` answers false for that too) is the error.
-    let body = match std::fs::read_to_string(&path) {
-        Ok(body) => body,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((Vec::new(), Vec::new()));
-        }
-        Err(error) => {
-            return Err(error).with_context(|| format!("read audit journal {}", path.display()));
-        }
+    let Some(body) = crate::core::read_present(&path, "audit journal")? else {
+        return Ok((Vec::new(), Vec::new()));
     };
     let mut out = Vec::new();
     let mut malformed = Vec::new();
@@ -90,10 +82,13 @@ pub(super) fn sha256_hex(input: &str) -> String {
 }
 pub(super) fn tail_hash() -> Result<String> {
     let path = audit_path();
-    if !path.exists() {
-        return Ok(String::new());
-    }
-    let mut file = std::fs::File::open(&path)?;
+    let mut file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("open audit journal {}", path.display()));
+        }
+    };
     let len = file.metadata()?.len();
     let window = u64::try_from(usize::from(u16::MAX)).unwrap_or(u64::MAX);
     let skip = len.saturating_sub(window);
@@ -167,10 +162,13 @@ pub(super) fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
 /// seventeen megabytes to get them.
 pub(super) fn tail_lines(limit: usize) -> Result<Vec<Value>> {
     let path = audit_path();
-    if !path.exists() {
-        return Ok(Vec::new());
-    }
-    let mut file = std::fs::File::open(&path)?;
+    let mut file = match std::fs::File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("open audit journal {}", path.display()));
+        }
+    };
     let length = file.metadata()?.len();
     let mut window = u64::try_from(usize::from(u16::MAX))?;
     let growth: u64 = 2;

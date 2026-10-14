@@ -80,10 +80,9 @@ pub(in crate::access) fn write_private_file(path: &Path, bytes: &[u8]) -> Result
 
 pub(in crate::access::capability) fn load_state() -> Result<Value> {
     let path = state_path();
-    if !path.exists() {
+    let Some(raw) = crate::core::read_present(&path, "capability state")? else {
         return Ok(json!({"version": 1, "capabilities": {}, "nonces": {}}));
-    }
-    let raw = fs::read_to_string(&path).context("read capability state")?;
+    };
     let parsed: Value = match serde_json::from_str(&raw) {
         Ok(value) => value,
         Err(original) => {

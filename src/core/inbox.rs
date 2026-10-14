@@ -30,11 +30,9 @@ fn inbox_path() -> PathBuf {
 
 fn load_inbox() -> Result<Value> {
     let path = inbox_path();
-    if !path.exists() {
+    let Some(body) = crate::core::read_present(&path, "donation inbox")? else {
         return Ok(json!({"donations": []}));
-    }
-    let body =
-        std::fs::read_to_string(&path).with_context(|| format!("read inbox {}", path.display()))?;
+    };
     Ok(serde_json::from_str(&body)?)
 }
 
