@@ -192,26 +192,26 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
         }
     }
     if let Some(receipt) = response.get("receipt").filter(|value| !value.is_null()) {
+        // The receipt is checked against this request's own operation and id;
+        // a request without them cannot vouch for any receipt.
         let operation = request
             .get("operation")
             .and_then(Value::as_str)
-            .unwrap_or_default();
+            .context("the credential-operation request names no operation, so Weles's receipt cannot be checked against it")?;
         let request_id = request
             .get("request_id")
             .and_then(Value::as_str)
-            .unwrap_or_default();
+            .context("the credential-operation request carries no request_id, so Weles's receipt cannot be checked against it")?;
         if !receipt_matches(receipt, directory, operation, request_id) {
             bail!(
                 "Weles credential-operation receipt names another principal, request, or operation"
             );
         }
     }
-    let response_status = response
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
     let action_log_id = response.get("action_log_id").and_then(Value::as_str);
-    if response_status == "operation_queued" && action_log_id.is_none() {
+    if response.get("status").and_then(Value::as_str) == Some("operation_queued")
+        && action_log_id.is_none()
+    {
         bail!("queued Weles credential operation is missing its action log id");
     }
     if request.get("mode").and_then(Value::as_str) == Some("status") {
