@@ -126,15 +126,20 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
     Ok(())
 }
 
+/// Whose journey this is: the account this process runs as and the machine's
+/// own name. Read from USER and HOSTNAME, an unset one was a placeholder
+/// shared by every account or host without it; a host whose name cannot be
+/// read refuses with the cause.
 pub(super) fn subject_hash() -> Result<String> {
-    let user = std::env::var("USER").unwrap_or_else(|_| "unknown-user".to_string());
-    let host = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown-host".to_string());
-    crate::core::crypto::sha256_hex(&format!("skarbiec-onboarding\0{user}\0{host}"))
+    // SAFETY: getuid has no preconditions and cannot fail.
+    let uid = unsafe { libc::getuid() };
+    let host = crate::runtime::vaults::hostname()?;
+    crate::core::crypto::sha256_hex(&format!("skarbiec-onboarding\0{uid}\0{host}"))
 }
 
+/// The onboarding state under the account's home, which HOME or the user
+/// database names. Read from HOME alone, an unset one filed the state under
+/// whatever directory the process started in.
 pub(super) fn state_path() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".local/share/skarbiec/onboarding.json")
+    crate::core::home_dir().join(".local/share/skarbiec/onboarding.json")
 }

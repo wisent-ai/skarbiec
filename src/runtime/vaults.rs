@@ -153,7 +153,7 @@ pub fn inventory() -> Result<Value> {
 /// answer came from without the collector having to label it. A name that
 /// cannot be read is the inventory's error with its cause: an invented label
 /// would file this machine's vaults under a host that does not exist.
-fn hostname() -> Result<String> {
+pub(crate) fn hostname() -> Result<String> {
     let output = stado_wait::output(&mut std::process::Command::new("hostname"))
         .map_err(|error| anyhow::anyhow!("the hostname program could not run: {error}"))?;
     if !output.status.success() {
