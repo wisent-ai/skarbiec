@@ -48,7 +48,7 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
 
         match screen.get("screen_kind").and_then(Value::as_str) {
             Some("first_action") => {
-                if !crate::vault_path().exists() {
+                if !crate::core::is_present(&crate::vault_path(), "vault")? {
                     println!("\nA vault is required for the real first result.");
                     println!("Run: skarbiec init <owner-uid>");
                     return Ok(json!({

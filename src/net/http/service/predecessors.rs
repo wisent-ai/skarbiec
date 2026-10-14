@@ -106,8 +106,13 @@ mod launchd {
             // job with no launch agent here was loaded from somewhere this
             // process does not own, and a fixture with its own HOME must never
             // boot out the real host's jobs.
-            if !plist.exists() {
-                continue;
+            match crate::core::is_present(&plist, "predecessor launch agent") {
+                Ok(true) => {}
+                Ok(false) => continue,
+                Err(error) => {
+                    eprintln!("skarbiec serve: kept {label}: {error:#}");
+                    continue;
+                }
             }
             // A unit whose state cannot be read is kept and the cause named:
             // retiring it blind could stop a job whose ports nothing then

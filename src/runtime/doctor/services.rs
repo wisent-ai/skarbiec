@@ -68,10 +68,16 @@ pub(super) fn worm_check() -> Value {
             "set SKARBIEC_WORM_RECEIPT_DIR and SKARBIEC_WORM_CHECKPOINT to enable write-once receipts".to_string(),
         );
     }
-    let missing: Vec<&str> = [directory.as_str(), checkpoint.as_str()]
-        .into_iter()
-        .filter(|path| !std::path::Path::new(path).exists())
-        .collect();
+    let mut missing: Vec<&str> = Vec::new();
+    for path in [directory.as_str(), checkpoint.as_str()] {
+        match crate::core::is_present(std::path::Path::new(path), "write-once receipt path") {
+            Ok(true) => {}
+            Ok(false) => missing.push(path),
+            // A receipt path that cannot be examined is the failure with its
+            // cause, not one reported as absent.
+            Err(error) => return check("worm", FAIL, format!("{error:#}")),
+        }
+    }
     if missing.is_empty() {
         check("worm", PASS, format!("receipts in {directory}"))
     } else {
