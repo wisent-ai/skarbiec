@@ -197,16 +197,7 @@ fn adopt_live_item(
         return Ok(());
     };
     crate::cli::items::ensure_owner_mutation_allowed(vault, &item, "route role adoption")?;
-    let mut tags: Vec<String> = record
-        .get("tags")
-        .and_then(Value::as_array)
-        .map(|tags| {
-            tags.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut tags = crate::core::vault::entry_texts(&item, &record, "tags")?;
     tags.push(tag.to_string());
     vault.set_item_tags(&item, &tags)?;
     crate::runtime::audit::append_sync(

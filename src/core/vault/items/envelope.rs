@@ -95,21 +95,17 @@ impl Vault {
                 );
             }
         }
-        let effective_recipients = if preserve_metadata {
-            previous
-                .as_ref()
-                .and_then(|entry| entry.get("recipients"))
-                .and_then(Value::as_array)
-                .map(|values| {
-                    values
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect()
-                })
-                .unwrap_or_else(|| recipient_uids.to_vec())
-        } else {
-            recipient_uids.to_vec()
+        // A previous recipients list is kept as stored; one that is not a list
+        // of text is refused, since read with its odd entries dropped the
+        // item was re-encrypted to fewer recipients with nothing said.
+        let stored_recipients = previous.as_ref().filter(|entry| {
+            entry
+                .get("recipients")
+                .is_some_and(|listed| !listed.is_null())
+        });
+        let effective_recipients = match (preserve_metadata, stored_recipients) {
+            (true, Some(entry)) => crate::core::vault::entry_texts(id, entry, "recipients")?,
+            _ => recipient_uids.to_vec(),
         };
         let effective_tags = if preserve_metadata {
             previous
