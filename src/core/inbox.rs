@@ -38,15 +38,13 @@ fn load_inbox() -> Result<Value> {
     Ok(serde_json::from_str(&body)?)
 }
 
-/// Writes the donation inbox owner-only. An inbox left readable by others
-/// exposes the donated secrets, so a mode that cannot be set fails the save.
+/// Writes the donation inbox owner-only from its first byte: through the
+/// vault's private atomic write, so the donated secrets are never on disk
+/// under the umask's mode, and a failed write leaves the previous inbox whole.
 fn save_inbox(doc: &Value) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
     let path = inbox_path();
-    std::fs::write(&path, serde_json::to_string_pretty(doc)?)?;
-    let private = std::fs::Permissions::from_mode(crate::core::vault::private_file_mode()?);
-    std::fs::set_permissions(&path, private)
-        .with_context(|| format!("make inbox {} owner-only", path.display()))
+    crate::core::vault::atomic_write(&path, serde_json::to_string_pretty(doc)?.as_bytes())
+        .with_context(|| format!("write inbox {} owner-only", path.display()))
 }
 
 /// Writer of the active canonical revision.
