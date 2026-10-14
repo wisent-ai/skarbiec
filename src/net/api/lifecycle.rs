@@ -23,7 +23,8 @@ fn lifecycle_authorized(headers: &HashMap<String, String>, item: &str) -> Result
         return Ok(false);
     }
     let vault = http::load()?;
-    grant::token_allows_action(&vault, &consumer, &bearer, "lifecycle", item)
+    let lifecycle = crate::access::actions::Action::Lifecycle.as_str();
+    grant::token_allows_action(&vault, &consumer, &bearer, lifecycle, item)
 }
 
 /// `POST /v1/credential/operations` — submit or resume one credential

@@ -218,7 +218,8 @@ pub(super) fn seal_directory(
     refuse_quarantined(&vault, credential_id, command)?;
     if reseal {
         let (consumer, token) = client_identity(flags)?;
-        if !grant::token_allows_action(&vault, &consumer, &token, "reseal", credential_id)? {
+        let action = crate::access::actions::Action::Reseal.as_str();
+        if !grant::token_allows_action(&vault, &consumer, &token, action, credential_id)? {
             bail!("{consumer} holds no reseal capability for {credential_id}");
         }
     } else if resolved_directory(&vault, credential_id)?.is_some() {

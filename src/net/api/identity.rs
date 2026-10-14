@@ -33,7 +33,13 @@ pub(crate) fn handle_tokens_introspect(
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !grant::token_allows_action(&vault, &consumer, &bearer, "introspect", "tokens")?
+        || !grant::token_allows_action(
+            &vault,
+            &consumer,
+            &bearer,
+            crate::access::actions::Action::Introspect.as_str(),
+            "tokens",
+        )?
     {
         return http::write_response(
             stream,

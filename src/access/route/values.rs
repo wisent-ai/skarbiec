@@ -82,10 +82,14 @@ fn readable(
         return Ok(true);
     };
     let presented = presented.context("named route consumer requires a bearer")?;
-    Ok(
-        grant::token_allows_field_action(vault, consumer, presented, "read", item, field)?
-            && !crate::credential::candidate_hidden(vault, item, field, consumer),
-    )
+    Ok(grant::token_allows_field_action(
+        vault,
+        consumer,
+        presented,
+        crate::access::actions::Action::Read.as_str(),
+        item,
+        field,
+    )? && !crate::credential::candidate_hidden(vault, item, field, consumer))
 }
 
 /// The values behind resolved rows, as (item, variable, value).

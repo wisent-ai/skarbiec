@@ -118,7 +118,12 @@ pub(crate) fn handle_items_put(
             }
             if consumer.is_empty()
                 || !grant::token_allows_field_action(
-                    &vault, &consumer, &bearer, "stage", requested, field,
+                    &vault,
+                    &consumer,
+                    &bearer,
+                    crate::access::actions::Action::Stage.as_str(),
+                    requested,
+                    field,
                 )?
             {
                 return http::write_response(
@@ -195,7 +200,12 @@ pub(crate) fn handle_items_put(
         "stage" => {
             if consumer.is_empty()
                 || !grant::token_allows_field_action(
-                    &vault, &consumer, &bearer, "stage", requested, field,
+                    &vault,
+                    &consumer,
+                    &bearer,
+                    crate::access::actions::Action::Stage.as_str(),
+                    requested,
+                    field,
                 )?
             {
                 return http::write_response(

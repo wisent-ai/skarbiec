@@ -255,7 +255,8 @@ pub(in crate::access::grant) fn ensure_read_once(
     // because this machine runs several brokers over different vault files and
     // a grant recorded in one says nothing about a consumer reading another.
     let vault = load()?;
-    let refusal = if !token_allows_field_action(&vault, consumer, &bearer, "read", item, field)? {
+    let read = crate::access::actions::Action::Read.as_str();
+    let refusal = if !token_allows_field_action(&vault, consumer, &bearer, read, item, field)? {
         Some("consumer not authorized to read item field")
     } else if field != "context"
         && matches!(

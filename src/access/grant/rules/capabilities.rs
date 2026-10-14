@@ -196,9 +196,9 @@ pub fn acquisition_grant(
         .get("capabilities")
         .and_then(Value::as_array)
         .is_some_and(|capabilities| {
-            capabilities
-                .iter()
-                .any(|capability| capability_matches(capability, "acquire", item, Some(field)))
+            capabilities.iter().any(|capability| {
+                capability_matches(capability, Action::Acquire.as_str(), item, Some(field))
+            })
         });
     if !allowed {
         return None;

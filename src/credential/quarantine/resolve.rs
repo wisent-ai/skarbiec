@@ -57,7 +57,8 @@ pub(in crate::credential) fn resolve_quarantine(
     } else {
         request_item_id(credential_id)
     };
-    if !grant::token_allows_action(&vault, &consumer, &token, "admin", &admin_target)? {
+    let admin = crate::access::actions::Action::Admin.as_str();
+    if !grant::token_allows_action(&vault, &consumer, &token, admin, &admin_target)? {
         bail!("{consumer} holds no admin capability for {admin_target}");
     }
     let request_item = request_item_id(credential_id);

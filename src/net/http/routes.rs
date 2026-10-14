@@ -210,7 +210,13 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             );
         }
         if consumer.is_empty()
-            || !grant::token_allows_action(&vault, &consumer, &bearer, "trash", id)?
+            || !grant::token_allows_action(
+                &vault,
+                &consumer,
+                &bearer,
+                crate::access::actions::Action::Trash.as_str(),
+                id,
+            )?
         {
             return write_response(
                 &mut stream,

@@ -47,7 +47,14 @@ pub(super) fn handle(
         value,
     } = rotation;
     if consumer.is_empty()
-        || !grant::token_allows_field_action(&vault, consumer, bearer, "rotate", id, field)?
+        || !grant::token_allows_field_action(
+            &vault,
+            consumer,
+            bearer,
+            crate::access::actions::Action::Rotate.as_str(),
+            id,
+            field,
+        )?
     {
         return refuse(
             stream,

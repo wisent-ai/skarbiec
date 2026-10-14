@@ -58,7 +58,14 @@ pub(super) fn locate(
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = http::load()?;
     if consumer.is_empty()
-        || !grant::token_allows_field_action(&vault, &consumer, &bearer, "read", id, field)?
+        || !grant::token_allows_field_action(
+            &vault,
+            &consumer,
+            &bearer,
+            crate::access::actions::Action::Read.as_str(),
+            id,
+            field,
+        )?
     {
         http::write_response(
             stream,
