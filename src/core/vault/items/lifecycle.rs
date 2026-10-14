@@ -254,7 +254,11 @@ impl Vault {
         self.save()?;
         crate::runtime::audit::append(
             "item-reclaimed",
-            &json!({"item": id, "previous_controller": previous, "previous_mode": mode}),
+            &json!({
+                "item": id,
+                "previous_controller": previous,
+                "previous_mode": mode.map(ManagementMode::as_str),
+            }),
         )
     }
 
