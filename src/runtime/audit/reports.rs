@@ -23,6 +23,25 @@ pub fn probe() -> Result<()> {
     Ok(())
 }
 
+/// What `audit verify` reports. One shape: the CLI prints it, and every
+/// reader in this process reads its fields, so none re-parses the printed
+/// document and stands a default in for a field it did not find.
+#[derive(serde::Serialize)]
+pub struct ChainReport {
+    pub journal: String,
+    pub entries: usize,
+    pub malformed: usize,
+    pub linkage_checked: usize,
+    pub linkage_verified: usize,
+    pub epochs: usize,
+    pub digests_checked: usize,
+    pub digests_verified: usize,
+    pub intact: bool,
+    pub broken_at: Option<String>,
+    /// Each fault as `{line, at, op, fault[, detail]}`.
+    pub faults: Vec<Value>,
+}
+
 /// Verify the journal's hash chain, and say which journal was verified.
 ///
 /// The report names the selected journal: a valid default file does not prove
@@ -41,7 +60,7 @@ pub fn probe() -> Result<()> {
 ///
 /// Neither scan stops at the first fault; later valid entries and later faults
 /// remain part of the report.
-pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
+pub fn chain_report(flags: &HashMap<String, String>) -> Result<ChainReport> {
     let (entries, malformed) = lines_with_faults()?;
     let one: usize = 1;
     let total = entries.len();
@@ -142,19 +161,19 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<Value> {
         .and_then(|fault| fault.get("at"))
         .and_then(Value::as_str)
         .map(str::to_string);
-    Ok(json!({
-        "journal": audit_path().display().to_string(),
-        "entries": total,
-        "malformed": malformed.len(),
-        "linkage_checked": total,
-        "linkage_verified": linked,
-        "epochs": epochs,
-        "digests_checked": total.saturating_sub(digests_from),
-        "digests_verified": digested,
-        "intact": faults.is_empty(),
-        "broken_at": broken_at,
-        "faults": faults,
-    }))
+    Ok(ChainReport {
+        journal: audit_path().display().to_string(),
+        entries: total,
+        malformed: malformed.len(),
+        linkage_checked: total,
+        linkage_verified: linked,
+        epochs,
+        digests_checked: total.saturating_sub(digests_from),
+        digests_verified: digested,
+        intact: faults.is_empty(),
+        broken_at,
+        faults,
+    })
 }
 
 /// The text field `name` of a journal line or its `extra`, or `name` noted in

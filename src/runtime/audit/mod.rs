@@ -60,7 +60,7 @@ fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Valu
 fn leaf(command: &str, flags: &HashMap<String, String>) -> Result<Option<Value>> {
     match command {
         "audit list" => Ok(Some(audit(flags)?)),
-        "audit verify" => Ok(Some(chain_report(flags)?)),
+        "audit verify" => Ok(Some(serde_json::to_value(chain_report(flags)?)?)),
         "audit epoch" => Ok(Some(start_epoch(flags)?)),
         _ => Ok(None),
     }

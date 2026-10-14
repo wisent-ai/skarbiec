@@ -21,7 +21,7 @@ pub(super) fn start_epoch(flags: &HashMap<String, String>) -> Result<Value> {
         .filter(|reason| !reason.trim().is_empty())
         .context("--reason is required")?;
     let report = chain_report(&HashMap::new())?;
-    if report.get("intact").and_then(Value::as_bool) == Some(true) {
+    if report.intact {
         anyhow::bail!("audit journal is intact; refusing to create an unnecessary epoch");
     }
     let path = audit_path();
@@ -49,8 +49,8 @@ pub(super) fn start_epoch(flags: &HashMap<String, String>) -> Result<Value> {
         "at": at,
         "reason": reason,
         "previous_tail": previous_tail,
-        "broken_at": report["broken_at"],
-        "faults": report["faults"].as_array().map(Vec::len),
+        "broken_at": report.broken_at,
+        "faults": report.faults.len(),
     }))?;
     let signed_checkpoint = crate::core::crypto::clearsign(signer, &checkpoint)?;
     let extra = json!({

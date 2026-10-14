@@ -45,53 +45,27 @@ pub(super) fn audit_check(tail: Option<&str>) -> Value {
     }
     match audit::chain_report(&flags) {
         Ok(report) => {
-            let journal = report
-                .get("journal")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let linked = report
-                .get("linkage_verified")
-                .and_then(Value::as_u64)
-                .unwrap_or_default();
-            let total = report
-                .get("linkage_checked")
-                .and_then(Value::as_u64)
-                .unwrap_or_default();
-            let digests = report
-                .get("digests_verified")
-                .and_then(Value::as_u64)
-                .unwrap_or_default();
-            let intact = report
-                .get("intact")
-                .and_then(Value::as_bool)
-                .unwrap_or_default();
-            let faults = report
-                .get("faults")
-                .and_then(Value::as_array)
-                .map(Vec::as_slice)
-                .unwrap_or_default();
-            let detail = if intact {
+            let (linked, total, digests, journal) = (
+                report.linkage_verified,
+                report.linkage_checked,
+                report.digests_verified,
+                &report.journal,
+            );
+            let detail = if report.intact {
                 format!("{linked} of {total} entries linked, newest {digests} digests intact, in {journal}")
             } else {
-                let first = faults
-                    .first()
-                    .map(|fault| {
-                        format!(
-                            "line {} ({})",
-                            fault
-                                .get("line")
-                                .and_then(Value::as_u64)
-                                .unwrap_or_default(),
-                            fault.get("at").and_then(Value::as_str).unwrap_or_default()
-                        )
-                    })
-                    .unwrap_or_else(|| "an unreported position".to_string());
+                // Each fault carries its line and the entry's instant, null
+                // for a line too malformed to state one; printed as recorded.
+                let first = match report.faults.first() {
+                    Some(fault) => format!("line {} ({})", fault["line"], fault["at"]),
+                    None => "an unreported position".to_string(),
+                };
                 format!(
                     "{linked} of {total} entries linked, newest {digests} digests intact; {} fault(s), first at {first}, in {journal}",
-                    faults.len()
+                    report.faults.len()
                 )
             };
-            check("audit", if intact { PASS } else { FAIL }, detail)
+            check("audit", if report.intact { PASS } else { FAIL }, detail)
         }
         Err(error) => check("audit", FAIL, error.to_string()),
     }
