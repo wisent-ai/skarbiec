@@ -204,9 +204,18 @@ mod launchd {
         if !output.status.success() {
             return Ok(None);
         }
-        Ok(String::from_utf8_lossy(&output.stdout)
+        // A pid line that does not parse is the error: read as no pid, a
+        // running unit would be retired as if nothing ran.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let Some(pid) = stdout
             .lines()
-            .find_map(|line| line.trim().strip_prefix("pid = ")?.trim().parse().ok()))
+            .find_map(|line| line.trim().strip_prefix("pid = "))
+        else {
+            return Ok(None);
+        };
+        pid.trim().parse::<u32>().map(Some).map_err(|error| {
+            anyhow::anyhow!("launchctl print {target} answered an unreadable pid {pid:?}: {error}")
+        })
     }
 
     /// Loopback TCP ports the process is listening on. lsof answers a process
@@ -231,17 +240,26 @@ mod launchd {
                 stderr.trim()
             );
         }
-        Ok(String::from_utf8_lossy(&output.stdout)
+        // A loopback listener whose port does not parse is the error: dropped,
+        // the unit is retired and that port answers nothing.
+        let mut ports = BTreeSet::new();
+        for address in String::from_utf8_lossy(&output.stdout)
             .lines()
             .filter_map(|line| line.strip_prefix('n'))
-            .filter_map(|address| {
-                let (host, port) = address.rsplit_once(':')?;
-                ["127.0.0.1", "[::1]", "localhost"]
-                    .contains(&host)
-                    .then(|| port.parse().ok())
-                    .flatten()
-            })
-            .collect())
+        {
+            let Some((host, port)) = address.rsplit_once(':') else {
+                continue;
+            };
+            if !["127.0.0.1", "[::1]", "localhost"].contains(&host) {
+                continue;
+            }
+            ports.insert(port.parse::<u16>().map_err(|error| {
+                anyhow::anyhow!(
+                    "lsof for pid {pid} listed {address:?} with an unreadable port: {error}"
+                )
+            })?);
+        }
+        Ok(ports)
     }
 
     /// The unit's argv, as its launch agent declares it.
