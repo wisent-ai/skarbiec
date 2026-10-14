@@ -36,7 +36,7 @@ impl Vault {
         owner_fpr: &str,
         recovery_fpr: &str,
     ) -> Result<Self> {
-        if path.exists() {
+        if crate::core::presence::present(&path)? {
             bail!("vault already exists at {}", path.display());
         }
         let doc = json!({

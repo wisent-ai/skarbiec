@@ -108,7 +108,9 @@ fn utc(format: &str) -> String {
 /// series.
 fn publish(path: &Path, table: &Value) -> Result<Option<String>> {
     let mut backup = None;
-    if path.exists() {
+    // A table that cannot be examined refuses: read as absent, it was
+    // rewritten without the backup a replacement takes.
+    if crate::core::presence::present(path)? {
         let stamp = utc(STAMP_FORMAT);
         if stamp.is_empty() {
             bail!("refusing to write capability routes without a stamped backup name");
@@ -117,7 +119,7 @@ fn publish(path: &Path, table: &Value) -> Result<Option<String>> {
         // `date` on this platform stops at whole seconds, and two routes were
         // once declared inside one. The process id separates them, so the
         // second write cannot overwrite the snapshot the first took.
-        if copy.exists() {
+        if crate::core::presence::present(&copy)? {
             copy = path.with_extension(format!("json.before-{stamp}-{}", std::process::id()));
         }
         fs::copy(path, &copy)
