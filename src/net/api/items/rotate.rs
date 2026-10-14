@@ -136,27 +136,16 @@ pub(super) fn handle(
     if let Err(error) = schema::validate_payload(&payload, &kind) {
         return refuse(stream, "HTTP/1.1 400 Bad Request", error.to_string());
     }
-    let listed = |key: &str| -> Vec<String> {
-        stored
-            .get(key)
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
+    // The stored lists are written back with the new field: one that is not a
+    // list of text is refused rather than written back shortened or empty.
+    let listed = |key: &str| crate::core::vault::entry_texts(id, &stored, key);
+    let (recipients, tags) = match (listed("recipients"), listed("tags")) {
+        (Ok(recipients), Ok(tags)) => (recipients, tags),
+        (Err(error), _) | (_, Err(error)) => {
+            return refuse(stream, "HTTP/1.1 409 Conflict", format!("{error:#}"));
+        }
     };
-    vault.set_item_written_by(
-        id,
-        &kind,
-        &payload,
-        &listed("recipients"),
-        &listed("tags"),
-        consumer,
-    )?;
+    vault.set_item_written_by(id, &kind, &payload, &recipients, &tags, consumer)?;
     let revision = vault
         .doc()
         .get("items")
