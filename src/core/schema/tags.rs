@@ -181,10 +181,15 @@ fn tag_refused(tag: &str, reason: &str) -> String {
 /// unregistered tag already in the vault is a migration to run, not a rotation
 /// to break.
 pub fn ensure_registered_tags(carried: &[Value], written: &[Value]) -> Result<()> {
-    for tag in written.iter().filter_map(Value::as_str) {
-        if carried.iter().any(|kept| kept.as_str() == Some(tag)) {
+    for written_tag in written {
+        if carried.contains(written_tag) {
             continue;
         }
+        // A tag that is not text is refused here, not passed over: skipped,
+        // it was written without any namespace judging it.
+        let Some(tag) = written_tag.as_str() else {
+            bail!("tag {written_tag} is not text, so no registered namespace can cover it");
+        };
         if let Err(reason) = tag_refusal(tag) {
             bail!("{}", tag_refused(tag, &reason));
         }
