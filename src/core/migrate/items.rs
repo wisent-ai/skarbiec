@@ -28,29 +28,33 @@ fn operation_id(payload: &Value) -> Value {
         .unwrap_or(Value::Null)
 }
 
-fn recipient_fingerprints(vault: &Vault, entry: &Value) -> Vec<String> {
-    let mut recipients: Vec<String> = entry
-        .get("recipients")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect();
+/// The fingerprints a legacy item is re-enveloped to: every recipient it
+/// lists, the owner, and the recovery key. A recipients field that is not a
+/// list of text is refused; it was read as fewer recipients. A listed uid the
+/// vault holds no fingerprint for (a recipient removed since) is not carried
+/// over, and that is said, since the migrated item is then readable by fewer
+/// people than the legacy one.
+fn recipient_fingerprints(vault: &Vault, id: &str, entry: &Value) -> Result<Vec<String>> {
+    let mut recipients = crate::core::vault::entry_texts(id, entry, "recipients")?;
     recipients.push(vault.owner_uid().to_string());
     let mut fingerprints = Vec::new();
     for uid in recipients {
-        if let Some(fingerprint) = vault.recipient_fpr(&uid) {
-            if !fingerprints.contains(&fingerprint) {
-                fingerprints.push(fingerprint);
+        match vault.recipient_fpr(&uid) {
+            Some(fingerprint) => {
+                if !fingerprints.contains(&fingerprint) {
+                    fingerprints.push(fingerprint);
+                }
             }
+            None => eprintln!(
+                "skarbiec: {id} lists recipient {uid}, whose fingerprint the vault no longer holds; the migrated item is not encrypted to it"
+            ),
         }
     }
     let recovery = vault.recovery_fpr().to_string();
     if !recovery.is_empty() && !fingerprints.contains(&recovery) {
         fingerprints.push(recovery);
     }
-    fingerprints
+    Ok(fingerprints)
 }
 
 fn canonical_revision(
@@ -95,7 +99,7 @@ pub(super) fn migrate_item(
         .get("current")
         .and_then(Value::as_str)
         .context("legacy item has no current ciphertext")?;
-    let fingerprints = recipient_fingerprints(vault, entry);
+    let fingerprints = recipient_fingerprints(vault, id, entry)?;
     if fingerprints.is_empty() {
         bail!("{id} has no valid recipient fingerprint");
     }
