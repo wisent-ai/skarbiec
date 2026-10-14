@@ -31,15 +31,10 @@ pub(super) fn now_iso() -> String {
 pub(super) fn lines() -> Result<Vec<Value>> {
     let (entries, malformed) = lines_with_faults()?;
     if let Some(fault) = malformed.first() {
-        let line = fault
-            .get("line")
-            .and_then(Value::as_u64)
-            .unwrap_or_default();
-        let detail = fault
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("unparseable");
-        anyhow::bail!("audit line {line} is not JSON: {detail}");
+        anyhow::bail!(
+            "audit journal {} holds a line that is not JSON: {fault}",
+            audit_path().display()
+        );
     }
     Ok(entries)
 }
@@ -53,10 +48,17 @@ pub(super) fn lines() -> Result<Vec<Value>> {
 /// fault, so the reader it is built on cannot either.
 pub(super) fn lines_with_faults() -> Result<(Vec<Value>, Vec<Value>)> {
     let path = audit_path();
-    if !path.exists() {
-        return Ok((Vec::new(), Vec::new()));
-    }
-    let body = std::fs::read_to_string(&path)?;
+    // Only a journal that does not exist is empty; one that cannot be read
+    // (`exists()` answers false for that too) is the error.
+    let body = match std::fs::read_to_string(&path) {
+        Ok(body) => body,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("read audit journal {}", path.display()));
+        }
+    };
     let mut out = Vec::new();
     let mut malformed = Vec::new();
     for (offset, line) in body.lines().enumerate() {
