@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::calls::{credential, flags, text};
 
@@ -17,33 +17,14 @@ enum Operation {
     Rotate,
     Resume,
     Get,
-    Set,
     SetJson,
     Totp,
-}
-
-/// A `set` request: the members that address the item, and every other
-/// member, each one field of the item to set.
-#[derive(Deserialize)]
-struct SetRequest {
-    item: String,
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    /// Names this route; not a field of the item.
-    #[allow(dead_code)]
-    operation: Value,
-    /// The vault the console names; this route serves the vault in view.
-    #[serde(default)]
-    #[allow(dead_code)]
-    vault: Option<Value>,
-    #[serde(flatten)]
-    fields: Map<String, Value>,
 }
 
 pub(super) fn answer(parsed: &Value) -> Result<Value> {
     let operation: Operation = Operation::deserialize(&parsed["operation"]).with_context(|| {
         format!(
-            "operator credential operation {} is none of status, acquire, rotate, resume, get, set, set-json, totp",
+            "operator credential operation {} is none of status, acquire, rotate, resume, get, set-json, totp; a field write sends the whole payload with set-json",
             parsed["operation"]
         )
     })?;
@@ -64,22 +45,6 @@ pub(super) fn answer(parsed: &Value) -> Result<Value> {
             &["get".to_string(), text(parsed, "item")?],
         )?
         .context("get operation failed"),
-        Operation::Set => {
-            let request = SetRequest::deserialize(parsed).context("operator credential set")?;
-            let mut call_flags = std::collections::HashMap::new();
-            if let Some(kind) = request.kind.filter(|kind| !kind.is_empty()) {
-                call_flags.insert("type".to_string(), kind);
-            }
-            let mut positionals = vec!["set".to_string(), request.item];
-            positionals.extend(
-                request
-                    .fields
-                    .iter()
-                    .filter_map(|(key, value)| value.as_str().map(|text| format!("{key}={text}"))),
-            );
-            crate::core::values::dispatch("credential", &call_flags, &positionals)?
-                .context("set operation failed")
-        }
         Operation::SetJson => {
             let mut call_flags = flags(
                 parsed,

@@ -58,6 +58,20 @@ async function operator(expected, payload, accepted) {
   assert.equal(response.ok, accepted, body);
   if (!accepted) assert.ok(body.includes('item_payload_changed'), body);
 }
+// The field-by-field `set` operation is gone: a console write sends the whole
+// payload with set-json, so a `set` request is refused naming that and the
+// item is left as it was.
+async function removedSet(field) {
+  const response = await fetch(`${endpoint}/v1/operator/credential`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operation: 'set', item: id, [field]: randomUUID() }),
+  });
+  const body = await response.text();
+  report.requests.push({ operation: 'set', status: response.status, body });
+  save();
+  assert.equal(response.ok, false, body);
+  assert.ok(body.includes('set-json'), body);
+}
 try {
   const head = run('git', ['rev-parse', 'HEAD']);
   assert.ok(head.status !== null && !head.status, head.stderr);
@@ -77,6 +91,8 @@ try {
   await operator(updated, rebound, true);
   assert.deepEqual(success(['get', id]), rebound);
   await operator(updated, original, false);
+  assert.deepEqual(success(['get', id]), rebound);
+  await removedSet('password');
   assert.deepEqual(success(['get', id]), rebound);
   success(['purge', id, '--yes']);
   created = false;
