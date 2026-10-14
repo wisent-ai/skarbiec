@@ -133,7 +133,7 @@ pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Va
 pub(super) fn list() -> Result<Value> {
     let path = crate::core::vault_path();
     let now = now_epoch();
-    let policies: Map<String, Value> = if path.exists() {
+    let policies: Map<String, Value> = if crate::core::is_present(&path, "vault")? {
         policies(&Vault::open(path)?)
     } else {
         Map::new()

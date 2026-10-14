@@ -207,3 +207,17 @@ pub fn read_present(path: &std::path::Path, what: &str) -> anyhow::Result<Option
         }
     }
 }
+
+/// Whether a file exists, refusing a path that cannot be examined. `exists()`
+/// answers false for a vault that cannot be stat'ed too, so rotation runs and
+/// schedules read an unreadable vault as no vault and did nothing, said
+/// nothing; only NotFound is absence, naming `what` and the path otherwise.
+pub fn is_present(path: &std::path::Path, what: &str) -> anyhow::Result<bool> {
+    match std::fs::metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => {
+            Err(anyhow::Error::new(error).context(format!("examine {what} {}", path.display())))
+        }
+    }
+}

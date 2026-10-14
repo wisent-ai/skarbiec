@@ -27,7 +27,7 @@ use super::{policies, section, SUBMISSION};
 /// a replica of another.
 pub(super) fn runs_here() -> Result<bool> {
     let path = crate::core::vault_path();
-    if !path.exists() {
+    if !crate::core::is_present(&path, "vault")? {
         return Ok(false);
     }
     Ok(ensure_not_replica(&Vault::open(path)?, "rotation run").is_ok())

@@ -168,7 +168,7 @@ fn leaf(
         }
         "mirror push" => {
             let live = vault_path();
-            if !live.exists() {
+            if !crate::core::is_present(&live, "vault")? {
                 bail!("no vault to push at {}", live.display());
             }
             std::fs::create_dir_all(sync_dir())?;
@@ -203,12 +203,15 @@ fn leaf(
                 bail!("mirror pull: git pull origin {branch} failed: {}", e.trim());
             }
             let mirror = mirror_path();
-            if !mirror.exists() {
+            if !crate::core::is_present(&mirror, "synced vault")? {
                 bail!("sync repo has no vault.enc.json yet");
             }
             let live = vault_path();
             let mut backup: Option<PathBuf> = None;
-            if live.exists() {
+            // A live vault that cannot be examined is refused, not read as
+            // absent: as absent it was overwritten by the mirror unbacked and
+            // unchecked for local items the mirror lacks.
+            if crate::core::is_present(&live, "live vault")? {
                 let path = live.with_extension(format!("json.pre-pull-{}", now_stamp()));
                 std::fs::copy(&live, &path)
                     .with_context(|| format!("back up live vault to {}", path.display()))?;

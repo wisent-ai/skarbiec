@@ -77,7 +77,7 @@ fn section(vault: &mut Vault) -> Result<&mut Map<String, Value>> {
 /// to report, because nothing here can rotate it.
 pub(crate) fn mark_due(ids: &[String], reason: &str) -> Result<Vec<String>> {
     let path = crate::core::vault_path();
-    if ids.is_empty() || !path.exists() {
+    if ids.is_empty() || !crate::core::is_present(&path, "vault")? {
         return Ok(Vec::new());
     }
     let mut vault = Vault::open(path)?;
