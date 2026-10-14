@@ -140,11 +140,26 @@ pub(super) fn dispatch(
                 ),
             };
             for (uid, entry) in &registry {
-                let fpr = entry
+                let role = entry.get("role").and_then(Value::as_str);
+                // A recipient that records no fingerprint names no key: asking
+                // the keyring about an empty fingerprint would answer for keys
+                // that are not this recipient's.
+                let Some(fpr) = entry
                     .get("fingerprint")
                     .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let held = !fpr.is_empty() && crypto::secret_key_present(fpr);
+                    .filter(|fpr| !fpr.is_empty())
+                else {
+                    recipients.push(json!({
+                        "uid": uid,
+                        "fingerprint": null,
+                        "role": role,
+                        "is_owner": uid == &owner,
+                        "secret_half_present": false,
+                        "damaged": "the vault document records no fingerprint for this recipient, so no key can be named for it",
+                    }));
+                    continue;
+                };
+                let held = crypto::secret_key_present(fpr);
                 if held {
                     openers.push(uid.clone());
                 }
@@ -152,7 +167,7 @@ pub(super) fn dispatch(
                 recipients.push(json!({
                     "uid": uid,
                     "fingerprint": fpr,
-                    "role": entry.get("role").and_then(Value::as_str).unwrap_or_default(),
+                    "role": role,
                     "is_owner": uid == &owner,
                     "secret_half_present": held,
                     "keygrips": grips.clone(),
