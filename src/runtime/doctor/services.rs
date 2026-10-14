@@ -47,8 +47,20 @@ pub(super) fn endpoint_check() -> Value {
 
 /// Write-once receipts, which nobody configures by default.
 pub(super) fn worm_check() -> Value {
-    let directory = std::env::var("SKARBIEC_WORM_RECEIPT_DIR").unwrap_or_default();
-    let checkpoint = std::env::var("SKARBIEC_WORM_CHECKPOINT").unwrap_or_default();
+    // A value that is not text fails the check by name: read as unset, the
+    // doctor reported receipts as never configured while they were.
+    let read = |name: &str| match std::env::var(name) {
+        Ok(value) => Ok(value),
+        Err(std::env::VarError::NotPresent) => Ok(String::new()),
+        Err(error) => Err(format!("{name} is set but cannot be read: {error}")),
+    };
+    let (directory, checkpoint) = match (
+        read("SKARBIEC_WORM_RECEIPT_DIR"),
+        read("SKARBIEC_WORM_CHECKPOINT"),
+    ) {
+        (Ok(directory), Ok(checkpoint)) => (directory, checkpoint),
+        (Err(cause), _) | (_, Err(cause)) => return check("worm", FAIL, cause),
+    };
     if directory.trim().is_empty() || checkpoint.trim().is_empty() {
         return check(
             "worm",
