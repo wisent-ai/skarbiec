@@ -191,6 +191,27 @@ pub fn entry_item_uid(entry: &Value) -> Option<&str> {
         .filter(|value| !value.is_empty())
 }
 
+/// A list of text an entry stores (its `tags`, its `recipients`), read whole
+/// for a writer that seals it back. An entry without the field, or with the
+/// null the item listing projects for an absent one, carries none; a field
+/// that is not a list of text is refused, because a writer given only what it
+/// could read would store the item again without the rest.
+pub fn entry_texts(id: &str, entry: &Value, field: &str) -> Result<Vec<String>> {
+    match entry.get(field) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(listed)) => listed
+            .iter()
+            .map(|each| each.as_str().map(str::to_string))
+            .collect::<Option<Vec<String>>>()
+            .with_context(|| {
+                format!(
+                    "vault item {id} carries {field} with an entry that is not text: {listed:?}"
+                )
+            }),
+        Some(other) => bail!("vault item {id} carries {field} {other}, not a list"),
+    }
+}
+
 fn document_generation(doc: &Value) -> u64 {
     doc.get("generation")
         .and_then(Value::as_u64)

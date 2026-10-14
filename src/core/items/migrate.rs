@@ -205,17 +205,7 @@ pub fn migrate_vault(flags: &std::collections::HashMap<String, String>) -> Resul
             .and_then(Value::as_str)
             .or_else(|| payload.get("kind").and_then(Value::as_str))
             .with_context(|| format!("source item {id} has no kind"))?;
-        let tags: Vec<String> = entry
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let tags = crate::core::vault::entry_texts(id, &entry, "tags")?;
         // The same item on the far side of a copy, so it keeps the same
         // identity. `set_migrated_item` adopts this only when the target has
         // no item under the id yet; an existing target item keeps its own.

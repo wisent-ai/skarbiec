@@ -54,17 +54,7 @@ pub(in crate::credential) fn store_context(
             context.insert((*key).to_string(), value.clone());
         }
     }
-    let tags: Vec<String> = entry
-        .get("tags")
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let tags = crate::core::vault::entry_texts(id, &entry, "tags")?;
     let recipients = vault.item_recipient_uids(id);
     let management = entry.get("management").cloned().unwrap_or_default();
     if ManagementMode::of(&entry) == Some(ManagementMode::Managed) {

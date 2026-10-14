@@ -69,14 +69,7 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
                 );
             }
             row.recipients = vault.item_recipient_uids(&row.id);
-            row.tags = existing
-                .get("tags")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
+            row.tags = crate::core::vault::entry_texts(&row.id, existing, "tags")?;
         }
         let tags: Vec<Value> = row.tags.iter().cloned().map(Value::String).collect();
         let carried = existing

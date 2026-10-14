@@ -24,16 +24,7 @@ fn item_meta(vault: &Vault, id: &str) -> Result<(String, Vec<String>)> {
         .and_then(Value::as_str)
         .context("canonical item has no kind")?
         .to_string();
-    let tags = item
-        .get("tags")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let tags = crate::core::vault::entry_texts(id, item, "tags")?;
     Ok((item_kind, tags))
 }
 

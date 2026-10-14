@@ -90,30 +90,24 @@ fn requested_or_existing(
     vault: &Vault,
     id: &str,
     key: &str,
-) -> Vec<String> {
+) -> Result<Vec<String>> {
     if let Some(value) = flags.get(key) {
-        return value
+        return Ok(value
             .split(',')
             .map(str::trim)
             .filter(|entry| !entry.is_empty())
             .map(str::to_string)
-            .collect();
+            .collect());
     }
-    vault
+    match vault
         .doc()
         .get("items")
         .and_then(Value::as_object)
         .and_then(|items| items.get(id))
-        .and_then(|item| item.get(key))
-        .and_then(Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    {
+        Some(item) => crate::core::vault::entry_texts(id, item, key),
+        None => Ok(Vec::new()),
+    }
 }
 
 /// `--if-absent` creates the item only when no live item has that id; an
@@ -175,8 +169,8 @@ pub(crate) fn set_json_value(
         .map(String::as_str)
         .unwrap_or(payload_kind);
     schema::validate_payload(&payload, item_kind)?;
-    let recipients = requested_or_existing(flags, &vault, id, "recipients");
-    let tags = requested_or_existing(flags, &vault, id, "tags");
+    let recipients = requested_or_existing(flags, &vault, id, "recipients")?;
+    let tags = requested_or_existing(flags, &vault, id, "tags")?;
     ensure_no_reserved_tags(&tags)?;
     let writer = vault.owner_uid().to_string();
     vault.set_item_written_by(id, item_kind, &payload, &recipients, &tags, &writer)?;

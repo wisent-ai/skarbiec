@@ -182,17 +182,7 @@ impl Vault {
             serde_json::from_str(&plain).context("historical revision is not JSON")?;
         schema::validate_payload(&payload, &kind)?;
         let recipients = self.item_recipient_uids(id);
-        let tags: Vec<String> = item
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(|values| {
-                values
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default();
+        let tags = crate::core::vault::entry_texts(id, item, "tags")?;
         self.set_item(id, &kind, &payload, &recipients, &tags)
     }
 }

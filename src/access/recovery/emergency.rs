@@ -111,21 +111,10 @@ pub(super) fn dispatch(
                     .and_then(Value::as_str)
                     .context("canonical item has no kind")?
                     .to_string();
-                // Re-sealing writes the tags back; a tags field it cannot read
-                // whole would be written back without what it dropped.
-                let tags: Vec<String> = match item.get("tags") {
-                    None => Vec::new(),
-                    Some(Value::Array(listed)) => listed
-                        .iter()
-                        .map(|tag| tag.as_str().map(str::to_string))
-                        .collect::<Option<Vec<String>>>()
-                        .with_context(|| {
-                            format!("vault item {id} carries a tag that is not text: {listed:?}; the emergency grant for {grantee} was not activated")
-                        })?,
-                    Some(other) => anyhow::bail!(
-                        "vault item {id} carries tags {other}, not a list; the emergency grant for {grantee} was not activated"
-                    ),
-                };
+                let tags =
+                    crate::core::vault::entry_texts(id, &item, "tags").with_context(|| {
+                        format!("the emergency grant for {grantee} was not activated")
+                    })?;
                 let payload = vault.get_item(id)?;
                 let mut recipients = vault.item_recipient_uids(id);
                 if !recipients.iter().any(|recipient| recipient == grantee) {
