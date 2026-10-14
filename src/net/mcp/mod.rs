@@ -34,8 +34,13 @@ const CODE_PARSE_ERROR: &str = "-32700";
 const CODE_METHOD_NOT_FOUND: &str = "-32601";
 const CODE_INTERNAL_ERROR: &str = "-32000";
 
+/// A declared JSON-RPC error code as the number the wire carries. The codes
+/// are this file's own constants, so one that is not a whole number is a
+/// mistake in this file, said as such, never sent as code 0.
 fn code(raw: &str) -> Value {
-    json!(raw.parse::<i64>().unwrap_or_default())
+    json!(raw
+        .parse::<i64>()
+        .expect("the JSON-RPC error codes declared above are whole numbers"))
 }
 
 fn send(out: &mut impl Write, message: &Value) -> Result<()> {
