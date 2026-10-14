@@ -124,14 +124,33 @@ pub(crate) fn handle_enroll(
     else {
         return http::write_response(stream, bad, &json!({"error": "armored required"}));
     };
-    let items: Vec<String> = parsed
-        .get("items")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_string)
-        .collect();
+    // The items to share with the enrolled key. An absent list shares none; a
+    // list with an entry that is not an item id is refused, since dropping it
+    // left that item unshared and unnamed among the skipped ones.
+    let items: Vec<String> = match parsed.get("items") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(listed)) => match listed
+            .iter()
+            .map(|entry| entry.as_str().map(str::to_string))
+            .collect::<Option<Vec<String>>>()
+        {
+            Some(items) => items,
+            None => {
+                return http::write_response(
+                    stream,
+                    bad,
+                    &json!({"error": format!("items must list item ids as text: {}", Value::Array(listed.clone()))}),
+                )
+            }
+        },
+        Some(other) => {
+            return http::write_response(
+                stream,
+                bad,
+                &json!({"error": format!("items must be a list of item ids, not {other}")}),
+            )
+        }
+    };
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
     if consumer.is_empty()
