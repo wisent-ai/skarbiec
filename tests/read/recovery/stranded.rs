@@ -28,12 +28,8 @@ fn peer(stream: &UnixStream) -> libc::pid_t {
             &mut length,
         )
     };
-    assert_eq!(
-        read,
-        Default::default(),
-        "{}",
-        std::io::Error::last_os_error()
-    );
+    // getsockopt answers a negative value when it fails, with errno set.
+    assert!(!read.is_negative(), "{}", std::io::Error::last_os_error());
     pid
 }
 
@@ -51,12 +47,8 @@ fn peer(stream: &UnixStream) -> libc::pid_t {
             &mut length,
         )
     };
-    assert_eq!(
-        read,
-        Default::default(),
-        "{}",
-        std::io::Error::last_os_error()
-    );
+    // getsockopt answers a negative value when it fails, with errno set.
+    assert!(!read.is_negative(), "{}", std::io::Error::last_os_error());
     credentials.pid
 }
 
