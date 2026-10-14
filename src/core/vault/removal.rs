@@ -32,6 +32,21 @@ impl Vault {
         if fingerprint == self.recovery_fpr() {
             bail!("{uid} holds the recovery key; the recovery recipient cannot be removed");
         }
+        // Which items a leaving recipient can read comes from each item's
+        // stored list. One that is not a list of text is refused first: read
+        // as no recipients, the item was never rewrapped and the removed
+        // recipient kept reading it.
+        let held: Vec<String> = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in &held {
+            self.item_recipient_uids(id)?;
+        }
         let exposed: Vec<(String, String)> = self
             .doc
             .get("items")
@@ -55,7 +70,7 @@ impl Vault {
         let mut versions = usize::default();
         for (id, _) in &exposed {
             let remaining: Vec<String> = self
-                .item_recipient_uids(id)
+                .item_recipient_uids(id)?
                 .into_iter()
                 .filter(|entry| entry != uid)
                 .collect();

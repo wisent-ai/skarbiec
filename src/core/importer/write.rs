@@ -68,7 +68,7 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
                     row.id
                 );
             }
-            row.recipients = vault.item_recipient_uids(&row.id);
+            row.recipients = vault.item_recipient_uids(&row.id)?;
             row.tags = crate::core::vault::entry_texts(&row.id, existing, "tags")?;
         }
         let tags: Vec<Value> = row.tags.iter().cloned().map(Value::String).collect();
@@ -92,7 +92,7 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
             let same = active
                 && vault.get_item(&row.id)? == row.payload
                 && carried == tags.as_slice()
-                && vault.item_recipient_uids(&row.id) == row.recipients;
+                && vault.item_recipient_uids(&row.id)? == row.recipients;
             if same {
                 unchanged += 1;
                 "unchanged"

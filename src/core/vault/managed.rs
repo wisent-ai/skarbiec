@@ -112,7 +112,7 @@ impl Vault {
             .and_then(Value::as_str)
             .context("canonical item has no kind")?
             .to_string();
-        let recipients = self.item_recipient_uids(id);
+        let recipients = self.item_recipient_uids(id)?;
         let mut payload = self.get_item(id)?;
         schema::fields(&payload)?;
         let same_as_current = schema::field(&payload, field).ok() == Some(&value);

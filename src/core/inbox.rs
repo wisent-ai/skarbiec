@@ -225,7 +225,7 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
                 })
                 .context("donation has no canonical item kind")?
                 .to_string();
-            let recipients = vault.item_recipient_uids(&item_id);
+            let recipients = vault.item_recipient_uids(&item_id)?;
             let tags = match existing.as_ref() {
                 Some(item) => crate::core::vault::entry_texts(&item_id, item, "tags")?,
                 None => Vec::new(),

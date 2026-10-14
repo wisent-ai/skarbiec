@@ -55,7 +55,7 @@ pub(in crate::credential) fn store_context(
         }
     }
     let tags = crate::core::vault::entry_texts(id, &entry, "tags")?;
-    let recipients = vault.item_recipient_uids(id);
+    let recipients = vault.item_recipient_uids(id)?;
     let management = entry.get("management").cloned().unwrap_or_default();
     if ManagementMode::of(&entry) == Some(ManagementMode::Managed) {
         let controller = management

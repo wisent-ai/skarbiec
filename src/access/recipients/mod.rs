@@ -155,7 +155,7 @@ fn leaf(
             }
             let (item_kind, tags) = item_meta(&vault, id)?;
             let payload = vault.get_item(id)?;
-            let mut recipients = vault.item_recipient_uids(id);
+            let mut recipients = vault.item_recipient_uids(id)?;
             if !recipients.iter().any(|r| r == uid) {
                 recipients.push(uid.clone());
             }
@@ -173,7 +173,7 @@ fn leaf(
             let (item_kind, tags) = item_meta(&vault, id)?;
             let payload = vault.get_item(id)?;
             let recipients: Vec<String> = vault
-                .item_recipient_uids(id)
+                .item_recipient_uids(id)?
                 .into_iter()
                 .filter(|r| r != uid)
                 .collect();

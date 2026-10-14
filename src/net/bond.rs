@@ -168,18 +168,11 @@ pub(crate) fn handle_enroll(
             .and_then(Value::as_str)
             .context("canonical item has no kind")?
             .to_string();
-        let tags: Vec<String> = vault
-            .doc()
-            .get("items")
-            .and_then(|all| all.get(id))
-            .and_then(|item| item.get("tags"))
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_string)
-            .collect();
-        let mut recipients = vault.item_recipient_uids(id);
+        let tags = match vault.doc().get("items").and_then(|all| all.get(id)) {
+            Some(item) => crate::core::vault::entry_texts(id, item, "tags")?,
+            None => Vec::new(),
+        };
+        let mut recipients = vault.item_recipient_uids(id)?;
         if !recipients.iter().any(|r| r == uid) {
             recipients.push(uid.to_string());
         }

@@ -125,7 +125,7 @@ impl Vault {
         let mut versions = usize::default();
         for id in &ids {
             let uids: Vec<String> = self
-                .item_recipient_uids(id)
+                .item_recipient_uids(id)?
                 .into_iter()
                 .filter(|uid| uid != &previous)
                 .collect();
@@ -263,18 +263,15 @@ impl Vault {
         Ok(versions)
     }
 
-    pub fn item_recipient_uids(&self, id: &str) -> Vec<String> {
-        self.doc
-            .get("items")
-            .and_then(|m| m.get(id))
-            .and_then(|it| it.get("recipients"))
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_string)
-                    .collect()
-            })
-            .unwrap_or_default()
+    /// The recipients an item is encrypted to, as stored: none for an item
+    /// the vault does not hold yet. A recipients field that is not a list of
+    /// text is refused; read with its odd entries dropped, every writer that
+    /// re-encrypts the item from it (share, revoke, owner rotation, recipient
+    /// removal, enrolment, import, staging) encrypted it to fewer people.
+    pub fn item_recipient_uids(&self, id: &str) -> Result<Vec<String>> {
+        match self.doc.get("items").and_then(|items| items.get(id)) {
+            Some(item) => crate::core::vault::entry_texts(id, item, "recipients"),
+            None => Ok(Vec::new()),
+        }
     }
 }

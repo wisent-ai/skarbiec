@@ -116,7 +116,7 @@ pub(super) fn dispatch(
                         format!("the emergency grant for {grantee} was not activated")
                     })?;
                 let payload = vault.get_item(id)?;
-                let mut recipients = vault.item_recipient_uids(id);
+                let mut recipients = vault.item_recipient_uids(id)?;
                 if !recipients.iter().any(|recipient| recipient == grantee) {
                     recipients.push(grantee.clone());
                 }
