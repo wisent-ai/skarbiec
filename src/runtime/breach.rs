@@ -39,14 +39,21 @@ pub fn dispatch(
             let hash = crypto::sha1_hex_upper(candidate)?;
             let (prefix, suffix) = hash.split_at(PREFIX_WIDTH_SAMPLE.len());
             let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
-            let response = Command::new("curl")
-                .args(["-s", "--max-time", "10", &url])
-                .output()
+            // No deadline of its own: the range API answers or curl says why,
+            // and that sentence is the reason the check could not be made.
+            let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", &url]))
                 .context("curl range api")?;
             if !response.status.success() {
-                return Ok(Some(
-                    json!({"item": id, "checked": false, "reason": "range_api_unreachable"}),
-                ));
+                return Ok(Some(json!({
+                    "item": id,
+                    "checked": false,
+                    "reason": "range_api_unreachable",
+                    "detail": format!(
+                        "curl {url} {}: {}",
+                        response.status,
+                        String::from_utf8_lossy(&response.stderr).trim()
+                    ),
+                })));
             }
             let body = String::from_utf8_lossy(&response.stdout);
             let seen = body.lines().find_map(|line| {
