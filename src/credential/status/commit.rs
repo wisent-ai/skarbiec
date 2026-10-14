@@ -183,7 +183,7 @@ pub(super) fn settle(
                     vault.trash_managed_item(credential_id, "weles", &writer)?;
                     true
                 }
-                Some(Operation::Reauth) => named_subscription_present(vault, credential_id),
+                Some(Operation::Reauth) => named_subscription_present(vault, credential_id)?,
                 None => false,
             };
             if confirmed {

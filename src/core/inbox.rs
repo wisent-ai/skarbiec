@@ -228,15 +228,10 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
                 .context("donation has no canonical item kind")?
                 .to_string();
             let recipients = vault.item_recipient_uids(&item_id);
-            let tags: Vec<String> = existing
-                .as_ref()
-                .and_then(|item| item.get("tags"))
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect();
+            let tags = match existing.as_ref() {
+                Some(item) => crate::core::vault::entry_texts(&item_id, item, "tags")?,
+                None => Vec::new(),
+            };
             vault.set_item_written_by(&item_id, &item_kind, &payload, &recipients, &tags, &from)?;
             save_inbox(&inbox)?;
             crate::runtime::audit::append(

@@ -10,6 +10,7 @@
 // subscription of some provider whose stored document carries credential
 // material, and never on one provider's field names.
 
+use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::core::vault::Vault;
@@ -30,43 +31,48 @@ fn carries_material(value: &Value) -> bool {
 }
 
 /// Whether the login item named by a reauth now backs a live subscription of
-/// any provider.
-pub(super) fn named_subscription_present(vault: &Vault, login_item: &str) -> bool {
+/// any provider. A subscription record tagged for this login whose payload
+/// cannot be decrypted is the error, naming it: read as absent it would mark
+/// a completed reauth unconfirmed with no cause.
+pub(super) fn named_subscription_present(vault: &Vault, login_item: &str) -> Result<bool> {
     let login_tag = format!("brama:login:{login_item}");
     let Some(items) = vault.doc().get("items").and_then(Value::as_object) else {
-        return false;
+        return Ok(false);
     };
-    items.iter().any(|(item_id, record)| {
+    for (item_id, record) in items {
         if record
             .get("deleted_at")
             .is_some_and(|value| !value.is_null())
         {
-            return false;
+            continue;
         }
-        let tags = record
-            .get("tags")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        // A record with no tag list carries no subscription tag either.
+        let Some(tags) = record.get("tags").and_then(Value::as_array) else {
+            continue;
+        };
         let tagged = |wanted: &str| tags.iter().any(|tag| tag.as_str() == Some(wanted));
         let declares_provider = tags.iter().filter_map(Value::as_str).any(|tag| {
             tag.strip_prefix("brama:provider:")
                 .is_some_and(|provider| !provider.is_empty())
         });
         if !tagged("brama:subscription") || !declares_provider || !tagged(login_tag.as_str()) {
-            return false;
+            continue;
         }
-        let Ok(payload) = vault.get_item(item_id) else {
-            return false;
-        };
+        let payload = vault.get_item(item_id).with_context(|| {
+            format!("subscription {item_id} for login {login_item} cannot be read, so the reauth cannot be confirmed")
+        })?;
         let Some(stored) = payload
             .get("fields")
             .and_then(|fields| fields.get("value"))
             .and_then(Value::as_str)
         else {
-            return false;
+            continue;
         };
-        serde_json::from_str::<Value>(stored)
+        if serde_json::from_str::<Value>(stored)
             .is_ok_and(|grant| grant.is_object() && carries_material(&grant))
-    })
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
