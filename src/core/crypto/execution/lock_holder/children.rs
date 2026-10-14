@@ -12,7 +12,8 @@
 //! daemons. This process's own children are left to it.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use super::{gnupg_programs, Identity};
 
@@ -30,17 +31,30 @@ fn executable_of(pid: u32) -> Result<PathBuf, String> {
     })
 }
 
+/// What one look at the process table found: the children a recovery is to
+/// end, and every `gpg` process whose parent could not be identified, so it
+/// could be neither taken nor left alone on evidence.
+pub(in crate::core::crypto::execution) struct Stranded {
+    pub(in crate::core::crypto::execution) children: Vec<u32>,
+    pub(in crate::core::crypto::execution) unidentified: Vec<String>,
+}
+
 /// Every process now whose parent, other than this process, runs this
 /// Skarbiec executable: the children a recovery is to end once the daemons
-/// they ran against are stopped.
-pub(in crate::core::crypto::execution) fn of_skarbiec() -> Result<Vec<u32>, String> {
+/// they ran against are stopped. A parent whose identity cannot be read is
+/// not taken for "not Skarbiec": each `gpg` process under such a parent is
+/// named with the parent's pid and the reason, because a recovery that
+/// cannot tell whether a waiting `gpg` is Skarbiec's must not report the
+/// cryptographic path recovered.
+pub(in crate::core::crypto::execution) fn of_skarbiec() -> Result<Stranded, String> {
     let own = std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .map_err(|error| format!("this process's own executable cannot be read: {error}"))?;
-    let table = super::super::run_once("ps", &["-axo", "pid=,ppid="], None)
+    let table = super::super::run_once("ps", &["-axo", "pid=,ppid=,comm="], None)
         .map_err(|error| format!("the process table could not be read: {error:#}"))?;
-    let mut parents: BTreeMap<u32, bool> = BTreeMap::new();
+    let mut parents: BTreeMap<u32, Result<bool, String>> = BTreeMap::new();
     let mut children = Vec::new();
+    let mut unidentified = Vec::new();
     for row in table.lines() {
         let mut words = row.split_whitespace();
         let (Some(Ok(pid)), Some(Ok(parent))) = (
@@ -52,14 +66,26 @@ pub(in crate::core::crypto::execution) fn of_skarbiec() -> Result<Vec<u32>, Stri
         if parent == std::process::id() {
             continue;
         }
-        let runs_skarbiec = *parents
+        let command = words.collect::<Vec<_>>().join(" ");
+        let runs_skarbiec = parents
             .entry(parent)
-            .or_insert_with(|| executable_of(parent).is_ok_and(|program| program == own));
-        if runs_skarbiec {
-            children.push(pid);
+            .or_insert_with(|| executable_of(parent).map(|program| program == own));
+        match runs_skarbiec {
+            Ok(true) => children.push(pid),
+            Ok(false) => {}
+            // The process table's command is only the filter for which
+            // unidentified parents are worth naming; nothing is signalled
+            // on it, and `end_stranded` still verifies every child it ends.
+            Err(why) if Path::new(&command).file_name() == Some(OsStr::new("gpg")) => {
+                unidentified.push(format!("gpg {pid} under parent {parent}: {why}"));
+            }
+            Err(_) => {}
         }
     }
-    Ok(children)
+    Ok(Stranded {
+        children,
+        unidentified,
+    })
 }
 
 /// End each child in `pids` that runs a configured GnuPG executable, one

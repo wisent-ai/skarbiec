@@ -119,11 +119,25 @@ pub(super) fn gpg_status(stderr: &str) -> (Vec<u32>, String) {
 /// The `gpg` children Skarbiec processes started against the stopped daemons
 /// are taken from the process table first and ended after them
 /// (`lock_holder::children`), so their callers are answered and their slots
-/// given back instead of waiting on daemons that no longer exist.
+/// given back instead of waiting on daemons that no longer exist. A `gpg`
+/// whose parent could not be identified fails the recovery with its pid, its
+/// parent and the reason: it may be a Skarbiec child still waiting, and
+/// reporting the path recovered over it is how a vault answered healthy
+/// while its reads stood.
 pub(super) fn recover_gpg_daemons() -> Result<()> {
     let mut errors = Vec::new();
     let stranded = match super::lock_holder::children::of_skarbiec() {
-        Ok(stranded) => stranded,
+        Ok(found) => {
+            if !found.unidentified.is_empty() {
+                errors.push(format!(
+                    "{} gpg process(es) wait under a parent whose identity could not be read, \
+                     so whether Skarbiec started them is unknown: {}",
+                    found.unidentified.len(),
+                    found.unidentified.join("; ")
+                ));
+            }
+            found.children
+        }
         Err(why) => {
             errors.push(format!(
                 "stranded gpg children could not be looked for: {why}"
