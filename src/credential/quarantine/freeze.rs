@@ -37,11 +37,12 @@ pub(in crate::credential) fn mark_quarantine_tag(
         .and_then(|items| items.get_mut(id))
         .and_then(Value::as_object_mut)
         .with_context(|| format!("no item: {id}"))?;
-    let carried: Vec<Value> = entry
-        .get("tags")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    // A tags field that is not a list would be replaced by the marker alone.
+    let carried: Vec<Value> = match entry.get("tags") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Array(listed)) => listed.clone(),
+        Some(other) => bail!("vault item {id} carries tags {other}, not a list; its quarantine marker was not changed"),
+    };
     let tagged = carried
         .iter()
         .any(|tag| tag.as_str() == Some(QUARANTINE_TAG));
