@@ -145,12 +145,16 @@ pub(super) fn credentials_check() -> Value {
     // No table is a fresh install, exactly as no WORM receipt is: the broker
     // resolves nothing yet and there is no credential to be wrong about.
     let path = route_table::table_path();
-    if !path.exists() {
-        return check(
-            "credentials",
-            NOT_CONFIGURED,
-            format!("no capability routes table at {}", path.display()),
-        );
+    match crate::core::is_present(&path, "capability routes table") {
+        Ok(true) => {}
+        Ok(false) => {
+            return check(
+                "credentials",
+                NOT_CONFIGURED,
+                format!("no capability routes table at {}", path.display()),
+            )
+        }
+        Err(error) => return check("credentials", FAIL, format!("{error:#}")),
     }
     let rows = match route_resolution::verdicts(None) {
         Ok(rows) => rows,
