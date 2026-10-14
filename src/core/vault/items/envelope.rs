@@ -145,7 +145,7 @@ impl Vault {
         // precedence is what makes the guarantee absolute rather than
         // best-effort: an existing item's own uid always wins, so no write of
         // any kind -- rotation, retag, share, revoke, managed lifecycle write,
-        // restore-version, or a forced cross-vault overwrite -- can replace an
+        // restore --at, or a forced cross-vault overwrite -- can replace an
         // identity that already exists. Only an item this vault has never seen
         // takes the caller's uid (a cross-vault migrate carrying the source's),
         // and only an item with neither mints a new one.

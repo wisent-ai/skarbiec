@@ -81,7 +81,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         ),
         "/v1/operator/items/trash" => crate::cmd_delete(&positionals(parsed, &["id"])?),
         "/v1/operator/items/reclaim" => crate::cmd_reclaim(&positionals(parsed, &["id"])?),
-        "/v1/operator/items/restore" => crate::cmd_restore(&positionals(parsed, &["id"])?),
+        "/v1/operator/items/restore" => crate::cmd_restore(&positionals(parsed, &["id"])?, None),
         // The desktop asks "Purge Permanently" before it sends this request.
         "/v1/operator/items/purge" => crate::cmd_purge(&positionals(parsed, &["id"])?, true),
         "/v1/operator/items/share" => {

@@ -15,6 +15,9 @@ pub(crate) struct CommandHelp {
     /// A group owns its own inventory, `skarbiec <group> help`, which
     /// `skarbiec <group> --help` prints instead of this row.
     pub(crate) group: bool,
+    /// The command prints its own usage for `--help` (formats, limits) and
+    /// is handed the flag instead of this row being printed.
+    pub(crate) own_help: bool,
 }
 
 const fn row(name: &'static str, usage: &'static str, summary: &'static str) -> CommandHelp {
@@ -23,6 +26,7 @@ const fn row(name: &'static str, usage: &'static str, summary: &'static str) -> 
         usage,
         summary,
         group: false,
+        own_help: false,
     }
 }
 
@@ -32,6 +36,21 @@ const fn group(name: &'static str, usage: &'static str, summary: &'static str) -
         usage,
         summary,
         group: true,
+        own_help: false,
+    }
+}
+
+const fn answers_itself(
+    name: &'static str,
+    usage: &'static str,
+    summary: &'static str,
+) -> CommandHelp {
+    CommandHelp {
+        name,
+        usage,
+        summary,
+        group: false,
+        own_help: true,
     }
 }
 
@@ -49,11 +68,10 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("rename", "skarbiec rename <id> <new-id>", "Change one item's id and keep its revision, history, tags and recipients."),
     row("delete", "skarbiec delete <id>", "Move an owner-controlled item to recoverable trash."),
     row("reclaim", "skarbiec reclaim <id>", "Return an item from external writer control to owner control."),
-    row("restore", "skarbiec restore <id>", "Restore a trashed owner-controlled item to the live inventory."),
     row("purge", "skarbiec purge <id> --yes", "Permanently remove a trashed owner-controlled item and every saved version; without --yes nothing is removed."),
-    row("restore-version", "skarbiec restore-version <id> <at>", "Make the historical revision recorded at <at> the item's new current revision."),
+    row("restore", "skarbiec restore <id> [--at <at>]", "Restore a trashed owner-controlled item to the live inventory, or with --at make the historical revision recorded at <at> the item's new current revision."),
     row("generate", "skarbiec generate --length <N> [--lower] [--upper] [--digits] [--symbols] | --passphrase --words <N> --separator <text>", "Generate a password or a word-list passphrase locally."),
-    row("import", "skarbiec import <export-file> [--format auto|canonical|1password|bitwarden|browser-csv] [--conflict keep|replace|error]", "Seed the vault from a password-manager, browser or canonical Skarbiec export."),
+    answers_itself("import", "skarbiec import <export-file> [--format auto|canonical|1password|bitwarden|browser-csv] [--conflict keep|replace|error]", "Seed the vault from a password-manager, browser or canonical Skarbiec export."),
     row("migrate", "skarbiec migrate --from <source-vault> --to <target-vault> [--force]", "Copy live items between vaults, re-encrypting them to the target's recipients."),
     row("upgrade", "skarbiec upgrade [--apply] [--snapshot <path>]", "Bring the vault to the current schema: v2 envelope, item_uid on every item, payload fingerprint on every active item, owner control of items a former owner still controls; without --apply it only reports."),
     group("recipient", "skarbiec recipient help", "Register a recipient identity without sharing any existing item, remove one person from every item, every historical revision and the registry (nothing changes without --yes), list the registered recipients, and export one recipient's public key (add, remove, list, export); `skarbiec recipient help` lists the subcommands."),
@@ -95,6 +113,13 @@ pub(crate) fn is_group(name: &str) -> bool {
     COMMANDS
         .iter()
         .any(|command| command.group && command.name == name)
+}
+
+/// Whether `name` prints its own usage for `--help`.
+pub(crate) fn answers_own_help(name: &str) -> bool {
+    COMMANDS
+        .iter()
+        .any(|command| command.own_help && command.name == name)
 }
 
 /// The machine-readable inventory `skarbiec help` prints: the group and

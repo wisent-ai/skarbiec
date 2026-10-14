@@ -309,5 +309,5 @@ sh scripts/restore-item-from-backup.sh ~/.stado/<vault backup>.json <item>
 It carries the item's kind, tags and recipients over from the backup envelope,
 moves the value from `get` to `set-json` through one pipe, and refuses when the
 item already exists in the live vault: it restores an absence, and rolling a
-live item back is `skarbiec restore-version`.
+live item back is `skarbiec restore <item> --at <at>`.
 

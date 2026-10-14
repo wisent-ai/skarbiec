@@ -28,11 +28,26 @@ pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
     Ok(json!({"ok": true, "id": id, "mode": ManagementMode::Owner.as_str()}))
 }
 
-pub(crate) fn cmd_restore(positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().or_usage("usage: restore <id>")?;
+/// `restore <id> [--at <at>]`: bring a trashed item back to the live
+/// inventory, or, with `--at`, make the historical revision recorded at
+/// `<at>` the item's new current revision. One verb for putting an item back
+/// as it was; a second command for the revision case was the same verb
+/// spelled twice.
+pub(crate) fn cmd_restore(positionals: &[String], at: Option<&str>) -> Result<Value> {
+    let id = positionals
+        .first()
+        .or_usage("usage: restore <id> [--at <at>]")?;
     let mut vault = Vault::open(vault_path())?;
-    ensure_owner_mutation_allowed(&vault, id, "acquire")?;
-    vault.restore_item(id)?;
+    match at {
+        Some(at) => {
+            ensure_owner_mutation_allowed(&vault, id, "rotate")?;
+            vault.restore_version(id, at)?;
+        }
+        None => {
+            ensure_owner_mutation_allowed(&vault, id, "acquire")?;
+            vault.restore_item(id)?;
+        }
+    }
     Ok(json!({"ok": true}))
 }
 
@@ -51,19 +66,6 @@ pub(crate) fn cmd_purge(positionals: &[String], confirmed: bool) -> Result<Value
     }
     vault.purge_item(id)?;
     Ok(json!({"ok": true}))
-}
-
-pub(crate) fn cmd_restore_version(positionals: &[String]) -> Result<()> {
-    let id = positionals
-        .first()
-        .or_usage("usage: restore-version <id> <at>")?;
-    let at = positionals
-        .get(std::iter::once(()).count())
-        .or_usage("usage: restore-version <id> <at>")?;
-    let mut vault = Vault::open(vault_path())?;
-    ensure_owner_mutation_allowed(&vault, id, "rotate")?;
-    vault.restore_version(id, at)?;
-    emit(&json!({"ok": true}))
 }
 
 pub(crate) fn cmd_get(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {

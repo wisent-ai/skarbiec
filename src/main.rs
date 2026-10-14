@@ -23,7 +23,6 @@ use cli::args::{emit, parse_args, OrUsage, Usage};
 use cli::items::{cmd_rename, cmd_retag, cmd_set_json};
 use cli::reads::{
     cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore,
-    cmd_restore_version,
 };
 use cli::tools::{cmd_export, cmd_generate, cmd_version};
 use core::{crypto, items, vault::Vault};
@@ -87,9 +86,10 @@ fn run() -> Result<()> {
     if rest.iter().any(|word| word == "--help" || word == "-h") {
         if cli::help::is_group(&command) {
             rest = vec!["help".to_string()];
-        } else if command != "help" && command != "import" {
-            // `import --help` is answered by the importer with its own usage,
-            // formats and limits; every other command is answered here.
+        } else if command != "help" && !cli::help::answers_own_help(&command) {
+            // A command the help table declares as answering `--help`
+            // itself (the importer, with its formats and limits) is handed
+            // the flag; every other command is answered here.
             return cli::help::print_command(&command);
         }
     }
@@ -130,12 +130,14 @@ fn run() -> Result<()> {
         "rename" => cmd_rename(&positionals),
         "delete" => emit(&cmd_delete(&positionals)?),
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
-        "restore" => emit(&cmd_restore(&positionals)?),
+        "restore" => emit(&cmd_restore(
+            &positionals,
+            flags.get("at").map(String::as_str),
+        )?),
         "purge" => emit(&cmd_purge(
             &positionals,
             cli::args::flag_set(&flags, "yes"),
         )?),
-        "restore-version" => cmd_restore_version(&positionals),
         "generate" => cmd_generate(&flags),
         "agent-enrol" => emit(&access::agent::enrol(&positionals)?),
         "import" => emit(&core::importer::run(&flags, &positionals)?),
