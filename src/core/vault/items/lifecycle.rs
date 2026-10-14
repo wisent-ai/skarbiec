@@ -223,10 +223,11 @@ impl Vault {
         if mode == Some(ManagementMode::Managed) {
             bail!("{id} is under the credential lifecycle; use a credential operation");
         }
-        if entry
-            .get("tags")
-            .and_then(Value::as_array)
-            .is_some_and(|tags| tags.iter().any(|tag| tag.as_str() == Some("managed:weles")))
+        // A tags field that is not a list of text is refused: read as no
+        // tags, a Weles-managed item passed as owner-controlled.
+        if crate::core::vault::entry_texts(id, entry, "tags")?
+            .iter()
+            .any(|tag| tag == "managed:weles")
         {
             bail!("{id} is managed by Weles; use a credential operation");
         }
