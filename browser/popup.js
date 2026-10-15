@@ -50,7 +50,29 @@ function loginRow(tab, login) {
       chrome.tabs.sendMessage(
         tab.id,
         { type: "skarbiec-fill-credentials", credentials: reply },
-        () => window.close(),
+        (answer) => {
+          // The page's content script answers whether it filled; a page
+          // without it, or without a password field, is said, not closed on.
+          if (chrome.runtime.lastError) {
+            showStatus(`The page could not be reached: ${chrome.runtime.lastError.message}`);
+            return;
+          }
+          if (!answer) {
+            showStatus("This page did not answer the fill; reload it and try again.");
+            return;
+          }
+          if (!answer.ok) {
+            showStatus(`The page refused the fill: ${answer.error}`);
+            return;
+          }
+          // A fill without its one-time code stays open to say why; a
+          // complete fill closes the popup.
+          if (reply.totp_unavailable) {
+            showStatus(`Filled without a one-time code: ${reply.totp_unavailable}`);
+            return;
+          }
+          window.close();
+        },
       );
     });
   });
@@ -75,7 +97,7 @@ async function main() {
       showStatus(`Skarbiec unavailable: ${detail}`);
       return;
     }
-    if (!reply.logins || reply.logins.length === 0) {
+    if (!reply.logins.length) {
       showStatus(`No logins in the vault for ${host}.`);
       return;
     }

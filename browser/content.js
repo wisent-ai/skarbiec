@@ -66,17 +66,56 @@ function fillInto(passwordField, credentials) {
   }
 }
 
+// One line under the password field saying what the host answered when it
+// could not fill: the badge is the only surface on the page, so a refusal
+// that is not shown here is not shown at all. The note goes on the next click.
+function showNote(passwordField, text) {
+  const note = document.createElement("div");
+  note.setAttribute(BADGE_ATTR, "note");
+  note.textContent = text;
+  Object.assign(note.style, {
+    position: "absolute",
+    zIndex: "2147483647",
+    background: "#1c1c1e",
+    color: "#f2f2f7",
+    borderRadius: "8px",
+    padding: "6px 10px",
+    maxWidth: "360px",
+    fontFamily: "-apple-system, sans-serif",
+    fontSize: "12px",
+  });
+  const rect = passwordField.getBoundingClientRect();
+  note.style.top = `${rect.bottom + window.scrollY}px`;
+  note.style.left = `${rect.left + window.scrollX}px`;
+  document.body.appendChild(note);
+  const close = () => {
+    note.remove();
+    document.removeEventListener("click", close);
+  };
+  document.addEventListener("click", close);
+}
+
 function requestFill(loginId, passwordField) {
   chrome.runtime.sendMessage({ type: "skarbiec-fill", id: loginId }, (reply) => {
-    if (reply && reply.ok) {
-      fillInto(passwordField, reply);
+    if (!reply) {
+      showNote(passwordField, "Skarbiec's native host gave no answer.");
+      return;
+    }
+    if (!reply.ok) {
+      showNote(passwordField, `Skarbiec could not fill: ${reply.error}`);
+      return;
+    }
+    fillInto(passwordField, reply);
+    if (reply.totp_unavailable) {
+      showNote(passwordField, `Filled without a one-time code: ${reply.totp_unavailable}`);
     }
   });
 }
 
 function chooseAndFill(logins, passwordField) {
-  if (logins.length === 1) {
-    requestFill(logins[0].id, passwordField);
+  const [only, ...others] = logins;
+  if (!others.length) {
+    requestFill(only.id, passwordField);
     return;
   }
   const menu = document.createElement("div");
@@ -130,9 +169,19 @@ function offerFill(passwordField) {
   chrome.runtime.sendMessage(
     { type: "skarbiec-list", domain: location.hostname },
     (reply) => {
-      if (reply && reply.ok && reply.logins && reply.logins.length > 0) {
-        chooseAndFill(reply.logins, passwordField);
+      if (!reply) {
+        showNote(passwordField, "Skarbiec's native host gave no answer.");
+        return;
       }
+      if (!reply.ok) {
+        showNote(passwordField, `Skarbiec unavailable: ${reply.error}`);
+        return;
+      }
+      if (!reply.logins.length) {
+        showNote(passwordField, `No logins in the vault for ${location.hostname}.`);
+        return;
+      }
+      chooseAndFill(reply.logins, passwordField);
     },
   );
 }
