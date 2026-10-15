@@ -89,7 +89,10 @@ fn start(
         .spawn(move || {
             let outcome = match catch_unwind(AssertUnwindSafe(run)) {
                 Ok(outcome) => outcome,
-                Err(panic) => Err(anyhow!("component panicked: {}", panic_reason(&*panic))),
+                Err(panic) => Err(anyhow!(
+                    "component panicked: {}",
+                    crate::core::panic_reason(&*panic)
+                )),
             };
             if let Err(std::sync::mpsc::SendError((_, ended))) = finished.send((name, outcome)) {
                 // The serve loop has already returned, so the process is ending;
@@ -99,16 +102,4 @@ fn start(
         })
         .with_context(|| format!("start Skarbiec {name} component"))?;
     Ok(())
-}
-
-/// What a component's panic said: its message when the payload is text, and
-/// that it carried none otherwise.
-fn panic_reason(panic: &(dyn std::any::Any + Send)) -> String {
-    if let Some(message) = panic.downcast_ref::<String>() {
-        return message.clone();
-    }
-    if let Some(message) = panic.downcast_ref::<&str>() {
-        return (*message).to_string();
-    }
-    "its payload is not text, so it carries no message".to_string()
 }

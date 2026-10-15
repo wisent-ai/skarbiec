@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
+use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -44,13 +45,16 @@ pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
     }
     let metadata = fs::symlink_metadata(&path)
         .with_context(|| format!("inspect {source} executable {}; install a complete Skarbiec release or configure {BRIDGE_ENV}", path.display()))?;
-    let unsafe_bits = 0o022;
-    let owner_execute = 0o100;
+    // Group or other may not write it, and its owner must be able to run it:
+    // the platform's own permission bits, not spelled masks.
+    let unsafe_bits = u32::from(libc::S_IWGRP | libc::S_IWOTH);
+    let owner_execute = u32::from(libc::S_IXUSR);
+    let mode = metadata.permissions().mode();
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()?
-        || metadata.permissions().mode() & unsafe_bits != u32::MIN
-        || metadata.permissions().mode() & owner_execute == u32::MIN
+        || NonZeroU32::new(mode & unsafe_bits).is_some()
+        || NonZeroU32::new(mode & owner_execute).is_none()
     {
         bail!("{source} must be an owner-controlled executable regular file");
     }
@@ -118,7 +122,7 @@ pub(in crate::credential) fn sanitized_diagnostics(raw: &[u8]) -> String {
 
 pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
     let executable = checked_bridge()?;
-    let mut child = Command::new(executable)
+    let mut child = Command::new(&executable)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -137,21 +141,29 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
         .context("open Weles bridge stdin")?
         .write_all(&serde_json::to_vec(request)?)?;
 
-    let mut output = Vec::new();
-    child
-        .stdout
-        .take()
-        .context("open Weles bridge stdout")?
-        .read_to_end(&mut output)?;
-    let status = child
-        .wait()
-        .context("wait for Weles credential acquisition bridge")?;
+    let mut stdout = child.stdout.take().context("open Weles bridge stdout")?;
+    // Waiting for the bridge's answer and its exit is said on stderr: what
+    // runs, since when, and how it ended.
+    let (mut output, status) = stado_wait::blocking(
+        stado_wait::Kind::Process,
+        "the Weles credential-operation bridge",
+        executable.display(),
+        || -> std::io::Result<_> {
+            let mut output = Vec::new();
+            stdout.read_to_end(&mut output)?;
+            Ok((output, child.wait()?))
+        },
+    )
+    .context("wait for Weles credential acquisition bridge")?;
     // A stderr that could not be read is said as such: read as empty, a
     // failed bridge was reported as one that gave no diagnostics.
     let detail = match diagnostics.join() {
         Ok(Ok(captured)) => sanitized_diagnostics(&captured),
         Ok(Err(error)) => format!("its stderr could not be read: {error}"),
-        Err(_) => "the thread reading its stderr stopped before it finished".to_string(),
+        Err(panic) => format!(
+            "the thread reading its stderr panicked: {}",
+            crate::core::panic_reason(&*panic)
+        ),
     };
     if !status.success() {
         if detail.is_empty() {
@@ -166,7 +178,7 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
             format!("Weles response is not JSON: {detail}")
         }
     })?;
-    output.fill(u8::MIN);
+    output.fill(b'\0');
     let response = sanitized_response(&parsed)?;
     let same_identity = response.get("operation").and_then(Value::as_str)
         == request.get("operation").and_then(Value::as_str)

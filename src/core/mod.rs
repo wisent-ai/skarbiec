@@ -221,3 +221,16 @@ pub fn is_present(path: &std::path::Path, what: &str) -> anyhow::Result<bool> {
         }
     }
 }
+
+/// What a panic said: its message when the payload is text, and that it
+/// carried none otherwise. Every thread join that ends in a panic reports
+/// through this, so a stopped worker is named with its own words.
+pub fn panic_reason(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = panic.downcast_ref::<String>() {
+        return message.clone();
+    }
+    if let Some(message) = panic.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+    "its payload is not text, so it carries no message".to_string()
+}
