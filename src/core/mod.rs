@@ -71,6 +71,13 @@ pub(crate) fn home_dir() -> PathBuf {
     )
 }
 
+/// The uid this process acts as, read from the kernel. Every owner-only file
+/// check compares the file's owner with it.
+pub fn effective_uid() -> u32 {
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    unsafe { libc::geteuid() }
+}
+
 /// Stado's config file, the way Stado itself finds it: `$STADO_CONFIG`, then
 /// `stado.config.json` in the working directory, `~/.config/stado/config.json`,
 /// `~/.stado/config.json`.

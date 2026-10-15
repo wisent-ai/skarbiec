@@ -8,9 +8,10 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
-use super::validation::{effective_uid, exact_component, exact_resource, exact_route};
+use super::validation::{exact_component, exact_resource, exact_route};
 use crate::access::actions::Action;
 use crate::access::grant::lookup::{active, capability_matches};
+use crate::core::effective_uid;
 use crate::core::{schema, vault::Vault};
 
 pub(in crate::access::grant) fn parse_capabilities(
@@ -126,7 +127,7 @@ pub(in crate::access::grant) fn read_acquisition_catalog(
         bail!("acquisition catalog path must be absolute");
     }
     let metadata = fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_file() || metadata.uid() != effective_uid()? {
+    if !metadata.file_type().is_file() || metadata.uid() != effective_uid() {
         bail!("acquisition catalog must be an owner-controlled regular file");
     }
     let mut rows = Vec::new();

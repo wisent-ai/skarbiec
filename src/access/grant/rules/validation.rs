@@ -3,27 +3,24 @@
 
 use anyhow::{bail, Context, Result};
 use std::fs;
+use std::num::NonZeroU32;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
 
-pub(in crate::access::grant) fn effective_uid() -> Result<u32> {
-    let output = Command::new("id").arg("-u").output()?;
-    if !output.status.success() {
-        bail!("could not determine effective uid");
-    }
-    String::from_utf8(output.stdout)?
-        .trim()
-        .parse()
-        .context("parse effective uid")
+use crate::core::effective_uid;
+
+/// Whether a group or another user holds any permission on a file, read
+/// against the bits the C library names: an owner-controlled file holds none.
+fn shared_beyond_owner(metadata: &fs::Metadata) -> bool {
+    NonZeroU32::new(metadata.mode() & u32::from(libc::S_IRWXG | libc::S_IRWXO)).is_some()
 }
 
 pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<String> {
     let metadata = fs::symlink_metadata(path)?;
-    let unsafe_bits = 0o077;
     if !metadata.file_type().is_file()
-        || metadata.uid() != effective_uid()?
-        || metadata.mode() & unsafe_bits != u32::MIN
+        || metadata.uid() != effective_uid()
+        || shared_beyond_owner(&metadata)
     {
         bail!("workload public key must be an owner-controlled regular file");
     }
@@ -34,12 +31,13 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
     {
         bail!("workload public key must be a PEM public key");
     }
-    let output = Command::new("openssl")
-        .args(["pkey", "-pubin", "-in"])
-        .arg(path)
-        .args(["-text_pub", "-noout"])
-        .output()
-        .context("validate workload public key with openssl")?;
+    let output = stado_wait::output(
+        Command::new("openssl")
+            .args(["pkey", "-pubin", "-in"])
+            .arg(path)
+            .args(["-text_pub", "-noout"]),
+    )
+    .context("validate workload public key with openssl")?;
     let description = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || !description.to_ascii_uppercase().contains("ED25519") {
         bail!("workload public key must be a valid Ed25519 public key");
@@ -49,10 +47,9 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
 
 pub(in crate::access::grant) fn read_fixed_token(path: &Path) -> Result<String> {
     let metadata = fs::symlink_metadata(path)?;
-    let unsafe_bits = 0o077;
     if !metadata.file_type().is_file()
-        || metadata.uid() != effective_uid()?
-        || metadata.mode() & unsafe_bits != u32::MIN
+        || metadata.uid() != effective_uid()
+        || shared_beyond_owner(&metadata)
     {
         bail!("token file must be an owner-controlled regular file");
     }
