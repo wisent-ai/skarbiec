@@ -22,10 +22,29 @@ pub(super) fn audit_path() -> PathBuf {
     crate::core::home_dir().join(".local/state/skarbiec/audit.jsonl")
 }
 
+/// UTC now, as the journal writes it: RFC 3339 with the fraction of the
+/// second. It fails only for a clock past the year 9999, which no audit line
+/// can carry: that is a broken host, said as such, never an empty stamp.
 pub(super) fn now_iso() -> String {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
-        .unwrap_or_default()
+        .expect("the system clock is past the year 9999, which no audit line can carry")
+}
+
+/// Read and write for the owner alone (`S_IRUSR | S_IWUSR`), the mode every
+/// journal file is created with.
+// mode_t is u16 on macOS and u32 on Linux: the conversion is real on one and
+// the identity on the other.
+#[allow(clippy::useless_conversion)]
+fn owner_only_file() -> u32 {
+    u32::from(libc::S_IRUSR | libc::S_IWUSR)
+}
+
+/// Read, write and search for the owner alone (`S_IRWXU`), the mode of the
+/// journal's directory.
+#[allow(clippy::useless_conversion)]
+fn owner_only_directory() -> u32 {
+    u32::from(libc::S_IRWXU)
 }
 
 pub(super) fn lines() -> Result<Vec<Value>> {
@@ -53,14 +72,15 @@ pub(super) fn lines_with_faults() -> Result<(Vec<Value>, Vec<Value>)> {
     };
     let mut out = Vec::new();
     let mut malformed = Vec::new();
-    for (offset, line) in body.lines().enumerate() {
+    // Lines are numbered from one, as an editor shows them.
+    for (line_number, line) in (std::num::NonZeroUsize::MIN.get()..).zip(body.lines()) {
         if line.trim().is_empty() {
             continue;
         }
         match serde_json::from_str(line) {
             Ok(entry) => out.push(entry),
             Err(error) => malformed.push(json!({
-                "line": offset.saturating_add(1),
+                "line": line_number,
                 "error": error.to_string(),
             })),
         }
@@ -90,7 +110,7 @@ pub(super) fn tail_hash() -> Result<String> {
         }
     };
     let len = file.metadata()?.len();
-    let window = u64::try_from(usize::from(u16::MAX)).unwrap_or(u64::MAX);
+    let window = u64::from(u16::MAX);
     let skip = len.saturating_sub(window);
     file.seek(std::io::SeekFrom::Start(skip))?;
     let mut buf = String::new();
@@ -105,7 +125,7 @@ pub(super) fn tail_hash() -> Result<String> {
     if cut {
         lines.next();
     }
-    let Some(last) = lines.last() else {
+    let Some(last) = lines.next_back() else {
         if cut {
             bail!(
                 "audit journal {} holds no complete entry in its last {window} bytes",
@@ -137,7 +157,11 @@ pub(super) struct AppendLock(File);
 
 impl Drop for AppendLock {
     fn drop(&mut self) {
-        let _ = self.0.unlock();
+        // Closing the file releases the lock as well, so a failed unlock
+        // loses nothing; it is still said rather than dropped unseen.
+        if let Err(error) = self.0.unlock() {
+            eprintln!("skarbiec: audit journal lock was not released explicitly: {error}");
+        }
     }
 }
 
@@ -148,11 +172,19 @@ pub(super) fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
+        .mode(owner_only_file())
         .open(&lock_path)
         .with_context(|| format!("open audit journal lock {}", lock_path.display()))?;
-    file.lock_exclusive()
-        .with_context(|| format!("lock audit journal {}", lock_path.display()))?;
+    // The kernel queues this process until the holder releases the lock or
+    // exits; the wait is announced on stderr, and a failure to lock is the
+    // error itself.
+    stado_wait::blocking(
+        stado_wait::Kind::Lock,
+        "the audit journal lock",
+        lock_path.display(),
+        || file.lock_exclusive(),
+    )
+    .with_context(|| format!("lock audit journal {}", lock_path.display()))?;
     Ok(AppendLock(file))
 }
 
@@ -170,32 +202,31 @@ pub(super) fn tail_lines(limit: usize) -> Result<Vec<Value>> {
         }
     };
     let length = file.metadata()?.len();
-    let mut window = u64::try_from(usize::from(u16::MAX))?;
-    let growth: u64 = 2;
+    let mut window = u64::from(u16::MAX);
     loop {
-        let start = length.saturating_sub(window);
-        file.seek(std::io::SeekFrom::Start(start))?;
+        // A window that does not reach the start of the file opens mid-file,
+        // so its first line may be cut: it is left to the next, wider window.
+        let from_start = window >= length;
+        file.seek(std::io::SeekFrom::Start(length.saturating_sub(window)))?;
         let mut buffer = String::new();
         file.read_to_string(&mut buffer)?;
-        let mut parsed: Vec<Value> = Vec::new();
-        for line in buffer.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            match serde_json::from_str(trimmed) {
-                Ok(value) => parsed.push(value),
-                // A window opened mid-file cuts its first line; every later
-                // one is whole, so only that leading fragment may be dropped.
-                Err(_) if start > u64::MIN && parsed.is_empty() => continue,
-                Err(error) => return Err(error).context("audit line is not JSON"),
-            }
+        let mut lines = buffer
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty());
+        if !from_start {
+            lines.next();
         }
-        if parsed.len() >= limit || start == u64::MIN {
+        let mut parsed: Vec<Value> = Vec::new();
+        for line in lines {
+            parsed.push(serde_json::from_str(line).context("audit line is not JSON")?);
+        }
+        if parsed.len() >= limit || from_start {
             let excess = parsed.len().saturating_sub(limit);
             return Ok(parsed.split_off(excess));
         }
-        window = window.saturating_mul(growth);
+        // Each wider window reads as much again as the last one did.
+        window = window.saturating_add(window);
     }
 }
 
@@ -211,7 +242,7 @@ pub(super) fn open_for_append(path: &Path) -> std::io::Result<File> {
     OpenOptions::new()
         .create(true)
         .append(true)
-        .mode(0o600)
+        .mode(owner_only_file())
         .open(path)
 }
 
@@ -226,8 +257,7 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create audit directory {}", parent.display()))?;
-        let private_mode = 0o700;
-        fs::set_permissions(parent, fs::Permissions::from_mode(private_mode))
+        fs::set_permissions(parent, fs::Permissions::from_mode(owner_only_directory()))
             .with_context(|| format!("protect audit directory {}", parent.display()))?;
     }
     let _lock = acquire_append_lock(&path)?;
@@ -243,58 +273,4 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
         File::open(path.parent().context("audit path has no parent")?)?.sync_all()?;
     }
     Ok(())
-}
-
-/// Every loopback port a `unit-retired` entry says a retired unit answered on.
-///
-/// A host the one process converged before it kept those ports beside the
-/// vault has them here and nowhere else. Only lines naming that operation are
-/// parsed, so a long journal costs one pass of reading, once per host. A
-/// journal that does not exist names no port; one that cannot be read, or a
-/// `unit-retired` line whose ports cannot be read, is the error, because the
-/// ports it drops would go unanswered with nothing said.
-pub fn retired_ports() -> Result<std::collections::BTreeSet<u16>> {
-    use std::io::BufRead;
-    let path = audit_path();
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(std::collections::BTreeSet::new());
-        }
-        Err(error) => {
-            return Err(error).with_context(|| format!("open audit journal {}", path.display()));
-        }
-    };
-    let mut ports = std::collections::BTreeSet::new();
-    for line in std::io::BufReader::new(file).lines() {
-        let line = line.with_context(|| format!("read audit journal {}", path.display()))?;
-        if !line.contains("\"op\":\"unit-retired\"") {
-            continue;
-        }
-        let entry: Value = serde_json::from_str(&line).with_context(|| {
-            format!(
-                "audit journal {} holds a unit-retired line that is not JSON: {line}",
-                path.display()
-            )
-        })?;
-        let listed = entry["extra"]["ports"].as_array().with_context(|| {
-            format!(
-                "audit journal {} holds a unit-retired entry with no list of ports: {line}",
-                path.display()
-            )
-        })?;
-        for port in listed {
-            let answered = port
-                .as_u64()
-                .and_then(|port| u16::try_from(port).ok())
-                .with_context(|| {
-                    format!(
-                        "audit journal {} holds a unit-retired entry whose {port} is not a port: {line}",
-                        path.display()
-                    )
-                })?;
-            ports.insert(answered);
-        }
-    }
-    Ok(ports)
 }

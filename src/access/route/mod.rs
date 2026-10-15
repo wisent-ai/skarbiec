@@ -27,7 +27,7 @@ pub mod table;
 pub mod values;
 
 use anyhow::{anyhow, bail, Result};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 pub fn dispatch(
     command: &str,

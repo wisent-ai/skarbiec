@@ -10,9 +10,11 @@ use std::collections::HashMap;
 mod epoch;
 mod journal;
 mod reports;
+mod retired;
 
-pub use journal::{append, append_sync, retired_ports};
+pub use journal::{append, append_sync};
 pub use reports::{chain_report, probe};
+pub use retired::retired_ports;
 
 use epoch::start_epoch;
 use reports::audit;

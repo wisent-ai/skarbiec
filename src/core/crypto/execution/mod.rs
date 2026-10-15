@@ -28,15 +28,26 @@ mod footprint;
 pub mod in_flight;
 mod limits;
 mod lock_holder;
+mod maintenance;
 mod recovery;
 
 pub use footprint::{
-    daemon_footprints, daemon_memory_limit_bytes, human_size, DaemonFootprint,
-    DAEMON_MEMORY_LIMIT_SETTING,
+    daemon_footprints, daemon_memory_limit_bytes, human_size, DAEMON_MEMORY_LIMIT_SETTING,
 };
+pub use maintenance::{recover_daemons, recycle_oversized_daemons};
 
 use limits::{crypto_program, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
+use maintenance::next_generation;
 use recovery::{gpg_status, recover_gpg_daemons, recoverable_gpg_failure};
+
+/// The recovery generation, taken over from a holder that panicked: it is
+/// one number replaced whole, so nothing half-written can be behind it.
+fn generation_guard() -> std::sync::MutexGuard<'static, u64> {
+    match GPG_RECOVERY_GENERATION.lock() {
+        Ok(generation) => generation,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 /// Run one crypto program. A gpg run that still fails after its recovery
 /// names every keyring lock held now — the holder's pid, host, what it runs
@@ -57,11 +68,7 @@ pub(super) fn run(program: &str, args: &[&str], input: Option<&str>) -> Result<S
 
 // gpg daemon failure gets one serialized daemon recovery and one retry.
 fn run_recovering(program: &str, args: &[&str], input: Option<&str>) -> Result<String> {
-    let recovery_generation = (program == "gpg").then(|| {
-        *GPG_RECOVERY_GENERATION
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-    });
+    let recovery_generation = (program == "gpg").then(|| *generation_guard());
     let first = run_once(program, args, input);
     let Err(first_error) = first else {
         return first;
@@ -70,9 +77,7 @@ fn run_recovering(program: &str, args: &[&str], input: Option<&str>) -> Result<S
         return Err(first_error);
     }
 
-    let mut current_generation = GPG_RECOVERY_GENERATION
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut current_generation = generation_guard();
     if recovery_generation == Some(*current_generation) {
         // Drain the gpg capacity first. `recover_gpg_daemons` kills daemons
         // that any concurrent `gpg` child holds an open socket to, so running
@@ -90,7 +95,7 @@ fn run_recovering(program: &str, args: &[&str], input: Option<&str>) -> Result<S
             let _exclusive = GPG_LIMIT.acquire_exclusive(in_flight::waiting_on_agent);
             recover_gpg_daemons()
         };
-        *current_generation = current_generation.wrapping_add(1);
+        *current_generation = next_generation(*current_generation);
         drop(current_generation);
         if let Err(error) = recovery {
             return run_once(program, args, input).with_context(|| {
@@ -139,10 +144,11 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     let _capacity = CRYPTO_LIMIT.acquire();
     // gpg reports what failed as machine status lines on stderr; that, not
     // its prose, is what the recovery decision reads.
-    let status_args: &[&str] = if program == "gpg" {
-        &["--status-fd", "2"]
+    let stderr_fd = libc::STDERR_FILENO.to_string();
+    let status_args: Vec<&str> = if program == "gpg" {
+        vec!["--status-fd", &stderr_fd]
     } else {
-        &[]
+        Vec::new()
     };
     let mut child = Command::new(crypto_program(program).as_ref())
         .args(status_args)
@@ -196,8 +202,14 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     // The tool's own exit is the answer. A gpg agent asking the keychain on a
     // loaded host and a gpg agent that will never answer look the same to a
     // clock, and killing the first one turns a credential that exists into a
-    // read this vault reports as failed.
-    let status = child.wait()?;
+    // read this vault reports as failed. The wait is said on stderr, so a run
+    // that never ends is attributable while it stands.
+    let status = stado_wait::blocking(
+        stado_wait::Kind::Process,
+        format!("{program} {}", args.join(" ")),
+        "this host",
+        || child.wait(),
+    )?;
     let written = input_writer
         .join()
         .map_err(|_| anyhow::anyhow!("{program} stdin writer panicked"))?;
@@ -233,84 +245,6 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     }
     written.with_context(|| format!("write {program} stdin"))?;
     Ok(String::from_utf8_lossy(&stdout).into_owned())
-}
-
-pub(super) fn run_opt(program: &str, args: &[&str], input: Option<&str>) -> Option<String> {
-    run(program, args, input).ok()
-}
-
-/// Put the GnuPG daemons back into a usable state on demand.
-///
-/// The same repair [`run`] performs after a recoverable failure, reachable
-/// without one. A long-lived reader — the HTTP server, a browser host, an
-/// agent — holds no gpg state of its own, so a keyboxd that wedges under it
-/// is repaired for every one of them by the next `gpg` finding fresh daemons.
-/// Before this existed the only way to clear that was an inline `gpgconf`
-/// nobody could re-run or audit, or restarting the service and its keychain
-/// unlock with it.
-///
-/// The receipt carries what each daemon held before it was replaced, so an
-/// operator reading it learns whether the repair met a wedge or a bloat.
-pub fn recover_daemons() -> Result<Vec<DaemonFootprint>> {
-    let before = daemon_footprints().unwrap_or_default();
-    recover_exclusively()?;
-    Ok(before)
-}
-
-/// What one pass of the memory ceiling found and did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DaemonRecycle {
-    pub limit_bytes: u64,
-    pub footprints: Vec<DaemonFootprint>,
-    /// The daemons that stood above the ceiling, in the words the log carries.
-    pub over_limit: Vec<String>,
-    pub recycled: bool,
-}
-
-/// Replace the GnuPG daemons when one of them holds more than the ceiling.
-///
-/// This is the pass the readiness monitor runs between its checks. A daemon
-/// under the ceiling is left alone: killing daemons costs every reader the
-/// next `gpg` start, and the point is to stop a keyboxd from growing for
-/// twelve days, not to churn a healthy one. Above the ceiling the repair is
-/// the same serialized one a failed read earns, so no live decryption is
-/// beside it, and the retry generation advances so a `gpg` that loses its
-/// socket to this pass retries once instead of recovering a second time.
-pub fn recycle_oversized_daemons() -> Result<DaemonRecycle> {
-    let limit_bytes = daemon_memory_limit_bytes()?;
-    let footprints = daemon_footprints()?;
-    let over_limit: Vec<String> = footprints
-        .iter()
-        .filter(|footprint| footprint.bytes > limit_bytes)
-        .map(DaemonFootprint::describe)
-        .collect();
-    let recycled = !over_limit.is_empty();
-    if recycled {
-        recover_exclusively()?;
-    }
-    Ok(DaemonRecycle {
-        limit_bytes,
-        footprints,
-        over_limit,
-        recycled,
-    })
-}
-
-/// The daemon repair with the gpg capacity drained first, for the reason
-/// [`ExecutionLimit::acquire_exclusive`] gives: killing daemons beside a live
-/// decryption is what reports `Broken pipe` to a caller that asked for a
-/// credential. The generation advances because a recovery was attempted, the
-/// same rule [`run`] applies to its own.
-fn recover_exclusively() -> Result<()> {
-    let mut generation = GPG_RECOVERY_GENERATION
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let outcome = {
-        let _exclusive = GPG_LIMIT.acquire_exclusive(in_flight::waiting_on_agent);
-        recover_gpg_daemons()
-    };
-    *generation = generation.wrapping_add(1);
-    outcome
 }
 
 /// How many cryptographic children run now, all and GnuPG.

@@ -2,7 +2,7 @@
 // every operation is written with.
 
 use anyhow::{bail, Context, Result};
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
