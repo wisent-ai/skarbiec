@@ -24,11 +24,11 @@ pub(crate) struct CapabilityListener {
 
 impl CapabilityListener {
     pub(crate) fn bind(flags: &HashMap<String, String>) -> Result<Self> {
-        let socket = flags
-            .get("socket")
-            .cloned()
-            .or_else(|| std::env::var("SKARBIEC_CAP_SOCKET").ok())
-            .context("serve redeems capabilities only with --socket or SKARBIEC_CAP_SOCKET")?;
+        let socket = match flags.get("socket") {
+            Some(socket) => socket.clone(),
+            None => crate::core::env::text("SKARBIEC_CAP_SOCKET")?
+                .context("serve redeems capabilities only with --socket or SKARBIEC_CAP_SOCKET")?,
+        };
         let path = PathBuf::from(&socket);
         match fs::symlink_metadata(&path) {
             Ok(metadata) => {
@@ -48,7 +48,9 @@ impl CapabilityListener {
             Err(error) => return Err(error).context("inspect capability socket path"),
         }
         let listener = UnixListener::bind(&path).context("bind the capability socket")?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+        // Owner read and write only, as the C library names those bits.
+        let owner_only = u32::from(libc::S_IRUSR | libc::S_IWUSR);
+        fs::set_permissions(&path, fs::Permissions::from_mode(owner_only))
             .context("restrict the capability socket to its owner")?;
         eprintln!("skarbiec capability broker listening on {socket}");
         Ok(Self { listener })

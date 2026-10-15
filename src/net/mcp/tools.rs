@@ -32,12 +32,12 @@ pub(super) fn tools() -> Value {
     ])
 }
 
-pub(super) fn text_result(value: &Value) -> Value {
+pub(super) fn text_result(value: &Value) -> Result<Value> {
     let text = match value {
         Value::String(s) => s.clone(),
-        other => serde_json::to_string_pretty(other).unwrap_or_default(),
+        other => serde_json::to_string_pretty(other).context("render the tool result as text")?,
     };
-    json!({"content": [{"type": "text", "text": text}]})
+    Ok(json!({"content": [{"type": "text", "text": text}]}))
 }
 
 // Service grant: env var first, then a grant file. Unset/blank => None; a
@@ -63,19 +63,20 @@ pub(super) fn configured_token() -> Result<Option<String>> {
     Ok(None)
 }
 
-pub(super) fn configured_consumer() -> Option<String> {
-    std::env::var("SKARBIEC_MCP_CONSUMER")
-        .ok()
-        .map(|c| c.trim().to_string())
-        .filter(|c| !c.is_empty())
+/// The consumer the MCP server resolves routes as; `None` when unset or
+/// blank, an error naming the variable when it is set but not UTF-8.
+pub(super) fn configured_consumer() -> Result<Option<String>> {
+    Ok(
+        crate::core::env::text("SKARBIEC_MCP_CONSUMER")?
+            .map(|consumer| consumer.trim().to_string()),
+    )
 }
 
 // Required, absolute output dir; relative would let launch-cwd place files in the
 // repo, so relative is refused outright.
 pub(super) fn configured_out_dir() -> Result<String> {
-    let dir = std::env::var("SKARBIEC_MCP_OUT_DIR").ok()
+    let dir = crate::core::env::text("SKARBIEC_MCP_OUT_DIR")?
         .map(|d| d.trim().to_string())
-        .filter(|d| !d.is_empty())
         .context("skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_OUT_DIR to an absolute directory on the MCP server")?;
     if !Path::new(&dir).is_absolute() {
         anyhow::bail!("SKARBIEC_MCP_OUT_DIR must be an absolute path, got: {dir}");
@@ -90,7 +91,7 @@ pub(super) fn resolve_tool(args: &Value) -> Result<Value> {
         .filter(|value| !value.is_empty())
         .context("skarbiec_route_resolve requires a non-empty 'name'")?;
     // Mandatory server-side auth; refuse before opening the vault.
-    let consumer = configured_consumer().context(
+    let consumer = configured_consumer()?.context(
         "skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_CONSUMER on the MCP server",
     )?;
     let bearer = configured_token()?
@@ -108,15 +109,15 @@ pub(super) fn resolve_tool(args: &Value) -> Result<Value> {
 
 pub(super) fn call_tool(name: &str, args: &Value) -> Result<Value> {
     match name {
-        "skarbiec_health" => Ok(text_result(&json!({"ok": true, "service": "skarbiec"}))),
-        "skarbiec_list" => Ok(text_result(&json!(Vault::open(vault_path())?.list(false)))),
-        "skarbiec_route_resolve" => Ok(text_result(&resolve_tool(args)?)),
+        "skarbiec_health" => text_result(&json!({"ok": true, "service": "skarbiec"})),
+        "skarbiec_list" => text_result(&json!(Vault::open(vault_path())?.list(false))),
+        "skarbiec_route_resolve" => text_result(&resolve_tool(args)?),
         "skarbiec_audit" => {
             let empty: Vec<String> = Vec::new();
-            Ok(text_result(
+            text_result(
                 &runtime::audit::dispatch("audit list", &HashMap::new(), &empty)?
                     .context("audit produced no result")?,
-            ))
+            )
         }
         other => anyhow::bail!("unknown tool: {other}"),
     }
