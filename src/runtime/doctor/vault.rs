@@ -123,24 +123,27 @@ pub(super) fn selection_check() -> Value {
     // A vault the inventory could not read, or an inventory that failed, is
     // said beside the visible ones: read as none, the doctor called a choice
     // unambiguous that another, unreadable vault might contest.
-    let inventory = vaults::inventory();
-    let visible: Vec<Value> = match &inventory {
-        Ok(report) => report["vaults"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .cloned()
-            .collect(),
-        Err(_) => Vec::new(),
-    };
-    let unread: Vec<String> = match &inventory {
-        Ok(report) => report["unreadable"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|entry| format!("{} {}", entry["path"], entry["cause"]))
-            .collect(),
-        Err(error) => vec![format!("the vault inventory failed: {error}")],
+    let (visible, unread): (Vec<Value>, Vec<String>) = match vaults::inventory() {
+        Ok(report) => (
+            report["vaults"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .cloned()
+                .collect(),
+            report["unreadable"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|entry| format!("{} {}", entry["path"], entry["cause"]))
+                .collect(),
+        ),
+        // No vault is listed as visible, and the failure is the one unread
+        // entry, so the selection below is never called unambiguous.
+        Err(error) => (
+            Vec::new(),
+            vec![format!("the vault inventory failed: {error}")],
+        ),
     };
     let others: Vec<String> = visible
         .iter()
