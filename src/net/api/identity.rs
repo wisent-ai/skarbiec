@@ -22,7 +22,9 @@ pub(crate) fn handle_tokens_introspect(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
     let Some(subject) = parsed.get("token").and_then(Value::as_str) else {
         return http::write_response(
             stream,

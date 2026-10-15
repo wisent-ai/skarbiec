@@ -9,7 +9,6 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::net::TcpStream;
 
 use crate::access::grant;
@@ -20,62 +19,7 @@ fn now_iso() -> String {
     crate::core::clock::now_iso()
 }
 
-/// Minimal blocking HTTP client for a loopback serve: returns the status line
-/// and the parsed JSON body. A non-JSON body is an error naming the status,
-/// so a refused request surfaces the server's answer. Only plain http to an
-/// explicit host:port — the serve listener is loopback-only by design.
-pub(crate) fn serve_request(
-    base: &str,
-    method: &str,
-    path: &str,
-    consumer: &str,
-    bearer: &str,
-    body: Option<&Value>,
-) -> Result<(String, Value)> {
-    let authority = base.strip_prefix("http://").unwrap_or(base);
-    let authority = authority.trim_end_matches('/');
-    if authority.is_empty() || authority.contains('/') {
-        bail!("base url must be http://host:port with no path: {base}");
-    }
-    let payload = match body {
-        Some(value) => serde_json::to_string(value)?,
-        None => String::new(),
-    };
-    let mut stream =
-        TcpStream::connect(authority).with_context(|| format!("connect {authority}"))?;
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nAuthorization: Bearer {bearer}\r\nX-Consumer: {consumer}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
-        payload.len()
-    );
-    stream
-        .write_all(request.as_bytes())
-        .with_context(|| format!("write {method} {path} request to {authority}"))?;
-    let mut raw = String::new();
-    stream
-        .read_to_string(&mut raw)
-        .with_context(|| format!("read {method} {path} response from {authority}"))?;
-    let (head, text) = raw
-        .split_once("\r\n\r\n")
-        .with_context(|| format!("malformed HTTP response to {method} {path} from {authority}"))?;
-    let status = head
-        .lines()
-        .next()
-        .with_context(|| {
-            format!("{method} {path} response from {authority} has no HTTP status line")
-        })?
-        .to_string();
-    let parsed: Value = serde_json::from_str(text).with_context(|| {
-        format!("response to {method} {path} from {authority} is not JSON (status: {status})")
-    })?;
-    Ok((status, parsed))
-}
-
-fn item_count(doc: &Value) -> usize {
-    doc.get("items")
-        .and_then(Value::as_object)
-        .map(|items| items.len())
-        .unwrap_or_default()
-}
+pub(crate) use super::serve::serve_request;
 
 /// `GET /v1/vault` — replica-mode pull of the whole ciphertext document.
 /// Requires a `sync:pull` grant; items are served exactly as stored
@@ -109,7 +53,9 @@ pub(crate) fn handle_enroll(
     body: &str,
 ) -> Result<()> {
     let bad = "HTTP/1.1 400 Bad Request";
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
     let Some(uid) = parsed
         .get("uid")
         .and_then(Value::as_str)
@@ -223,32 +169,46 @@ pub(crate) fn handle_enroll(
 // configs are the replica's own relationships — they are carried across the
 // replace and stamped with the pull time so bond status can report it.
 pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
-    let usage = "usage: pull --from <base-url> --token-file <path> [--bond name] [--consumer name] [--force]";
+    let usage = "usage: pull --from <base-url> --token-file <path> [--bond name] [--consumer name, replica when not given] [--force]";
     let from = flags.get("from").context(usage)?;
     let token = crate::credential::bearer_from_file(flags, "pull")?;
-    let consumer = flags
-        .get("consumer")
-        .map(String::as_str)
-        .unwrap_or("replica");
-    let (status, pulled) = serve_request(from, "GET", "/v1/vault", consumer, &token, None)?;
-    if pulled.get("items").and_then(Value::as_object).is_none() || pulled.get("version").is_none() {
-        bail!("remote did not return a vault document (status: {status}, body: {pulled})");
-    }
-    let remote_count = item_count(&pulled);
-    let live = vault_path();
-    let local: Value = match crate::core::read_present(&live, "vault")? {
-        Some(text) => serde_json::from_str(&text)
-            .with_context(|| format!("parse vault {}", live.display()))?,
-        None => json!({}),
+    let consumer = match flags.get("consumer") {
+        Some(named) => named.as_str(),
+        None => "replica",
     };
-    let local_count = item_count(&local);
-    if remote_count < local_count && !flags.contains_key("force") {
-        anyhow::bail!(
-            "pull: refusing to replace the local vault ({local_count} items) with the remote's {remote_count}; re-run with --force to accept the loss"
-        );
+    let (status, pulled) = serve_request(from, "GET", "/v1/vault", consumer, &token, None)?;
+    let (Some(remote_items), Some(_)) = (
+        pulled.get("items").and_then(Value::as_object),
+        pulled.get("version"),
+    ) else {
+        bail!("remote did not return a vault document (status: {status}, body: {pulled})");
+    };
+    let remote_count = remote_items.len();
+    let live = vault_path();
+    let local: Option<Value> = match crate::core::read_present(&live, "vault")? {
+        Some(text) => Some(
+            serde_json::from_str(&text)
+                .with_context(|| format!("parse vault {}", live.display()))?,
+        ),
+        None => None,
+    };
+    // A host with no vault yet has nothing a smaller vault could destroy.
+    let local_count = local
+        .as_ref()
+        .map(|local| {
+            let items = local.get("items").and_then(Value::as_object);
+            items
+                .map(serde_json::Map::len)
+                .with_context(|| format!("vault {} holds no items map", live.display()))
+        })
+        .transpose()?;
+    if let Some(local_count) = local_count.filter(|local| remote_count < *local) {
+        if !flags.contains_key("force") {
+            bail!("pull: refusing to replace the local vault ({local_count} items) with the remote's {remote_count}; re-run with --force to accept the loss");
+        }
     }
     let mut doc = pulled;
-    if let Some(bonds) = local.get("bond").cloned() {
+    if let Some(bonds) = local.as_ref().and_then(|local| local.get("bond")).cloned() {
         doc["bond"] = bonds;
     }
     let stamp = now_iso();

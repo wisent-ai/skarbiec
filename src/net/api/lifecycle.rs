@@ -35,7 +35,9 @@ pub(crate) fn handle_credential_operations(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
     let item = match crate::credential::endpoint_item(&parsed) {
         Ok(item) => item,
         Err(error) => {

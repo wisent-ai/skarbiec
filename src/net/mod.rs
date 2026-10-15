@@ -9,6 +9,7 @@ pub mod http;
 pub mod mcp;
 pub mod operator;
 pub mod owner;
+mod serve;
 pub mod sync;
 
 use anyhow::Result;
@@ -27,8 +28,24 @@ pub(crate) fn detail_text(detail: &str) -> String {
     detail.trim().to_owned()
 }
 
-pub(crate) fn request_json(body: &str) -> Value {
-    serde_json::from_str(body).unwrap_or(Value::Null)
+/// The request body as JSON. A body that does not parse is answered 400
+/// here, naming the parse error and the body's length; `None` tells the
+/// handler that answer was written, so no handler reads a field out of a
+/// body that was never JSON and reports the field as missing.
+pub(crate) fn request_json(stream: &mut std::net::TcpStream, body: &str) -> Result<Option<Value>> {
+    match serde_json::from_str(body) {
+        Ok(parsed) => Ok(Some(parsed)),
+        Err(error) => {
+            http::write_response(
+                stream,
+                "HTTP/1.1 400 Bad Request",
+                &serde_json::json!({
+                    "error": format!("the request body is not JSON ({} bytes): {error}", body.len())
+                }),
+            )?;
+            Ok(None)
+        }
+    }
 }
 
 pub(crate) fn request_id(body: &Value) -> Option<&str> {

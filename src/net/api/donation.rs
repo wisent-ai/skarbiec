@@ -20,7 +20,9 @@ pub(crate) fn handle_donation(
     body: &str,
 ) -> Result<()> {
     let bad = "HTTP/1.1 400 Bad Request";
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
     let Some(item_id) = parsed
         .get("item_id")
         .and_then(Value::as_str)
@@ -36,12 +38,16 @@ pub(crate) fn handle_donation(
         return http::write_response(stream, bad, &json!({"error": "armor required"}));
     };
     let (header_consumer, bearer) = http::presented_identity(headers);
-    let consumer = parsed
+    // The donor names itself in the body; a body that names no one donates
+    // as the consumer its headers present.
+    let consumer = match parsed
         .get("consumer")
         .and_then(Value::as_str)
         .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .unwrap_or(header_consumer);
+    {
+        Some(named) => named.to_string(),
+        None => header_consumer,
+    };
     let vault = http::load()?;
     if consumer.is_empty()
         || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "donate", item_id)?
@@ -52,12 +58,16 @@ pub(crate) fn handle_donation(
             &json!({"error": format!("donate:{item_id} grant required")}),
         );
     }
-    let from = parsed
+    // The `from` claim is the writer the item's provenance is checked
+    // against; a donation that states none claims the donor itself.
+    let from = match parsed
         .get("from")
         .and_then(Value::as_str)
         .filter(|f| !f.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| consumer.clone());
+    {
+        Some(claimed) => claimed.to_string(),
+        None => consumer.clone(),
+    };
     let rule = inbox::admission(&vault, item_id, &from);
     if !rule.admits() {
         crate::runtime::audit::append(

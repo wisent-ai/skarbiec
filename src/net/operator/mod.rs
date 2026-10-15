@@ -82,7 +82,9 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
         )?;
         return Ok(true);
     }
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(true);
+    };
     let vault = parsed
         .get("vault")
         .and_then(Value::as_str)

@@ -1,13 +1,15 @@
 // Writing one field of one item over the local API: an exact grant, the
 // staging or rotation mode the caller asked for, and the revision it produced.
 
-use anyhow::{Context, Result};
+mod acquire;
+
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::net::TcpStream;
 
 use crate::access::grant;
-use crate::core::{inbox, schema};
+use crate::core::inbox;
 use crate::credential::Operation;
 use crate::net::http;
 
@@ -16,7 +18,9 @@ pub(crate) fn handle_items_put(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
     let Some(id) = http::request_id(&parsed) else {
         return http::write_response(
             stream,
@@ -38,7 +42,13 @@ pub(crate) fn handle_items_put(
             &json!({"error": "operation_id required"}),
         );
     };
-    let mode = parsed.get("mode").and_then(Value::as_str).unwrap_or("");
+    let Some(mode) = parsed.get("mode").and_then(Value::as_str) else {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": "mode required: acquire, stage or rotate"}),
+        );
+    };
     let (consumer, bearer) = http::presented_identity(headers);
     let mut vault = http::load()?;
     // Grants name the requested coordinate; records and writes use its resolved
@@ -109,93 +119,19 @@ pub(crate) fn handle_items_put(
     }
     let revision = match mode {
         "acquire" => {
-            if parsed.get("provider_verified").and_then(Value::as_bool) != Some(true) {
-                return http::write_response(
-                    stream,
-                    "HTTP/1.1 409 Conflict",
-                    &json!({"error": "provider verification required before acquire"}),
-                );
-            }
-            if consumer.is_empty()
-                || !grant::token_allows_field_action(
-                    &vault,
-                    &consumer,
-                    &bearer,
-                    crate::access::actions::Action::Stage.as_str(),
-                    requested,
-                    field,
-                )?
-            {
-                return http::write_response(
-                    stream,
-                    "HTTP/1.1 403 Forbidden",
-                    &json!({"error": "consumer not authorized to acquire item field"}),
-                );
-            }
-            if vault.get_item(id).is_ok() {
-                return http::write_response(
-                    stream,
-                    "HTTP/1.1 409 Conflict",
-                    &json!({"error": "managed item already exists; use stage"}),
-                );
-            }
-            let payload = parsed
-                .get("value")
-                .cloned()
-                .context("canonical payload required for acquire")?;
-            let kind = payload
-                .get("kind")
-                .and_then(Value::as_str)
-                .context("canonical payload kind required for acquire")?;
-            schema::field(&payload, field)
-                .context("acquired payload does not contain authorized field")?;
-            if let Err(error) = crate::credential::authorize_managed_write(
-                &vault,
+            let acquisition = acquire::Acquisition {
+                requested,
                 id,
                 field,
-                &consumer,
                 operation_id,
-                |operation| operation == Operation::Acquire,
-                u64::MIN,
-                parsed.get("capture_origin").and_then(Value::as_str),
-            ) {
-                return http::write_response(
-                    stream,
-                    "HTTP/1.1 409 Conflict",
-                    &json!({"error": format!("{error:#}")}),
-                );
-            }
-            let request = match crate::credential::recorded_request(&vault, id) {
-                Ok(request) => request,
-                Err(error) => {
-                    return http::write_response(
-                        stream,
-                        "HTTP/1.1 409 Conflict",
-                        &json!({"error": format!("{error:#}")}),
-                    );
-                }
+                consumer: &consumer,
+                bearer: &bearer,
+                parsed: &parsed,
             };
-            let mut tags = vec!["managed:weles".to_string()];
-            if let Some(role) = request
-                .as_ref()
-                .and_then(|request| request.get("role"))
-                .and_then(Value::as_str)
-            {
-                tags.push(format!("stado:role:{role}"));
+            match acquire::acquire(stream, &mut vault, acquisition)? {
+                Some(revision) => revision,
+                None => return Ok(()),
             }
-            vault.set_managed_item(
-                id,
-                kind,
-                &payload,
-                &[],
-                &tags,
-                crate::core::vault::ManagedWrite {
-                    controller: "weles",
-                    writer: &consumer,
-                    operation_id: Some(operation_id),
-                },
-            )?;
-            1
         }
         "stage" => {
             if consumer.is_empty()

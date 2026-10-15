@@ -19,7 +19,9 @@ pub(crate) fn handle_acquisitions_issue(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
     let (Some(item), Some(field), Some(workload_id), Some(timestamp), Some(nonce), Some(signature)) = (
         http::request_id(&parsed),
         http::request_field(&parsed),

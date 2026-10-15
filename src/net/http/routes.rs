@@ -24,8 +24,14 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         return Ok(());
     };
     let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or("").to_string();
-    let path = parts.next().unwrap_or("").to_string();
+    let (Some(method), Some(path)) = (parts.next(), parts.next()) else {
+        return write_response(
+            &mut stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": format!("the request line {request_line:?} names no method and path")}),
+        );
+    };
+    let (method, path) = (method.to_string(), path.to_string());
     let _write_guard = is_mutation(&method, &path).then(write_guard);
 
     let mut headers: HashMap<String, String> = HashMap::new();
@@ -40,13 +46,16 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             headers.insert(k.trim().to_lowercase(), v.trim().to_string());
         }
     }
-    let body_len = match headers.get("content-length") {
-        Some(value) => value.parse::<usize>().context("invalid content-length")?,
-        None => 0,
+    let body = match headers.get("content-length") {
+        Some(value) => {
+            let length = value.parse::<usize>().context("invalid content-length")?;
+            let mut body_buf = vec![Default::default(); length];
+            reader.read_exact(&mut body_buf)?;
+            String::from_utf8_lossy(&body_buf).into_owned()
+        }
+        // A request without a content-length carries no body.
+        None => String::new(),
     };
-    let mut body_buf = vec![Default::default(); body_len];
-    reader.read_exact(&mut body_buf)?;
-    let body = String::from_utf8_lossy(&body_buf).into_owned();
 
     let ok_line = "HTTP/1.1 200 OK";
     let bad_line = "HTTP/1.1 400 Bad Request";
@@ -130,7 +139,9 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         return crate::net::mcp::handle_acquisitions_issue(&mut stream, &headers, &body);
     }
     if method == "POST" && path == "/v1/acquisitions/read" {
-        let parsed = request_json(&body);
+        let Some(parsed) = request_json(&mut stream, &body)? else {
+            return Ok(());
+        };
         let (Some(item), Some(field)) = (request_id(&parsed), request_field(&parsed)) else {
             return write_response(
                 &mut stream,
@@ -196,7 +207,9 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         return crate::net::handle_items_put(&mut stream, &headers, &body);
     }
     if method == "DELETE" && path == "/v1/items" {
-        let parsed = request_json(&body);
+        let Some(parsed) = request_json(&mut stream, &body)? else {
+            return Ok(());
+        };
         let Some(id) = request_id(&parsed) else {
             return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
         };

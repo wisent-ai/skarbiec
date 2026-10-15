@@ -38,7 +38,9 @@ pub(super) fn locate(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<Option<Located>> {
-    let parsed = http::request_json(body);
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(None);
+    };
     let Some(id) = http::request_id(&parsed) else {
         http::write_response(
             stream,

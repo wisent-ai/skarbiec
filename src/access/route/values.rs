@@ -51,18 +51,19 @@ fn write_private(path: &PathBuf, body: &[u8]) -> Result<()> {
 /// canonical name when it declares one, and otherwise the field's own name in
 /// the shape an environment accepts.
 fn exported(row: &Row) -> String {
-    row.exported.map(str::to_string).unwrap_or_else(|| {
-        row.field
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() {
-                    character.to_ascii_uppercase()
-                } else {
-                    '_'
-                }
-            })
-            .collect()
-    })
+    if let Some(canonical) = row.exported {
+        return canonical.to_string();
+    }
+    row.field
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 /// Whether a named consumer may read this exact coordinate.
@@ -228,15 +229,20 @@ pub(crate) fn handle_http_resolve(
     headers: &HashMap<String, String>,
     body: &str,
 ) -> Result<()> {
-    let parsed = http::request_json(body);
-    let name = parsed.get("name").and_then(Value::as_str).unwrap_or("");
-    if name.is_empty() {
+    let Some(parsed) = http::request_json(stream, body)? else {
+        return Ok(());
+    };
+    let Some(name) = parsed
+        .get("name")
+        .and_then(Value::as_str)
+        .filter(|name| !name.is_empty())
+    else {
         return http::write_response(
             stream,
             "HTTP/1.1 400 Bad Request",
             &json!({"error": "name required"}),
         );
-    }
+    };
     let (consumer, bearer) = http::presented_identity(headers);
     let vault = Vault::open(vault_path())?;
     let table = route_table::load()?;
@@ -281,8 +287,8 @@ pub(crate) fn handle_http_resolve(
 /// Refuse a materialization the caller did not fully state, before anything is
 /// opened or written.
 pub(super) fn require_out(flags: &HashMap<String, String>, what: &str) -> Result<String> {
-    match flags.get("out").map(String::as_str).unwrap_or_default() {
-        "" => bail!("route resolve --{what} requires --out"),
-        out => Ok(out.to_string()),
+    match flags.get("out").filter(|out| !out.is_empty()) {
+        Some(out) => Ok(out.to_string()),
+        None => bail!("route resolve --{what} requires --out"),
     }
 }
