@@ -77,10 +77,9 @@ pub(in crate::access) fn routes_path() -> PathBuf {
     state_path().with_file_name("capability-routes.json")
 }
 
+/// Now, by the one unsigned clock reader capabilities and grants share.
 pub(in crate::access::capability) fn now_epoch() -> Result<u64> {
-    Ok(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)?
-        .as_secs())
+    crate::core::clock::epoch_seconds()
 }
 
 /// Write `bytes` to a file only its owner can read. The file is created
