@@ -33,10 +33,16 @@ pub(super) fn emit(
     let lifecycle = lifecycle_state(&vault, credential_id)?;
     // Eligibility answers for the item as it stands now: the record's sealed
     // block when it carries one, otherwise whatever the item itself resolves
-    // to. A contract that resolves to nothing is no contract to run against.
-    let sealed = directory
-        .clone()
-        .or_else(|| resolved_directory(&vault, credential_id).ok().flatten());
+    // to. A contract that resolves to nothing is no contract to run against;
+    // one that could not be resolved says why in `directory_error`, so the
+    // blockers below are not read as the item's own verdict.
+    let (sealed, directory_error) = match &directory {
+        Some(sealed) => (Some(sealed.clone()), Value::Null),
+        None => match resolved_directory(&vault, credential_id) {
+            Ok(resolved) => (resolved, Value::Null),
+            Err(error) => (None, json!(format!("{error:#}"))),
+        },
+    };
     let blockers = lifecycle_blockers(
         &vault,
         credential_id,
@@ -57,6 +63,7 @@ pub(super) fn emit(
         "externally_verified": confirmed && lifecycle == STATE_MANAGED,
         "revision": item_revision(&vault, credential_id),
         "directory": directory,
+        "directory_error": directory_error,
         // An item that exists but cannot be read is refused by name, never
         // reported as carrying no receipt and no quarantine.
         "receipt": context_block_checked(&vault, credential_id, "receipt")?.or(receipt),
