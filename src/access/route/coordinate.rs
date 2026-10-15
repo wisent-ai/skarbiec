@@ -73,12 +73,10 @@ pub(crate) fn coordinate(
         // records the uid the item carried when it was declared, so the vault
         // can be asked where that identity went. A declared route needs none
         // of this: its tags and fields travel with the item.
-        None => Some(
-            item_uid
-                .and_then(|uid| vault.id_for_item_uid(uid))
-                .map(|found| format!("vault item {item} was renamed to {found}"))
-                .unwrap_or_else(|| format!("no vault item {item}")),
-        ),
+        None => Some(match item_uid.and_then(|uid| vault.id_for_item_uid(uid)) {
+            Some(found) => format!("vault item {item} was renamed to {found}"),
+            None => format!("no vault item {item}"),
+        }),
         Some(record) if record.get("state").and_then(Value::as_str) == Some("trashed") => {
             Some(format!("vault item {item} is in trash"))
         }
@@ -101,7 +99,16 @@ pub(crate) fn coordinate(
             // "empty" are different repairs: one was written wrong, the other
             // was emptied.
             Ok(payload) => match schema::field(payload, field) {
-                Err(_) => problem = Some(format!("vault item {item} has no {field} field")),
+                // An item that opened but holds no canonical fields object is
+                // a different repair from a field the item lacks: the first is
+                // a write that went wrong, the second a field never stored.
+                Err(error) => {
+                    problem = Some(if schema::fields(payload).is_ok() {
+                        format!("vault item {item} has no {field} field")
+                    } else {
+                        format!("vault item {item} field {field} cannot be read: {error:#}")
+                    })
+                }
                 Ok(Value::Null) => {
                     problem = Some(format!(
                         "vault item {item} field {field} is not a text value"
