@@ -48,39 +48,32 @@ pub(super) fn endpoint_check() -> Value {
 
 /// Write-once receipts, which nobody configures by default.
 pub(super) fn worm_check() -> Value {
-    // A value that is not text fails the check by name: read as unset, the
-    // doctor reported receipts as never configured while they were.
-    let read = |name: &str| match std::env::var(name) {
-        Ok(value) => Ok(value),
-        Err(std::env::VarError::NotPresent) => Ok(String::new()),
-        Err(error) => Err(format!("{name} is set but cannot be read: {error}")),
-    };
-    let (directory, checkpoint) = match (
-        read("SKARBIEC_WORM_RECEIPT_DIR"),
-        read("SKARBIEC_WORM_CHECKPOINT"),
-    ) {
-        (Ok(directory), Ok(checkpoint)) => (directory, checkpoint),
-        (Err(cause), _) | (_, Err(cause)) => return check("worm", FAIL, cause),
-    };
-    if directory.trim().is_empty() || checkpoint.trim().is_empty() {
+    // Paths are read as the OS hands them over (`core::env::path`), so a
+    // receipt path that is not UTF-8 is checked like any other instead of
+    // failing as unreadable text.
+    let declared = (
+        crate::core::env::path("SKARBIEC_WORM_RECEIPT_DIR"),
+        crate::core::env::path("SKARBIEC_WORM_CHECKPOINT"),
+    );
+    let (Some(directory), Some(checkpoint)) = declared else {
         return check(
             "worm",
             NOT_CONFIGURED,
             "set SKARBIEC_WORM_RECEIPT_DIR and SKARBIEC_WORM_CHECKPOINT to enable write-once receipts".to_string(),
         );
-    }
-    let mut missing: Vec<&str> = Vec::new();
-    for path in [directory.as_str(), checkpoint.as_str()] {
-        match crate::core::is_present(std::path::Path::new(path), "write-once receipt path") {
+    };
+    let mut missing = Vec::new();
+    for path in [&directory, &checkpoint] {
+        match crate::core::is_present(path, "write-once receipt path") {
             Ok(true) => {}
-            Ok(false) => missing.push(path),
+            Ok(false) => missing.push(path.display().to_string()),
             // A receipt path that cannot be examined is the failure with its
             // cause, not one reported as absent.
             Err(error) => return check("worm", FAIL, format!("{error:#}")),
         }
     }
     if missing.is_empty() {
-        check("worm", PASS, format!("receipts in {directory}"))
+        check("worm", PASS, format!("receipts in {}", directory.display()))
     } else {
         check(
             "worm",

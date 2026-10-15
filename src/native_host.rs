@@ -24,12 +24,12 @@ fn token_file() -> Result<std::path::PathBuf> {
 }
 
 fn consumer() -> Result<String> {
-    // Unset is the host's own name; set but not text is refused, not replaced.
-    match std::env::var("SKARBIEC_BROWSER_CONSUMER") {
-        Ok(name) => Ok(name),
-        Err(std::env::VarError::NotPresent) => Ok("skarbiec-browser-host".to_string()),
-        Err(error) => anyhow::bail!("SKARBIEC_BROWSER_CONSUMER cannot be read: {error}"),
-    }
+    // Unset or blank is the host's own name; set but not text is refused, not
+    // replaced.
+    Ok(match crate::core::env::text("SKARBIEC_BROWSER_CONSUMER")? {
+        Some(name) => name,
+        None => "skarbiec-browser-host".to_string(),
+    })
 }
 
 /// One POST against the loopback API through the shared serve client, so the
