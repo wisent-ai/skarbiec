@@ -171,10 +171,13 @@ pub fn dispatch(
     if command != "credential" {
         return Ok(None);
     }
-    let subcommand = positionals.first().map(String::as_str).unwrap_or("help");
-    let args = positionals
-        .get(std::iter::once(()).count()..)
-        .unwrap_or_default();
+    let Some((subcommand, args)) = positionals.split_first() else {
+        return Err(crate::cli::args::Usage(
+            "name a credential command; `skarbiec credential help` lists them".to_string(),
+        )
+        .into());
+    };
+    let subcommand = subcommand.as_str();
     // The canonical Skarbiec is the default target: `--local` is the only way
     // to act on this vault file directly.
     let local = flags.get("local").is_some_and(|value| value == "true");
