@@ -37,13 +37,16 @@ pub fn dispatch(
     if command != "route" {
         return Ok(None);
     }
-    let subcommand = positionals.first().map(String::as_str).unwrap_or("help");
-    let rest: Vec<String> = positionals.iter().skip(1).cloned().collect();
+    // A bare `route` prints its help.
+    let (subcommand, rest) = match positionals.split_first() {
+        Some((subcommand, rest)) => (subcommand.as_str(), rest),
+        None => ("help", positionals),
+    };
     let value = match subcommand {
-        "resolve" => resolve(flags, &rest)?,
+        "resolve" => resolve(flags, rest)?,
         "declare" => declare(flags)?,
         "withdraw" => withdraw(flags)?,
-        "verify" => verify(flags, &rest)?,
+        "verify" => verify(flags, rest)?,
         "help" => help(),
         other => {
             return Err(crate::cli::args::Usage(format!(
@@ -114,14 +117,13 @@ fn resolve(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
 /// validator the broker applies to a resource before it will issue a
 /// capability for it.
 fn required<'a>(flags: &'a HashMap<String, String>, name: &str) -> Result<&'a str> {
-    let value = flags.get(name).map(String::as_str).unwrap_or_default();
-    if !exact_token(value) {
-        return Err(crate::cli::args::Usage(format!(
+    match flags.get(name) {
+        Some(value) if exact_token(value) => Ok(value),
+        _ => Err(crate::cli::args::Usage(format!(
             "route: --{name} is required and must be exact (non-empty, one line)"
         ))
-        .into());
+        .into()),
     }
-    Ok(value)
 }
 
 /// State one route the vault cannot declare for itself.
@@ -151,9 +153,15 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
             "{resource} is resolved from what an item declares, not from the table: tag the item instead"
         );
     }
-    // Opportunistic on purpose: a row may be declared ahead of provisioning,
-    // so an unreadable vault leaves the row exactly as it would have been.
-    let mut vault = Vault::open(vault_path()).ok();
+    // A row may be declared ahead of provisioning, so a host with no vault
+    // yet writes the row unchecked. A vault that is there and does not open
+    // is the error, with its cause, rather than a row written as if it were
+    // absent.
+    let path = vault_path();
+    let mut vault = match crate::core::is_present(&path, "vault")? {
+        true => Some(Vault::open(path)?),
+        false => None,
+    };
     if key == "tag" {
         if let Some(open) = vault.as_mut() {
             adopt_live_item(open, resource, value, field, reason)?;
@@ -180,12 +188,16 @@ fn adopt_live_item(
     let Some(row) = table.get(resource) else {
         return Ok(());
     };
-    let text = |name: &str| row.get(name).and_then(Value::as_str).unwrap_or_default();
-    let item = text("item").to_string();
-    if item.is_empty()
-        || text("field") != field
-        || !declaration::tagged_items(vault, tag).is_empty()
-    {
+    // A row naming no item, or another field, is not the route this tag row
+    // replaces; and a role some item already carries needs no adoption.
+    let (Some(item), Some(row_field)) = (
+        row.get("item").and_then(Value::as_str),
+        row.get("field").and_then(Value::as_str),
+    ) else {
+        return Ok(());
+    };
+    let item = item.to_string();
+    if row_field != field || !declaration::tagged_items(vault, tag).is_empty() {
         return Ok(());
     }
     let Some(record) = vault
@@ -244,31 +256,26 @@ fn verify(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
         .map(String::as_str)
         .or_else(|| flags.get("consumer").map(String::as_str));
     let report = route_resolution::verify_report(consumer)?;
-    let broken = report
-        .get("broken")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let checked = report
-        .get("checked")
-        .and_then(Value::as_u64)
-        .unwrap_or_default();
+    let (Some(broken), Some(checked)) = (
+        report.get("broken").and_then(Value::as_array),
+        report.get("checked").and_then(Value::as_u64),
+    ) else {
+        bail!("the route verification report lacks its broken list or checked count: {report}");
+    };
     if !broken.is_empty() {
         println!("{}", serde_json::to_string_pretty(&report)?);
         let named: Vec<String> = broken
             .iter()
             .map(|entry| {
-                format!(
-                    "{}: {}",
-                    entry
-                        .get("resource")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default(),
-                    entry
-                        .get("problem")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                )
+                match (
+                    entry.get("resource").and_then(Value::as_str),
+                    entry.get("problem").and_then(Value::as_str),
+                ) {
+                    (Some(resource), Some(problem)) => format!("{resource}: {problem}"),
+                    // A row that does not say its resource and problem is
+                    // shown whole rather than as an empty sentence.
+                    _ => entry.to_string(),
+                }
             })
             .collect();
         bail!(
