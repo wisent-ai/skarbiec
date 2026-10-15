@@ -51,25 +51,37 @@ fn describe(lock: &Path) -> Option<String> {
     let mut lines = held.lines();
     let pid = lines.next()?.trim().to_string();
     let host = lines.next().map(str::trim).filter(|host| !host.is_empty());
-    let since = std::fs::metadata(lock)
-        .and_then(|metadata| metadata.modified())
-        .ok()
-        .and_then(|taken| taken.duration_since(std::time::UNIX_EPOCH).ok())
-        .and_then(|taken| i64::try_from(taken.as_secs()).ok())
-        .map(crate::core::clock::iso_at);
     let running = command_of(&pid);
     let on = host
         .map(|host| format!(" on {host}"))
         .into_iter()
         .collect::<String>();
-    let taken = since
-        .map(|since| format!(", taken {since}"))
-        .into_iter()
-        .collect::<String>();
+    let taken = taken(lock);
     Some(format!(
         "{} is held by pid {pid}{on} ({running}){taken}",
         lock.display()
     ))
+}
+
+/// When `lock` was last written, as the closing clause of its holder's
+/// sentence; a time that cannot be read is said with its cause.
+fn taken(lock: &Path) -> String {
+    let modified = match std::fs::metadata(lock).and_then(|metadata| metadata.modified()) {
+        Ok(modified) => modified,
+        Err(error) => return format!(", taken at a time that cannot be read: {error}"),
+    };
+    let seconds = match modified.duration_since(std::time::UNIX_EPOCH) {
+        Ok(since) => since.as_secs(),
+        Err(error) => return format!(", taken before the Unix epoch: {error}"),
+    };
+    let epoch = match i64::try_from(seconds) {
+        Ok(epoch) => epoch,
+        Err(error) => return format!(", taken {seconds}s after the Unix epoch: {error}"),
+    };
+    match crate::core::clock::iso_at(epoch) {
+        Some(at) => format!(", taken {at}"),
+        None => format!(", taken {epoch}s after the Unix epoch, outside the calendar"),
+    }
 }
 
 /// Every keyring lock of this home that is held now, one sentence each.
