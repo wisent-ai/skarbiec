@@ -19,6 +19,9 @@ fn load() -> Result<Vault> {
 // names that width without a bare numeric literal.
 const PREFIX_WIDTH_SAMPLE: &str = "ABCDE";
 
+/// The field checked when `--field` names none, as the usage line declares.
+const DECLARED_FIELD: &str = "password";
+
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
@@ -26,16 +29,19 @@ pub fn dispatch(
 ) -> Result<Option<Value>> {
     match command {
         "breach-check" => {
-            let id = positionals
-                .first()
-                .or_usage("usage: breach-check <item-id> [--field password]")?;
-            let field = flags.get("field").map(String::as_str).unwrap_or("password");
+            let id = positionals.first().or_usage(&format!(
+                "usage: breach-check <item-id> [--field {DECLARED_FIELD}]"
+            ))?;
+            let field = match flags.get("field") {
+                Some(field) => field.as_str(),
+                None => DECLARED_FIELD,
+            };
             let vault = load()?;
             let row = vault.get_item(id)?;
             let candidate = schema::field(&row, field)
-                .ok()
-                .and_then(Value::as_str)
-                .with_context(|| format!("{id} has no canonical text field {field}"))?;
+                .with_context(|| format!("{id} has no canonical field {field}"))?
+                .as_str()
+                .with_context(|| format!("{id} field {field} is not text"))?;
             let hash = crypto::sha1_hex_upper(candidate)?;
             let (prefix, suffix) = hash.split_at(PREFIX_WIDTH_SAMPLE.len());
             let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
