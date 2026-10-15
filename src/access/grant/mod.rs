@@ -1,8 +1,8 @@
 // The declared consumer grant: one capability, one grammar, six leaves.
 //
 // A grant is one declaration the v2 validator already enforces -- an action,
-// one item, an optional exact field, and, for `acquire`, the Ed25519 workload
-// public key that action requires. `grant issue` writes that declaration,
+// one item, an optional exact field, and, for `acquire`, the workload's
+// public signing key that action requires. `grant issue` writes that declaration,
 // `grant capability` issues one bounded redemption of an existing one,
 // `grant ensure` widens one by a single exact field read, `grant narrow` takes
 // one such read out again, `grant list` reports them, `grant verify` asks one
@@ -40,7 +40,7 @@ pub use rules::capabilities::acquisition_grant;
 
 use crate::cli::args::OrUsage;
 use leaves::group;
-use lookup::{load, now_epoch};
+use lookup::load;
 use rules::capabilities::{parse_capabilities, read_acquisition_catalog};
 use rules::validation::read_workload_public_key;
 
@@ -74,16 +74,15 @@ pub fn dispatch(
                 .get("workload-public-key-file")
                 .or_usage("--workload-public-key-file is required")?;
             let workload_public_key = read_workload_public_key(Path::new(public_key_path))?;
-            let ttl_seconds: u64 = flags
+            // A lifetime is a positive whole number of seconds: zero is
+            // refused by the type it is read as.
+            let ttl_seconds: std::num::NonZeroU64 = flags
                 .get("ttl-seconds")
                 .or_usage("token-register-acquisitions requires --ttl-seconds: the grants' lifetime in whole seconds")?
                 .parse()
-                .or_usage("--ttl-seconds must be an integer")?;
-            if ttl_seconds == u64::MIN {
-                bail!("--ttl-seconds must be positive");
-            }
-            let expires_at = now_epoch()?
-                .checked_add(ttl_seconds)
+                .or_usage("--ttl-seconds must be a positive integer")?;
+            let expires_at = crate::core::clock::epoch_seconds()?
+                .checked_add(ttl_seconds.get())
                 .context("grant expiry overflow")?;
             let replace = flags
                 .get("replace-capabilities")

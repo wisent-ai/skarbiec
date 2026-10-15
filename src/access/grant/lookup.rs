@@ -3,9 +3,8 @@
 
 use anyhow::Result;
 use serde_json::{json, Value};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::core::{crypto, vault::Vault, vault_path};
+use crate::core::{clock, crypto, vault::Vault, vault_path};
 
 pub(in crate::access::grant) fn load() -> Result<Vault> {
     Vault::open(vault_path())
@@ -15,15 +14,20 @@ pub fn presented_hash(presented: &str) -> Result<String> {
     crypto::sha256_hex(presented)
 }
 
-pub(in crate::access::grant) fn now_epoch() -> Result<u64> {
-    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
-}
-
+/// Whether a grant entry still authorizes: it carries an expiry and that
+/// moment is still ahead. A clock that cannot say what now is authorizes
+/// nothing, and says so on stderr rather than denying without a cause.
 pub(in crate::access::grant) fn active(entry: &Value) -> bool {
-    entry
-        .get("expires_at")
-        .and_then(Value::as_u64)
-        .is_some_and(|expires_at| now_epoch().is_ok_and(|now| now < expires_at))
+    let Some(expires_at) = entry.get("expires_at").and_then(Value::as_u64) else {
+        return false;
+    };
+    match clock::epoch_seconds() {
+        Ok(now) => now < expires_at,
+        Err(error) => {
+            eprintln!("skarbiec: a grant is treated as expired: {error:#}");
+            false
+        }
+    }
 }
 
 fn capabilities_for_hash<'a>(
@@ -59,23 +63,20 @@ fn capabilities_for<'a>(
 /// Liveness is `active`, the same predicate every authorization lookup here
 /// applies, so what the diagnosis walks is exactly what a caller could use.
 pub(crate) fn live_grants(vault: &Vault) -> Vec<(&str, &Vec<Value>)> {
-    vault
-        .doc()
-        .get("tokens")
-        .and_then(Value::as_object)
-        .map(|tokens| {
-            tokens
-                .iter()
-                .filter(|(_, entry)| active(entry))
-                .filter_map(|(consumer, entry)| {
-                    entry
-                        .get("capabilities")
-                        .and_then(Value::as_array)
-                        .map(|capabilities| (consumer.as_str(), capabilities))
-                })
-                .collect()
+    // A vault that has issued no grant has no tokens map and nothing live.
+    let Some(tokens) = vault.doc().get("tokens").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    tokens
+        .iter()
+        .filter(|(_, entry)| active(entry))
+        .filter_map(|(consumer, entry)| {
+            entry
+                .get("capabilities")
+                .and_then(Value::as_array)
+                .map(|capabilities| (consumer.as_str(), capabilities))
         })
-        .unwrap_or_default()
+        .collect()
 }
 
 #[allow(dead_code)]

@@ -7,12 +7,12 @@ use serde_json::{json, Value};
 
 use std::path::Path;
 
-use super::lookup::{active, load, now_epoch, token_allows_field_action};
+use super::lookup::{active, load, token_allows_field_action};
 use super::rules::capabilities::{parse_capabilities, redemption_contract};
 use super::rules::validation::{
     exact_component, exact_resource, read_fixed_token, read_workload_public_key,
 };
-use crate::core::{crypto, vault_path};
+use crate::core::{clock, crypto, vault_path};
 
 pub(in crate::access::grant) fn issue_once(
     consumer: &str,
@@ -32,12 +32,17 @@ pub(in crate::access::grant) fn issue_once(
                 .context("existing grant is not v2; run `skarbiec upgrade --apply` first")
         })
         .transpose()?;
+    // A consumer that holds no grant yet has no capabilities to keep.
+    let existing: &[Value] = match &existing_capabilities {
+        Some(existing) => existing,
+        None => &[],
+    };
     let capabilities = parse_capabilities(
         &vault,
         flags
             .get("capabilities")
             .context("--capabilities is required")?,
-        existing_capabilities.as_deref().unwrap_or_default(),
+        existing,
     )?;
     if let Some(existing_capabilities) = &existing_capabilities {
         let same_capabilities = existing_capabilities.len() == capabilities.len()
@@ -65,20 +70,12 @@ pub(in crate::access::grant) fn issue_once(
     }
     // Driving a credential lifecycle never authorizes reading the
     // value it rotates, so the two never share one bearer.
-    let action_of = |capability: &Value| {
-        capability
-            .get("action")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
-    };
-    if capabilities
-        .iter()
-        .any(|capability| action_of(capability) == "lifecycle")
-        && capabilities
+    let has_action = |action: &str| {
+        capabilities
             .iter()
-            .any(|capability| action_of(capability) == "read")
-    {
+            .any(|capability| capability.get("action").and_then(Value::as_str) == Some(action))
+    };
+    if has_action("lifecycle") && has_action("read") {
         bail!("lifecycle capabilities cannot share a grant with read capabilities");
     }
     let workload_public_key = match flags.get("workload-public-key-file") {
@@ -107,12 +104,13 @@ pub(in crate::access::grant) fn issue_once(
         ),
         (None, true) => super::UNTIL_REVOKED,
         (Some(ttl), false) => {
-            let ttl_seconds: u64 = ttl.parse().context("--ttl-seconds must be an integer")?;
-            if ttl_seconds == u64::MIN {
-                bail!("--ttl-seconds must be positive");
-            }
-            now_epoch()?
-                .checked_add(ttl_seconds)
+            // A lifetime is a positive whole number of seconds: zero is
+            // refused by the type it is read as.
+            let ttl_seconds: std::num::NonZeroU64 = ttl
+                .parse()
+                .context("--ttl-seconds must be a positive integer")?;
+            clock::epoch_seconds()?
+                .checked_add(ttl_seconds.get())
                 .context("grant expiry overflow")?
         }
         (None, false) => bail!(
@@ -137,10 +135,12 @@ pub(in crate::access::grant) fn issue_once(
         Some(token) => json!(crypto::sha256_hex(token)?),
         None => Value::Null,
     };
-    let audience = flags
-        .get("audience")
-        .map(String::as_str)
-        .unwrap_or(consumer);
+    // The audience a bearer signs for is the consumer itself unless the
+    // operator names another.
+    let audience = match flags.get("audience") {
+        Some(audience) => audience.as_str(),
+        None => consumer,
+    };
     vault
         .doc_mut()
         .get_mut("tokens")

@@ -37,6 +37,17 @@ pub fn now_epoch() -> i64 {
     OffsetDateTime::now_utc().unix_timestamp()
 }
 
+/// UTC now, in whole seconds since the Unix epoch, as the unsigned instant a
+/// grant or capability expires at. A system clock that reads before the
+/// epoch is refused naming the clock, so no expiry is computed from it.
+pub fn epoch_seconds() -> anyhow::Result<u64> {
+    use anyhow::Context;
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_secs())
+        .context("the system clock reads a time before the Unix epoch")
+}
+
 /// `epoch` in the same `2026-09-20T03:14:15Z` shape as [`now_iso`]; none
 /// when the second lies outside the four-digit-year calendar, so a reader
 /// shows no time instead of an empty one.
