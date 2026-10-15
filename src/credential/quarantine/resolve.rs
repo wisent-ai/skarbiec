@@ -72,38 +72,41 @@ pub(in crate::credential) fn resolve_quarantine(
     } else {
         None
     };
-    let request_id = record
-        .as_ref()
-        .and_then(|record| record.get("request_id"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let field = record
-        .as_ref()
-        .and_then(|record| record.get("field"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let writer = record
-        .as_ref()
-        .and_then(|record| record.get("consumer"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let staged = !request_id.is_empty()
-        && pending_matches_request(&vault, credential_id, &request_id, &field, &writer);
-    if staged {
-        match decision {
-            Staged::Activate => {
-                vault.activate_staged_revision(credential_id, &request_id, &field, &writer)?;
-            }
-            Staged::Discard => {
-                vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
-            }
-            Staged::Keep => {}
+    // A record states the request, field and writer of the value it staged;
+    // one that leaves any of them out is refused, never read as nothing staged.
+    let request: Option<(String, String, String)> = match record.as_ref() {
+        None => None,
+        Some(record) => {
+            let stated = |name: &str| -> Result<String> {
+                record
+                    .get(name)
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .with_context(|| {
+                        format!("{request_item} states no {name}, so the value it staged cannot be identified")
+                    })
+            };
+            Some((stated("request_id")?, stated("field")?, stated("consumer")?))
         }
-    } else if decision != Staged::Keep {
-        bail!("{credential_id} has no staged revision belonging to the quarantined operation");
+    };
+    let request_id = request
+        .as_ref()
+        .map(|(request_id, _, _)| request_id.clone());
+    let staged = request.as_ref().filter(|(request_id, field, writer)| {
+        pending_matches_request(&vault, credential_id, request_id, field, writer)
+    });
+    match (staged, decision) {
+        (Some((request_id, field, writer)), Staged::Activate) => {
+            vault.activate_staged_revision(credential_id, request_id, field, writer)?;
+        }
+        (Some((request_id, field, writer)), Staged::Discard) => {
+            vault.discard_staged_revision(credential_id, request_id, field, writer)?;
+        }
+        (_, Staged::Keep) => {}
+        (None, _) => {
+            bail!("{credential_id} has no staged revision belonging to the quarantined operation")
+        }
     }
     let resolved_at = now_iso();
     if live_item_exists(&vault, credential_id) {
