@@ -8,10 +8,9 @@ use std::collections::HashSet;
 use super::{CANONICAL_JOURNEY, JOURNEY_ID, PRODUCT_ID};
 
 /// The priority `transition` of `screen` declares, refused naming the screen
-/// and its target when it declares none or one that is not a whole number.
-/// Read as the lowest, a transition that lost its priority decided the next
-/// screen whenever it was the only one or tied with another.
-fn priority(screen: &str, transition: &Value) -> Result<i64> {
+/// and its target when it declares none or one that is not a non-negative
+/// whole number, the journey contract's type for it.
+fn priority(screen: &str, transition: &Value) -> Result<u64> {
     let target = transition
         .get("next_screen_id")
         .and_then(Value::as_str)
@@ -20,10 +19,10 @@ fn priority(screen: &str, transition: &Value) -> Result<i64> {
         })?;
     transition
         .get("priority")
-        .and_then(Value::as_i64)
+        .and_then(Value::as_u64)
         .with_context(|| {
             format!(
-                "canonical onboarding transition from {screen} to {target} declares no whole-number priority"
+                "canonical onboarding transition from {screen} to {target} declares no non-negative whole-number priority"
             )
         })
 }
@@ -75,13 +74,19 @@ pub(super) fn canonical_definition() -> Result<Value> {
             .get("screen_id")
             .and_then(Value::as_str)
             .context("canonical onboarding screen has no id")?;
+        let mut priorities = HashSet::new();
         for transition in screen
             .get("transitions")
             .and_then(Value::as_array)
             .into_iter()
             .flatten()
         {
-            priority(id, transition)?;
+            let rank = priority(id, transition)?;
+            if !priorities.insert(rank) {
+                bail!(
+                    "canonical onboarding transitions of {id} share priority {rank}; the journey contract requires them unique"
+                );
+            }
             let next = transition
                 .get("next_screen_id")
                 .and_then(Value::as_str)
@@ -106,8 +111,9 @@ pub(super) fn screen_by_id<'a>(definition: &'a Value, screen_id: &str) -> Result
         .with_context(|| format!("published onboarding screen is unavailable: {screen_id}"))
 }
 
-/// The target of the highest-priority transition; of equal priorities, the
-/// last one listed.
+/// The target of the transition that leads: the lowest priority, as the
+/// journey contract and Echo's own routing order transitions. Priorities are
+/// unique per screen, which the definition check enforces.
 pub(super) fn next_screen_id(screen: &Value) -> Result<Option<String>> {
     let Some(transitions) = screen.get("transitions").and_then(Value::as_array) else {
         return Ok(None);
@@ -116,10 +122,10 @@ pub(super) fn next_screen_id(screen: &Value) -> Result<Option<String>> {
         .get("screen_id")
         .and_then(Value::as_str)
         .context("canonical onboarding screen has no id")?;
-    let mut chosen: Option<(i64, &Value)> = None;
+    let mut chosen: Option<(u64, &Value)> = None;
     for transition in transitions {
         let rank = priority(id, transition)?;
-        if chosen.is_none_or(|(best, _)| rank >= best) {
+        if chosen.is_none_or(|(best, _)| rank < best) {
             chosen = Some((rank, transition));
         }
     }
