@@ -156,7 +156,7 @@ fn append_beside(path: &Path, entry: &Value) -> Result<()> {
     fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .mode(0o600)
+        .mode(crate::core::vault::private_file_mode()?)
         .open(&journal)
         .with_context(|| format!("open {}", journal.display()))?
         .write_all(line.as_bytes())
@@ -188,14 +188,8 @@ pub(super) fn write_row(
     let _lock = lock_table(&path)?;
     let mut table = load()?;
     if let Some(existing) = table.get(resource) {
-        let mapped = |name: &str| {
-            existing
-                .get(name)
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string()
-        };
-        if mapped(key) == value && mapped("field") == field {
+        let mapped = |name: &str| existing.get(name).and_then(Value::as_str);
+        if mapped(key) == Some(value) && mapped("field") == Some(field) {
             return Ok(json!({
                 "declared": false,
                 "resource": resource,
@@ -207,16 +201,25 @@ pub(super) fn write_row(
         // An item row may become the tag row that answers with the very same
         // item: that names the credential by role without repointing it.
         let same_answer = key == "tag"
-            && mapped("field") == field
-            && vault.is_some_and(|vault| {
-                super::declaration::tagged_items(vault, value).as_slice()
-                    == [mapped("item").as_str()]
+            && mapped("field") == Some(field)
+            && mapped("item").is_some_and(|item| {
+                vault.is_some_and(|vault| {
+                    super::declaration::tagged_items(vault, value).as_slice() == [item]
+                })
             });
         if !same_answer {
+            // A row naming neither a tag nor an item is shown as stored.
+            let target = match (mapped("tag"), mapped("item")) {
+                (Some(tag), _) => tag.to_string(),
+                (None, Some(item)) => item.to_string(),
+                (None, None) => format!("a row naming no item or tag ({existing})"),
+            };
+            let stored_field = match mapped("field") {
+                Some(field) => field.to_string(),
+                None => "no field".to_string(),
+            };
             bail!(
-                "capability route {resource} already maps {}#{}: repointing a live route is not a declaration",
-                if mapped("tag").is_empty() { mapped("item") } else { mapped("tag") },
-                mapped("field")
+                "capability route {resource} already maps {target}#{stored_field}: repointing a live route is not a declaration"
             );
         }
     }
@@ -266,11 +269,17 @@ fn lock_table(path: &Path) -> Result<fs::File> {
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(0o600)
+        .mode(crate::core::vault::private_file_mode()?)
         .open(&lock_path)
         .with_context(|| format!("open capability route lock {}", lock_path.display()))?;
-    lock.lock_exclusive()
-        .with_context(|| format!("lock capability route table {}", path.display()))?;
+    let held = lock_path.display().to_string();
+    stado_wait::blocking(
+        stado_wait::Kind::Lock,
+        "the capability route table lock",
+        &held,
+        || lock.lock_exclusive(),
+    )
+    .with_context(|| format!("lock capability route table {}", path.display()))?;
     Ok(lock)
 }
 
