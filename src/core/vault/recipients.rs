@@ -115,23 +115,23 @@ impl Vault {
         self.transfer_former_owner_control()?;
 
         // Deleted items still hold secrets and are still restorable, so they
-        // rotate too.
-        let ids: Vec<String> = self
-            .doc
-            .get("items")
-            .and_then(Value::as_object)
-            .map(|items| items.keys().cloned().collect())
-            .unwrap_or_default();
-        let mut versions = usize::default();
+        // rotate too. A vault that holds no items section has none to rotate;
+        // one whose items are not an object is refused, not passed over.
+        let ids: Vec<String> = match self.doc.get("items") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Object(items)) => items.keys().cloned().collect(),
+            Some(other) => bail!("this vault's items are not an object: {other}"),
+        };
+        let mut rewrapped_versions = Vec::with_capacity(ids.len());
         for id in &ids {
             let uids: Vec<String> = self
                 .item_recipient_uids(id)?
                 .into_iter()
                 .filter(|uid| uid != &previous)
                 .collect();
-            let rewrapped = self.rewrap_item(id, &uids)?;
-            versions = versions.saturating_add(rewrapped);
+            rewrapped_versions.push(self.rewrap_item(id, &uids)?);
         }
+        let versions: usize = rewrapped_versions.iter().sum();
         self.save()?;
         Ok(json!({
             "ok": true,
@@ -156,18 +156,15 @@ impl Vault {
     /// controller; only control moves, no field, tag or revision changes.
     pub fn transfer_former_owner_control(&mut self) -> Result<Vec<String>> {
         let owner = self.owner_uid().to_string();
-        let former: Vec<String> = self
-            .doc
-            .get("recipients")
-            .and_then(Value::as_object)
-            .map(|recipients| {
-                recipients
-                    .iter()
-                    .filter(|(uid, entry)| *uid != &owner && entry.get("owner_until").is_some())
-                    .map(|(uid, _)| uid.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let former: Vec<String> = match self.doc.get("recipients") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Object(recipients)) => recipients
+                .iter()
+                .filter(|(uid, entry)| *uid != &owner && entry.get("owner_until").is_some())
+                .map(|(uid, _)| uid.clone())
+                .collect(),
+            Some(other) => bail!("this vault's recipients are not an object: {other}"),
+        };
         let mut moved = Vec::new();
         for (id, entry) in obj_mut(&mut self.doc, "items").iter_mut() {
             let Some(management) = entry.get("management").and_then(Value::as_object) else {
@@ -233,11 +230,7 @@ impl Vault {
         let rotated_current = Self::rewrap(&fprs, current_cipher)
             .with_context(|| format!("rewrap current ciphertext: {id}"))?;
         current.insert("ciphertext".to_string(), json!(rotated_current));
-        let history = item
-            .get("history")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let history = super::items::stored_history(id, item)?;
         let mut rotated_history = Vec::new();
         for version in history {
             let mut version = version

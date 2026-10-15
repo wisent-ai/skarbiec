@@ -39,12 +39,8 @@ impl Vault {
         // tag onto an item that also carries an older unregistered one still
         // works.
         let written: Vec<Value> = tags.iter().cloned().map(Value::String).collect();
-        let carried: &[Value] = entry
-            .get("tags")
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        schema::ensure_registered_tags(carried, &written)?;
+        let carried = super::items::stored_tags(id, &entry)?;
+        schema::ensure_registered_tags(&carried, &written)?;
         entry["tags"] = Value::Array(written);
         entry["updated_at"] = json!(now());
         // Lazy mint. `retag` mutates the envelope in place, so an existing uid
@@ -114,8 +110,9 @@ impl Vault {
             .to_string();
         let recipients = self.item_recipient_uids(id)?;
         let mut payload = self.get_item(id)?;
-        schema::fields(&payload)?;
-        let same_as_current = schema::field(&payload, field).ok() == Some(&value);
+        // The staged value is the current one when the stored fields already
+        // hold exactly it; a field the item does not hold yet is a change.
+        let same_as_current = schema::fields(&payload)?.get(field) == Some(&value);
         payload
             .get_mut("fields")
             .and_then(Value::as_object_mut)
@@ -123,7 +120,7 @@ impl Vault {
             .insert(field.to_string(), value);
         schema::validate_payload(&payload, &kind)?;
         let revision = expected_revision
-            .checked_add(std::iter::once(()).count() as u64)
+            .checked_add(std::num::NonZeroU64::MIN.get())
             .context("item revision overflow")?;
         let cipher = crypto::encrypt_to(
             &self.fprs_for(&recipients),
@@ -209,11 +206,7 @@ impl Vault {
             .get("revision")
             .and_then(Value::as_u64)
             .context("staged revision has no revision number")?;
-        let mut history = item
-            .get("history")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let mut history = super::items::stored_history(id, item)?;
         history.push(
             item.get("current")
                 .cloned()

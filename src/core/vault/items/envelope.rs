@@ -13,14 +13,26 @@ use crate::core::vault::{
 };
 use crate::core::{crypto, schema};
 
-/// The tags an entry stores, as the values the envelope writes back. A list
-/// with an entry that is not text, or tags that are not a list, is refused
-/// rather than read as none and written over.
-fn stored_tags(id: &str, entry: &Value) -> Result<Vec<Value>> {
+/// The tags an entry stores, as the values a writer seals back. A list with
+/// an entry that is not text, or tags that are not a list, is refused rather
+/// than read as none and written over.
+pub(in crate::core::vault) fn stored_tags(id: &str, entry: &Value) -> Result<Vec<Value>> {
     Ok(entry_texts(id, entry, "tags")?
         .into_iter()
         .map(Value::String)
         .collect())
+}
+
+/// The earlier versions an entry keeps, for a writer that seals them back.
+/// An entry that never stored a history has none yet; one whose history is
+/// not a list is refused, since writing it back as empty would drop every
+/// version it held.
+pub(in crate::core::vault) fn stored_history(id: &str, entry: &Value) -> Result<Vec<Value>> {
+    match entry.get("history") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(versions)) => Ok(versions.clone()),
+        Some(other) => bail!("vault item {id} carries history {other}, not a list"),
+    }
 }
 
 impl Vault {
@@ -192,13 +204,10 @@ impl Vault {
         let fprs = self.fprs_for(&effective_recipients);
         let cipher = crypto::encrypt_to(&fprs, &serde_json::to_string(payload)?)?;
         let stamp = now();
-        // Earlier versions are kept. An entry that never stored a history has
-        // none yet; one whose history is not a list is refused, since writing
-        // it back as empty would drop every version it held.
-        let mut history = match previous.as_ref().and_then(|entry| entry.get("history")) {
-            None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(versions)) => versions.clone(),
-            Some(other) => bail!("vault item {id} carries history {other}, not a list"),
+        // Earlier versions are kept; a new item has none.
+        let mut history = match &previous {
+            Some(entry) => stored_history(id, entry)?,
+            None => Vec::new(),
         };
         if let Some(current) = previous.as_ref().and_then(|entry| entry.get("current")) {
             history.push(current.clone());
@@ -256,26 +265,15 @@ impl Vault {
         if let Some(source) = previous.as_ref().and_then(|item| item.get("import_source")) {
             entry["import_source"] = source.clone();
         }
-        // Who wrote this, in the journal, not only which owner key signed it.
-        // Two subscription items lost their enumeration tags repeatedly while
-        // every writer anyone could name preserved them, and the vault recorded
-        // only `written_by`, which is the owner uid for every owner-mode write on
-        // the host. Without the process behind the write there is nothing to ask,
-        // so a tag that disappears again names its own cause.
+        // Who wrote this, in the journal, not only which owner key signed it:
+        // every owner-mode write on a host has the same `written_by`, so the
+        // process behind the write is what names the writer.
         //
-        // Both counts, because the difference is the whole signal: `tags` is what
-        // this revision now carries and `tags_requested` is what the writer passed.
-        // A rotation that passes none and stores the previous four is the
-        // tag-preserving write working; a stored count that falls to zero names the
-        // writer that emptied it.
-        //
-        // `append_sync`, not `append`: the queued form hands the line to a worker
-        // thread, and a one-shot CLI write -- which is what every rotation on this
-        // fleet is, `set-json` invoked per refresh -- exits before that thread runs.
-        // The 318 rewrites of one subscription item left no journal line at all, so
-        // the record built to name the writer named nobody. A vault write is a
-        // mutating operation, and this file's own rule is that those journal
-        // synchronously.
+        // Both tag counts, because the difference is the signal: `tags` is what
+        // this revision carries and `tags_requested` is what the writer passed,
+        // so a stored count that falls to zero names the writer that emptied it.
+        // The caller journals the line synchronously: a one-shot CLI write exits
+        // before a queued line would be written.
         let (parent_pid, parent_process) = Self::parent_process();
         let audit = json!({
             "item": id,
