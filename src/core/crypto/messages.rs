@@ -24,6 +24,11 @@ pub fn verify_clearsigned(signed: &str) -> Result<String> {
     run("gpg", &["--batch", "--yes", "--decrypt"], Some(signed))
 }
 
+/// The bytes of entropy in a consumer service token, which so carries 256
+/// bits, above the 2^-160 guessing bound RFC 6749 sets for access tokens,
+/// https://www.rfc-editor.org/rfc/rfc6749#section-10.10
+const TOKEN_BYTES: usize = 32;
+
 /// High-entropy random token (hex). Used for consumer service tokens.
 ///
 /// `/dev/urandom` rather than `openssl rand`: minting a token used to spawn a
@@ -31,11 +36,18 @@ pub fn verify_clearsigned(signed: &str) -> Result<String> {
 /// a token is minted on paths that hold no secret at all.
 pub fn random_token() -> Result<String> {
     use std::io::Read;
-    let mut bytes = [u8::MIN; 32];
+    let mut bytes = Vec::with_capacity(TOKEN_BYTES);
     std::fs::File::open("/dev/urandom")
         .context("open /dev/urandom")?
-        .read_exact(&mut bytes)
+        .take(u64::try_from(TOKEN_BYTES).context("the token length does not fit a read length")?)
+        .read_to_end(&mut bytes)
         .context("read entropy for a service token")?;
+    if bytes.len() != TOKEN_BYTES {
+        bail!(
+            "/dev/urandom ended after {} of the {TOKEN_BYTES} bytes a service token needs",
+            bytes.len()
+        );
+    }
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
@@ -124,7 +136,12 @@ fn unlock_phrase() -> Result<Option<String>> {
                 path.display()
             );
         }
-        if metadata.permissions().mode() & 0o077 != 0 {
+        // Only the owner may read or write it: any permission bit outside
+        // S_IRUSR | S_IWUSR refuses the file.
+        let owner = u32::from(libc::S_IRUSR | libc::S_IWUSR);
+        let access = metadata.permissions().mode()
+            & u32::from(libc::S_IRWXU | libc::S_IRWXG | libc::S_IRWXO);
+        if access | owner != owner {
             anyhow::bail!("Skarbiec unlock file {} must be mode 0600", path.display());
         }
     }
@@ -153,22 +170,17 @@ pub fn decrypt(ciphertext: &str) -> Result<String> {
     }
 }
 
-// Protected-key path: stage the ciphertext to a temp file and feed the phrase
-// to gpg over stdin. The temp name gets a per-call sequence: a pid-only name
-// let threaded decrypts swap each other's input file.
-static TEMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MIN);
-
+// Protected-key path: gpg reads the phrase from its standard input one byte
+// at a time up to the first newline (`--passphrase-fd`), and the message from
+// the rest of the same input, so nothing is staged on disk and the phrase
+// never reaches argv. A phrase holding a newline would end early and hand the
+// rest of it to gpg as the message, so it is refused.
 fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
-    let mut path = std::env::temp_dir();
-    let one = std::iter::once(()).count() as u64;
-    path.push(format!(
-        "skarbiec-ct-{}-{}.asc",
-        std::process::id(),
-        TEMP_SEQ.fetch_add(one, std::sync::atomic::Ordering::Relaxed)
-    ));
-    std::fs::write(&path, ciphertext).context("stage ciphertext")?;
-    let file = path.to_string_lossy().into_owned();
-    let out = run(
+    if phrase.contains('\n') {
+        bail!("the Skarbiec unlock phrase holds a line break; gpg reads a phrase only up to its first line break");
+    }
+    let stdin = libc::STDIN_FILENO.to_string();
+    run(
         "gpg",
         &[
             "--batch",
@@ -176,14 +188,11 @@ fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
             "--pinentry-mode",
             "loopback",
             "--passphrase-fd",
-            "0",
+            &stdin,
             "--decrypt",
-            &file,
         ],
-        Some(phrase),
-    );
-    crate::core::staging::remove_said(&path, "the staged ciphertext");
-    out
+        Some(&format!("{phrase}\n{ciphertext}")),
+    )
 }
 
 #[allow(dead_code)] // public API surface consumed by the HTTP layer / clients
