@@ -34,10 +34,11 @@ fn grant_problem(vault: &Vault, item: &str, field: Option<&str>) -> Option<Strin
         return Some(format!("vault item {item} is in trash"));
     }
     let field = field?;
-    let kind = record
-        .get("kind")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let Some(kind) = record.get("kind").and_then(Value::as_str) else {
+        return Some(format!(
+            "vault item {item} records no kind, so no field it may hold can be judged"
+        ));
+    };
     if !schema::kind_allows_field(kind, field) {
         return Some(format!(
             "vault item {item} kind {kind} does not allow the {field} field"
@@ -75,7 +76,8 @@ pub(super) fn grants_check() -> Value {
             )
         }
     };
-    let mut checked = usize::MIN;
+    // Every capability that names a vault coordinate, as its grammar writes it.
+    let mut checked: Vec<String> = Vec::new();
     let mut problems = Vec::new();
     for (consumer, capabilities) in grant::live_grants(&vault) {
         for capability in capabilities {
@@ -89,7 +91,7 @@ pub(super) fn grants_check() -> Value {
                 continue;
             }
             let field = capability.get("field").and_then(Value::as_str);
-            checked = checked.saturating_add(std::iter::once(()).count());
+            checked.push(written_capability(action, item, field));
             let Some(problem) = grant_problem(&vault, item, field) else {
                 continue;
             };
@@ -103,7 +105,7 @@ pub(super) fn grants_check() -> Value {
     // A fresh install has registered no consumer, exactly as it has configured
     // no WORM receipts, and an install with only `call` or `sync` grants names
     // no vault coordinate to be wrong about. Neither is an outage.
-    if checked == usize::MIN {
+    if checked.is_empty() {
         return check(
             "grants",
             NOT_CONFIGURED,
@@ -111,12 +113,12 @@ pub(super) fn grants_check() -> Value {
         );
     }
     if problems.is_empty() {
-        return check("grants", PASS, format!("{checked} grants resolve"));
+        return check("grants", PASS, format!("{} grants resolve", checked.len()));
     }
     let mut entry = check(
         "grants",
         FAIL,
-        format!("{} of {checked} grants broken", problems.len()),
+        format!("{} of {} grants broken", problems.len(), checked.len()),
     );
     entry["problems"] = json!(problems);
     entry
