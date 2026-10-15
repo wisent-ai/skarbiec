@@ -3,11 +3,12 @@
 // `read:item#field` capabilities for the canonical login items that exist at
 // that point, so the extension never receives a whole vault item.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 
 use crate::core::totp;
+use crate::net::{bond::serve_request, operator::OK_LINE};
 
 /// The browser-host grant file: `SKARBIEC_BROWSER_TOKEN_FILE`, else under HOME.
 /// An unset HOME is refused rather than read as the empty path, which would put
@@ -31,35 +32,33 @@ fn consumer() -> Result<String> {
     }
 }
 
-/// One POST against the loopback API; the reply body parsed as JSON. Raw
-/// TcpStream keeps the crate's dependency posture (no HTTP client library).
+/// One POST against the loopback API through the shared serve client, so the
+/// wait is announced on stderr and the reply's status is read. A refusal is an
+/// error carrying the API's own words.
 fn api_post(path: &str, body: &Value) -> Result<Value> {
     let base = crate::credential::canonical_authority()?;
     let token = std::fs::read_to_string(token_file()?)
         .context("read browser-host grant (run `skarbiec browser-host-install`)")?;
-    let payload = serde_json::to_string(body)?;
-    let request = format!(
-        "POST {path} HTTP/1.1\r\nHost: {base}\r\nX-Consumer: {}\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
-        consumer()?,
-        token.trim(),
-        payload.len(),
-    );
-    let mut stream = std::net::TcpStream::connect(&base)
-        .context("skarbiec serve unreachable on the loopback API")?;
-    stream.write_all(request.as_bytes())?;
-    let mut raw = Vec::new();
-    stream.read_to_end(&mut raw)?;
-    let text = String::from_utf8_lossy(&raw);
-    let body_text = text
-        .split("\r\n\r\n")
-        .nth(std::iter::once(()).count())
-        .unwrap_or_default();
-    let value: Value = serde_json::from_str(body_text)
-        .with_context(|| format!("skarbiec API returned a non-JSON reply: {text}"))?;
+    let (status, value) =
+        serve_request(&base, "POST", path, &consumer()?, token.trim(), Some(body))?;
     if let Some(error) = value.get("error").and_then(Value::as_str) {
-        anyhow::bail!("skarbiec API: {error}");
+        bail!("skarbiec API {path}: {status}: {error}");
+    }
+    if status != OK_LINE {
+        bail!("skarbiec API {path} answered {status}");
     }
     Ok(value)
+}
+
+/// One field of one item as the text the API answered. A value that is not
+/// text is refused by name rather than read as empty, and the value itself is
+/// never put into the error.
+fn read_text(id: &str, field: &str) -> Result<String> {
+    let reply = api_post("/v1/items/read", &json!({"id": id, "field": field}))?;
+    match reply.get("value").and_then(Value::as_str) {
+        Some(text) => Ok(text.to_string()),
+        None => bail!("item {id}: the read of {field} answered no text value"),
+    }
 }
 
 /// True when `host` is `domain` itself or a subdomain of it; a suffix match
@@ -68,18 +67,14 @@ fn domain_matches(domain: &str, host: &str) -> bool {
     host == domain || host.ends_with(&format!(".{domain}"))
 }
 
-fn item_domains(item: &Value) -> Vec<String> {
-    let mut out: Vec<String> = item
-        .get("domains")
-        .and_then(Value::as_array)
-        .map(|rows| {
-            rows.iter()
-                .filter_map(Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
-    if let Some(single) = item.get("domain").and_then(Value::as_str) {
+/// The domains a login's context allows it on: its `domains` list and its
+/// single `domain`. A context that states neither allows no domain.
+fn item_domains(context: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(rows) = context.get("domains").and_then(Value::as_array) {
+        out.extend(rows.iter().filter_map(Value::as_str).map(str::to_string));
+    }
+    if let Some(single) = context.get("domain").and_then(Value::as_str) {
         out.push(single.to_string());
     }
     out
@@ -89,35 +84,36 @@ fn item_domains(item: &Value) -> Vec<String> {
 /// and TOTP remain server-side until an explicit fill request.
 fn list_logins(host: &str) -> Result<Value> {
     let items = api_post("/v1/items/list", &json!({}))?;
-    let rows = items.as_array().cloned().unwrap_or_default();
+    let Some(rows) = items.as_array() else {
+        bail!("skarbiec API /v1/items/list answered no list");
+    };
     let mut logins = Vec::new();
     for row in rows {
         if row.get("kind").and_then(Value::as_str) != Some("login") {
             continue;
         }
         let Some(id) = row.get("id").and_then(Value::as_str) else {
-            continue;
+            bail!("skarbiec API /v1/items/list listed a login without an id");
         };
-        let context = api_post("/v1/items/read", &json!({"id": id, "field": "context"}))?
-            .get("value")
-            .cloned()
-            .unwrap_or_else(|| json!({}));
-        if !item_domains(&context)
-            .iter()
-            .any(|domain| domain_matches(domain, host))
-        {
+        let reply = api_post("/v1/items/read", &json!({"id": id, "field": "context"}))?;
+        let Some(context) = reply.get("value") else {
+            bail!("item {id}: the read of context answered no value");
+        };
+        let domains = item_domains(context);
+        if !domains.iter().any(|domain| domain_matches(domain, host)) {
             continue;
         }
-        let username = api_post("/v1/items/read", &json!({"id": id, "field": "username"}))?
-            .get("value")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        // A login states its display name in context.name; one that states
+        // none is shown under its id, the only name it has.
+        let name = match context.get("name").and_then(Value::as_str) {
+            Some(name) => name,
+            None => id,
+        };
         logins.push(json!({
             "id": id,
-            "name": context.get("name").and_then(Value::as_str).unwrap_or(id),
-            "username": username,
-            "domains": item_domains(&context),
+            "name": name,
+            "username": read_text(id, "username")?,
+            "domains": domains,
         }));
     }
     Ok(json!({"ok": true, "logins": logins}))
@@ -126,43 +122,51 @@ fn list_logins(host: &str) -> Result<Value> {
 /// Full credential material for one explicit fill. TOTP is computed here so
 /// the secret itself never crosses the native-messaging protocol.
 fn fill_login(id: &str) -> Result<Value> {
-    let username = api_post("/v1/items/read", &json!({"id": id, "field": "username"}))?
-        .get("value")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let password = api_post("/v1/items/read", &json!({"id": id, "field": "password"}))?
-        .get("value")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let totp = api_post("/v1/items/read", &json!({"id": id, "field": "totp_secret"}))
-        .ok()
-        .and_then(|response| {
-            response
-                .get("value")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-        })
-        .and_then(|seed| totp::code(&seed));
+    let username = read_text(id, "username")?;
+    let password = read_text(id, "password")?;
+    // A seed is optional on a login, and installation grants its read only
+    // for a login that carries one, so a refused or unusable seed is reported
+    // beside the fill with its reason instead of being dropped as no factor.
+    let (totp, totp_unavailable) = match read_text(id, "totp_secret") {
+        Ok(seed) => match totp::code(&seed) {
+            Some(code) => (Some(code), None),
+            None => (
+                None,
+                Some(format!(
+                    "item {id}: totp_secret is not a usable Base32 seed; \
+                     `skarbiec totp-seed-state {id}` says why"
+                )),
+            ),
+        },
+        Err(error) => (None, Some(format!("{error:#}"))),
+    };
     Ok(json!({
         "ok": true,
         "username": username,
         "password": password,
         "totp": totp,
+        "totp_unavailable": totp_unavailable,
     }))
 }
 
 fn read_frame() -> Result<Option<Value>> {
-    let mut prefix = [u8::MIN; std::mem::size_of::<u32>()];
+    let mut prefix = <[u8; std::mem::size_of::<u32>()]>::default();
     match std::io::stdin().read_exact(&mut prefix) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
         Err(error) => return Err(error.into()),
     }
-    let length = u32::from_le_bytes(prefix) as usize;
-    let mut body = vec![u8::MIN; length];
-    std::io::stdin().read_exact(&mut body)?;
+    let length = u32::from_le_bytes(prefix);
+    let mut body = Vec::new();
+    std::io::stdin()
+        .take(u64::from(length))
+        .read_to_end(&mut body)?;
+    if body.len() != usize::try_from(length)? {
+        bail!(
+            "native message ended after {} of its declared {length} bytes",
+            body.len()
+        );
+    }
     Ok(Some(
         serde_json::from_slice(&body).context("native message is not JSON")?,
     ))
@@ -183,21 +187,18 @@ fn write_frame(value: &Value) -> Result<()> {
 /// a broken install to the extension.
 pub fn run() -> Result<()> {
     while let Some(request) = read_frame()? {
-        let action = request
-            .get("action")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let reply = match action {
-            "ping" => Ok(json!({"ok": true, "service": "skarbiec-native-host"})),
-            "list" => match request.get("domain").and_then(Value::as_str) {
+        let reply = match request.get("action").and_then(Value::as_str) {
+            Some("ping") => Ok(json!({"ok": true, "service": "skarbiec-native-host"})),
+            Some("list") => match request.get("domain").and_then(Value::as_str) {
                 Some(domain) => list_logins(&domain.to_lowercase()),
                 None => Ok(json!({"ok": false, "error": "domain required"})),
             },
-            "fill" => match request.get("id").and_then(Value::as_str) {
+            Some("fill") => match request.get("id").and_then(Value::as_str) {
                 Some(id) => fill_login(id),
-                None => Ok(json!({"ok": false, "error": format!("unknown action {action:?}")})),
+                None => Ok(json!({"ok": false, "error": "id required"})),
             },
-            _ => Ok(json!({"ok": false, "error": format!("unknown action {action:?}")})),
+            Some(action) => Ok(json!({"ok": false, "error": format!("unknown action {action:?}")})),
+            None => Ok(json!({"ok": false, "error": "action required"})),
         };
         match reply {
             Ok(frame) => write_frame(&frame)?,
