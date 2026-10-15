@@ -79,7 +79,12 @@ fn leaf(
             let uid = args.next().or_usage(
                 "usage: recipient add <uid> [--import <public-key-file>] [--role <member-role>]",
             )?;
-            let role = flags.get("role").map(String::as_str).unwrap_or("member");
+            // A recipient added without --role is a member: `share` then
+            // grants it items one by one.
+            let role = match flags.get("role") {
+                Some(role) => role.as_str(),
+                None => "member",
+            };
             // `recipient add` registers a recipient and stops there: it does NOT
             // re-encrypt the items already in the vault. For a member that is
             // correct — `share` grants per item on purpose. For an owner it is
@@ -222,12 +227,11 @@ fn leaf(
         }
         "recipient list" => {
             let vault = Vault::open(vault_path())?;
-            let users = vault
-                .doc()
-                .get("recipients")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            Ok(Some(users))
+            // A vault without a recipients section lists none.
+            Ok(Some(match vault.doc().get("recipients") {
+                Some(users) => users.clone(),
+                None => json!({}),
+            }))
         }
         "recipient export" => {
             let uid = positionals

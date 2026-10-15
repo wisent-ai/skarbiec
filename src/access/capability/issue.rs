@@ -4,6 +4,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::num::NonZeroU64;
 
 use super::state::{acquire_state_lock, load_state, now_epoch, save_state};
 use crate::core::schema::exact_token;
@@ -44,42 +45,44 @@ fn refused(
     anyhow!("grant capability refused for {resource}: {reason}; {remedy}")
 }
 
+/// One required flag of `grant capability`, refused by name when it is absent
+/// and quoted when it is not one exact identifier.
+fn exact_flag<'f>(flags: &'f HashMap<String, String>, name: &str) -> Result<&'f str> {
+    match flags.get(name) {
+        Some(value) if exact_token(value) => Ok(value),
+        Some(value) => bail!("grant capability requires an exact --{name}, not {value:?}"),
+        None => bail!("grant capability requires --{name}"),
+    }
+}
+
 pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value> {
-    let agent = flags.get("agent").map(String::as_str).unwrap_or_default();
-    let purpose = flags.get("purpose").map(String::as_str).unwrap_or_default();
-    let resource = flags
-        .get("resource")
-        .map(String::as_str)
-        .unwrap_or_default();
-    let target = flags.get("target").map(String::as_str).unwrap_or_default();
-    if !exact_token(agent) || !exact_token(purpose) || !exact_token(resource) {
-        bail!("grant capability requires exact --agent, --purpose, and --resource");
-    }
-    if !exact_token(target) {
-        bail!("grant capability requires an exact --target");
-    }
+    let agent = exact_flag(flags, "agent")?;
+    let purpose = exact_flag(flags, "purpose")?;
+    let resource = exact_flag(flags, "resource")?;
+    let target = exact_flag(flags, "target")?;
     // How long the capability lives and how many times it may be redeemed are
     // the issuer's to state on every issue; Skarbiec holds no default and no
     // ceiling for either.
-    let ttl: u64 = flags
+    let ttl = flags
         .get("ttl")
         .context("grant capability requires --ttl: the capability's lifetime in whole seconds")?
-        .parse()
-        .context("--ttl must be whole seconds")?;
-    if ttl == u64::MIN {
-        bail!("--ttl must be at least one second");
-    }
-    let max_uses: u64 = flags
+        .parse::<NonZeroU64>()
+        .context("--ttl must be whole seconds, at least one")?
+        .get();
+    let max_uses = flags
         .get("max-uses")
         .context(
             "grant capability requires --max-uses: how many times the capability may be redeemed",
         )?
-        .parse()
-        .context("--max-uses must be a whole number")?;
-    if max_uses == u64::MIN {
-        bail!("--max-uses must be at least one");
-    }
-    let authorization_id = flags.get("authorization-id").cloned().unwrap_or_default();
+        .parse::<NonZeroU64>()
+        .context("--max-uses must be a whole number, at least one")?
+        .get();
+    // Without --authorization-id the capability is bound to no authorization,
+    // stored as the empty identifier redemption compares against.
+    let authorization_id = match flags.get("authorization-id") {
+        Some(id) => id.clone(),
+        None => String::new(),
+    };
     if !authorization_id.is_empty() && !exact_token(&authorization_id) {
         bail!("--authorization-id must be one exact identifier");
     }
