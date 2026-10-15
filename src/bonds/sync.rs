@@ -84,26 +84,27 @@ pub(crate) fn pull_once(name: &str) -> Result<()> {
     let token_file = text("token_file").with_context(|| {
         format!("bond {name} records no token_file (set it with bond edit {name} --token-file)")
     })?;
-    let consumer = text("consumer").unwrap_or_else(|| "replica".to_string());
+    let consumer = Role::pull_consumer(text("consumer").as_deref()).to_string();
     drop(vault);
     pull(name, &address, &token_file, &consumer)
 }
 
 pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> {
     let vault = Vault::open(vault_path())?;
-    let bonds = vault
-        .doc()
-        .get("bond")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
+    // A vault that never added a bond has no bond section; one whose section
+    // is not an object was written wrong, and is said so.
+    let bonds = match vault.doc().get("bond") {
+        None => serde_json::Map::new(),
+        Some(Value::Object(bonds)) => bonds.clone(),
+        Some(other) => anyhow::bail!("the vault's bond section is not an object: {other}"),
+    };
     let pulled_by_service = pulled(vault.doc());
+    // Null when the vault holds no items map, rather than a count of zero.
     let local_count = vault
         .doc()
         .get("items")
         .and_then(Value::as_object)
-        .map(|items| items.len())
-        .unwrap_or_default();
+        .map(serde_json::Map::len);
     let wanted = flags.get("bond");
     if flags.contains_key("token") {
         anyhow::bail!(
@@ -122,18 +123,22 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
         if wanted.is_some_and(|w| w != name) {
             continue;
         }
-        let channel = entry.get("channel").cloned().unwrap_or(Value::Null);
-        let consumer = flags
-            .get("consumer")
-            .map(String::as_str)
-            .or_else(|| channel.get("consumer").and_then(Value::as_str))
-            .unwrap_or("replica");
+        let channel = entry.get("channel");
+        let consumer =
+            Role::pull_consumer(flags.get("consumer").map(String::as_str).or_else(|| {
+                channel
+                    .and_then(|c| c.get("consumer"))
+                    .and_then(Value::as_str)
+            }));
         // An explicit bearer file wins. Otherwise the report reads the bond's
         // own bearer file, the one the running service pulls with, so a file
         // the service cannot read appears here with the error the service meets.
         let (token, token_file_error) = match &explicit {
             Some(token) => (Some(token.clone()), Value::Null),
-            None => match channel.get("token_file").and_then(Value::as_str) {
+            None => match channel
+                .and_then(|c| c.get("token_file"))
+                .and_then(Value::as_str)
+            {
                 Some(file) => match crate::credential::read_secret_file(std::path::Path::new(file))
                 {
                     Ok(token) => (Some(token), Value::Null),
@@ -142,7 +147,7 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
                 None => (None, Value::Null),
             },
         };
-        let (healthy, remote_items) = remote_state(&channel, consumer, token.as_ref());
+        let remote = remote_state(channel, consumer, token.as_ref());
         out.push(json!({
             "bond": name,
             "mode": entry.get("mode"),
@@ -153,41 +158,72 @@ pub(crate) fn cmd_sync_status(flags: &HashMap<String, String>) -> Result<Value> 
             "last_pull_at": entry.get("last_pull_at"),
             "last_items_after": entry.get("last_items_after"),
             "local_items": local_count,
-            "remote_items": remote_items,
-            "healthy": healthy,
+            "remote_items": remote.items,
+            "healthy": remote.healthy,
+            "remote_errors": remote.errors,
         }));
     }
     Ok(json!(out))
 }
 
 /// What the source says about itself, for a bond that has one to ask.
-///
-/// Both answers stay null when the channel is not a serve, when the source
-/// cannot be reached, or when no bearer was presented — a status report
-/// says what it observed, and an unreachable source is not a healthy one.
-fn remote_state(channel: &Value, consumer: &str, token: Option<&String>) -> (Value, Value) {
-    let channel_type = channel.get("type").and_then(Value::as_str);
+struct Remote {
+    healthy: Option<Value>,
+    items: Option<usize>,
+    /// Why an answer above is null: the request that failed, or the answer
+    /// that carried no such field, each with its cause.
+    errors: Vec<String>,
+}
+
+/// Both answers stay null when the channel is not a serve or when no bearer
+/// was presented. A source that was asked and did not answer is null with its
+/// cause in `errors`: an unreachable source is not a healthy one, and a null
+/// without its reason reads the same as a source nobody asked.
+fn remote_state(channel: Option<&Value>, consumer: &str, token: Option<&String>) -> Remote {
+    let mut remote = Remote {
+        healthy: None,
+        items: None,
+        errors: Vec::new(),
+    };
+    let channel_type = channel.and_then(|c| c.get("type")).and_then(Value::as_str);
     if channel_type.and_then(Channel::parse) != Some(Channel::Serve) {
-        return (Value::Null, Value::Null);
+        return remote;
     }
-    let address = channel.get("address").and_then(Value::as_str).unwrap_or("");
-    let mut healthy = Value::Null;
-    let mut remote_items = Value::Null;
-    if let Ok((_status, health)) =
-        crate::net::bond::serve_request(address, "GET", "/health", "", "", None)
-    {
-        healthy = health.get("ok").cloned().unwrap_or(Value::Null);
+    let Some(address) = channel
+        .and_then(|c| c.get("address"))
+        .and_then(Value::as_str)
+    else {
+        remote
+            .errors
+            .push("the serve channel records no address".to_string());
+        return remote;
+    };
+    match crate::net::bond::serve_request(address, "GET", "/health", "", "", None) {
+        Ok((status, health)) => match health.get("ok") {
+            Some(ok) => remote.healthy = Some(ok.clone()),
+            None => remote.errors.push(format!(
+                "GET /health answered {status} without ok: {health}"
+            )),
+        },
+        Err(error) => remote.errors.push(format!("{error:#}")),
     }
     if let Some(presented) = token {
-        if let Ok((_status, doc)) =
-            crate::net::bond::serve_request(address, "GET", "/v1/vault", consumer, presented, None)
-        {
-            remote_items = doc
-                .get("items")
-                .and_then(Value::as_object)
-                .map(|items| json!(items.len()))
-                .unwrap_or(Value::Null);
+        match crate::net::bond::serve_request(
+            address,
+            "GET",
+            "/v1/vault",
+            consumer,
+            presented,
+            None,
+        ) {
+            Ok((status, doc)) => match doc.get("items").and_then(Value::as_object) {
+                Some(items) => remote.items = Some(items.len()),
+                None => remote.errors.push(format!(
+                    "GET /v1/vault answered {status} without items: {doc}"
+                )),
+            },
+            Err(error) => remote.errors.push(format!("{error:#}")),
         }
     }
-    (healthy, remote_items)
+    remote
 }

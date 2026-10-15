@@ -172,10 +172,7 @@ pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
     let usage = "usage: pull --from <base-url> --token-file <path> [--bond name] [--consumer name, replica when not given] [--force]";
     let from = flags.get("from").context(usage)?;
     let token = crate::credential::bearer_from_file(flags, "pull")?;
-    let consumer = match flags.get("consumer") {
-        Some(named) => named.as_str(),
-        None => "replica",
-    };
+    let consumer = crate::bonds::Role::pull_consumer(flags.get("consumer").map(String::as_str));
     let (status, pulled) = serve_request(from, "GET", "/v1/vault", consumer, &token, None)?;
     let (Some(remote_items), Some(_)) = (
         pulled.get("items").and_then(Value::as_object),

@@ -127,10 +127,11 @@ fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Resu
                 .or_usage("--interval must be seconds (a number)")
         })
         .transpose()?;
-    let peers: Vec<String> = flags
-        .get("peers")
-        .map(|value| value.split(',').map(str::to_string).collect())
-        .unwrap_or_default();
+    // No --peers declares no peers.
+    let peers: Vec<String> = match flags.get("peers") {
+        Some(value) => value.split(',').map(str::to_string).collect(),
+        None => Vec::new(),
+    };
     // A pulled bond names the owner-only file holding its bearer, never the
     // bearer itself: the bond section is configuration, and the running
     // `serve` reads the file on every pull. The file is read once here so a
@@ -161,7 +162,7 @@ fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Resu
     }
     if let Some(path) = &token_file {
         channel_json["token_file"] = json!(path);
-        channel_json["consumer"] = json!(consumer.map(String::as_str).unwrap_or("replica"));
+        channel_json["consumer"] = json!(Role::pull_consumer(consumer.map(String::as_str)));
     }
     let mut vault = Vault::open(vault_path())?;
     let doc = vault
@@ -192,11 +193,11 @@ fn write_bond(name: &str, flags: &HashMap<String, String>, action: &str) -> Resu
 /// has never pulled still lists, with no pull timestamps.
 pub(crate) fn cmd_bond_list() -> Result<Value> {
     let vault = Vault::open(vault_path())?;
-    Ok(vault
-        .doc()
-        .get("bond")
-        .cloned()
-        .unwrap_or_else(|| json!({})))
+    // A vault that never added a bond lists none.
+    Ok(match vault.doc().get("bond") {
+        Some(bonds) => bonds.clone(),
+        None => json!({}),
+    })
 }
 
 /// Remove one bond by name. A name that is not configured is an error,

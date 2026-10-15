@@ -78,6 +78,17 @@ impl Role {
             .collect::<Vec<_>>()
             .join(", ")
     }
+
+    /// Who a pull presents itself as: the consumer the caller or the bond
+    /// names, and the replica role itself when neither names one. This is the
+    /// documented default of `pull`, `bond add` and `bond status`, read here
+    /// so they cannot drift apart.
+    pub(crate) fn pull_consumer(named: Option<&str>) -> &str {
+        match named {
+            Some(named) => named,
+            None => Role::Replica.as_str(),
+        }
+    }
 }
 
 impl Channel {
