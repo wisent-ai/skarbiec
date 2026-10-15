@@ -4,65 +4,47 @@
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Value};
+use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
+use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::core::vault_path;
+use stado_wait as wait;
 
-pub(super) struct StateLock(File);
+pub(super) use crate::core::vault::private_file_mode;
+use crate::core::{effective_uid, vault_path};
 
-impl Drop for StateLock {
-    fn drop(&mut self) {
-        let _ = self.0.unlock();
-    }
+/// The held lock on the acquisition state; closing the file releases it.
+pub(super) struct StateLock {
+    _file: File,
 }
 
-pub(super) fn private_file_mode() -> Result<u32> {
-    Ok(0o600)
+/// Group and other permission bits, as the C library names them; an owner-only
+/// file has none of them.
+fn unsafe_mode_bits() -> u32 {
+    u32::from(libc::S_IRWXG | libc::S_IRWXO)
 }
 
-pub(super) fn unsafe_mode_bits() -> Result<u32> {
-    Ok(0o077)
+/// `path` with `suffix` appended to its last component.
+fn suffixed(path: &Path, suffix: &str) -> PathBuf {
+    let mut name = OsString::from(path);
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
-pub(super) fn effective_uid() -> Result<u32> {
-    let output = Command::new("id")
-        .arg("-u")
-        .output()
-        .context("read effective uid")?;
-    if !output.status.success() {
-        bail!("could not determine effective uid");
-    }
-    String::from_utf8(output.stdout)?
-        .trim()
-        .parse()
-        .context("parse effective uid")
-}
-
+/// The acquisition state beside the vault, unless
+/// `SKARBIEC_ACQUISITION_FILE` names another.
 pub(super) fn state_path() -> PathBuf {
     if let Some(path) = crate::core::env::path("SKARBIEC_ACQUISITION_FILE") {
         return path;
     }
-    let vault = vault_path();
-    let name = vault
-        .file_name()
-        .and_then(|value| value.to_str())
-        .map(|value| format!("{value}.acquisitions.json"))
-        .unwrap_or_else(|| "skarbiec.vault.acquisitions.json".to_string());
-    vault.with_file_name(name)
+    suffixed(&vault_path(), ".acquisitions.json")
 }
 
 pub(super) fn lock_path(path: &Path) -> PathBuf {
-    let name = path
-        .file_name()
-        .and_then(|value| value.to_str())
-        .map(|value| format!("{value}.advisory.lock"))
-        .unwrap_or_else(|| "skarbiec.vault.acquisitions.advisory.lock".to_string());
-    path.with_file_name(name)
+    suffixed(path, ".advisory.lock")
 }
 
 pub(super) fn acquire_lock(path: &Path) -> Result<StateLock> {
@@ -78,8 +60,12 @@ pub(super) fn acquire_lock(path: &Path) -> Result<StateLock> {
     validate_owned_regular(&lock)?;
     // The kernel queues this process until the holder releases the lock or
     // exits; a failure to lock is the error itself.
-    file.lock_exclusive().context("lock acquisition state")?;
-    Ok(StateLock(file))
+    let what = "the acquisition state lock";
+    wait::blocking(wait::Kind::Lock, what, lock.display(), || {
+        file.lock_exclusive()
+    })
+    .context("lock acquisition state")?;
+    Ok(StateLock { _file: file })
 }
 
 pub(super) fn validate_owned_regular(path: &Path) -> Result<()> {
@@ -89,13 +75,13 @@ pub(super) fn validate_owned_regular(path: &Path) -> Result<()> {
 }
 
 fn validate_owned_metadata(path: &Path, metadata: &fs::Metadata) -> Result<()> {
-    if !metadata.file_type().is_file() || metadata.uid() != effective_uid()? {
+    if !metadata.file_type().is_file() || metadata.uid() != effective_uid() {
         bail!(
             "acquisition state {} must be an owner-controlled regular file",
             path.display()
         );
     }
-    if metadata.mode() & unsafe_mode_bits()? != u32::MIN {
+    if NonZeroU32::new(metadata.mode() & unsafe_mode_bits()).is_some() {
         bail!(
             "acquisition state {} permissions must not grant group or other access",
             path.display()
@@ -147,7 +133,11 @@ pub(super) fn load_state(path: &Path) -> Result<Value> {
 pub(super) fn save_state(path: &Path, state: &Value) -> Result<()> {
     let parent = path.parent().context("acquisition state has no parent")?;
     fs::create_dir_all(parent)?;
-    let suffix = format!("{}.{}", std::process::id(), now_epoch()?);
+    let suffix = format!(
+        "{}.{}",
+        std::process::id(),
+        crate::core::clock::epoch_seconds()?
+    );
     let temp = path.with_extension(format!("tmp.{suffix}"));
     let mut file = OpenOptions::new()
         .write(true)
@@ -172,8 +162,4 @@ pub(super) fn save_state(path: &Path, state: &Value) -> Result<()> {
         );
     }
     result
-}
-
-pub(super) fn now_epoch() -> Result<u64> {
-    Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs())
 }

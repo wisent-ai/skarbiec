@@ -20,11 +20,12 @@ pub(crate) mod role;
 mod state;
 pub use commands::dispatch;
 
+use crate::core::clock::epoch_seconds;
 use proof::{
     exact_name, purge_expired, valid_nonce, valid_workload_id, validate_target,
     verify_workload_proof, workload_payload,
 };
-use state::{acquire_lock, load_state, now_epoch, save_state, state_path};
+use state::{acquire_lock, load_state, save_state, state_path};
 
 #[derive(Debug)]
 pub(crate) struct AcquisitionFieldMissing;
@@ -76,8 +77,10 @@ pub struct AcquiredField {
 /// `None`, and `None` omits the key entirely: absence has to stay absence, not
 /// an empty string a caller could read as a declaration.
 fn declared_provider(payload: &Value) -> Option<String> {
-    schema::field(payload, "context")
-        .ok()?
+    // The canonical item keeps its context beside its fields; an item with
+    // none declares no provider.
+    payload
+        .get("context")?
         .get("provider")
         .and_then(Value::as_str)
         .filter(|provider| schema::exact_token(provider))
@@ -106,7 +109,7 @@ pub fn issue(
     let Some(lent) = grant::acquisition_grant(&vault, consumer, item, field) else {
         return Ok(None);
     };
-    let now = now_epoch()?;
+    let now = epoch_seconds()?;
     if timestamp > now {
         return Ok(None);
     }
@@ -195,7 +198,7 @@ pub fn consume(
     let path = state_path();
     let _lock = acquire_lock(&path)?;
     let mut state = load_state(&path)?;
-    let now = now_epoch()?;
+    let now = epoch_seconds()?;
     let record = state
         .get("tokens")
         .and_then(Value::as_object)
@@ -238,11 +241,20 @@ pub fn consume(
     // The payload comes back from both branches so provenance costs no
     // decryption the redemption was not already paying: the current branch
     // opens the item anyway to take the field out of it. Only the staged
-    // branch, the adopt window, adds one open, and it adds it with `ok()` --
-    // provenance must never turn a redemption that has already proved its
-    // capability into a failure.
+    // branch, the adopt window, adds one open; provenance must never turn a
+    // redemption that has already proved its capability into a failure, so
+    // an item that cannot be opened there is said on stderr and the value is
+    // handed over without a declared provider.
     let (value, payload) = match crate::credential::managed_read(&vault, item, field, consumer)? {
-        crate::credential::ManagedRead::Staged(candidate) => (candidate, vault.get_item(item).ok()),
+        crate::credential::ManagedRead::Staged(candidate) => match vault.get_item(item) {
+            Ok(payload) => (candidate, Some(payload)),
+            Err(error) => {
+                eprintln!(
+                    "skarbiec: the provider of {item} is not declared to this acquisition: the item cannot be opened: {error:#}"
+                );
+                (candidate, None)
+            }
+        },
         crate::credential::ManagedRead::Refused => return Ok(None),
         crate::credential::ManagedRead::Current => {
             let payload = vault.get_item(item)?;
