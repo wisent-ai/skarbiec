@@ -35,28 +35,33 @@ fn search_directories() -> Result<Vec<PathBuf>> {
 /// Parse one `.vault.json`: the suffix `Vault::create` writes is what makes
 /// a file a vault. One that cannot be read, does not parse, or whose root is
 /// not an object is the error, with its cause, so the inventory lists it as
-/// unreadable instead of leaving it out.
-fn read(path: &PathBuf) -> std::result::Result<Value, String> {
+/// unreadable instead of leaving it out. A count or owner the file does not
+/// hold is reported as null rather than as zero or an empty owner, and the
+/// item count comes back beside the row so the inventory sorts on it.
+fn read(path: &PathBuf) -> std::result::Result<(Option<usize>, Value), String> {
     let raw = std::fs::read_to_string(path).map_err(|error| format!("cannot be read: {error}"))?;
     let document: Value =
         serde_json::from_str(&raw).map_err(|error| format!("is not valid JSON: {error}"))?;
     let object = document
         .as_object()
         .ok_or_else(|| "does not hold a JSON object".to_string())?;
-    let count = |key: &str| -> usize {
+    let count = |key: &str| {
         object
             .get(key)
             .and_then(Value::as_object)
             .map(serde_json::Map::len)
-            .unwrap_or_default()
     };
-    Ok(json!({
-        "path": path.display().to_string(),
-        "owner": object.get("owner").and_then(Value::as_str).unwrap_or_default(),
-        "items": count("items"),
-        "recipients": count("recipients"),
-        "tokens": count("tokens"),
-    }))
+    let items = count("items");
+    Ok((
+        items,
+        json!({
+            "path": path.display().to_string(),
+            "owner": object.get("owner").and_then(Value::as_str),
+            "items": items,
+            "recipients": count("recipients"),
+            "tokens": count("tokens"),
+        }),
+    ))
 }
 
 /// Every vault in the conventional locations, largest first, and every
@@ -66,7 +71,7 @@ fn read(path: &PathBuf) -> std::result::Result<Value, String> {
 pub fn inventory() -> Result<Value> {
     let directories = search_directories()?;
     let mut seen: Vec<String> = Vec::new();
-    let mut found: Vec<Value> = Vec::new();
+    let mut found: Vec<(Option<usize>, String, Value)> = Vec::new();
     let mut unreadable: Vec<Value> = Vec::new();
     for directory in &directories {
         let entries = match std::fs::read_dir(directory) {
@@ -112,7 +117,7 @@ pub fn inventory() -> Result<Value> {
             }
             seen.push(key);
             match read(&path) {
-                Ok(vault) => found.push(vault),
+                Ok((items, vault)) => found.push((items, path.display().to_string(), vault)),
                 Err(cause) => unreadable.push(json!({
                     "path": path.display().to_string(),
                     "cause": cause,
@@ -120,24 +125,13 @@ pub fn inventory() -> Result<Value> {
             }
         }
     }
-    found.sort_by(|left, right| {
-        let items = |value: &Value| {
-            value
-                .get("items")
-                .and_then(Value::as_u64)
-                .unwrap_or_default()
-        };
-        items(right).cmp(&items(left)).then_with(|| {
-            let path = |value: &Value| {
-                value
-                    .get("path")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string()
-            };
-            path(left).cmp(&path(right))
-        })
+    // Largest first, then by path; a vault holding no items map sorts last.
+    found.sort_by(|(left_items, left_path, _), (right_items, right_path, _)| {
+        right_items
+            .cmp(left_items)
+            .then_with(|| left_path.cmp(right_path))
     });
+    let found: Vec<Value> = found.into_iter().map(|(_, _, vault)| vault).collect();
     Ok(json!({
         "host": hostname()?,
         "searched": directories
