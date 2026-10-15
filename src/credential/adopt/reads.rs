@@ -7,7 +7,9 @@ use serde_json::Value;
 use crate::core::vault::Vault;
 use crate::core::{crypto, inbox, schema};
 
-use super::super::state::{context_block_checked, pending_matches_request, request_item_id};
+use super::super::state::{
+    context_block_checked, live_item_exists, pending_matches_request, request_item_id,
+};
 use super::super::wire::{request_payload, WIRE_VERSION};
 use super::super::STATE_ADOPTING;
 use super::ManagedRead;
@@ -60,26 +62,39 @@ pub(crate) fn managed_read(
     let adopting = lifecycle.get("state").and_then(Value::as_str) == Some(STATE_ADOPTING);
     let candidate_is_current =
         lifecycle.get("candidate").and_then(Value::as_str) == Some("current");
-    let record = vault
-        .get_item(&request_item_id(credential_id))
-        .and_then(request_payload)
-        .ok()
-        .filter(|request| {
-            request.get("version").and_then(Value::as_str) == Some(WIRE_VERSION)
-                && request.get("operation").and_then(Value::as_str) == Some("adopt")
-                && request.get("credential_id").and_then(Value::as_str) == Some(credential_id)
-                && request.get("field").and_then(Value::as_str) == Some(field)
-                && request.get("consumer").and_then(Value::as_str) == Some(consumer)
-                && matches!(
-                    request.get("status").and_then(Value::as_str),
-                    Some("submitting" | "pending" | "needs_human_approval")
-                )
-        });
+    // No request item means no adopt was ever submitted; one that exists but
+    // cannot be read is refused, never read as no adopt in flight.
+    let request_item = request_item_id(credential_id);
+    let record = if live_item_exists(vault, &request_item) {
+        Some(
+            vault
+                .get_item(&request_item)
+                .and_then(request_payload)
+                .with_context(|| {
+                    format!("{request_item} cannot be read, so whether an adopt is in flight cannot be checked")
+                })?,
+        )
+    } else {
+        None
+    };
+    let record = record.filter(|request| {
+        request.get("version").and_then(Value::as_str) == Some(WIRE_VERSION)
+            && request.get("operation").and_then(Value::as_str) == Some("adopt")
+            && request.get("credential_id").and_then(Value::as_str) == Some(credential_id)
+            && request.get("field").and_then(Value::as_str) == Some(field)
+            && request.get("consumer").and_then(Value::as_str) == Some(consumer)
+            && matches!(
+                request.get("status").and_then(Value::as_str),
+                Some("submitting" | "pending" | "needs_human_approval")
+            )
+    });
     if let Some(record) = record.as_ref() {
         let request_id = record
             .get("request_id")
             .and_then(Value::as_str)
-            .unwrap_or_default();
+            .with_context(|| {
+                format!("{request_item} records an adopt in flight without its request_id")
+            })?;
         if pending_matches_request(vault, credential_id, request_id, field, consumer) {
             if let Some(value) = staged_field_value(vault, credential_id, field)? {
                 return Ok(ManagedRead::Staged(value));
