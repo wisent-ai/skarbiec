@@ -39,11 +39,14 @@ pub(crate) fn ensure_not_replica(vault: &Vault, operation: &str) -> Result<()> {
         let replica = text("mode").and_then(Mode::parse) == Some(Mode::Replica)
             && text("role").and_then(Role::parse) == Some(Role::Replica);
         if replica {
-            let source = bond
+            let source = match bond
                 .get("channel")
                 .and_then(|channel| channel.get("address"))
                 .and_then(Value::as_str)
-                .unwrap_or("its source");
+            {
+                Some(address) => address.to_string(),
+                None => "a source whose address the bond does not record".to_string(),
+            };
             bail!(
                 "this vault replicates bond {name} from {source}; a direct {operation} here is \
                  replaced by the next pull. Write it on the source vault."
@@ -164,10 +167,12 @@ pub(crate) fn set_json_value(
         .get("kind")
         .and_then(Value::as_str)
         .context("set-json payload requires kind")?;
-    let item_kind = flags
-        .get("type")
-        .map(String::as_str)
-        .unwrap_or(payload_kind);
+    // `--type` names the item kind when it differs from the kind the payload
+    // states; without it the payload's own kind is the item's.
+    let item_kind = match flags.get("type") {
+        Some(kind) => kind.as_str(),
+        None => payload_kind,
+    };
     schema::validate_payload(&payload, item_kind)?;
     let recipients = requested_or_existing(flags, &vault, id, "recipients")?;
     let tags = requested_or_existing(flags, &vault, id, "tags")?;
@@ -190,17 +195,17 @@ pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String])
     let id = positionals
         .first()
         .or_usage("usage: retag <id> --tags tag[,tag...]")?;
+    // The list replaces every tag the item carries, so it must be stated:
+    // `--tags ""` clears them, and a call that leaves the flag out is refused
+    // rather than read as that.
     let tags: Vec<String> = flags
         .get("tags")
-        .map(|value| {
-            value
-                .split(',')
-                .map(str::trim)
-                .filter(|tag| !tag.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+        .or_usage("usage: retag <id> --tags tag[,tag...] (--tags \"\" removes every tag)")?
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string)
+        .collect();
     ensure_no_reserved_tags(&tags)?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "retag")?;
@@ -230,10 +235,9 @@ pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String])
 /// where it went, instead of reporting it as missing and leaving an operator
 /// unable to tell a rename from a purge.
 pub(crate) fn cmd_rename(positionals: &[String]) -> Result<()> {
-    let from = positionals
-        .first()
-        .or_usage("usage: rename <id> <new-id>")?;
-    let to = positionals.get(1).or_usage("usage: rename <id> <new-id>")?;
+    let [from, to, ..] = positionals else {
+        return Err(super::args::Usage("usage: rename <id> <new-id>".to_string()).into());
+    };
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, from, "rename")?;
     let item_uid = vault.rename_item(from, to)?;
