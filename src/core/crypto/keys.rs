@@ -35,17 +35,19 @@ pub fn fingerprint_for(uid: &str) -> Result<Option<String>> {
         Some(text) => text,
         None => return Ok(None),
     };
-    for line in listing.lines() {
-        if let Some(rest) = line.strip_prefix("fpr") {
-            if let Some(fpr) = rest
-                .split(':')
-                .find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit()))
-            {
-                return Ok(Some(fpr.to_string()));
-            }
-        }
-    }
-    Ok(None)
+    Ok(listing
+        .lines()
+        .find_map(|line| hex_field(line, "fpr"))
+        .map(str::to_string))
+}
+
+/// The hex value of a `--with-colons` record of `kind` (`fpr`, `grp`): its
+/// first field that is non-empty and all hex digits, or `None` for a record
+/// of another kind.
+fn hex_field<'a>(line: &'a str, kind: &str) -> Option<&'a str> {
+    line.strip_prefix(kind)?
+        .split(':')
+        .find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
 /// Whether the private half for this fingerprint is in the local keyring. The
@@ -89,17 +91,9 @@ pub fn keygrips_for(fingerprint: &str) -> Result<Vec<String>> {
         None => return Ok(Vec::new()),
     };
     let mut grips: Vec<String> = Vec::new();
-    for line in listing.lines() {
-        if let Some(rest) = line.strip_prefix("grp") {
-            if let Some(found) = rest
-                .split(':')
-                .find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit()))
-            {
-                let grip = found.to_string();
-                if !grips.contains(&grip) {
-                    grips.push(grip);
-                }
-            }
+    for grip in listing.lines().filter_map(|line| hex_field(line, "grp")) {
+        if !grips.iter().any(|kept| kept == grip) {
+            grips.push(grip.to_string());
         }
     }
     Ok(grips)
@@ -131,10 +125,8 @@ fn absent_as_none(listing: Result<String>, absent: &str) -> Result<Option<String
 /// answer is `<value> = (<source>, <code>) = (<SOURCE NAME>, <CODE NAME>) =
 /// (<descriptions>)`, read word by word.
 fn gpg_error_names(value: u32) -> Result<Vec<String>> {
-    let output = stado_wait::output(
-        std::process::Command::new("gpg-error").arg(value.to_string()),
-    )
-    .with_context(|| format!("gpg-error could not be run to name gpg status value {value}"))?;
+    let output = stado_wait::output(std::process::Command::new("gpg-error").arg(value.to_string()))
+        .with_context(|| format!("gpg-error could not be run to name gpg status value {value}"))?;
     if !output.status.success() {
         bail!(
             "gpg-error refused to name gpg status value {value} ({}): {}",
@@ -142,8 +134,9 @@ fn gpg_error_names(value: u32) -> Result<Vec<String>> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    let answer = String::from_utf8(output.stdout)
-        .with_context(|| format!("gpg-error named status value {value} in text that is not UTF-8"))?;
+    let answer = String::from_utf8(output.stdout).with_context(|| {
+        format!("gpg-error named status value {value} in text that is not UTF-8")
+    })?;
     Ok(answer
         .split([' ', '(', ')', ','])
         .filter(|word| !word.is_empty())
