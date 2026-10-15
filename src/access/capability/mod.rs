@@ -24,33 +24,12 @@
 // Denying would force the caller to tell "not yet" from "never" by guessing.
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use anyhow::Result;
 use serde_json::Value;
 
 const PROOF_DOMAIN: &[u8] = b"SKARBIEC-WORKLOAD-PROOF\0v1\0";
 const WIRE_VERSION: &str = "skarbiec.redeem.v1";
-
-/// The `openssl` this build verifies proofs with.
-///
-/// Prefer an OpenSSL 3 build when one is installed, and let SKARBIEC_OPENSSL
-/// name it when it lives somewhere else.
-fn openssl_bin() -> std::path::PathBuf {
-    if let Some(configured) = crate::core::env::path("SKARBIEC_OPENSSL") {
-        return configured;
-    }
-    for candidate in [
-        "/opt/homebrew/opt/openssl@3/bin/openssl",
-        "/opt/homebrew/bin/openssl",
-        "/usr/local/opt/openssl@3/bin/openssl",
-    ] {
-        if Path::new(candidate).exists() {
-            return candidate.into();
-        }
-    }
-    "openssl".into()
-}
 
 pub fn dispatch(
     command: &str,

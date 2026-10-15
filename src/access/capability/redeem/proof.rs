@@ -6,11 +6,8 @@ use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
 use serde_json::Value;
-use std::fs;
-use std::process::{Command, Stdio};
 
-use crate::access::capability::openssl_bin;
-use crate::access::capability::state::{now_epoch, state_path, write_private_file};
+use crate::access::capability::state::{now_epoch, state_path};
 use crate::core::{crypto, vault::Vault};
 
 // Liveness matches grant::active: a consumer entry carries no state field, only an
@@ -73,22 +70,25 @@ pub(super) fn item_field(vault: &Vault, item: &str, field: &str) -> Result<Optio
     }
 }
 
-/// The signature's bytes, or `None` when it is not base64. Decoded here
-/// rather than by an openssl child: a missing or failing openssl used to read
-/// as an invalid proof and denied a correctly signed redemption. Both the
-/// URL-safe and the standard alphabet are read, padded or not, as before.
+/// The signature's bytes, or `None` when it is not base64 or is empty: such a
+/// signature is no proof, and the denial is the answer. Decoded here rather
+/// than by an openssl child, and both the URL-safe and the standard alphabet
+/// are read, padded or not.
 fn decode_base64url(value: &str) -> Option<Vec<u8>> {
     let standard = value.replace('-', "+").replace('_', "/");
     let engine = GeneralPurpose::new(
         &alphabet::STANDARD,
         GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
     );
-    engine
-        .decode(standard)
-        .ok()
-        .filter(|bytes| !bytes.is_empty())
+    match engine.decode(standard) {
+        Ok(bytes) if !bytes.is_empty() => Some(bytes),
+        _ => None,
+    }
 }
 
+/// Whether the workload signed `payload` with the key its grant records.
+/// OpenSSL's verdict is the answer; a verifier that cannot answer is the
+/// error, with OpenSSL's words (`crypto::ed25519::verify`).
 pub(super) fn verify_proof(
     public_key: &str,
     payload: &[u8],
@@ -97,34 +97,15 @@ pub(super) fn verify_proof(
     let Some(signature) = decode_base64url(signature_b64url) else {
         return Ok(false);
     };
-    let parent = state_path()
+    let scratch = state_path()
         .parent()
         .context("capability state has no parent")?
         .to_path_buf();
-    fs::create_dir_all(&parent)?;
-    let stem = crypto::sha256_hex(&crypto::random_token()?)?;
-    let key_path = parent.join(format!(".skarbiec-cap-key-{stem}"));
-    let signature_path = parent.join(format!(".skarbiec-cap-sig-{stem}"));
-    let payload_path = parent.join(format!(".skarbiec-cap-payload-{stem}"));
-    let result = (|| -> Result<bool> {
-        write_private_file(&key_path, public_key.as_bytes())?;
-        write_private_file(&signature_path, &signature)?;
-        write_private_file(&payload_path, payload)?;
-        let status = Command::new(openssl_bin())
-            .args(["pkeyutl", "-verify", "-pubin", "-inkey"])
-            .arg(&key_path)
-            .args(["-rawin", "-sigfile"])
-            .arg(&signature_path)
-            .arg("-in")
-            .arg(&payload_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("verify capability proof with openssl")?;
-        Ok(status.success())
-    })();
-    for path in [&key_path, &signature_path, &payload_path] {
-        crate::core::staging::remove_said(path, "a capability proof verification file");
-    }
-    result
+    crypto::ed25519::verify(
+        public_key,
+        payload,
+        &signature,
+        &scratch,
+        "capability proof",
+    )
 }

@@ -9,6 +9,7 @@
 // The per-recipient model (encrypt to each recipient's public key) is the same
 // shape 1Password/Bitwarden use for sharing.
 
+pub mod ed25519;
 mod execution;
 mod keys;
 mod messages;
