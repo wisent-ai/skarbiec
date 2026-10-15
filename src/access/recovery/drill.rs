@@ -28,22 +28,25 @@ pub(super) fn dispatch(
                     .recipient_fpr(expected)
                     .with_context(|| format!("unknown recovery drill recipient {expected}"))?
             };
-            if !crypto::secret_key_present(&expected_fingerprint) {
+            if !crypto::secret_key_present(&expected_fingerprint)? {
                 anyhow::bail!("expected recovery secret half is absent from this keyring");
             }
-            let mut local_openers: Vec<String> = vault
+            let mut local_openers: Vec<String> = Vec::new();
+            for fingerprint in vault
                 .doc()
                 .get("recipients")
                 .and_then(Value::as_object)
                 .into_iter()
                 .flat_map(|recipients| recipients.values())
                 .filter_map(|entry| entry.get("fingerprint").and_then(Value::as_str))
-                .filter(|fingerprint| crypto::secret_key_present(fingerprint))
-                .map(str::to_string)
-                .collect();
+            {
+                if crypto::secret_key_present(fingerprint)? {
+                    local_openers.push(fingerprint.to_string());
+                }
+            }
             let recovery = vault.recovery_fpr();
             if !recovery.is_empty()
-                && crypto::secret_key_present(recovery)
+                && crypto::secret_key_present(recovery)?
                 && !local_openers
                     .iter()
                     .any(|fingerprint| fingerprint == recovery)
@@ -106,7 +109,7 @@ pub(super) fn dispatch(
             // Reporting the fingerprint proved nothing about recoverability:
             // this command answered identically whether the offline material
             // was in a safe or had never existed. It now says which.
-            let held = !fpr.is_empty() && crypto::secret_key_present(&fpr);
+            let held = !fpr.is_empty() && crypto::secret_key_present(&fpr)?;
             Ok(Some(json!({
                 "recovery_fpr": fpr,
                 "secret_half_present_locally": held,
@@ -159,11 +162,11 @@ pub(super) fn dispatch(
                     }));
                     continue;
                 };
-                let held = crypto::secret_key_present(fpr);
+                let held = crypto::secret_key_present(fpr)?;
                 if held {
                     openers.push(uid.clone());
                 }
-                let grips = crypto::keygrips_for(fpr);
+                let grips = crypto::keygrips_for(fpr)?;
                 recipients.push(json!({
                     "uid": uid,
                     "fingerprint": fpr,
@@ -184,11 +187,11 @@ pub(super) fn dispatch(
                     entry.get("fingerprint").and_then(Value::as_str) == Some(recovery.as_str())
                 })
             {
-                let held = crypto::secret_key_present(&recovery);
+                let held = crypto::secret_key_present(&recovery)?;
                 if held {
                     openers.push("recovery".to_string());
                 }
-                let grips = crypto::keygrips_for(&recovery);
+                let grips = crypto::keygrips_for(&recovery)?;
                 recipients.push(json!({
                     "uid": "recovery",
                     "fingerprint": recovery,

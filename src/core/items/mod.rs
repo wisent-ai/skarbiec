@@ -34,20 +34,27 @@ pub fn build_item(item_kind: &str, fields: &[String]) -> Result<Value> {
 pub fn status_json() -> Result<Value> {
     let vault = Vault::open(vault_path())?;
     let doc = vault.doc();
-    let count = |key: &str| {
+    // A section the vault has never written (no tokens, no bond) holds no
+    // entries; one present but not an object is damage, said by name.
+    let count = |key: &str| -> Result<usize> {
         doc.get(key)
-            .and_then(Value::as_object)
-            .map(|m| m.len())
-            .unwrap_or_default()
+            .into_iter()
+            .map(|section| {
+                section
+                    .as_object()
+                    .map(serde_json::Map::len)
+                    .with_context(|| format!("the vault's {key} section is not an object"))
+            })
+            .sum()
     };
     let fpr = vault.recovery_fpr().to_string();
-    let held = !fpr.is_empty() && crate::core::crypto::secret_key_present(&fpr);
+    let held = !fpr.is_empty() && crate::core::crypto::secret_key_present(&fpr)?;
     Ok(json!({
         "vault": vault_path().display().to_string(),
-        "item_count": count("items"),
-        "recipient_count": count("recipients"),
-        "token_count": count("tokens"),
-        "bond_count": count("bond"),
+        "item_count": count("items")?,
+        "recipient_count": count("recipients")?,
+        "token_count": count("tokens")?,
+        "bond_count": count("bond")?,
         "recovery_fpr": fpr,
         "recovery_present_locally": held,
     }))
