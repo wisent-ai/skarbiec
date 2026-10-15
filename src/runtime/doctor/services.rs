@@ -11,18 +11,19 @@ use super::{check, FAIL, NOT_CONFIGURED, PASS};
 pub(super) fn endpoint_check() -> Value {
     match credential::canonical_endpoint_report() {
         Ok(report) => {
-            let endpoint = report
-                .get("endpoint")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let forward = report
-                .get("forward")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let answering = report
-                .get("answering")
-                .and_then(Value::as_bool)
-                .unwrap_or_default();
+            // The report always carries all three; one that does not is a
+            // fault of the report, said whole, not an endpoint named "".
+            let (Some(endpoint), Some(forward), Some(answering)) = (
+                report.get("endpoint").and_then(Value::as_str),
+                report.get("forward").and_then(Value::as_str),
+                report.get("answering").and_then(Value::as_bool),
+            ) else {
+                return check(
+                    "endpoint",
+                    FAIL,
+                    format!("the endpoint report lacks endpoint, forward or answering: {report}"),
+                );
+            };
             if answering {
                 check(
                     "endpoint",
