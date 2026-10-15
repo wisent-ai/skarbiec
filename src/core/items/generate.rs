@@ -1,14 +1,14 @@
 // Generating a value nobody has to invent: a password over a chosen
-// character set, or a passphrase over the words this host has.
+// character set, or a passphrase over the words this host has. Every pick is
+// a uniform draw from the kernel's random source.
 
 use anyhow::{bail, Context, Result};
 use std::fs::File;
-use std::io::{Read, Write};
-use std::process::{Command, Stdio};
+use std::io::Read;
+use std::num::{NonZeroU64, NonZeroUsize};
 
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-const DIGITS: &str = "0123456789";
 const SYMBOLS: &str = "!@#$%^&*()-_=+[]{}";
 
 // Small built-in wordlist used when the system dictionary is unavailable.
@@ -20,7 +20,41 @@ lantern larch maple marble meadow meteor mica onyx opal orchard osprey pebble pi
 quartz quill raven reed ridge river saffron sage slate sparrow spruce summit talon \
 thicket tundra umber valley violet walnut willow yarrow zephyr";
 
-// Build a canonical payload from `key=value` logical fields. Context-rich and
+/// The decimal digits, read from the ASCII table rather than spelled out.
+fn digits() -> impl Iterator<Item = char> {
+    (char::MIN..)
+        .take_while(char::is_ascii)
+        .filter(char::is_ascii_digit)
+}
+
+/// Uniform draws from `/dev/urandom`.
+struct Entropy(File);
+
+impl Entropy {
+    fn open() -> Result<Self> {
+        Ok(Self(
+            File::open("/dev/urandom").context("open /dev/urandom")?,
+        ))
+    }
+
+    /// An index below `bound`, every one equally likely. A 64-bit draw below
+    /// 2^64 mod `bound` is drawn again, so the draws that remain divide evenly
+    /// among the indices; `byte % bound` favoured the first 256 mod `bound`
+    /// of them.
+    fn below(&mut self, bound: usize) -> Result<usize> {
+        let bound = NonZeroU64::new(u64::try_from(bound).context("draw range exceeds 64 bits")?)
+            .context("draw from an empty range")?;
+        let threshold = bound.get().wrapping_neg() % bound;
+        let mut bytes: [u8; std::mem::size_of::<u64>()] = Default::default();
+        loop {
+            self.0.read_exact(&mut bytes).context("read entropy")?;
+            let draw = u64::from_ne_bytes(bytes);
+            if draw >= threshold {
+                return usize::try_from(draw % bound).context("drawn index exceeds usize");
+            }
+        }
+    }
+}
 
 // default is lower+upper+digits (symbols stay opt-in for paste-safety).
 fn charset(lower: bool, upper: bool, digits: bool, symbols: bool) -> String {
@@ -33,7 +67,7 @@ fn charset(lower: bool, upper: bool, digits: bool, symbols: bool) -> String {
         set.push_str(UPPER);
     }
     if digits || !any {
-        set.push_str(DIGITS);
+        set.extend(self::digits());
     }
     if symbols {
         set.push_str(SYMBOLS);
@@ -48,22 +82,19 @@ pub fn generate_password(
     digits: bool,
     symbols: bool,
 ) -> Result<String> {
-    if length == usize::MIN {
+    if NonZeroUsize::new(length).is_none() {
         bail!("password length must be positive");
     }
     let chars: Vec<char> = charset(lower, upper, digits, symbols).chars().collect();
     if chars.is_empty() {
         bail!("empty character set");
     }
-    let mut buf: Vec<u8> = vec![Default::default(); length];
-    File::open("/dev/urandom")
-        .context("open /dev/urandom")?
-        .read_exact(&mut buf)
-        .context("read entropy")?;
-    Ok(buf
-        .iter()
-        .map(|byte| chars[(*byte as usize) % chars.len()])
-        .collect())
+    let mut entropy = Entropy::open()?;
+    let mut password = String::with_capacity(length);
+    while password.chars().count() < length {
+        password.push(chars[entropy.below(chars.len())?]);
+    }
+    Ok(password)
 }
 
 // Words available for a passphrase: the system dictionary, or the built-in list
@@ -88,40 +119,26 @@ fn words() -> Result<Vec<String>> {
         .collect())
 }
 
+/// `count` distinct words of this host's pool, each drawn uniformly from the
+/// words not yet drawn, joined by `separator`.
 pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
-    if count == usize::MIN {
+    if NonZeroUsize::new(count).is_none() {
         bail!("passphrase word count must be positive");
     }
-    let pool = words()?;
-    if pool.is_empty() {
-        bail!("no words available for passphrase");
+    let mut pool = words()?;
+    pool.sort_unstable();
+    pool.dedup();
+    if pool.len() < count {
+        bail!(
+            "the word pool holds {} distinct words, fewer than the {count} requested",
+            pool.len()
+        );
     }
-    // `sort -R` shuffles using randomness; take the first `count` distinct words.
-    let mut child = Command::new("sort")
-        .arg("-R")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .spawn()
-        .context("spawn sort -R")?;
-    child
-        .stdin
-        .take()
-        .context("sort stdin")?
-        .write_all(pool.join("\n").as_bytes())?;
-    let out = child.wait_with_output()?;
-    if !out.status.success() {
-        bail!("sort -R failed");
-    }
-    let shuffled = String::from_utf8_lossy(&out.stdout);
-    let picked: Vec<&str> = shuffled
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .take(count)
-        .collect();
-    if picked.len() < count {
-        bail!("word pool smaller than requested count");
+    let mut entropy = Entropy::open()?;
+    let mut picked = Vec::with_capacity(count);
+    while picked.len() < count {
+        let index = entropy.below(pool.len())?;
+        picked.push(pool.swap_remove(index));
     }
     Ok(picked.join(separator))
 }
