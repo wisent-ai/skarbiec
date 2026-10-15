@@ -88,20 +88,14 @@ pub(super) fn wire_request(
         .as_object()
         .context("credential request is not an object")?;
     let mut wire = Map::new();
+    // A member the request does not state travels as null, the wire's word
+    // for "not stated", as an absent Option serialises.
     for key in WIRE_KEYS.iter().copied() {
-        wire.insert(
-            key.to_string(),
-            object.get(key).cloned().unwrap_or(Value::Null),
-        );
+        wire.insert(key.to_string(), json!(object.get(key)));
     }
     wire.insert("mode".to_string(), json!(mode));
     wire.insert("status".to_string(), json!("pending"));
-    wire.insert(
-        "action_log_id".to_string(),
-        action_log_id
-            .map(|id| Value::String(id.to_string()))
-            .unwrap_or(Value::Null),
-    );
+    wire.insert("action_log_id".to_string(), json!(action_log_id));
     let (approval_id, resume_token) = match approval {
         Some((id, token)) => (
             Value::String(id.to_string()),
