@@ -1,14 +1,27 @@
 // Building one item's stored envelope: ciphertext, recipients, revision,
 // history and the metadata a reader can see without decrypting anything.
 
+use std::num::NonZeroU64;
+
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use crate::core::vault::items::duplicates;
 use crate::core::vault::{
-    current_envelope, entry_item_uid, mint_item_uid, now, ManagementMode, Vault, WritePolicy,
+    current_envelope, entry_item_uid, entry_texts, mint_item_uid, now, ManagementMode, Vault,
+    WritePolicy,
 };
 use crate::core::{crypto, schema};
+
+/// The tags an entry stores, as the values the envelope writes back. A list
+/// with an entry that is not text, or tags that are not a list, is refused
+/// rather than read as none and written over.
+fn stored_tags(id: &str, entry: &Value) -> Result<Vec<Value>> {
+    Ok(entry_texts(id, entry, "tags")?
+        .into_iter()
+        .map(Value::String)
+        .collect())
+}
 
 impl Vault {
     pub(in crate::core::vault) fn prepare_item_with_writer(
@@ -79,11 +92,7 @@ impl Vault {
         {
             let existing = previous.as_ref().context("protected item disappeared")?;
             let current_payload = self.get_item(id)?;
-            let current_tags = existing
-                .get("tags")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
+            let current_tags = stored_tags(id, existing)?;
             let requested_tags: Vec<Value> = tags.iter().cloned().map(Value::String).collect();
             if existing.get("state").and_then(Value::as_str) != Some("active")
                 || existing.get("kind").and_then(Value::as_str) != Some(item_kind)
@@ -107,15 +116,11 @@ impl Vault {
             (true, Some(entry)) => crate::core::vault::entry_texts(id, entry, "recipients")?,
             _ => recipient_uids.to_vec(),
         };
-        let effective_tags = if preserve_metadata {
-            previous
-                .as_ref()
-                .and_then(|entry| entry.get("tags"))
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_else(|| tags.iter().cloned().map(Value::String).collect())
-        } else {
-            tags.iter().cloned().map(Value::String).collect()
+        // A managed write keeps the tags the item already carries; every
+        // other write stores the ones requested.
+        let effective_tags = match (&previous, preserve_metadata) {
+            (Some(entry), true) => stored_tags(id, entry)?,
+            _ => tags.iter().cloned().map(Value::String).collect(),
         };
         // Every item write in this crate arrives here -- `set`, `set-json`,
         // `import`, the cross-vault copy, share, revoke, the emergency grant,
@@ -127,13 +132,11 @@ impl Vault {
         // Against what the item already carries, not against nothing: this is
         // the one write that legitimately restates a tag list it did not
         // author, because an absent `--tags` means "leave this as it is".
-        let carried_tags: &[Value] = previous
-            .as_ref()
-            .and_then(|entry| entry.get("tags"))
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
-        schema::ensure_registered_tags(carried_tags, &effective_tags)?;
+        let carried_tags = match &previous {
+            Some(entry) => stored_tags(id, entry)?,
+            None => Vec::new(),
+        };
+        schema::ensure_registered_tags(&carried_tags, &effective_tags)?;
         // The item's permanent identity, decided once and never again.
         //
         // This is the one write that rebuilds the whole envelope from scratch,
@@ -152,47 +155,62 @@ impl Vault {
                 None => mint_item_uid()?,
             },
         };
-        let management = requested_management
-            .or_else(|| {
-                previous
-                    .as_ref()
-                    .and_then(|entry| entry.get("management"))
-                    .cloned()
-            })
-            .unwrap_or_else(|| {
-                let controller = writer.unwrap_or_else(|| self.owner_uid());
+        // A write that names no writer is the vault owner's own.
+        let controller = match writer {
+            Some(writer) => writer,
+            None => self.owner_uid(),
+        };
+        // The management an existing item records is carried forward; one
+        // that records none is damaged and refused, never re-derived.
+        let management = match (requested_management, &previous) {
+            (Some(requested), _) => requested,
+            (None, Some(entry)) => entry
+                .get("management")
+                .cloned()
+                .with_context(|| format!("vault item {id} records no management"))?,
+            (None, None) => {
                 let mode = if controller == self.owner_uid() {
                     ManagementMode::Owner
                 } else {
                     ManagementMode::External
                 };
                 json!({"mode": mode.as_str(), "controller": controller})
-            });
-        let revision = previous
-            .as_ref()
-            .and_then(|entry| entry.get("revision"))
-            .and_then(Value::as_u64)
-            .unwrap_or_default()
-            .checked_add(std::iter::once(()).count() as u64)
-            .context("item revision overflow")?;
+            }
+        };
+        // A new item starts at the first revision; an existing one goes one
+        // past what it records. One that records no revision is refused:
+        // restarting it would hand out a revision an older version already had.
+        let revision = match &previous {
+            Some(entry) => entry
+                .get("revision")
+                .and_then(Value::as_u64)
+                .with_context(|| format!("vault item {id} records no whole-number revision"))?
+                .checked_add(NonZeroU64::MIN.get())
+                .context("item revision overflow")?,
+            None => NonZeroU64::MIN.get(),
+        };
         let fprs = self.fprs_for(&effective_recipients);
         let cipher = crypto::encrypt_to(&fprs, &serde_json::to_string(payload)?)?;
         let stamp = now();
-        let mut history = previous
-            .as_ref()
-            .and_then(|entry| entry.get("history"))
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        // Earlier versions are kept. An entry that never stored a history has
+        // none yet; one whose history is not a list is refused, since writing
+        // it back as empty would drop every version it held.
+        let mut history = match previous.as_ref().and_then(|entry| entry.get("history")) {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(versions)) => versions.clone(),
+            Some(other) => bail!("vault item {id} carries history {other}, not a list"),
+        };
         if let Some(current) = previous.as_ref().and_then(|entry| entry.get("current")) {
             history.push(current.clone());
         }
-        let created = previous
-            .as_ref()
-            .and_then(|entry| entry.get("created_at"))
-            .cloned()
-            .unwrap_or_else(|| json!(stamp));
-        let written_by = writer.unwrap_or_else(|| self.owner_uid()).to_string();
+        let created = match &previous {
+            Some(entry) => entry
+                .get("created_at")
+                .cloned()
+                .with_context(|| format!("vault item {id} records no creation time"))?,
+            None => json!(stamp),
+        };
+        let written_by = controller.to_string();
         let stored_tags = effective_tags.len();
         // What this item holds, as a fingerprint of its canonical payload
         // under this vault's salt. Two purposes, both answerable without
@@ -266,7 +284,7 @@ impl Vault {
             "tags": stored_tags,
             "tags_requested": tags.len(),
             "pid": std::process::id(),
-            "process": std::env::args().next().unwrap_or_default(),
+            "process": std::env::args().next(),
             "parent_pid": parent_pid,
             "parent_process": parent_process,
         });
