@@ -9,40 +9,42 @@ use serde_json::{json, Value};
 use super::load;
 use crate::core::vault::Vault;
 
-/// The item `/health` opens to prove the key material is still usable.
+/// The items `/health` opens to prove the key material is still usable.
 ///
-/// Deterministic (lowest id among live items) so repeated probes exercise the
-/// same ciphertext and a passing probe means the same thing every time. Only
-/// the id is returned; the caller decrypts and drops the value.
-fn canary_item_ids(vault: &Vault) -> Vec<String> {
+/// Deterministic (lowest and highest id among live items, then every item
+/// `SKARBIEC_READINESS_ITEMS` names) so repeated probes exercise the same
+/// ciphertext and a passing probe means the same thing every time. Only the
+/// ids are returned; the caller decrypts and drops the values. A configured
+/// item this vault does not hold is the error naming it: skipped, the probe
+/// proved less than the operator asked for and said nothing.
+fn canary_item_ids(vault: &Vault) -> Result<Vec<String>> {
     let mut ids: Vec<String> = vault
         .list(false)
         .iter()
         .filter_map(|row| row.get("id").and_then(Value::as_str).map(str::to_string))
         .collect();
     ids.sort();
-    let mut canaries = Vec::new();
-    if let Some(first) = ids.first() {
-        canaries.push(first.clone());
-    }
-    if let Some(last) = ids.last() {
-        if !canaries.contains(last) {
-            canaries.push(last.clone());
+    let mut canaries: Vec<String> = Vec::new();
+    for id in [ids.first(), ids.last()].into_iter().flatten() {
+        if !canaries.contains(id) {
+            canaries.push(id.clone());
         }
     }
-    for configured in std::env::var("SKARBIEC_READINESS_ITEMS")
-        .unwrap_or_default()
-        .split(',')
+    let configured = crate::core::env::text("SKARBIEC_READINESS_ITEMS")?;
+    for item in configured
+        .iter()
+        .flat_map(|list| list.split(','))
         .map(str::trim)
-        .filter(|item| !item.is_empty())
     {
-        if ids.iter().any(|item| item == configured)
-            && !canaries.iter().any(|item| item == configured)
-        {
-            canaries.push(configured.to_string());
+        if item.is_empty() || canaries.iter().any(|canary| canary == item) {
+            continue;
         }
+        if !ids.iter().any(|id| id == item) {
+            anyhow::bail!("SKARBIEC_READINESS_ITEMS names {item}, which this vault does not hold");
+        }
+        canaries.push(item.to_string());
     }
-    canaries
+    Ok(canaries)
 }
 
 /// What `/health` proves, or the one thing it will not wait for.
@@ -78,7 +80,7 @@ pub(super) fn readiness_check() -> Result<Vec<String>> {
     if let Some(refusal) = crate::core::crypto::agent_refusal() {
         anyhow::bail!("{refusal}");
     }
-    let canaries = canary_item_ids(&vault);
+    let canaries = canary_item_ids(&vault)?;
     for id in &canaries {
         vault
             .get_item(id)
@@ -116,17 +118,50 @@ fn daemon_ceiling_pass() -> Result<()> {
     Ok(())
 }
 
-/// One maintenance pass: the GnuPG daemon ceiling, then the readiness proof.
-/// `skarbiec maintain` runs it once; a Stado schedule pinned to the vault host
-/// decides how often. A failed proof is the command's error.
+/// One pass of the wedge the readiness proof refuses on: every `gpg` run of
+/// this account in flight has asked gpg-agent for its key and heard nothing.
+/// That is the state `recover-daemons` exists for, and the refusal tells the
+/// reader to run this pass; a pass that only refused again left every
+/// credential read standing until an operator replaced the daemons by hand.
+/// The daemons are replaced, and the journal row names why and what each
+/// held, so `audit --op` answers when and why it happened.
+fn agent_wedge_pass() -> Result<()> {
+    let Some(refusal) = crate::core::crypto::agent_refusal() else {
+        return Ok(());
+    };
+    let before = crate::core::crypto::recover_daemons()
+        .with_context(|| format!("skarbiec maintain: recover the daemons behind: {refusal}"))?;
+    let replaced: Vec<String> = before
+        .iter()
+        .map(|footprint| footprint.describe())
+        .collect();
+    eprintln!(
+        "skarbiec maintain: replaced the GnuPG daemons ({}) because {refusal}",
+        replaced.join(", ")
+    );
+    crate::runtime::audit::append(
+        "daemon-recover",
+        &json!({ "reason": refusal, "replaced": replaced }),
+    )
+    .context("skarbiec maintain: journal the daemon recovery")
+}
+
+/// One maintenance pass: the GnuPG daemon ceiling, the daemons every waiting
+/// run stands behind, then the readiness proof. `skarbiec maintain` runs it
+/// once; a Stado schedule pinned to the vault host decides how often. A
+/// failed proof is the command's error, with every failed step's reason.
 pub(crate) fn maintenance_pass() -> Result<Vec<String>> {
-    let ceiling = daemon_ceiling_pass();
+    let repairs: Vec<anyhow::Error> = [daemon_ceiling_pass(), agent_wedge_pass()]
+        .into_iter()
+        .filter_map(Result::err)
+        .collect();
     let readiness = readiness_check();
-    match (ceiling, readiness) {
-        (Ok(()), Ok(canaries)) => Ok(canaries),
-        (Err(error), Ok(_)) | (Ok(()), Err(error)) => Err(error),
-        (Err(ceiling), Err(readiness)) => {
-            anyhow::bail!("{ceiling:#}; readiness proof: {readiness:#}")
-        }
+    if repairs.is_empty() {
+        return readiness;
     }
+    let mut reasons: Vec<String> = repairs.iter().map(|error| format!("{error:#}")).collect();
+    if let Err(error) = readiness {
+        reasons.push(format!("readiness proof: {error:#}"));
+    }
+    anyhow::bail!("{}", reasons.join("; "))
 }
