@@ -34,52 +34,53 @@ pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> 
     let mut vault = Vault::open(vault_path.to_path_buf())?;
     let sealed_only =
         !live_item_exists(&vault, credential_id) && sealed_record(&vault, credential_id)?.is_some();
-    let mut request = match vault.get_item(&request_item).and_then(request_payload) {
-        Ok(request) => request,
-        Err(_) if live_item_exists(&vault, credential_id) => {
-            let state = lifecycle_state(&vault, credential_id)?;
-            let directory = resolved_directory(&vault, credential_id)?;
-            let blockers =
-                lifecycle_blockers(&vault, credential_id, None, directory.as_ref(), None);
-            return Ok(json!({
-                "ok": state == STATE_MANAGED,
-                "status": state,
-                "lifecycle_state": state,
-                "credential": credential_id,
-                "revision": item_revision(&vault, credential_id),
-                "directory": directory,
-                // An item that exists but cannot be read is refused by name,
-                // never reported as carrying no receipt and no quarantine.
-                "receipt": context_block_checked(&vault, credential_id, "receipt")?,
-                "quarantine": context_block_checked(&vault, credential_id, "quarantine")?,
-                "externally_verified": false,
-                "lifecycle_eligible": blockers.is_empty(),
-                "lifecycle_blockers": blockers,
-            }));
-        }
+    // Only an absent request record means no operation is in flight. One
+    // that exists but cannot be read is refused with its cause: read as
+    // absent, a running operation was reported as the item's settled state.
+    let mut request = if live_item_exists(&vault, &request_item) {
+        vault
+            .get_item(&request_item)
+            .and_then(request_payload)
+            .with_context(|| {
+                format!("the operation request {request_item} for {credential_id} exists but cannot be read")
+            })?
+    } else if live_item_exists(&vault, credential_id) {
+        let state = lifecycle_state(&vault, credential_id)?;
+        let directory = resolved_directory(&vault, credential_id)?;
+        let blockers = lifecycle_blockers(&vault, credential_id, None, directory.as_ref(), None);
+        return Ok(json!({
+            "ok": state == STATE_MANAGED,
+            "status": state,
+            "lifecycle_state": state,
+            "credential": credential_id,
+            "revision": item_revision(&vault, credential_id),
+            "directory": directory,
+            // An item that exists but cannot be read is refused by name,
+            // never reported as carrying no receipt and no quarantine.
+            "receipt": context_block_checked(&vault, credential_id, "receipt")?,
+            "quarantine": context_block_checked(&vault, credential_id, "quarantine")?,
+            "externally_verified": false,
+            "lifecycle_eligible": blockers.is_empty(),
+            "lifecycle_blockers": blockers,
+        }));
+    } else if sealed_only {
         // A sealed contract with no item yet is the normal state before the
         // first adopt or acquire, and it is worth reporting as such.
-        Err(_) if sealed_only => {
-            let directory = resolved_directory(&vault, credential_id)?;
-            let blockers =
-                lifecycle_blockers(&vault, credential_id, None, directory.as_ref(), None);
-            return Ok(json!({
-                "ok": false,
-                "status": STATE_UNMANAGED,
-                "lifecycle_state": STATE_UNMANAGED,
-                "credential": credential_id,
-                "revision": Value::Null,
-                "directory": directory,
-                "externally_verified": false,
-                "lifecycle_eligible": blockers.is_empty(),
-                "lifecycle_blockers": blockers,
-            }));
-        }
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!("no credential or operation request exists for {credential_id}")
-            });
-        }
+        let directory = resolved_directory(&vault, credential_id)?;
+        let blockers = lifecycle_blockers(&vault, credential_id, None, directory.as_ref(), None);
+        return Ok(json!({
+            "ok": false,
+            "status": STATE_UNMANAGED,
+            "lifecycle_state": STATE_UNMANAGED,
+            "credential": credential_id,
+            "revision": Value::Null,
+            "directory": directory,
+            "externally_verified": false,
+            "lifecycle_eligible": blockers.is_empty(),
+            "lifecycle_blockers": blockers,
+        }));
+    } else {
+        bail!("no credential or operation request exists for {credential_id}");
     };
     // Clean cutover: a record written by an older wire version carries no
     // sealed directory identity, so it can never be polled or completed as one.
@@ -106,10 +107,12 @@ pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> 
         .and_then(Value::as_str)
         .context("credential operation has no exact writer")?
         .to_string();
+    // Every operation records the provider it was started for, as it
+    // records its operation, request id, field and writer.
     let provider = request
         .get("provider")
         .and_then(Value::as_str)
-        .unwrap_or_default()
+        .context("credential operation has no provider")?
         .to_string();
     let directory = request
         .get("directory")
