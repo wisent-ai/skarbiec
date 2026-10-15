@@ -4,6 +4,7 @@
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Value};
+use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
@@ -153,28 +154,35 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
     Ok(parsed)
 }
 
-/// Drop every capability record past its expiry, and every nonce whose
-/// capability is gone. A nonce is refused for as long as the capability it
-/// was used with can still be redeemed, which is exactly as long as replay
-/// matters; after that nothing reads either, and the audit log keeps what was
-/// issued and redeemed. Without this the broker Brama runs on the vault owner
-/// would read and rewrite every capability ever issued on each request, and
-/// its state grows to GiBs within a day or two.
+/// Drop every capability that can no longer be redeemed -- past its expiry,
+/// or no longer `issued` because its uses are spent or it was cancelled --
+/// and every nonce whose capability is gone. Redemption refuses a capability
+/// it does not find exactly as it refuses one that is not `issued`, so a
+/// dropped record changes no answer, and a nonce matters only while its
+/// capability can still be redeemed; the audit log keeps what was issued,
+/// redeemed and cancelled. A broker that issues one single-use capability
+/// per request kept every spent one until its expiry: the state grew to
+/// hundreds of megabytes that every request read, matched and rewrote.
+///
+/// Nonces are matched against a set of the live capability ids: matched
+/// against a list, the work grew with the product of the two counts and one
+/// request on a large state took minutes.
 fn forget_stale(state: &mut Value, now: u64) -> Result<()> {
     let Some(capabilities) = state["capabilities"].as_object_mut() else {
         bail!("capability state is malformed: capabilities is not an object");
     };
     capabilities.retain(|_, record| {
-        record
+        let unexpired = record
             .get("expires_at")
             .and_then(Value::as_u64)
-            .is_some_and(|until| until > now)
+            .is_some_and(|until| until > now);
+        unexpired && record.get("state").and_then(Value::as_str) == Some("issued")
     });
-    let live: Vec<String> = capabilities.keys().cloned().collect();
+    let live: HashSet<String> = capabilities.keys().cloned().collect();
     if let Some(nonces) = state["nonces"].as_object_mut() {
         nonces.retain(|key, _| {
             key.split_once(':')
-                .is_some_and(|(capability, _)| live.iter().any(|id| id == capability))
+                .is_some_and(|(capability, _)| live.contains(capability))
         });
     }
     Ok(())
