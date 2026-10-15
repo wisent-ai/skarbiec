@@ -76,8 +76,15 @@ pub(super) fn resolve(route: &str) -> Result<String> {
         consumer = Some(value.into_owned());
     }
     let consumer = consumer.context("vault owner service route has no consumer")?;
+    // The Stado a product install places: `skarbiec serve` runs under a
+    // service unit whose PATH holds no ~/.stado/bin, where a bare `stado`
+    // is not found.
+    let stado = crate::core::home_dir()
+        .join(".stado")
+        .join("bin")
+        .join("stado");
     let output = stado_wait::output(
-        Command::new("stado")
+        Command::new(&stado)
             .args([
                 "service",
                 "directory",
@@ -91,7 +98,12 @@ pub(super) fn resolve(route: &str) -> Result<String> {
             .stdin(Stdio::null())
             .stderr(Stdio::piped()),
     )
-    .with_context(|| format!("resolve vault owner {route} through Stado service directory"))?;
+    .with_context(|| {
+        format!(
+            "resolve vault owner {route} through Stado service directory with {}",
+            stado.display()
+        )
+    })?;
     if !output.status.success() {
         bail!(
             "Stado service directory refused vault owner {route}: {}; {}",
