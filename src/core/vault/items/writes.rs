@@ -115,35 +115,39 @@ impl Vault {
     /// bare parent pid is a number that has already exited by the time anyone reads
     /// the line.
     ///
-    /// Two `ps` reads, because one cannot answer it. `ps -p <self>` prints this
-    /// process's own ppid and its own command, so the command in that row names the
-    /// writer again rather than whoever invoked it; the parent's program comes from
-    /// a second read of the ppid it just produced.
-    ///
-    /// Only the program is kept, never the rest of the argument vector: this line
-    /// lands in a journal an operator reads, and a parent that was handed a secret
-    /// on its command line must not have it copied here. Best effort by design: an
-    /// unavailable parent yields empty strings rather than failing a credential
-    /// write.
+    /// The pid is the kernel's answer for this process. The parent's program is
+    /// read with `ps`, run through the announced wait, and only the program is
+    /// kept, never the rest of the argument vector: this line lands in a journal
+    /// an operator reads, and a parent that was handed a secret on its command
+    /// line must not have it copied here. A program that cannot be read does not
+    /// fail the credential write; the journal carries `not read: <cause>` in its
+    /// place, never an empty name that reads as a program nobody ran.
     pub(in crate::core::vault) fn parent_process() -> (String, String) {
-        let read = |format: &str, pid: &str| -> String {
-            std::process::Command::new("/bin/ps")
-                .args(["-o", format, "-p", pid])
-                .output()
-                .ok()
-                .and_then(|output| String::from_utf8(output.stdout).ok())
-                .unwrap_or_default()
+        let pid = std::os::unix::process::parent_id().to_string();
+        let program = stado_wait::output(
+            std::process::Command::new("/bin/ps").args(["-o", "command=", "-p", &pid]),
+        )
+        .map_err(|error| format!("/bin/ps could not be run for pid {pid}: {error:#}"))
+        .and_then(|output| {
+            if !output.status.success() {
+                return Err(format!(
+                    "/bin/ps -p {pid} exited with {}: {}",
+                    output.status,
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            let command = String::from_utf8(output.stdout)
+                .map_err(|error| format!("/bin/ps -p {pid} printed no text: {error}"))?;
+            command
                 .split_whitespace()
                 .next()
-                .unwrap_or_default()
-                .to_string()
-        };
-        let parent_pid = read("ppid=", &std::process::id().to_string());
-        if parent_pid.is_empty() {
-            return (parent_pid, String::new());
+                .map(str::to_string)
+                .ok_or_else(|| format!("/bin/ps -p {pid} printed no command"))
+        });
+        match program {
+            Ok(program) => (pid, program),
+            Err(cause) => (pid, format!("not read: {cause}")),
         }
-        let program = read("command=", &parent_pid);
-        (parent_pid, program)
     }
 
     /// The salt this vault's payload fingerprints are taken under, minted on
