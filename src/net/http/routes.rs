@@ -92,7 +92,10 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "ok": false,
                     "service": "skarbiec",
                     "error_code": Code::InfraDown.as_str(),
-                    "detail": detail_text(&error.to_string()),
+                    // The whole chain: the readiness step names what failed
+                    // ("stored item … cannot be decrypted") and gpg's own
+                    // sentence one layer down says why.
+                    "detail": detail_text(&format!("{error:#}")),
                     "crypto": crypto,
                 }),
             ),

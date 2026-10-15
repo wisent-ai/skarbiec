@@ -53,6 +53,15 @@ every reader through Stado's resolver and every hook judge saw while one
 process kept the key database. `/livez` and metadata-only routes do not
 decrypt canaries.
 
+A canary this host cannot open answers 503 with `stored item <id> cannot be
+decrypted` followed by gpg's own sentence: `gpg failed (<exit status>): …
+decryption failed: No secret key` when the item is sealed to a recipient
+whose secret half is not in this keyring. Daemon recovery does not repair
+that: compare the item's recipients with `skarbiec key-doctor`, or open the
+item with the recovery key. The real test is `SKARBIEC=<binary>
+SKARBIEC_TEST_SOURCE_REVISION=<commit> SKARBIEC_TEST_HTTP_PORT=<port> node
+tests/health/undecryptable.mjs`.
+
 Run `skarbiec status` for the serving vault path and non-sensitive counts. Remote status also records `source.kind`, `source.route` and `source.endpoint`; `recovery_present_locally` describes the serving owner. A `stado://service/skarbiec?consumer=operator` route is resolved through Stado's declared directory; every wait and actual owner refusal stays on stderr, while credential stdout keeps its local shape.
 The owner and client must carry the owner-item API contract. `get`, including roles, fields and `--revision`, and `set-json`, including metadata preservation and `--if-absent`, share their implementations with the operator API. An unavailable or older owner is refused rather than replaced with a copied vault. The graphical operator API returns configuration selection failures and the complete owner error chain in its JSON `error`; it does not drop the connection or replace the underlying cause with only the forwarding step. See the canonical [get contract](https://skarbiec.wisent.com/docs/cli/get).
 The real fleet journey is `node tests/vault/remote_owner.mjs`. Its environment must declare `SKARBIEC` (candidate executable), `SKARBIEC_TEST_SOURCE_REVISION` (full source revision), `SKARBIEC_TEST_STADO_CONFIG` (actual non-owner declaration), and `SKARBIEC_TEST_CLIENT_ENDPOINT` (the real non-owner operator listener). Before vault access, the executable's `version.commit` must match the declared revision and clean checkout; a source build with no embedded commit is refused. The returned candidate identity is retained with its binary hash. The journey proves that CLI and listener reach the same owner, that a second-forwarded read and write are refused without creating an item, and that ordinary owner item operations still work. It retains source-bound results under `target/real-tests/remote-owner` and purges only its uniquely created item. Client-copy preservation is checked even when the journey or cleanup fails; `clientCopyError`, `cleanupError` and the original `error` remain distinct in the retained report. Use `skarbiec key-doctor` for key diagnosis, `/livez` for liveness and `/readyz` (or `/health`) for readiness.
