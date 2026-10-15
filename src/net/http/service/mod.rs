@@ -45,7 +45,7 @@ pub(super) fn serve(
         start("requests", finished.clone(), move || {
             watched.descriptor_loss()
         })?;
-        let image = image::Image::when_declared();
+        let image = image::Image::when_declared()?;
         for listener in listeners {
             let requests = Arc::clone(&requests);
             let image = image.clone();
@@ -87,16 +87,28 @@ fn start(
     std::thread::Builder::new()
         .name(format!("skarbiec-{name}"))
         .spawn(move || {
-            let outcome = catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|panic| {
-                let reason = panic
-                    .downcast_ref::<String>()
-                    .map(String::as_str)
-                    .or_else(|| panic.downcast_ref::<&str>().copied())
-                    .unwrap_or("non-text panic payload");
-                Err(anyhow!("component panicked: {reason}"))
-            });
-            let _ = finished.send((name, outcome));
+            let outcome = match catch_unwind(AssertUnwindSafe(run)) {
+                Ok(outcome) => outcome,
+                Err(panic) => Err(anyhow!("component panicked: {}", panic_reason(&*panic))),
+            };
+            if let Err(std::sync::mpsc::SendError((_, ended))) = finished.send((name, outcome)) {
+                // The serve loop has already returned, so the process is ending;
+                // what this component ended with is still said.
+                eprintln!("skarbiec serve: {name} ended after the service stopped: {ended:?}");
+            }
         })
         .with_context(|| format!("start Skarbiec {name} component"))?;
     Ok(())
+}
+
+/// What a component's panic said: its message when the payload is text, and
+/// that it carried none otherwise.
+fn panic_reason(panic: &(dyn std::any::Any + Send)) -> String {
+    if let Some(message) = panic.downcast_ref::<String>() {
+        return message.clone();
+    }
+    if let Some(message) = panic.downcast_ref::<&str>() {
+        return (*message).to_string();
+    }
+    "its payload is not text, so it carries no message".to_string()
 }
