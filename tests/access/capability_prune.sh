@@ -78,7 +78,10 @@ git diff --cached --quiet || fail "source has staged uncommitted changes"
 ITEM="prune-provider-$RUN"
 RESOURCE="provider:prune-$RUN"
 WANT=ok run init "prune-test-owner-$RUN"
-WANT=ok run set "$ITEM" --type api-key "--tags=brama:provider:prune-$RUN" api_key=not-a-secret
+# The provider credential the capability route resolves to, written whole on
+# stdin through set-json, the one write command.
+jq -n '{schema:"skarbiec.item.v2",kind:"api-key",fields:{api_key:"not-a-secret"},context:{}}' \
+  | WANT=ok run set-json "$ITEM" --type api-key "--tags=brama:provider:prune-$RUN"
 
 # The state a broker leaves behind, one record of each kind. The state keys
 # capabilities by id and nonces by `<id>:<nonce>`.
