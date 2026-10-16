@@ -11,8 +11,9 @@
 # published, a changed vault makes doctor fail the mirror check, and one
 # maintain pass pushes it: the remote then holds the live ciphertext and
 # doctor passes. After unpublish a maintain pass reports no mirror push and
-# the remote keeps the last published commit. Every command and whether it
-# succeeded go to the run's report.txt.
+# the remote keeps the last published commit; a mirror whose Git config
+# cannot be read fails the pass with Git's error. Every command and whether
+# it succeeded go to the run's report.txt.
 #
 # Usage: SKARBIEC=target/debug/skarbiec SKARBIEC_TEST_SOURCE_REVISION=<full-sha> tests/mirror/publish.sh
 set -eu
@@ -107,6 +108,11 @@ mirror_verdict fail "the unpublished change is reported by the mirror check"
 grep -q '"sync-publish"' "$SKARBIEC_AUDIT_FILE" \
   || fail "publishing changes are written to the audit journal"
 echo "ok: publishing changes are in the audit journal" >>"$REPORT"
+
+printf '[skarbiec\n' >>"$SKARBIEC_SYNC_DIR/.git/config"
+WANT=refused run maintain
+says "git config --bool skarbiec.publish" \
+  "an unreadable mirror config fails the pass instead of reading as a host that does not publish"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

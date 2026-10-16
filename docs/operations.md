@@ -51,7 +51,10 @@ answers the same verbs at `POST /v1/operator/sync/publish` and
 `skarbiec maintain: mirror push: mirror: git <step> in <dir> failed: <git's
 error>`, or `mirror push: git push origin HEAD:refs/heads/<branch> failed:
 <git's error>`; `maintain` answers `"mirror": null` on a host that does not
-publish, and the push's answer on the one that does.
+publish, and the push's answer on the one that does. A mirror whose Git
+configuration cannot be read fails the pass with `git config --bool
+skarbiec.publish in <dir>: <git's error>` instead of reading as a host that
+does not publish.
 
 `skarbiec doctor` carries a `mirror` check, read from disk without a fetch.
 It passes when the live vault is byte for byte the vault in the last pushed

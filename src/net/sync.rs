@@ -65,13 +65,8 @@ fn items_missing_from_mirror(live: &PathBuf, mirror: &PathBuf) -> Result<Vec<Str
 }
 
 fn git(args: &[&str]) -> Result<(bool, String, String)> {
-    let out = stado_wait::output(
-        Command::new("git")
-            .arg("-C")
-            .arg(sync_dir())
-            .args(args),
-    )
-    .with_context(|| format!("run git {} in {}", args.join(" "), sync_dir().display()))?;
+    let out = stado_wait::output(Command::new("git").arg("-C").arg(sync_dir()).args(args))
+        .with_context(|| format!("run git {} in {}", args.join(" "), sync_dir().display()))?;
     Ok((
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),

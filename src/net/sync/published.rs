@@ -40,9 +40,18 @@ pub(crate) fn push_if_published() -> Result<Option<Value>> {
     if !has_mirror() {
         return Ok(None);
     }
-    // `git config --bool` exits nonzero only when the key is absent, which is
-    // a host that never ran `mirror publish`.
-    let (set, value, _) = git(&["config", "--bool", PUBLISH_KEY])?;
+    // `git config --bool` exits nonzero and says nothing when the key is
+    // absent, which is a host that never ran `mirror publish`. A config it
+    // cannot read exits nonzero saying why, and that is an error, not a host
+    // that does not publish.
+    let (set, value, error) = git(&["config", "--bool", PUBLISH_KEY])?;
+    if !set && !error.trim().is_empty() {
+        bail!(
+            "git config --bool {PUBLISH_KEY} in {}: {}",
+            sync_dir().display(),
+            error.trim()
+        );
+    }
     if !set || value.trim() != "true" {
         return Ok(None);
     }

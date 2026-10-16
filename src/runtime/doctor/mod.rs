@@ -42,7 +42,11 @@ pub(super) fn check(name: &str, status: &str, detail: String) -> Value {
 /// else says so until the copy is needed.
 fn mirror_check() -> Value {
     match crate::net::sync::published_state() {
-        None => check("mirror", NOT_CONFIGURED, "no Git mirror on this host".into()),
+        None => check(
+            "mirror",
+            NOT_CONFIGURED,
+            "no Git mirror on this host".into(),
+        ),
         Some(Ok(detail)) => check("mirror", PASS, detail),
         Some(Err(detail)) => check("mirror", FAIL, detail),
     }
