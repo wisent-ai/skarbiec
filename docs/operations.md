@@ -30,14 +30,38 @@ cause.
 
 `skarbiec serve` answers requests and nothing else. The recurring work is one
 command, `skarbiec maintain`: it replaces GnuPG daemons over their memory
-ceiling, proves readiness by decrypting the canary items, and pulls every bond
-this vault pulls once. Every step runs; the command fails, naming every failed
-step, when any of them did. A Stado schedule pinned to the host runs it:
+ceiling, proves readiness by decrypting the canary items, pulls every bond
+this vault pulls once, and, on the host that publishes the Git ciphertext
+mirror, pushes the mirror once. Every step runs; the command fails, naming
+every failed step, when any of them did. A Stado schedule pinned to the host
+runs it:
 
 ```bash
 stado schedule create --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'
 ```
 Replication discovery distinguishes an absent vault from a failed filesystem inspection: an inaccessible vault fails the pass with its path and operating-system cause. If both a pull and its failure-audit write fail, the refusal retains the bond, source address, original pull cause and audit-write cause together.
+
+Only the vault's owner publishes its mirror: a replica that pushed would
+replace the owner's ciphertext with its own copy, so a mirror existing never
+makes a host publish. `skarbiec mirror publish` records it in the mirror's own
+Git configuration (`skarbiec.publish`, in `$SKARBIEC_SYNC_DIR`, by default
+`~/.skarbiec-sync`); `skarbiec mirror unpublish` stops it. The operator API
+answers the same verbs at `POST /v1/operator/sync/publish` and
+`POST /v1/operator/sync/unpublish`. A failed push fails the pass as
+`skarbiec maintain: mirror push: mirror: git <step> in <dir> failed: <git's
+error>`, or `mirror push: git push origin HEAD:refs/heads/<branch> failed:
+<git's error>`; `maintain` answers `"mirror": null` on a host that does not
+publish, and the push's answer on the one that does.
+
+`skarbiec doctor` carries a `mirror` check, read from disk without a fetch.
+It passes when the live vault is byte for byte the vault in the last pushed
+branch (`the live vault is the one pushed to refs/remotes/origin/main at
+<time>`), fails when it is not (`the live vault changed after the last push to
+refs/remotes/origin/main, at <time>, and nothing published it since`) or when
+the mirror never pushed, and is `not_configured` on a host without a mirror.
+The desktop's Posture shows a failing `mirror` check as "Mirror failed" with
+that sentence. `mirror init` creates the mirror on branch `main`; `mirror push`
+and `mirror pull` without `--branch` use the branch the mirror has checked out.
 
 Cryptographic children run without a concurrency cap. Each running `gpg`
 holds a shared permit; daemon recovery takes an exclusive permit after those

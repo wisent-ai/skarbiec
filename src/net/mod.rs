@@ -65,6 +65,9 @@ pub fn dispatch(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
+    if command == "maintain" {
+        return maintain(flags, positionals).map(Some);
+    }
     if let Some(v) = bond::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
@@ -75,4 +78,31 @@ pub fn dispatch(
         return Ok(Some(v));
     }
     Ok(None)
+}
+
+/// `skarbiec maintain`: the pass `net::http` owns (GnuPG daemons, readiness
+/// proof, one pull of every pulled bond), then one push of the Git mirror on
+/// the host that publishes it (`mirror publish`). Both run; either failing
+/// fails the pass with every reason, so a mirror that stopped publishing is a
+/// failed scheduled run, not a silent one.
+fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+    let pass = http::dispatch("maintain", flags, positionals);
+    let mirror = sync::push_if_published();
+    match (pass, mirror) {
+        (Ok(Some(mut report)), Ok(mirror)) => {
+            report["mirror"] = serde_json::json!(mirror);
+            Ok(report)
+        }
+        (Ok(None), _) => anyhow::bail!("skarbiec maintain: net::http answered nothing"),
+        (pass, mirror) => {
+            let mut reasons = Vec::new();
+            if let Err(error) = pass {
+                reasons.push(format!("{error:#}"));
+            }
+            if let Err(error) = mirror {
+                reasons.push(format!("skarbiec maintain: mirror push: {error:#}"));
+            }
+            anyhow::bail!("{}", reasons.join("; "))
+        }
+    }
 }

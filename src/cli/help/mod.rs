@@ -89,12 +89,12 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("totp", "skarbiec totp <item-id>", "Compute the current TOTP code from a stored seed without returning the seed."),
     row("totp-seed-state", "skarbiec totp-seed-state [<item-id>]", "Report whether one item, or every login and identity item, holds a seed that computes a TOTP code, without returning the code or the seed."),
     row("breach-check", "skarbiec breach-check <item-id> [--field <field>]", "Check a stored field against Have I Been Pwned through its k-anonymous range API."),
-    group("mirror", "skarbiec mirror help", "Set up the Git ciphertext mirror and its origin, commit the encrypted vault to it and push one branch, and pull it to replace the live vault after protecting local state (init, push, pull); `skarbiec mirror help` lists the subcommands."),
+    group("mirror", "skarbiec mirror help", "Set up the Git ciphertext mirror and its origin, commit the encrypted vault to it and push its branch, pull it to replace the live vault after protecting local state, and make `maintain` on the vault's owner push it every pass or stop doing so (init, push, pull, publish, unpublish); `skarbiec mirror help` lists the subcommands."),
     row("pull", "skarbiec pull --from <base-url> --token-file <path> [--bond <name>] [--consumer <name>] [--force]", "Fetch a complete ciphertext vault from a serve channel and install it as a replica."),
     row("donate", "skarbiec donate <item-id> --to <base-url> --consumer <name> --token-file <path> [--from <writer>]", "Seal one item to a remote vault owner's key and submit it to that vault's donation inbox."),
     group("donation", "skarbiec donation help", "List pending donations without decrypting them, accept one after rechecking its writer-admission rule, or discard one (list, accept, reject); `skarbiec donation help` lists the subcommands."),
     row("enroll", "skarbiec enroll --as <uid> --to <base-url> --token-file <path> [--items <id,...>] [--consumer <name>]", "Register this vault owner's key with a source and request selected items for this replica."),
-    row("maintain", "skarbiec maintain", "Run one maintenance pass: the GnuPG daemon ceiling, the readiness proof and one pull of every pulled bond; it fails naming every step that failed."),
+    row("maintain", "skarbiec maintain", "Run one maintenance pass: the GnuPG daemon ceiling, the readiness proof, one pull of every pulled bond and, where `mirror publish` is set, one push of the Git mirror; it fails naming every step that failed."),
     group("bond", "skarbiec bond help", "Create, change, list and remove this vault's stored bond configurations, and report each bond's state, whether serve pulls it, and the remote's health and item counts (add, edit, list, remove, status); `skarbiec bond help` lists the subcommands."),
     row("capability-status", "skarbiec capability-status [--socket <unix-socket-path>]", "Check that the running capability broker reads the same vault, state and routes as this client."),
     row("agent-enrol", "skarbiec agent-enrol <agent>", "Create the request-signing identity Brama verifies one agent's calls with: an internal-authority item <agent>-agent-signing whose generated agent_auth_secret answers agent:<agent>; an agent that already has one is refused."),
@@ -142,15 +142,14 @@ pub(crate) fn listing() -> Value {
 
 /// `skarbiec --help`: every command and what it does, for a person.
 pub(crate) fn print_overview() {
-    let width = COMMANDS
-        .iter()
-        .map(|command| command.name.len())
-        .max()
-        .unwrap_or_default();
     println!("usage: skarbiec <command> [arguments]\n");
     println!("commands:");
-    for command in COMMANDS {
-        println!("  {:width$}  {}", command.name, command.summary);
+    // The widest name pads the column; there is none only when the table is
+    // empty, and then there is no row to pad.
+    if let Some(width) = COMMANDS.iter().map(|command| command.name.len()).max() {
+        for command in COMMANDS {
+            println!("  {:width$}  {}", command.name, command.summary);
+        }
     }
     println!(
         "\n`skarbiec <command> --help` prints one command's usage without running it.\n\

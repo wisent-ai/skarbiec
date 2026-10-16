@@ -64,6 +64,8 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/sync/init"
             | "/v1/operator/sync/push"
             | "/v1/operator/sync/pull"
+            | "/v1/operator/sync/publish"
+            | "/v1/operator/sync/unpublish"
             | "/v1/operator/route/declare"
             | "/v1/operator/route/withdraw"
     )

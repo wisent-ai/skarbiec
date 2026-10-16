@@ -209,6 +209,8 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         ),
         "/v1/operator/sync/push" => net("mirror push", &flags(parsed, &["message"]), &none),
         "/v1/operator/sync/pull" => net("mirror pull", &flags(parsed, &["force"]), &none),
+        "/v1/operator/sync/publish" => net("mirror publish", &no_flags, &none),
+        "/v1/operator/sync/unpublish" => net("mirror unpublish", &no_flags, &none),
         "/v1/operator/route/declare" => access(
             "route",
             &flags(parsed, &["resource", "item", "field", "reason"]),

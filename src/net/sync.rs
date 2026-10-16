@@ -21,6 +21,9 @@ use std::process::Command;
 
 use crate::core::vault_path;
 
+mod published;
+pub(crate) use published::{published_state, push_if_published};
+
 fn sync_dir() -> PathBuf {
     if let Some(directory) = crate::core::env::path("SKARBIEC_SYNC_DIR") {
         return directory;
@@ -62,12 +65,13 @@ fn items_missing_from_mirror(live: &PathBuf, mirror: &PathBuf) -> Result<Vec<Str
 }
 
 fn git(args: &[&str]) -> Result<(bool, String, String)> {
-    let out = Command::new("git")
-        .arg("-C")
-        .arg(sync_dir())
-        .args(args)
-        .output()
-        .context("run git")?;
+    let out = stado_wait::output(
+        Command::new("git")
+            .arg("-C")
+            .arg(sync_dir())
+            .args(args),
+    )
+    .with_context(|| format!("run git {} in {}", args.join(" "), sync_dir().display()))?;
     Ok((
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -87,6 +91,17 @@ fn checked_git(args: &[&str]) -> Result<String> {
         );
     }
     Ok(stdout)
+}
+
+/// The branch `--branch` names, else the one the mirror has checked out:
+/// `mirror init` creates `main`, and a mirror made elsewhere says its own.
+fn branch(flags: &HashMap<String, String>) -> Result<String> {
+    if let Some(branch) = flags.get("branch") {
+        return Ok(branch.clone());
+    }
+    Ok(checked_git(&["symbolic-ref", "--short", "HEAD"])?
+        .trim()
+        .to_string())
 }
 
 /// `mirror init|push|pull` is a group over the Git ciphertext mirror: the
@@ -118,8 +133,10 @@ fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Valu
                 "mirror init <remote-url>",
                 "mirror push [--branch <name>] [--message <text>]",
                 "mirror pull [--branch <name>] [--force]",
+                "mirror publish",
+                "mirror unpublish",
             ],
-            "usage": "mirror init sets up the Git ciphertext mirror and its origin, mirror push commits the encrypted vault and pushes one branch, and mirror pull replaces the live vault from the mirror after backing it up, refusing while local items would be lost unless --force.",
+            "usage": "mirror init sets up the Git ciphertext mirror on branch main and its origin, mirror push commits the encrypted vault and pushes the mirror's branch, mirror pull replaces the live vault from the mirror after backing it up, refusing while local items would be lost unless --force. mirror publish makes every `skarbiec maintain` pass on this host push the mirror, which only the vault's owner may do; mirror unpublish stops it.",
         }));
     }
     leaf(&format!("mirror {verb}"), flags, positionals)?.ok_or_else(|| {
@@ -141,11 +158,13 @@ fn leaf(
                 .first()
                 .or_usage("usage: mirror init <remote-url>")?;
             std::fs::create_dir_all(sync_dir())?;
-            let (ok, _o, e) = git(&["init"])?;
+            let (ok, _o, e) = git(&["init", "--initial-branch", "main"])?;
             if !ok {
                 bail!("git init failed: {}", e.trim());
             }
-            git(&["remote", "remove", "origin"]).ok();
+            if git(&["remote", "get-url", "origin"])?.0 {
+                checked_git(&["remote", "remove", "origin"])?;
+            }
             let (ok2, _o2, e2) = git(&["remote", "add", "origin", remote])?;
             if !ok2 {
                 bail!("git remote add failed: {}", e2.trim());
@@ -154,7 +173,7 @@ fn leaf(
             if !name_ok {
                 bail!("git user.name configuration failed: {}", name_error.trim());
             }
-            let (email_ok, _o, email_error) = git(&["config", "user.email", "skarbiec@localhost"])?;
+            let (email_ok, _o, email_error) = git(&["config", "user.email", "skarbiec-mirror"])?;
             if !email_ok {
                 bail!(
                     "git user.email configuration failed: {}",
@@ -174,15 +193,15 @@ fn leaf(
             std::fs::create_dir_all(sync_dir())?;
             std::fs::copy(&live, mirror_path()).context("copy vault into sync dir")?;
             checked_git(&["add", "vault.enc.json"])?;
-            let message = flags
-                .get("message")
-                .map(String::as_str)
-                .unwrap_or("skarbiec sync");
+            let message = match flags.get("message") {
+                Some(message) => message.clone(),
+                None => format!("skarbiec mirror push of {}", live.display()),
+            };
             let staged = checked_git(&["diff", "--cached", "--name-only", "--", "vault.enc.json"])?;
             if !staged.trim().is_empty() {
-                checked_git(&["commit", "-m", message, "--only", "--", "vault.enc.json"])?;
+                checked_git(&["commit", "-m", &message, "--only", "--", "vault.enc.json"])?;
             }
-            let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
+            let branch = branch(flags)?;
             let remote_ref = format!("HEAD:refs/heads/{branch}");
             let (ok, _o, e) = git(&["push", "origin", &remote_ref])?;
             crate::runtime::audit::append("sync-push", &json!({"branch": branch, "ok": ok}))?;
@@ -196,9 +215,11 @@ fn leaf(
                 json!({"ok": true, "branch": branch, "detail": e.trim()}),
             ))
         }
+        "mirror publish" => published::set(true).map(Some),
+        "mirror unpublish" => published::set(false).map(Some),
         "mirror pull" => {
-            let branch = flags.get("branch").map(String::as_str).unwrap_or("main");
-            let (ok, _o, e) = git(&["pull", "--no-rebase", "origin", branch])?;
+            let branch = branch(flags)?;
+            let (ok, _o, e) = git(&["pull", "--no-rebase", "origin", &branch])?;
             if !ok {
                 bail!("mirror pull: git pull origin {branch} failed: {}", e.trim());
             }

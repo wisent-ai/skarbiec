@@ -37,6 +37,17 @@ pub(super) fn check(name: &str, status: &str, detail: String) -> Value {
     json!({"check": name, "status": status, "detail": detail})
 }
 
+/// Whether the Git ciphertext mirror carries the live vault: a host whose
+/// mirror stopped being pushed keeps an ever older recovery copy, and nothing
+/// else says so until the copy is needed.
+fn mirror_check() -> Value {
+    match crate::net::sync::published_state() {
+        None => check("mirror", NOT_CONFIGURED, "no Git mirror on this host".into()),
+        Some(Ok(detail)) => check("mirror", PASS, detail),
+        Some(Err(detail)) => check("mirror", FAIL, detail),
+    }
+}
+
 /// Every check, plus a tally an operator can read at a glance. `tail` is the
 /// operator's `--tail N`: the audit digests are recomputed for the newest N
 /// entries only; without it, for every entry.
@@ -50,6 +61,7 @@ pub fn report(tail: Option<&str>) -> Result<Value> {
         worm_check(),
         grants_check(),
         credentials_check(),
+        mirror_check(),
     ];
     let tally = |status: &str| -> usize {
         checks
