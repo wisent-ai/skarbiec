@@ -47,7 +47,10 @@ impl Vault {
         for id in &held {
             self.item_recipient_uids(id)?;
         }
-        let exposed: Vec<(String, String)> = self
+        // Each exposed item with the state it records; one that records none
+        // is reported as such, since the vault reads an item without a state
+        // as not active everywhere else.
+        let exposed: Vec<(String, Option<String>)> = self
             .doc
             .get("items")
             .and_then(Value::as_object)
@@ -62,21 +65,22 @@ impl Vault {
                 let state = item
                     .get("state")
                     .and_then(Value::as_str)
-                    .unwrap_or("active")
-                    .to_string();
+                    .map(str::to_string);
                 (id.clone(), state)
             })
             .collect();
-        let mut versions = usize::default();
-        for (id, _) in &exposed {
-            let remaining: Vec<String> = self
-                .item_recipient_uids(id)?
-                .into_iter()
-                .filter(|entry| entry != uid)
-                .collect();
-            let rewrapped = self.rewrap_item(id, &remaining)?;
-            versions = versions.saturating_add(rewrapped);
-        }
+        // The historical versions rewrapped, summed over every exposed item.
+        let versions = exposed
+            .iter()
+            .map(|(id, _)| -> Result<usize> {
+                let remaining: Vec<String> = self
+                    .item_recipient_uids(id)?
+                    .into_iter()
+                    .filter(|entry| entry != uid)
+                    .collect();
+                self.rewrap_item(id, &remaining)
+            })
+            .sum::<Result<usize>>()?;
         obj_mut(&mut self.doc, "recipients").remove(uid);
         let emergency_cancelled = self
             .doc
