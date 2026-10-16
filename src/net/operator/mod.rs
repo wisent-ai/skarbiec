@@ -36,6 +36,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/items/import"
             | "/v1/operator/items/trash"
             | "/v1/operator/items/set-json"
+            | "/v1/operator/items/retag"
             | "/v1/operator/items/reclaim"
             | "/v1/operator/items/restore"
             | "/v1/operator/items/purge"

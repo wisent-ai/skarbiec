@@ -192,6 +192,15 @@ pub(crate) fn set_json_value(
 /// current recipient list — a write that can narrow access to a live
 /// credential, and one that needs the secret in hand to perform at all.
 pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
+    emit(&retag_value(flags, positionals)?)
+}
+
+/// [`cmd_retag`]'s answer, which the vault owner also serves to a machine
+/// whose `retag` it forwards.
+pub(crate) fn retag_value(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     let id = positionals
         .first()
         .or_usage("usage: retag <id> --tags tag[,tag...]")?;
@@ -210,7 +219,7 @@ pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String])
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "retag")?;
     vault.set_item_tags(id, &tags)?;
-    emit(&json!({"ok": true, "id": id, "tags": tags}))
+    Ok(json!({"ok": true, "id": id, "tags": tags}))
 }
 
 /// Change one item's id, keeping everything that is not the id.

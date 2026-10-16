@@ -1,7 +1,7 @@
 // One operator route to one backend command. Every arm names a command that
 // exists, so a route that answers nothing is a bug in this table.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -15,9 +15,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
     let no_flags = HashMap::new();
     match path {
         // Reads, each delegating to the dispatcher its command twin uses.
-        "/v1/operator/items/get" | "/v1/operator/items/list" | "/v1/operator/items/set-json" => {
-            crate::net::owner::local(path, parsed)
-        }
+        "/v1/operator/items/get"
+        | "/v1/operator/items/list"
+        | "/v1/operator/items/set-json"
+        | "/v1/operator/items/retag"
+        | "/v1/operator/totp/seed-state" => crate::net::owner::local(path, parsed),
         "/v1/operator/items" => {
             crate::cmd_list(&HashMap::from([("all".to_string(), "true".to_string())]))
         }
@@ -45,19 +47,21 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/version" => crate::cmd_version(),
         "/v1/operator/route/resolve" => {
             let mut positionals = vec!["resolve".to_string()];
-            positionals.extend(
-                parsed
-                    .get("names")
-                    .and_then(Value::as_array)
-                    .map(|names| {
-                        names
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_string)
-                            .collect::<Vec<String>>()
-                    })
-                    .unwrap_or_default(),
-            );
+            // A body without `names` asks about no named route, as the
+            // command line does without positionals; a `names` that is not
+            // a list of text is refused, never read as empty.
+            match parsed.get("names") {
+                None => {}
+                Some(Value::Array(names)) => {
+                    for name in names {
+                        let name = name.as_str().with_context(|| {
+                            format!("route resolve: names holds {name}, which is not text")
+                        })?;
+                        positionals.push(name.to_string());
+                    }
+                }
+                Some(other) => bail!("route resolve: names is {other}, not a list of text"),
+            }
             let mut resolve_flags = HashMap::new();
             if let Some(consumer) = optional(parsed, "consumer") {
                 resolve_flags.insert("consumer".to_string(), consumer);

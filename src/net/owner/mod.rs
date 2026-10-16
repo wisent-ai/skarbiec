@@ -7,6 +7,7 @@ use std::io::Read;
 mod commands;
 mod config;
 pub(crate) use commands::local;
+use commands::TOTP_SEED_STATE;
 pub(crate) use config::selected;
 
 /// The member an owner request carries, so the owner serves it from its own
@@ -50,12 +51,23 @@ pub(crate) fn request(route: &str, path: &str, body: &Value) -> Result<Value> {
     Ok(value)
 }
 
+/// Run `command` on the vault owner when Stado routes this machine to one:
+/// every command another product runs against the fleet's vault, so a product
+/// that runs the CLI stands on any host, not only on the one holding the
+/// vault file. `Ok(false)` when this machine serves the command itself (no
+/// owner route, or a command that does not read the fleet's vault).
 pub(crate) fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<bool> {
-    if !matches!(command, "get" | "list" | "set-json" | "status") {
+    let capability =
+        command == "grant" && positionals.first().map(String::as_str) == Some(CAPABILITY_LEAF);
+    let forwarded = matches!(
+        command,
+        "get" | "list" | "set-json" | "status" | "delete" | "retag" | TOTP_SEED_STATE
+    );
+    if !forwarded && !capability {
         return Ok(false);
     }
     let Some(route) = selected()? else {
@@ -78,7 +90,26 @@ pub(crate) fn dispatch(
             "/v1/operator/items/set-json"
         }
         "status" => "/v1/operator/status",
-        _ => unreachable!(),
+        // The owner's trash route is the command line's `delete`, reading the
+        // item from `id`.
+        "delete" => {
+            let id = positionals.first().or_usage(DELETE_USAGE)?;
+            body = json!({"id": id});
+            "/v1/operator/items/trash"
+        }
+        "retag" => "/v1/operator/items/retag",
+        TOTP_SEED_STATE => "/v1/operator/totp/seed-state",
+        // The owner's capability route reads each flag from a body member of
+        // its name, as `grant capability` reads its flags.
+        _ => {
+            body = Value::Object(
+                flags
+                    .iter()
+                    .map(|(name, value)| (name.clone(), Value::String(value.clone())))
+                    .collect(),
+            );
+            "/v1/operator/grants/capability"
+        }
     };
     let answer = request(&route, path, &body)?;
     if command == "get" {
@@ -88,3 +119,9 @@ pub(crate) fn dispatch(
     }
     Ok(true)
 }
+
+/// `grant capability`: the leaf of `grant` that issues one capability.
+const CAPABILITY_LEAF: &str = "capability";
+
+/// What `delete` takes, said when a forwarded one names no item.
+const DELETE_USAGE: &str = "usage: delete <id>";

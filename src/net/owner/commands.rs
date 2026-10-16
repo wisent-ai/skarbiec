@@ -45,6 +45,15 @@ pub(crate) fn local(path: &str, body: &Value) -> Result<Value> {
                 .context("set-json requires its encoded stdin payload")?;
             crate::cli::items::set_json_value(&flags, id, encoded)
         }
+        "/v1/operator/items/retag" => crate::cli::items::retag_value(&flags, &positionals),
+        "/v1/operator/totp/seed-state" => {
+            crate::runtime::totp::dispatch(TOTP_SEED_STATE, &flags, &positionals)?
+                .context("totp-seed-state answered nothing")
+        }
         _ => bail!("unknown owner item operation {path}"),
     }
 }
+
+/// The TOTP seed diagnostic's command name, which a forwarded request runs
+/// on the owner as the command line runs it.
+pub(crate) const TOTP_SEED_STATE: &str = "totp-seed-state";
