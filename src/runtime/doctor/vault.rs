@@ -14,16 +14,15 @@ pub(super) fn vault_check() -> Value {
     match crate::core::items::status_json() {
         Ok(status) => {
             let items = status.get("item_count").and_then(Value::as_u64);
-            let tokens = status.get("token_count").and_then(Value::as_u64);
+            let grants = match status.get("token_count").and_then(Value::as_u64) {
+                Some(count) => format!("{count} grants"),
+                None => "no grant count reported".to_string(),
+            };
             match items {
                 Some(count) => check(
                     "vault",
                     PASS,
-                    format!(
-                        "{count} items, {} grants, at {}",
-                        tokens.unwrap_or_default(),
-                        path.display()
-                    ),
+                    format!("{count} items, {grants}, at {}", path.display()),
                 ),
                 None => check(
                     "vault",
