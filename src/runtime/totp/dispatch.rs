@@ -19,7 +19,7 @@ pub fn dispatch(
         "totp" => {
             let id = positionals.first().or_usage("usage: totp <item-id>")?;
             let vault = load()?;
-            let resolved = resolve(&vault, vault.get_item(id)?);
+            let resolved = resolve(&vault, vault.get_item(id)?)?;
             let inspected = inspect_seed(&resolved.payload);
             let state = inspected.state;
             let repair_for = repair_target(&resolved.identity, id);
@@ -38,10 +38,25 @@ pub fn dispatch(
         // code or the seed itself.
         "totp-seed-state" => {
             let vault = load()?;
+            // A row this vault cannot open, or one whose identity it cannot
+            // open, is reported as unreadable with the cause, not silently
+            // dropped and not guessed at: "no seed" and "the envelope is
+            // unreadable" have nothing in common.
+            let unreadable = |id: &str, kind: Option<Value>, error: anyhow::Error| {
+                json!({
+                    "item": id,
+                    "kind": kind,
+                    "seed_state": "unreadable",
+                    "error": format!("{error:#}"),
+                })
+            };
             let row_for = |id: &str| match vault.get_item(id) {
                 Ok(row) => {
                     let kind = row.get("kind").cloned();
-                    let resolved = resolve(&vault, row);
+                    let resolved = match resolve(&vault, row) {
+                        Ok(resolved) => resolved,
+                        Err(error) => return unreadable(id, kind, error),
+                    };
                     let state = seed_state(&resolved.payload);
                     let repair_for = repair_target(&resolved.identity, id);
                     json!({
@@ -60,15 +75,7 @@ pub fn dispatch(
                         "repair": state.repair().map(|repair| repair.replace("<login-item>", repair_for)),
                     })
                 }
-                // A row this vault cannot open is reported as itself, not
-                // silently dropped and not guessed at: "no seed" and "the
-                // envelope is unreadable" have nothing in common.
-                Err(error) => json!({
-                    "item": id,
-                    "kind": Value::Null,
-                    "seed_state": "unreadable",
-                    "error": error.to_string(),
-                }),
+                Err(error) => unreadable(id, None, error),
             };
             if let Some(id) = positionals.first() {
                 return Ok(Some(row_for(id)));

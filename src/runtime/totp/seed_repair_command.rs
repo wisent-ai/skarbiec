@@ -1,4 +1,5 @@
 use super::*;
+use anyhow::Context;
 
 /// The exact operator path that stores a seed. Named in the diagnostic's own
 /// output because a verdict an operator cannot act on is a verdict nobody
@@ -92,12 +93,12 @@ pub(crate) struct Resolved {
     pub(crate) identity: Option<String>,
 }
 
-pub(crate) fn resolve(vault: &Vault, payload: Value) -> Resolved {
+pub(crate) fn resolve(vault: &Vault, payload: Value) -> Result<Resolved> {
     if seed_of(&payload).is_some() {
-        return Resolved {
+        return Ok(Resolved {
             payload,
             identity: None,
-        };
+        });
     }
     let Some(reference) = payload
         .get("context")
@@ -107,23 +108,20 @@ pub(crate) fn resolve(vault: &Vault, payload: Value) -> Resolved {
         .filter(|seed| !seed.is_empty())
         .map(str::to_string)
     else {
-        return Resolved {
+        return Ok(Resolved {
             payload,
             identity: None,
-        };
+        });
     };
-    match vault.get_item(&reference) {
-        Ok(identity_payload) => Resolved {
-            payload: identity_payload,
-            identity: Some(reference),
-        },
-        // The write path refuses a reference to an item that is not there, so
-        // an unreadable identity is a key or envelope fault, not a dangling
-        // name. The login's own payload is judged and the identity is still
-        // named, so the report says which row could not be opened.
-        Err(_) => Resolved {
-            payload,
-            identity: Some(reference),
-        },
-    }
+    // The write path refuses a reference to an item that is not there, so an
+    // identity that cannot be opened is a key or envelope fault. Its seed is
+    // not knowable then: judging the login's own payload instead answered
+    // "no seed" for a factor that may well be stored.
+    let identity_payload = vault
+        .get_item(&reference)
+        .with_context(|| format!("the identity {reference} this login signs in as cannot be opened"))?;
+    Ok(Resolved {
+        payload: identity_payload,
+        identity: Some(reference),
+    })
 }
