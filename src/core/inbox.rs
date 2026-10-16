@@ -185,7 +185,7 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
             let from = donation
                 .get("from")
                 .and_then(Value::as_str)
-                .unwrap_or_default()
+                .context("donation has no from")?
                 .to_string();
             let armor = donation
                 .get("armor")
