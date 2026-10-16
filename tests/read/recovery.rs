@@ -14,6 +14,8 @@ use std::{
 mod identity;
 #[path = "recovery/locks.rs"]
 mod locks;
+#[path = "recovery/maintain.rs"]
+mod maintain;
 #[path = "../../src/core/crypto/execution/lock_holder/process_identity.rs"]
 mod process_identity;
 #[path = "recovery/stranded.rs"]
@@ -182,7 +184,10 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
         passed: false,
     };
     let mut version = Command::new(&journey.binary);
-    journey.run("version", version.arg("--version"));
+    let version = journey.run("version", version.arg("--version"));
+    let identity: Value = serde_json::from_slice(&version.stdout).expect("version receipt");
+    assert_eq!(identity["commit"].as_str(), Some(journey.revision.as_str()),
+        "tested binary must be a release of the exact candidate revision");
     let components = journey.run(
         "components",
         Command::new("gpgconf").arg("--list-components"),
@@ -259,6 +264,7 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     let pid = std::process::id().to_string();
     journey.refused_lock("foreign-host", &pid, &format!("{run}.foreign"));
     journey.refused_lock("invalid-pid", "invalid-process", node.trim());
+    journey.refused_lock("missing-pid", "", node.trim());
     journey.refused_lock("other-executable", &pid, node.trim());
     let invalid_home = journey.root.join("non-directory-keyring");
     fs::write(&invalid_home, "not a keyring directory").unwrap();
@@ -284,5 +290,6 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     let after = journey.skarbiec("read-after", &["get", &item, "--field", "value"]);
     assert_eq!(String::from_utf8_lossy(&after.stdout).trim(), value);
     journey.stranded_child_ended(&item, &value);
+    journey.maintain_recovers_silent_agent(&item, &value);
     journey.passed = true;
 }

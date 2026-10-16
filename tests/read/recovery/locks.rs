@@ -10,8 +10,9 @@ impl Journey {
         let after = fs::read_to_string(&lock).expect("recovery must preserve the unowned lock");
         assert_eq!(after, contents, "{label} changed the unowned lock");
         let diagnostic = String::from_utf8_lossy(&output.stderr);
+        let identity = if pid.is_empty() { "names no holder pid" } else { pid };
         assert!(
-            diagnostic.contains(lock.to_str().unwrap()) && diagnostic.contains(pid),
+            diagnostic.contains(lock.to_str().unwrap()) && diagnostic.contains(identity),
             "{label} omitted the observed lock and process identity: {diagnostic}"
         );
         fs::write(self.root.join(format!("{label}.lock.after")), after).unwrap();

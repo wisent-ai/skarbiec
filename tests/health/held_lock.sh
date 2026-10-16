@@ -51,6 +51,8 @@ run() {
 
 [ "$(git rev-parse HEAD)" = "$SOURCE_REVISION" ] || fail "source revision differs from the candidate declaration"
 git diff --quiet || fail "source has uncommitted tracked changes"
+BIN_REVISION=$("$BIN" --version | jq -er '.commit') || fail "binary has no release commit identity"
+[ "$BIN_REVISION" = "$SOURCE_REVISION" ] || fail "binary revision $BIN_REVISION differs from $SOURCE_REVISION"
 
 WANT=ok run init "held-lock-owner-$RUN"
 jq -n --arg value "held-lock-value-$RUN" \

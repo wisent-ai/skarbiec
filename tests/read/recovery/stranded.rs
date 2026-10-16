@@ -16,8 +16,8 @@ use std::sync::mpsc;
 
 /// The process at the other end of a Unix stream.
 #[cfg(target_os = "macos")]
-fn peer(stream: &UnixStream) -> libc::pid_t {
-    let mut pid: libc::pid_t = Default::default();
+pub(super) fn peer(stream: &UnixStream) -> libc::pid_t {
+    let mut pid: libc::pid_t = unsafe { std::mem::zeroed() };
     let mut length = libc::socklen_t::try_from(std::mem::size_of::<libc::pid_t>()).unwrap();
     let read = unsafe {
         libc::getsockopt(
@@ -35,7 +35,7 @@ fn peer(stream: &UnixStream) -> libc::pid_t {
 
 /// The process at the other end of a Unix stream.
 #[cfg(target_os = "linux")]
-fn peer(stream: &UnixStream) -> libc::pid_t {
+pub(super) fn peer(stream: &UnixStream) -> libc::pid_t {
     let mut credentials: libc::ucred = unsafe { std::mem::zeroed() };
     let mut length = libc::socklen_t::try_from(std::mem::size_of::<libc::ucred>()).unwrap();
     let read = unsafe {
@@ -52,18 +52,20 @@ fn peer(stream: &UnixStream) -> libc::pid_t {
     credentials.pid
 }
 
-/// The parent of `pid`, as the process table names it.
-fn parent(pid: libc::pid_t) -> Option<u32> {
+/// The parent of `pid`, as the process table names it; none when the process
+/// is gone and `ps` names nobody.
+pub(super) fn parent(pid: libc::pid_t) -> Option<u32> {
     let output = Command::new("ps")
         .args(["-o", "ppid=", "-p", &pid.to_string()])
         .output()
         .expect("ps runs");
-    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
+    let named = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    (!named.is_empty()).then(|| named.parse().expect("ps names a parent by its pid"))
 }
 
 /// Answer one connection as an agent that accepts every command, until the
 /// caller says `KILLAGENT` or `BYE` or goes away.
-fn answer(stream: UnixStream) {
+pub(super) fn answer(stream: UnixStream) {
     let mut writer = stream.try_clone().expect("the stand-in clones its stream");
     if writer.write_all(b"OK stand-in agent\n").is_err() {
         return;

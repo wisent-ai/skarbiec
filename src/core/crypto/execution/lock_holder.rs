@@ -49,9 +49,11 @@ fn describe(lock: &Path) -> Option<String> {
         }
     };
     let mut lines = held.lines();
-    let pid = lines.next()?.trim().to_string();
+    let Some(pid) = lines.next().map(str::trim).filter(|pid| !pid.is_empty()) else {
+        return Some(format!("{} exists but names no holder pid", lock.display()));
+    };
     let host = lines.next().map(str::trim).filter(|host| !host.is_empty());
-    let running = command_of(&pid);
+    let running = command_of(pid);
     let on = host
         .map(|host| format!(" on {host}"))
         .into_iter()
@@ -151,7 +153,12 @@ fn release(lock: &Path, gnupg: &[PathBuf], node: &str) -> Option<String> {
         }
     };
     let mut lines = held.lines();
-    let recorded_pid = lines.next()?.trim();
+    let Some(recorded_pid) = lines.next().map(str::trim).filter(|pid| !pid.is_empty()) else {
+        return Some(format!(
+            "left {} alone: the lock names no holder pid; ownership cannot be established",
+            lock.display()
+        ));
+    };
     let pid = match recorded_pid.parse::<std::num::NonZeroI32>() {
         Ok(pid) if pid.get().is_positive() => pid.get(),
         _ => {
