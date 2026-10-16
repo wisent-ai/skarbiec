@@ -95,12 +95,15 @@ pub(super) fn others() -> Result<Vec<(u32, PublishedRun)>, String> {
         let path = entry
             .map_err(|error| format!("{}: {error}", directory().display()))?
             .path();
-        let Some(process) = path
+        let Some(stem) = path
             .file_name()
             .and_then(|name| name.to_str())
             .and_then(|name| name.strip_suffix(".json"))
-            .and_then(|pid| pid.parse::<u32>().ok())
         else {
+            continue;
+        };
+        // Only a `<pid>.json` names a process's published runs.
+        let Ok(process) = stem.parse::<u32>() else {
             continue;
         };
         if process == own {
@@ -108,7 +111,7 @@ pub(super) fn others() -> Result<Vec<(u32, PublishedRun)>, String> {
         }
         // A process that ended without removing its file (killed with its
         // gpg in flight) waits on nothing; its file goes with it.
-        if !runs(process) {
+        if !runs(process)? {
             if let Err(error) = std::fs::remove_file(&path) {
                 eprintln!(
                     "skarbiec: the gpg runs of ended process {process} stay published in {}: {error}",
@@ -126,7 +129,16 @@ pub(super) fn others() -> Result<Vec<(u32, PublishedRun)>, String> {
     Ok(found)
 }
 
-/// Whether `process` runs now, as the process table says.
-fn runs(process: u32) -> bool {
-    super::super::run_once("ps", &["-o", "pid=", "-p", &process.to_string()], None).is_ok()
+/// Whether `process` runs now, as the process table says: `ps -p` names it,
+/// or exits non-zero because no such process runs. A `ps` that cannot be run
+/// is the error itself; read as "ended", it removed the published runs of
+/// every live process.
+fn runs(process: u32) -> Result<bool, String> {
+    match super::super::run_once("ps", &["-o", "pid=", "-p", &process.to_string()], None) {
+        Ok(_) => Ok(true),
+        Err(error) if error.downcast_ref::<super::super::ToolExit>().is_some() => Ok(false),
+        Err(error) => Err(format!(
+            "whether skarbiec process {process} still runs cannot be read: {error:#}"
+        )),
+    }
 }
