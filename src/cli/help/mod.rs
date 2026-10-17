@@ -64,6 +64,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("get", "skarbiec get <id|role:<role>> [--field <field> | --revision]", "Decrypt one item for its owner, or return one exact text field; role:<role> reads the one live item tagged stado:role:<role>. --revision prints {id, item, item_uid, revision}, the version of the value a read answers now, and decrypts nothing."),
     row("list", "skarbiec list [--all]", "List item metadata without credential values; --all includes trashed items."),
     row("duplicates", "skarbiec duplicates", "Report which live items hold exactly the same payload."),
+    row("readers", "skarbiec readers <id>", "Name the keys one item's current revision is encrypted to and whether this keyring holds each secret half, without decrypting it: an item no key here can open fails every read on this host, while one a key here should open points at the agent or keyring."),
     row("retag", "skarbiec retag <id> --tags <tag[,tag...]>", "Replace one item's tags without rewriting its payload or recipients."),
     row("rename", "skarbiec rename <id> <new-id>", "Change one item's id and keep its revision, history, tags and recipients."),
     row("delete", "skarbiec delete <id>", "Move an owner-controlled item to recoverable trash."),

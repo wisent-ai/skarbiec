@@ -22,7 +22,8 @@ use std::path::PathBuf;
 use cli::args::{emit, parse_args, OrUsage, Usage};
 use cli::items::{cmd_rename, cmd_retag, cmd_set_json};
 use cli::reads::{
-    cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_reclaim, cmd_restore,
+    cmd_delete, cmd_duplicates, cmd_get, cmd_list, cmd_purge, cmd_readers, cmd_reclaim,
+    cmd_restore,
 };
 use cli::tools::{cmd_export, cmd_generate, cmd_version};
 use core::{crypto, items, vault::Vault};
@@ -70,7 +71,11 @@ fn main() -> std::process::ExitCode {
 fn run() -> Result<()> {
     let mut argv = std::env::args();
     argv.next();
-    let command = argv.next().unwrap_or_else(|| "help".to_string());
+    // `skarbiec` with no command is a request for the command list.
+    let command = match argv.next() {
+        Some(command) => command,
+        None => "help".to_string(),
+    };
     let mut rest: Vec<String> = argv.collect();
     // `--text` renders any result for a person instead of as JSON; it is
     // taken out here so the flag parser never pairs it with the next word.
@@ -111,12 +116,13 @@ fn run() -> Result<()> {
             let receipt = runtime::doctor::recover_daemons()?;
             emit(&receipt)?;
             if receipt["recovered"] != json!(true) {
-                bail!(
-                    "recover-daemons: the GnuPG daemons were not replaced: {}",
-                    receipt["detail"]
-                        .as_str()
-                        .unwrap_or("no cause was reported")
-                );
+                // The receipt itself is the cause when it carries no detail
+                // line: it was printed above, and its whole text says why.
+                let cause = match receipt["detail"].as_str() {
+                    Some(detail) => detail.to_string(),
+                    None => receipt.to_string(),
+                };
+                bail!("recover-daemons: the GnuPG daemons were not replaced: {cause}");
             }
             Ok(())
         }
@@ -126,6 +132,7 @@ fn run() -> Result<()> {
         "set-json" => cmd_set_json(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
         "duplicates" => emit(&cmd_duplicates()?),
+        "readers" => emit(&cmd_readers(&positionals)?),
         "retag" => cmd_retag(&flags, &positionals),
         "rename" => cmd_rename(&positionals),
         "delete" => emit(&cmd_delete(&positionals)?),

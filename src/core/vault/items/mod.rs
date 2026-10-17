@@ -5,6 +5,7 @@ pub(in crate::core::vault) mod duplicates;
 mod envelope;
 mod identity;
 mod lifecycle;
+mod readers;
 mod writes;
 
 pub(in crate::core::vault) use envelope::{stored_history, stored_tags};

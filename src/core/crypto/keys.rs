@@ -154,3 +154,26 @@ pub fn import_key(armored: &str) -> Result<()> {
 pub fn export_public_key(fingerprint: &str) -> Result<String> {
     run("gpg", &["--armor", "--export", fingerprint], None)
 }
+
+/// The OpenPGP packet header of a public-key encrypted session key, and the
+/// word before the recipient's key id in it, as `gpg --list-packets` prints
+/// them (RFC 4880 section 5.1 names the packet).
+const SESSION_KEY_PACKET: &str = ":pubkey enc packet:";
+const KEY_ID_WORD: &str = "keyid ";
+
+/// The key ids a message is encrypted to, read from its session key packets
+/// without decrypting it (`--list-only`): what a message that will not open
+/// was written for, to set beside the secret keys this keyring holds.
+pub fn encrypted_to(ciphertext: &str) -> Result<Vec<String>> {
+    let listing = run(
+        "gpg",
+        &["--batch", "--list-only", "--list-packets"],
+        Some(ciphertext),
+    )?;
+    Ok(listing
+        .lines()
+        .filter(|line| line.starts_with(SESSION_KEY_PACKET))
+        .filter_map(|line| line.rsplit_once(KEY_ID_WORD))
+        .map(|(_, key_id)| key_id.trim().to_string())
+        .collect())
+}

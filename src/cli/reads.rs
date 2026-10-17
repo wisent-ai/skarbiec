@@ -136,11 +136,12 @@ fn read_coordinate(
     if field.is_empty() || field.chars().any(char::is_control) {
         bail!("get --field requires one exact field name, got {field:?}");
     }
-    let fields = item.get("fields").and_then(Value::as_object);
-    let Some(found) = fields.and_then(|fields| fields.get(field)) else {
-        let present: Vec<&str> = fields
-            .map(|fields| fields.keys().map(String::as_str).collect())
-            .unwrap_or_default();
+    let fields = item
+        .get("fields")
+        .and_then(Value::as_object)
+        .with_context(|| format!("item {id} holds no fields object, so it has no field {field}"))?;
+    let Some(found) = fields.get(field) else {
+        let present: Vec<&str> = fields.keys().map(String::as_str).collect();
         bail!(
             "item {id} has no field {field}; its fields are: {}",
             if present.is_empty() {
@@ -170,6 +171,14 @@ pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!(
         Vault::open(vault_path())?.list(flag_set(flags, "all"))
     ))
+}
+
+/// `skarbiec readers <id>`: which keys the item's current ciphertext is
+/// encrypted to and whether this keyring holds each secret half. It decrypts
+/// nothing, so it answers for an item that will not open.
+pub(crate) fn cmd_readers(positionals: &[String]) -> Result<Value> {
+    let id = positionals.first().or_usage("usage: readers <id>")?;
+    Vault::open(vault_path())?.readers(id)
 }
 
 /// `skarbiec duplicates`: which active items hold exactly the same payload.

@@ -11,3 +11,6 @@ Cargo.lock
 # .release-commit and the three landing.*.json files by that exact path from
 # other repositories. None of them can move into a sub-folder.
 .
+# The crypto module declares its signature submodule by the algorithm's own
+# name, seven hexadecimal-looking characters that are not a commit or defect id.
+src/core/crypto/mod.rs
