@@ -88,7 +88,7 @@ fn decode_base64url(value: &str) -> Option<Vec<u8>> {
 
 /// Whether the workload signed `payload` with the key its grant records.
 /// OpenSSL's verdict is the answer; a verifier that cannot answer is the
-/// error, with OpenSSL's words (`crypto::ed25519::verify`).
+/// error, with OpenSSL's words (`crypto::signature::verify`).
 pub(super) fn verify_proof(
     public_key: &str,
     payload: &[u8],
@@ -101,7 +101,7 @@ pub(super) fn verify_proof(
         .parent()
         .context("capability state has no parent")?
         .to_path_buf();
-    crypto::ed25519::verify(
+    crypto::signature::verify(
         public_key,
         payload,
         &signature,
