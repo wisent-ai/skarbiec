@@ -1,18 +1,13 @@
 // What a workload has to prove before one field is handed to it: the exact
-// names, the nonce, and an Ed25519 signature over this exact request.
+// names, the nonce, and a signature over this exact request.
 
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::Path;
-use std::process::{Command, Stdio};
 
 use crate::core::vault::Vault;
 use crate::core::{crypto, schema};
 
-use super::state::{private_file_mode, state_path};
+use super::state::state_path;
 use super::AcquisitionFieldMissing;
 
 pub(super) fn exact_name(value: &str) -> bool {
@@ -27,6 +22,8 @@ pub(super) fn valid_workload_id(value: &str) -> bool {
 }
 
 pub(super) fn valid_nonce(value: &str) -> bool {
+    // https://skarbiec.wisent.com/docs/credential-model publishes the nonce as
+    // exactly 43 base64url characters, one 32-byte random value unpadded.
     let expected: usize = 43;
     value.len() == expected
         && value
@@ -34,19 +31,25 @@ pub(super) fn valid_nonce(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
-pub(super) fn decode_signature(value: &str) -> Option<Vec<u8>> {
+/// The signature's bytes, or what makes the text no signature: its length,
+/// or a pair of characters that is not a hexadecimal byte.
+pub(super) fn decode_signature(value: &str) -> std::result::Result<Vec<u8>, String> {
+    // https://skarbiec.wisent.com/docs/credential-model publishes the
+    // signature as exactly 128 lowercase hexadecimal characters.
     let expected: usize = 128;
     if value.len() != expected {
-        return None;
+        return Err(format!("{} characters, not {expected}", value.len()));
     }
     value
         .as_bytes()
+        // https://www.rfc-editor.org/rfc/rfc4648#section-8 writes each byte as two digits.
         .as_chunks::<2>()
         .0
         .iter()
         .map(|pair| {
-            let text = std::str::from_utf8(pair).ok()?;
-            u8::from_str_radix(text, 16).ok()
+            let text = std::str::from_utf8(pair).map_err(|cause| cause.to_string())?;
+            // https://www.rfc-editor.org/rfc/rfc4648#section-8 is base 16.
+            u8::from_str_radix(text, 16).map_err(|cause| format!("{text:?} is not a byte: {cause}"))
         })
         .collect()
 }
@@ -65,73 +68,33 @@ pub(super) fn workload_payload(
     .into_bytes()
 }
 
-pub(super) fn write_private_file(path: &Path, value: &[u8]) -> Result<()> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(private_file_mode()?)
-        .open(path)?;
-    file.write_all(value)?;
-    file.sync_all()?;
-    Ok(())
-}
-
-/// Apple ships LibreSSL as `openssl`, but its `pkeyutl` cannot verify Ed25519
-/// signatures. Prefer an installed OpenSSL 3 build and allow an explicit path.
-pub(super) fn openssl_bin() -> std::path::PathBuf {
-    if let Some(configured) = crate::core::env::path("SKARBIEC_OPENSSL") {
-        return configured;
-    }
-    for candidate in [
-        "/opt/homebrew/opt/openssl@3/bin/openssl",
-        "/opt/homebrew/bin/openssl",
-        "/usr/local/opt/openssl@3/bin/openssl",
-    ] {
-        if Path::new(candidate).exists() {
-            return candidate.into();
-        }
-    }
-    "openssl".into()
-}
-
+/// Whether the workload signed `payload` with the key its grant records.
+/// OpenSSL's verdict is the denial; a verifier that cannot answer is the
+/// error with OpenSSL's words, from the one verifier capability redemption
+/// also asks.
 pub(super) fn verify_workload_proof(
     public_key: &str,
     payload: &[u8],
     signature: &str,
 ) -> Result<bool> {
-    let Some(signature) = decode_signature(signature) else {
+    // Every refusal at issue time is the one word unauthorized and names no
+    // check, as the credential model publishes, so a signature that is not the
+    // published hexadecimal text is denied like a signature that does not
+    // verify.
+    let Ok(signature) = decode_signature(signature) else {
         return Ok(false);
     };
-    let parent = state_path()
+    let scratch = state_path()
         .parent()
         .context("acquisition state has no parent")?
         .to_path_buf();
-    fs::create_dir_all(&parent)?;
-    let stem = crypto::sha256_hex(&crypto::random_token()?)?;
-    let key_path = parent.join(format!(".skarbiec-proof-key-{stem}"));
-    let signature_path = parent.join(format!(".skarbiec-proof-signature-{stem}"));
-    let payload_path = parent.join(format!(".skarbiec-proof-payload-{stem}"));
-    let result = (|| -> Result<bool> {
-        write_private_file(&key_path, public_key.as_bytes())?;
-        write_private_file(&signature_path, &signature)?;
-        write_private_file(&payload_path, payload)?;
-        let status = Command::new(openssl_bin())
-            .args(["pkeyutl", "-verify", "-pubin", "-inkey"])
-            .arg(&key_path)
-            .args(["-rawin", "-sigfile"])
-            .arg(&signature_path)
-            .arg("-in")
-            .arg(&payload_path)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .context("verify workload proof with openssl")?;
-        Ok(status.success())
-    })();
-    for path in [&key_path, &signature_path, &payload_path] {
-        crate::core::staging::remove_said(path, "a workload proof verification file");
-    }
-    result
+    crypto::signature::verify(
+        public_key,
+        payload,
+        &signature,
+        &scratch,
+        "workload acquisition proof",
+    )
 }
 
 pub(super) fn validate_target(vault: &Vault, item: &str, field: &str) -> Result<()> {
