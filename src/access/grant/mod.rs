@@ -1,11 +1,12 @@
-// The declared consumer grant: one capability, one grammar, six leaves.
+// The declared consumer grant: one capability, one grammar, its leaves.
 //
 // A grant is one declaration the v2 validator already enforces -- an action,
 // one item, an optional exact field, and, for `acquire`, the workload's
 // public signing key that action requires. `grant issue` writes that declaration,
 // `grant capability` issues one bounded redemption of an existing one,
 // `grant ensure` widens one by a single exact field read, `grant narrow` takes
-// one such read out again, `grant list` reports them, `grant verify` asks one
+// one such read out again, `grant keep` makes one live until revoked without
+// rotating its bearer, `grant list` reports them, `grant verify` asks one
 // exact question, and `grant revoke` withdraws.
 //
 // Six leaves replaced seven verbs -- `token-mint`, `token-ensure-read`,
@@ -25,10 +26,10 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
 
+mod change;
 mod issue;
 mod leaves;
 mod lookup;
-mod narrow;
 mod rules;
 
 pub(crate) use lookup::live_grants;

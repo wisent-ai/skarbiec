@@ -1,5 +1,5 @@
-// The six leaves of the `grant` group: issue, capability, ensure, list,
-// verify and revoke, plus the help that names them.
+// The leaves of the `grant` group: issue, capability, ensure, narrow, keep,
+// list, verify and revoke, plus the help that names them.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
@@ -11,7 +11,7 @@ use super::lookup::{load, token_allows_action, token_allows_field_action};
 use super::rules::validation::{exact_component, read_fixed_token};
 use crate::cli::args::OrUsage;
 
-/// The six leaves of the `grant` group.
+/// The leaves of the `grant` group.
 ///
 /// The subcommand is the first positional and every leaf reads the rest, so the
 /// argument list of a leaf is the one its replaced verb took: what moved is the
@@ -20,10 +20,10 @@ pub(in crate::access::grant) fn group(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
-    let subcommand = positionals.first().map(String::as_str).unwrap_or("help");
-    let positionals = positionals
-        .get(std::iter::once(()).count()..)
-        .unwrap_or_default();
+    let (subcommand, positionals) = positionals.split_first().or_usage(
+        "usage: grant <issue|capability|ensure|narrow|keep|list|verify|revoke|help>",
+    )?;
+    let subcommand = subcommand.as_str();
     match subcommand {
         // A bounded, use-counted redemption of a declaration that already
         // exists: the resource resolves through the capability-route table and
@@ -31,10 +31,8 @@ pub(in crate::access::grant) fn group(
         // declared here. `serve` spends it on the host's capability socket.
         "capability" => Ok(Some(crate::access::capability::issue(flags)?)),
         "ensure" => {
-            let consumer = positionals.first().or_usage(
-                "usage: grant ensure <consumer> <item> --field <field> --token-file <path>",
-            )?;
-            let item = positionals.get(std::iter::once(()).count()).or_usage(
+            let (consumer, item) = consumer_and_item(
+                positionals,
                 "usage: grant ensure <consumer> <item> --field <field> --token-file <path>",
             )?;
             let field = flags.get("field").or_usage("--field is required")?;
@@ -53,17 +51,28 @@ pub(in crate::access::grant) fn group(
             }
         }
         "narrow" => {
-            let usage = "usage: grant narrow <consumer> <item> --field <field>";
-            let consumer = positionals.first().or_usage(usage)?;
-            let item = positionals
-                .get(std::iter::once(()).count())
-                .or_usage(usage)?;
+            let (consumer, item) =
+                consumer_and_item(positionals, "usage: grant narrow <consumer> <item> --field <field>")?;
             let field = flags.get("field").or_usage("--field is required")?;
             loop {
-                match super::narrow::narrow_read_once(consumer, item, field) {
+                match super::change::narrow_read_once(consumer, item, field) {
                     Ok(report) => return Ok(Some(report)),
                     // A concurrent writer won; the next attempt re-reads its
                     // generation and removes the capability from it.
+                    Err(error) if is_concurrent_change(&error) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
+        "keep" => {
+            let consumer = positionals
+                .first()
+                .or_usage("usage: grant keep <consumer>")?;
+            loop {
+                match super::change::keep_once(consumer) {
+                    Ok(report) => return Ok(Some(report)),
+                    // A concurrent writer won; the next attempt re-reads its
+                    // generation and keeps the grant in it.
                     Err(error) if is_concurrent_change(&error) => {}
                     Err(error) => return Err(error),
                 }
@@ -105,13 +114,15 @@ pub(in crate::access::grant) fn group(
             Ok(Some(json!({"ok": true, "consumer": consumer})))
         }
         "verify" => {
-            let consumer = positionals.first().or_usage(
-                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
+            let (consumer, item) = consumer_and_item(
+                positionals,
+                "usage: grant verify <consumer> <item> --action <action> [--field <field>] --token-file <path>",
             )?;
-            let item = positionals.get(std::iter::once(()).count()).or_usage(
-                "usage: grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
+            // The question names its action: read, call, acquire or any other
+            // the grammar knows. An unstated one is not taken to be a read.
+            let action = flags.get("action").map(String::as_str).or_usage(
+                "grant verify requires --action <action>: the action the bearer is asked about",
             )?;
-            let action = flags.get("action").map(String::as_str).unwrap_or("read");
             if flags.contains_key("token") {
                 bail!(
                     "grant verify does not take --token: a bearer in argv is readable by every process on this host. \
@@ -143,24 +154,25 @@ pub(in crate::access::grant) fn group(
                 .doc()
                 .get("tokens")
                 .and_then(Value::as_object)
-                .map(|tokens| {
-                    tokens
-                        .iter()
-                        .map(|(consumer, entry)| {
-                            json!({
-                                "consumer": consumer,
-                                "capabilities": entry.get("capabilities"),
-                                "workload_bound": entry
-                                    .get("workload_public_key")
-                                    .and_then(Value::as_str)
-                                    .is_some(),
-                                "audience": entry.get("audience"),
-                                "expires_at": entry.get("expires_at"),
-                            })
-                        })
-                        .collect()
+                .context("tokens section")?
+                .iter()
+                .map(|(consumer, entry)| {
+                    json!({
+                        "consumer": consumer,
+                        "capabilities": entry.get("capabilities"),
+                        "workload_bound": entry
+                            .get("workload_public_key")
+                            .and_then(Value::as_str)
+                            .is_some(),
+                        "audience": entry.get("audience"),
+                        "expires_at": entry.get("expires_at"),
+                        // Said, so a reader never compares expires_at with the
+                        // value that stands for "no end".
+                        "until_revoked": entry.get("expires_at").and_then(Value::as_u64)
+                            == Some(super::UNTIL_REVOKED),
+                    })
                 })
-                .unwrap_or_default();
+                .collect();
             Ok(Some(json!(listing)))
         }
         "help" => Ok(Some(json!({
@@ -169,17 +181,27 @@ pub(in crate::access::grant) fn group(
                 "grant capability --agent <name> --purpose <text> --resource <resource> --target <name> --ttl <seconds> --max-uses <N> [--authorization-id <id>]",
                 "grant ensure <consumer> <item> --field <field> --token-file <path>",
                 "grant narrow <consumer> <item> --field <field>",
+                "grant keep <consumer>",
                 "grant list",
-                "grant verify <consumer> <item> [--action <action>] [--field <field>] --token-file <path>",
+                "grant verify <consumer> <item> --action <action> [--field <field>] --token-file <path>",
                 "grant revoke <consumer>",
             ],
-            "usage": "A grant is one declaration: an action, one item, an optional exact field, and the Ed25519 workload public key an acquire capability requires. grant issue writes that declaration and rotates the bearer of that consumer, refusing a changed capability set unless the call states --replace-capabilities; an acquire grant returns no bearer at all and answers instead with the acquisition redemption contract for every exact coordinate it names. grant capability issues one bounded, use-counted redemption of a grant already declared, against a resource the capability-route table maps to a vault field, and refuses at issue time when that route is missing or the credential behind it cannot serve; capability-serve is what redeems it. grant ensure widens an existing direct grant by one exact field read without rotating anything, the owner proving possession through a mode-0600 --token-file that must hash to the recorded bearer. grant list returns metadata only, never a bearer and never a workload public key. grant verify answers one exact action, item and optional field question about one presented bearer, taken from --token or from an owner-only --token-file. grant revoke drops the whole declaration and is idempotent.",
+            "usage": "A grant is one declaration: an action, one item, an optional exact field, and the Ed25519 workload public key an acquire capability requires. grant issue writes that declaration and rotates the bearer of that consumer, refusing a changed capability set unless the call states --replace-capabilities; an acquire grant returns no bearer at all and answers instead with the acquisition redemption contract for every exact coordinate it names. grant capability issues one bounded, use-counted redemption of a grant already declared, against a resource the capability-route table maps to a vault field, and refuses at issue time when that route is missing or the credential behind it cannot serve; capability-serve is what redeems it. grant ensure widens an existing direct grant by one exact field read without rotating anything, the owner proving possession through a mode-0600 --token-file that must hash to the recorded bearer; grant narrow takes one such read out again. grant keep makes a direct grant live until revoked, keeping its capabilities and the bearer the consumer holds, so a consumer whose bearer lives on another machine needs nothing delivered; it refuses an acquire grant and a grant that records no bearer, and answers unchanged for one already kept. grant list returns metadata only, never a bearer and never a workload public key. grant verify answers one exact question, its --action stated, about one item and optional field for one bearer presented through an owner-only --token-file. grant revoke drops the whole declaration and is idempotent.",
             "actions": crate::access::actions::Action::names(),
         }))),
         other => Err(crate::cli::args::Usage(format!(
             "unknown grant command: {other}; `skarbiec grant --help` lists them"
         ))
         .into()),
+    }
+}
+
+/// The consumer and item a leaf names as its two positionals; anything else
+/// is refused with the leaf's usage.
+fn consumer_and_item<'a>(positionals: &'a [String], usage: &str) -> Result<(&'a String, &'a String)> {
+    match positionals {
+        [consumer, item] => Ok((consumer, item)),
+        _ => Err(crate::cli::args::Usage(usage.to_string()).into()),
     }
 }
 

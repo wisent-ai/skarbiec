@@ -11,3 +11,7 @@ Cargo.lock
 # .release-commit and the three landing.*.json files by that exact path from
 # other repositories. None of them can move into a sub-folder.
 .
+# The grant keep journey makes an acquire grant's workload key with openssl,
+# which needs the signature algorithm the broker verifies by its name; that
+# name is seven hexadecimal-looking characters, not a commit or defect id.
+tests/access/grant_keep.sh

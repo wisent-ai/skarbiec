@@ -79,7 +79,7 @@ pub(crate) const COMMANDS: &[CommandHelp] = &[
     row("rotate-owner", "skarbiec rotate-owner <new-owner-uid>", "Replace the vault owner, rewrap every current and historical ciphertext to the new owner, and move the outgoing owner's items under the new owner's control."),
     row("share", "skarbiec share <item-id> <uid>", "Give a registered recipient cryptographic access to one item."),
     row("revoke", "skarbiec revoke <item-id> <uid>", "Remove one recipient from one item's recipient set."),
-    group("grant", "skarbiec grant help", "Issue, bound, widen, narrow, list, check and withdraw consumer grants; `skarbiec grant help` lists the subcommands."),
+    group("grant", "skarbiec grant help", "Issue, bound, widen, narrow, keep until revoked, list, check and withdraw consumer grants; `skarbiec grant help` lists the subcommands."),
     group("acquisition", "skarbiec acquisition help", "Verify a workload's signed proof and issue a short-lived one-use token for one field, and consume that token, read from an owner-only file, returning only its bound field (request, read); `skarbiec acquisition help` lists the subcommands."),
     row("key-doctor", "skarbiec key-doctor", "Report whether any key on this host can still open the vault, reading vault and keyring directly."),
     group("recovery", "skarbiec recovery help", "Report the vault's recovery recipient and whether its secret key is in this keyring, and prove that one expected recovery identity can open the vault (status, drill); `skarbiec recovery help` lists the subcommands."),

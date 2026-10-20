@@ -5,9 +5,9 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
-use super::lookup::load;
-use super::rules::capabilities::parse_capabilities;
-use super::rules::validation::{exact_component, exact_resource};
+use crate::access::grant::lookup::load;
+use crate::access::grant::rules::capabilities::parse_capabilities;
+use crate::access::grant::rules::validation::{exact_component, exact_resource};
 use crate::core::vault_path;
 
 /// Remove `read:<item>#<field>` from `consumer`'s grant. A consumer without a

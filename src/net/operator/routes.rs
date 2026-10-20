@@ -158,6 +158,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["field"]),
             &positionals(parsed, &["consumer", "item"])?,
         ),
+        "/v1/operator/grants/keep" => {
+            grant("keep", &no_flags, &positionals(parsed, &["consumer"])?)
+        }
         // `--token-file` and never `--token`: the command line offers both, and
         // a loopback body is the one place a bearer must not travel, so a
         // console proves possession through the same owner-only file the

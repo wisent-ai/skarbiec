@@ -51,6 +51,7 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/grants/capability"
             | "/v1/operator/grants/ensure"
             | "/v1/operator/grants/narrow"
+            | "/v1/operator/grants/keep"
             | "/v1/operator/grants/revoke"
             | "/v1/operator/donations/accept"
             | "/v1/operator/donations/reject"
