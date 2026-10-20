@@ -204,107 +204,16 @@ Skarbiec owns:
   errors;
 - a hash-chained audit trail that reveals no secret values.
 
-GPG remains the external encryption and key-custody boundary; OpenSSL supplies
-high-entropy tokens, while SHA-256 journal hashing and timestamps run in-process
-so an audit entry cannot exhaust subprocess capacity. See the complete
+GPG remains the external encryption and key-custody boundary; service tokens
+are 32 bytes read from `/dev/urandom` in-process, and SHA-256 journal hashing
+and timestamps run in-process too, so an audit entry cannot exhaust subprocess
+capacity. See the complete
 [security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
 
-### The macOS signing certificate
+### Signing material
 
-Stado reads the signing material from `desktop-release-developer-id`, which is the
-name its own `DEVELOPER_ID_ITEM` constant carries. The release manifests declare
-`wisent-apple-developer-id#…` in their `secret_env`, and Stado reads that
-coordinate nowhere; the fields are the same three either way:
-
-```text
-MACOS_CERT_P12       wisent-apple-developer-id#certificate_p12_base64
-MACOS_CERT_PASSWORD  wisent-apple-developer-id#certificate_password
-MACOS_SIGN_IDENTITY  wisent-apple-developer-id#sign_identity
-```
-
-`scripts/apple-developer-id.py` is the tool for that item. It reads an App Store
-Connect key from this vault rather than from a file, so no key material lands on
-disk, and writes the item as one canonical `bundle` payload through stdin, so no
-secret is ever a command-line argument:
-
-```sh
-SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
-  python3 scripts/apple-developer-id.py roles   # who may do what
-SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
-  python3 scripts/apple-developer-id.py list    # what the account already holds
-SKARBIEC_VAULT_FILE=~/.stado/skarbiec.vault.json \
-  python3 scripts/apple-developer-id.py mint    # create one and store it
-```
-
-### The iOS signing material
-
-Every `*-ios` release manifest and TestFlight workflow declares the same
-coordinates, and no item had ever been created for them either:
-
-```text
-IOS_DIST_P12_B64        wisent-ios-distribution#certificate_p12_base64
-IOS_DIST_P12_PASSWORD   wisent-ios-distribution#certificate_password
-IOS_SIGN_IDENTITY       wisent-ios-distribution#sign_identity
-IOS_PROFILE_B64         <repository>-signing#provisioning_profile_base64
-```
-
-`scripts/apple-ios-signing.py` is the tool for those items, built on the same
-`apple_asc.py` helpers as the Developer ID tool. An iOS distribution certificate
-is not reserved for the Account Holder, so the whole path is the REST API: the
-certificate from a CSR generated locally, the bundle id by identifier, the App
-Store profile from the two, and the seven GitHub Actions secrets of one
-repository piped into `gh secret set` through stdin — the six signing values
-above plus `WISENT_PACKAGES_TOKEN`, the vault's `GITHUB_TOKEN`, with which a
-GitHub-hosted runner clones the private `wisent-ai` Swift packages:
-
-```sh
-python3 scripts/apple-ios-signing.py list                     # certificates, bundle ids, apps, profiles
-python3 scripts/apple-ios-signing.py mint-certificate         # once per certificate; refuses to overwrite
-python3 scripts/apple-ios-signing.py profile \
-  --repository jeden-ios --bundle-id ai.wisent.jeden --app-name Jeden
-python3 scripts/apple-ios-signing.py app-record \
-  --bundle-id ai.wisent.jeden --app-name Jeden --sku jeden-ios
-python3 scripts/apple-ios-signing.py check-login              # one sign-in, nothing else
-python3 scripts/apple-ios-signing.py publish --repository jeden-ios
-```
-
-A profile is immutable at Apple, so one that exists under the pinned name but
-names a revoked certificate — the state `Oko CI AppStore` was found in — is
-deleted and recreated, and the tool says so. The one write the API refuses is
-the App Store Connect app record itself (`POST /v1/apps` answers "The resource
-'apps' does not allow 'CREATE'"), which a TestFlight upload needs to exist. For
-that one write `scripts/apple_web.py` does what the site does, with no browser:
-an SRP-6a sign-in at `idmsa.apple.com` with the Apple ID the vault holds
-(`weles-apple-control-account`), the second factor read from the trusted-device
-prompt on this Mac by Stado's signed `stado-apple-challenge-capture` helper —
-preflighted before the password submit and installed for the GUI user the
-registry binds the account to — and then
-`iris/v1/apps`, carrying the `appStoreVersionLocalizations` relationship iris
-refuses the create without. `profile` runs it when the bundle id has no record;
-`app-record` runs it alone. The trusted session's cookies stay owner-only under
-`~/.stado/work`, so a second run inside Apple's trust window signs in without a
-prompt. It has run: an app record and its first iOS build reached TestFlight
-this way the same day.
-
-Three vault items hold this one Apple ID and two of them were stale, which is
-why the Weles Apple trajectory had never completed: a password nothing checks is
-a password nobody knows is wrong. `check-login` is that check — one sign-in and
-nothing else, with a throwaway cookie jar, because reusing the trusted session
-would answer "fine" without ever sending the password. All three items now carry
-the value that opens the account, verified through it.
-
-Development and distribution certificates are issued through the App Store
-Connect API with no browser at all. A Developer ID Application certificate is
-the exception Apple reserves for the Account Holder, and it has its own
-automated path through Weles: a tracked trajectory, one authorization per
-password submit, and a Stado relay that captures the second factor in the exact
-registered Aqua session and stores it in the execution host's one-use Skarbiec
-challenge.
-
-The whole procedure — both paths, the recorded provenance of a certificate the
-API already issued, and what still blocks a Developer ID run — is
-[Apple Developer Certificates](https://skarbiec.wisent.com/docs/apple-developer-certificates).
-It is documented there rather than here so there is one copy to keep true.
+The macOS and iOS signing material, the fields each release reads and the
+tools that mint and publish it, are [Signing material](signing-material.md).
 
 ### Item tags
 
