@@ -19,6 +19,4 @@ pub(crate) use inputs::{bearer_from_file, read_secret_file};
 pub(super) use inputs::{
     client_identity, email_address, lowercase_uuid, opaque_handle, resume_handles,
 };
-pub(super) use lock::{
-    acquire_credential_operation_lock, effective_uid, exact_name, now_iso, purpose,
-};
+pub(super) use lock::{acquire_credential_operation_lock, exact_name, now_iso, purpose};

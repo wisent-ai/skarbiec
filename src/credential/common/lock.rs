@@ -5,7 +5,6 @@ use anyhow::{bail, Context, Result};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub(in crate::credential) struct CredentialOperationLock(PathBuf);
 
@@ -55,18 +54,4 @@ pub(in crate::credential) fn purpose(value: Option<&String>, consumer: &str) -> 
         bail!("purpose must be non-empty printable UTF-8");
     }
     Ok(value.to_string())
-}
-
-pub(in crate::credential) fn effective_uid() -> Result<u32> {
-    let output = Command::new("id")
-        .arg("-u")
-        .output()
-        .context("read effective uid")?;
-    if !output.status.success() {
-        bail!("could not determine effective uid");
-    }
-    String::from_utf8(output.stdout)?
-        .trim()
-        .parse()
-        .context("parse effective uid")
 }

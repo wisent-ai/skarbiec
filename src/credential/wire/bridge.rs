@@ -11,14 +11,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use super::super::common::{
-    checked_bool, checked_code, checked_enum, checked_host, checked_uuid, effective_uid,
-    safe_string,
+    checked_bool, checked_code, checked_enum, checked_host, checked_uuid, safe_string,
 };
 use super::super::receipt::{
     checked_approval, checked_receipt, receipt_matches, DIRECTORY_IDENTITY_KEYS,
 };
 use super::super::{PROVIDER_EFFECTS, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBACK_STATUSES};
 use super::{BRIDGE_ENV, WIRE_VERSION};
+use crate::core::effective_uid;
 
 pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
     let configured = match std::env::var(BRIDGE_ENV) {
@@ -52,7 +52,7 @@ pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
     let mode = metadata.permissions().mode();
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
-        || metadata.uid() != effective_uid()?
+        || metadata.uid() != effective_uid()
         || NonZeroU32::new(mode & unsafe_bits).is_some()
         || NonZeroU32::new(mode & owner_execute).is_none()
     {

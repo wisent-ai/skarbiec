@@ -8,8 +8,9 @@ use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use super::checks::uuid_shaped;
-use super::lock::{effective_uid, exact_name};
+use super::lock::exact_name;
 use super::TOKEN_FILE_ENV;
+use crate::core::effective_uid;
 
 pub(in crate::credential) fn lowercase_uuid(
     flag: &str,
@@ -64,7 +65,7 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     let unsafe_bits = 0o077;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
-        || metadata.uid() != effective_uid()?
+        || metadata.uid() != effective_uid()
         || metadata.permissions().mode() & unsafe_bits != u32::MIN
     {
         bail!("credential token file must be an owner-only regular file");

@@ -10,10 +10,10 @@ use std::path::{Path, PathBuf};
 
 use stado_wait as wait;
 
-use super::super::common::effective_uid;
 use super::{
     CANONICAL_FORWARD, ENDPOINT_TLS_UNSUPPORTED, ENDPOINT_UNRESOLVED, FORWARDS_DIR_ENV, LOOPBACK,
 };
+use crate::core::effective_uid;
 
 pub(in crate::credential) fn forwards_dir() -> Result<PathBuf> {
     if let Some(configured) = crate::core::env::path(FORWARDS_DIR_ENV) {
@@ -49,7 +49,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
     let group_world_write = 0o022;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
-        || metadata.uid() != effective_uid()?
+        || metadata.uid() != effective_uid()
         || metadata.permissions().mode() & group_world_write != u32::MIN
     {
         bail!(
