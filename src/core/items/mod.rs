@@ -12,9 +12,11 @@ use crate::core::{schema, vault::Vault, vault_path};
 
 mod generate;
 mod migrate;
+mod vault_copy;
 
 pub use generate::{generate_passphrase, generate_password};
-pub use migrate::{migrate_vault, upgrade};
+pub use migrate::upgrade;
+pub use vault_copy::migrate_vault;
 
 // Canonical item construction: k=v fields become one validated payload;
 // profile-based bundle items use `set-json` instead.
