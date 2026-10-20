@@ -202,7 +202,7 @@ pub fn run() -> Result<()> {
         };
         match reply {
             Ok(frame) => write_frame(&frame)?,
-            Err(error) => write_frame(&json!({"ok": false, "error": error.to_string()}))?,
+            Err(error) => write_frame(&json!({"ok": false, "error": format!("{error:#}")}))?,
         }
     }
     Ok(())
