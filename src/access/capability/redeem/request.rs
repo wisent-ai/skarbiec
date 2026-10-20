@@ -13,6 +13,41 @@ use crate::access::capability::{PROOF_DOMAIN, WIRE_VERSION};
 use crate::core::schema::exact_token;
 use crate::core::{vault::Vault, vault_path};
 
+/// A capability id is the hexadecimal SHA-256 digest `grant capability` mints:
+/// 256 bits, two hex digits per byte.
+/// https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
+const CAPABILITY_ID_LENGTH: usize = 64;
+/// A proof is an Edwards-curve signature of 64 bytes
+/// (https://www.rfc-editor.org/rfc/rfc8032#section-5.1.6) in unpadded base64url
+/// (https://www.rfc-editor.org/rfc/rfc4648#section-5).
+const PROOF_LENGTH: usize = 86;
+/// A redemption spends one of the capability's `--max-uses`.
+/// https://skarbiec.wisent.com/docs/cli/grant/capability
+const ONE_USE: u64 = 1;
+/// The resources whose value a device writes with `challenge-put` after the
+/// capability is issued, into the resource's challenge item; every other
+/// resource is read through its route.
+const CHALLENGE_PREFIX: &str = "challenge:";
+const MALFORMED: &str = "malformed request: version, operation, capability id, nonce, workload id, proof or authorization id is not the shape this wire requires";
+
+/// The text value of `name` in `object`, none when it is absent or not text.
+fn text<'a>(object: &'a Value, name: &str) -> Option<&'a str> {
+    object.get(name).and_then(Value::as_str)
+}
+
+/// A stored capability record's field, or the sentence that names the damage:
+/// a record without it is broken state, never read as an empty value.
+fn recorded<'a, T>(
+    record: &'a Value,
+    capability_id: &str,
+    name: &str,
+    read: impl Fn(&'a Value) -> Option<T>,
+) -> std::result::Result<T, String> {
+    record.get(name).and_then(read).ok_or_else(|| {
+        format!("capability {capability_id} is damaged state: its record has no valid {name}")
+    })
+}
+
 pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
     let mut line = String::new();
     BufReader::new(stream.try_clone()?).read_line(&mut line)?;
@@ -23,64 +58,68 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         return reply(stream, super::super::status::observed()?, &[]);
     }
 
-    let field = |name: &str| -> String {
-        request
-            .get(name)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string()
+    let (Some(version), Some(operation), Some(capability_id), Some(nonce), Some(workload_id), Some(proof)) = (
+        text(&request, "version"),
+        text(&request, "operation"),
+        text(&request, "capability_id"),
+        text(&request, "nonce"),
+        text(&request, "workload_id"),
+        text(&request, "proof"),
+    ) else {
+        return denied_because(stream, MALFORMED);
     };
-    let operation = field("operation");
-    let capability_id = field("capability_id");
-    let nonce = field("nonce");
-    let workload_id = field("workload_id");
-    let proof = field("proof");
-    let authorization_id = field("authorization_id");
-    if field("version") != WIRE_VERSION
-        || !matches!(operation.as_str(), "redeem" | "cancel")
-        || capability_id.len() != 64
+    // The wire leaves authorization_id out for a capability issued without
+    // one (`grant capability` without --authorization-id records "").
+    let authorization_id = match request.get("authorization_id") {
+        None => "",
+        Some(Value::String(given)) => given.as_str(),
+        Some(_) => return denied_because(stream, MALFORMED),
+    };
+    let cancel = match operation {
+        "redeem" => false,
+        "cancel" => true,
+        _ => return denied_because(stream, MALFORMED),
+    };
+    if version != WIRE_VERSION
+        || capability_id.len() != CAPABILITY_ID_LENGTH
         || !capability_id
             .chars()
             .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c))
-        || !exact_token(&nonce)
-        || !exact_token(&workload_id)
-        || proof.len() != 86
+        || !exact_token(nonce)
+        || !exact_token(workload_id)
+        || proof.len() != PROOF_LENGTH
     {
-        return denied_because(stream, "malformed request: version, operation, capability id, nonce, workload id or proof is not the shape this wire requires");
+        return denied_because(stream, MALFORMED);
     }
 
     let now = now_epoch()?;
     let _state_lock = acquire_state_lock()?;
     let mut state = load_state()?;
-    let Some(record) = state["capabilities"].get(&capability_id).cloned() else {
+    let Some(record) = state["capabilities"].get(capability_id).cloned() else {
         return denied_because(stream, "no such capability");
     };
-    let remaining = record
-        .get("remaining_uses")
-        .and_then(Value::as_u64)
-        .unwrap_or(0);
-    let agent = record
-        .get("agent")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let resource = record
-        .get("resource")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    if record.get("state").and_then(Value::as_str) != Some("issued")
-        || record
-            .get("expires_at")
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            <= now
-        || remaining == 0
-        || record
-            .get("authorization_id")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            != authorization_id
+    let fields = (
+        recorded(&record, capability_id, "state", Value::as_str),
+        recorded(&record, capability_id, "remaining_uses", Value::as_u64),
+        recorded(&record, capability_id, "expires_at", Value::as_u64),
+        recorded(&record, capability_id, "authorization_id", Value::as_str),
+        recorded(&record, capability_id, "agent", Value::as_str),
+        recorded(&record, capability_id, "resource", Value::as_str),
+    );
+    let (record_state, remaining, expires_at, granted_authorization, agent, resource) = match fields
+    {
+        (Ok(a), Ok(b), Ok(c), Ok(d), Ok(e), Ok(f)) => (a, b, c, d, e.to_string(), f.to_string()),
+        (Err(damage), ..)
+        | (_, Err(damage), ..)
+        | (_, _, Err(damage), ..)
+        | (_, _, _, Err(damage), ..)
+        | (_, _, _, _, Err(damage), _)
+        | (.., Err(damage)) => return denied_because(stream, &damage),
+    };
+    if record_state != "issued"
+        || expires_at <= now
+        || remaining < ONE_USE
+        || granted_authorization != authorization_id
     {
         return denied_because(stream, "capability is not issued, has expired, has no uses left, or its authorization id does not match");
     }
@@ -100,17 +139,12 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         );
     };
     let mut payload = Vec::from(PROOF_DOMAIN);
-    for part in [
-        capability_id.as_str(),
-        nonce.as_str(),
-        workload_id.as_str(),
-        operation.as_str(),
-    ] {
+    for part in [capability_id, nonce, workload_id, operation] {
         payload.extend_from_slice(part.as_bytes());
-        payload.push(0);
+        payload.push(b'\0');
     }
     payload.extend_from_slice(authorization_id.as_bytes());
-    if !verify_proof(&public_key, &payload, &proof)? {
+    if !verify_proof(&public_key, &payload, proof)? {
         return denied_because(
             stream,
             "the proof does not verify against the registered workload key",
@@ -119,43 +153,53 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
 
     state["nonces"][&nonce_key] = json!(now);
 
-    if operation == "cancel" {
-        state["capabilities"][&capability_id]["state"] = json!("cancelled");
-        state["capabilities"][&capability_id]["remaining_uses"] = json!(0);
+    if cancel {
+        // The cancelled state is what refuses every later redemption; the
+        // record keeps the uses it had left when it was cancelled.
+        state["capabilities"][capability_id]["state"] = json!("cancelled");
         save_state(&state)?;
         crate::runtime::audit::append_sync(
             "capability-cancelled",
             &json!({"capability_id": capability_id, "agent": agent, "resource": resource}),
         )?;
+        let nothing: &[u8] = &[];
         return reply(
             stream,
-            json!({"version": WIRE_VERSION, "status": "ok", "secret_len": 0}),
-            &[],
+            json!({"version": WIRE_VERSION, "status": "ok", "secret_len": nothing.len()}),
+            nothing,
         );
     }
 
-    let coordinate = match crate::access::route::resolution::coordinate_for(&resource)? {
-        Ok((item, field)) => (item, field),
-        Err(_) => (challenge_item(&resource), "value".to_string()),
+    // A challenge resource is read from the item `challenge-put` writes; any
+    // other resource through exactly one route, and a resource the route
+    // table cannot resolve is refused with the table's own sentence, never
+    // read from an item nobody writes.
+    let challenge = resource.starts_with(CHALLENGE_PREFIX);
+    let (item, field) = if challenge {
+        (challenge_item(&resource), "value".to_string())
+    } else {
+        match crate::access::route::resolution::coordinate_for(&resource)? {
+            Ok(coordinate) => coordinate,
+            Err(refusal) => {
+                return denied_because(stream, &format!("resource {resource}: {refusal}"));
+            }
+        }
     };
     // An item that exists but cannot be opened is its own denial, with the
     // cause; only an absent item or field is "nothing written yet".
-    let secret = match item_field(&vault, &coordinate.0, &coordinate.1) {
+    let secret = match item_field(&vault, &item, &field) {
         Ok(secret) => secret,
         Err(error) => {
             return denied_because(
                 stream,
-                &format!(
-                    "cannot read {}#{} for resource {resource}: {error:#}",
-                    coordinate.0, coordinate.1
-                ),
+                &format!("cannot read {item}#{field} for resource {resource}: {error:#}"),
             );
         }
     };
     let Some(secret) = secret else {
-        // The route exists but nothing has written the value yet. For a challenge that
-        // is the normal state between issuing and the relay storing.
-        if resource.starts_with("challenge:") {
+        // Nothing has written the value yet. For a challenge that is the
+        // normal state between issuing and the relay storing.
+        if challenge {
             save_state(&state)?;
             return pending(stream);
         }
@@ -166,16 +210,14 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         // The coordinate is configuration, not a secret.
         return denied_because(
             stream,
-            &format!(
-                "no value at {}#{} for resource {resource}",
-                coordinate.0, coordinate.1
-            ),
+            &format!("no value at {item}#{field} for resource {resource}"),
         );
     };
 
-    state["capabilities"][&capability_id]["remaining_uses"] = json!(remaining - 1);
-    if remaining == 1 {
-        state["capabilities"][&capability_id]["state"] = json!("spent");
+    let left = remaining - ONE_USE;
+    state["capabilities"][capability_id]["remaining_uses"] = json!(left);
+    if left < ONE_USE {
+        state["capabilities"][capability_id]["state"] = json!("spent");
     }
     save_state(&state)?;
     crate::runtime::audit::append_sync(
