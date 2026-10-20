@@ -173,21 +173,57 @@ fn everyone() -> (Vec<(String, PublishedRun)>, Option<String>) {
     }
 }
 
+/// The pids, among `all`, of runs a keyring lock holds behind a run that
+/// waits on the agent: the lock file names that waiting run as its holder,
+/// and they have written no status, so they have not opened the keyring the
+/// holder keeps. Such a run waits on the agent as surely as the holder does.
+fn behind_waiting_holder(all: &[(String, PublishedRun)]) -> Vec<u32> {
+    let holders: Vec<u32> = super::lock_holder::recorded_holder_pids()
+        .into_iter()
+        .filter(|holder| {
+            all.iter()
+                .any(|(_, run)| run.pid == *holder && published_waits_on_agent(run))
+        })
+        .collect();
+    if holders.is_empty() {
+        return Vec::new();
+    }
+    all.iter()
+        .filter(|(_, run)| run.last_status.is_none() && !holders.contains(&run.pid))
+        .map(|(_, run)| run.pid)
+        .collect()
+}
+
 /// Why a `gpg` run would queue behind wedged daemons right now, when it
 /// would: every child in flight, in this process and in every other Skarbiec
-/// process of this account, is waiting on the agent. A child that is
-/// progressing (any other last status, or none yet) means the daemons answer,
-/// and a new run joins the queue as usual.
+/// process of this account, is waiting on the agent, or has written no
+/// status while the keyring's lock is held by one that is. A child that is
+/// progressing (any other last status, or none while no waiting run holds
+/// the lock) means the daemons answer, and a new run joins the queue as
+/// usual.
 pub fn agent_refusal() -> Option<String> {
     let (all, _) = everyone();
-    if all.is_empty() || !all.iter().all(|(_, run)| published_waits_on_agent(run)) {
+    let behind = behind_waiting_holder(&all);
+    let wedged = |run: &PublishedRun| published_waits_on_agent(run) || behind.contains(&run.pid);
+    if all.is_empty() || !all.iter().all(|(_, run)| wedged(run)) {
         return None;
     }
-    let waits = sentences(&all);
+    let mut waits = sentences(&all);
+    waits.extend(
+        all.iter()
+            .filter(|(_, run)| behind.contains(&run.pid))
+            .map(|(owner, run)| {
+                format!(
+                    "gpg {} (pid {}, of {owner}) since {} has written no status: the keyring \
+                     lock it needs is held by a run that waits on gpg-agent",
+                    run.verb, run.pid, run.started
+                )
+            }),
+    );
     Some(format!(
-        "{} gpg run(s) of this account are in flight and every one has asked gpg-agent for its \
-         key without an answer, so a run now would wait behind the same daemons: {}. Recover \
-         them with `skarbiec maintain`",
+        "{} gpg run(s) of this account are in flight and every one waits on gpg-agent, \
+         directly or behind the keyring lock a waiting run holds, so a run now would wait \
+         behind the same daemons: {}. Recover them with `skarbiec maintain`",
         waits.len(),
         waits.join("; ")
     ))

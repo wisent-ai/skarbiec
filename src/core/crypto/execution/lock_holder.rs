@@ -8,6 +8,7 @@
 // host on their first two lines; reading them names the process to look at.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 pub(super) mod children;
 mod process_identity;
@@ -86,16 +87,50 @@ fn taken(lock: &Path) -> String {
     }
 }
 
+/// The keyring's home and this host's name, once gpgconf and uname have
+/// named them in this process. Both are fixed for the life of the process.
+static NAMED: OnceLock<(PathBuf, String)> = OnceLock::new();
+
 /// Every keyring lock of this home that is held now, one sentence each.
+/// Naming the home also records it, with this host's name, for
+/// [`recorded_holder_pids`].
 pub(super) fn keyring_lock_holders() -> Vec<String> {
     match gnupg_home() {
-        Ok(home) => LOCK_FILES
-            .iter()
-            .map(|file| home.join(file))
-            .filter_map(|lock| describe(&lock))
-            .collect(),
+        Ok(home) => {
+            if let Ok(node) = node_name() {
+                NAMED.get_or_init(|| (home.clone(), node));
+            }
+            LOCK_FILES
+                .iter()
+                .map(|file| home.join(file))
+                .filter_map(|lock| describe(&lock))
+                .collect()
+        }
         Err(why) => vec![why],
     }
+}
+
+/// The pids this host's lock files name as holding the keyring, read from
+/// the home [`keyring_lock_holders`] has named in this process. It runs no
+/// program: the refusal check that reads it stands inside every gpg run,
+/// gpgconf's included. Before the home is named, and for a lock that is
+/// absent, unreadable, of another host or names no pid, no holder is known.
+pub(super) fn recorded_holder_pids() -> Vec<u32> {
+    let Some((home, node)) = NAMED.get() else {
+        return Vec::new();
+    };
+    let mut pids = Vec::new();
+    for file in LOCK_FILES {
+        if let Ok(held) = std::fs::read_to_string(home.join(file)) {
+            let mut lines = held.lines().map(str::trim);
+            if let (Some(pid), Some(host)) = (lines.next(), lines.next()) {
+                if let (Ok(pid), true) = (pid.parse::<u32>(), host == node) {
+                    pids.push(pid);
+                }
+            }
+        }
+    }
+    pids
 }
 
 /// Canonical executable paths from gpgconf's percent-escaped program field.

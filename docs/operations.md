@@ -80,8 +80,15 @@ children that are still progressing finish, so it cannot replace their
 daemons during a decryption. A child that asked gpg-agent for its key and
 heard nothing is not waited for: it waits on the wedge the recovery clears,
 and the recovery ends every `gpg` child of this account's Skarbiec processes
-started against the daemons it replaced. Other cryptographic tools do not
-wait for a GnuPG slot.
+started against the daemons it replaced. A child that has written no status
+while a keyring lock file of this host names such a waiting child as its
+holder is counted the same way: it cannot open the keyring until the holder
+is answered. When every child in flight is in one of those two states, a new
+`gpg` run is refused with each child named, and `skarbiec maintain` replaces
+the daemons and journals the refusal with the lock holders. A lock held by
+anything else — keyboxd itself, another host, a pid that is not a child in
+flight — is reported by `/readyz`, not treated as a wedge. Other
+cryptographic tools do not wait for a GnuPG slot.
 
 `/readyz` decrypts its canaries and therefore waits while daemon recovery
 holds the exclusive permit. It does not wait behind a held keyring lock: when

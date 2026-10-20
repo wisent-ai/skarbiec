@@ -119,15 +119,22 @@ fn daemon_ceiling_pass() -> Result<()> {
 }
 
 /// One pass of the wedge the readiness proof refuses on: every `gpg` run of
-/// this account in flight has asked gpg-agent for its key and heard nothing.
-/// That is the state `recover-daemons` exists for, and the refusal tells the
-/// reader to run this pass; a pass that only refused again left every
-/// credential read standing until an operator replaced the daemons by hand.
-/// The daemons are replaced, and the journal row names why and what each
-/// held, so `audit --op` answers when and why it happened.
+/// this account in flight has asked gpg-agent for its key and heard nothing,
+/// or stands behind the keyring lock such a run holds. That is the state
+/// `recover-daemons` exists for, and the refusal tells the reader to run
+/// this pass; a pass that only refused again left every credential read
+/// standing until an operator replaced the daemons by hand. The keyring's
+/// locks are read first, so the pass knows which run holds them. The daemons
+/// are replaced, and the journal row names why and what each held, so
+/// `audit --op` answers when and why it happened.
 fn agent_wedge_pass() -> Result<()> {
+    let holders = crate::core::crypto::keyring_lock_holders();
     let Some(refusal) = crate::core::crypto::agent_refusal() else {
         return Ok(());
+    };
+    let refusal = match holders.is_empty() {
+        true => refusal,
+        false => format!("{refusal}; keyring locks: {}", holders.join("; ")),
     };
     let before = crate::core::crypto::recover_daemons()
         .with_context(|| format!("skarbiec maintain: recover the daemons behind: {refusal}"))?;
