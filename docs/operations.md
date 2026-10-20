@@ -81,14 +81,21 @@ daemons during a decryption. A child that asked gpg-agent for its key and
 heard nothing is not waited for: it waits on the wedge the recovery clears,
 and the recovery ends every `gpg` child of this account's Skarbiec processes
 started against the daemons it replaced. A child that has written no status
-while a keyring lock file of this host names such a waiting child as its
-holder is counted the same way: it cannot open the keyring until the holder
-is answered. When every child in flight is in one of those two states, a new
-`gpg` run is refused with each child named, and `skarbiec maintain` replaces
-the daemons and journals the refusal with the lock holders. A lock held by
-anything else — keyboxd itself, another host, a pid that is not a child in
-flight — is reported by `/readyz`, not treated as a wedge. Other
-cryptographic tools do not wait for a GnuPG slot.
+is counted the same way when it cannot open the keyring: a keyring lock file
+of this host names such a waiting child as its holder, or the keyboxd
+database lock (`public-keys.d/pubring.db.lock`) is held by a live process
+that is not the one serving the keyboxd socket `gpgconf --list-dirs
+keyboxd-socket` names. keyboxd keeps that lock for as long as it has the
+database open, so a keyboxd that lost its socket keeps the database from
+every keyboxd gpg starts after it. When every child in flight is in one of
+those states, a new `gpg` run is refused at once with each child and the
+lock named, instead of waiting out GnuPG's own lock retries, and `skarbiec
+maintain` replaces the daemons, ends the configured GnuPG program that kept
+the lock, and journals the refusal with the lock holders. A keyring lock
+that cannot be read while children are in flight is refused with its cause.
+A lock held by anything else — the keyboxd that serves the socket, another
+host, a pid that is gone — is reported by `/readyz`, not treated as a wedge.
+Other cryptographic tools do not wait for a GnuPG slot.
 
 `/readyz` decrypts its canaries and therefore waits while daemon recovery
 holds the exclusive permit. It does not wait behind a held keyring lock: when

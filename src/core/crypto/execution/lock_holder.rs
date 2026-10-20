@@ -8,15 +8,20 @@
 // host on their first two lines; reading them names the process to look at.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 pub(super) mod children;
+mod named;
 mod process_identity;
+mod socket_server;
+pub(super) use named::{orphaned_database_holder, recorded_holder_pids};
 use process_identity::Identity;
+
+/// The lock keyboxd holds for as long as it keeps its key database open.
+const KEYBOXD_DATABASE_LOCK: &str = "public-keys.d/pubring.db.lock";
 
 /// The lock files GnuPG keeps beside the key databases of one home: the
 /// keyboxd database and the legacy keybox.
-const LOCK_FILES: &[&str] = &["public-keys.d/pubring.db.lock", "pubring.kbx.lock"];
+const LOCK_FILES: &[&str] = &[KEYBOXD_DATABASE_LOCK, "pubring.kbx.lock"];
 
 /// This keyring's home as GnuPG itself names it.
 fn gnupg_home() -> Result<PathBuf, String> {
@@ -87,50 +92,27 @@ fn taken(lock: &Path) -> String {
     }
 }
 
-/// The keyring's home and this host's name, once gpgconf and uname have
-/// named them in this process. Both are fixed for the life of the process.
-static NAMED: OnceLock<(PathBuf, String)> = OnceLock::new();
-
 /// Every keyring lock of this home that is held now, one sentence each.
-/// Naming the home also records it, with this host's name, for
-/// [`recorded_holder_pids`].
+/// Naming the home also records it for [`recorded_holder_pids`] and
+/// [`orphaned_database_holder`] (`named`); when a lock is held and what
+/// those checks need cannot be named, why is one more sentence, since they
+/// then know no holder.
 pub(super) fn keyring_lock_holders() -> Vec<String> {
     match gnupg_home() {
         Ok(home) => {
-            if let Ok(node) = node_name() {
-                NAMED.get_or_init(|| (home.clone(), node));
-            }
-            LOCK_FILES
+            let mut held: Vec<String> = LOCK_FILES
                 .iter()
                 .map(|file| home.join(file))
                 .filter_map(|lock| describe(&lock))
-                .collect()
+                .collect();
+            let unnamed = named::remember(&home);
+            if !held.is_empty() {
+                held.extend(unnamed);
+            }
+            held
         }
         Err(why) => vec![why],
     }
-}
-
-/// The pids this host's lock files name as holding the keyring, read from
-/// the home [`keyring_lock_holders`] has named in this process. It runs no
-/// program: the refusal check that reads it stands inside every gpg run,
-/// gpgconf's included. Before the home is named, and for a lock that is
-/// absent, unreadable, of another host or names no pid, no holder is known.
-pub(super) fn recorded_holder_pids() -> Vec<u32> {
-    let Some((home, node)) = NAMED.get() else {
-        return Vec::new();
-    };
-    let mut pids = Vec::new();
-    for file in LOCK_FILES {
-        if let Ok(held) = std::fs::read_to_string(home.join(file)) {
-            let mut lines = held.lines().map(str::trim);
-            if let (Some(pid), Some(host)) = (lines.next(), lines.next()) {
-                if let (Ok(pid), true) = (pid.parse::<u32>(), host == node) {
-                    pids.push(pid);
-                }
-            }
-        }
-    }
-    pids
 }
 
 /// Canonical executable paths from gpgconf's percent-escaped program field.

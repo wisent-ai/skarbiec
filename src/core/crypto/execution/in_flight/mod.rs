@@ -173,56 +173,91 @@ fn everyone() -> (Vec<(String, PublishedRun)>, Option<String>) {
     }
 }
 
-/// The pids, among `all`, of runs a keyring lock holds behind a run that
-/// waits on the agent: the lock file names that waiting run as its holder,
-/// and they have written no status, so they have not opened the keyring the
-/// holder keeps. Such a run waits on the agent as surely as the holder does.
-fn behind_waiting_holder(all: &[(String, PublishedRun)]) -> Vec<u32> {
-    let holders: Vec<u32> = super::lock_holder::recorded_holder_pids()
+/// Why each run among `all` that has written no status cannot open the
+/// keyring, by pid: a keyring lock names a run that waits on the agent as
+/// its holder, or the keyboxd database lock is kept by a process that no
+/// longer serves the keyboxd socket (`lock_holder::orphaned_database_holder`).
+/// Such a run waits as surely as the holder does. Empty when neither holds;
+/// a lock that cannot be read is the error, since whether the runs wait
+/// cannot then be told.
+fn held_back(all: &[(String, PublishedRun)]) -> Result<Vec<(u32, String)>, String> {
+    let quiet: Vec<u32> = all
+        .iter()
+        .filter(|(_, run)| run.last_status.is_none())
+        .map(|(_, run)| run.pid)
+        .collect();
+    if quiet.is_empty() {
+        return Ok(Vec::new());
+    }
+    let holders: Vec<u32> = super::lock_holder::recorded_holder_pids()?
         .into_iter()
         .filter(|holder| {
             all.iter()
                 .any(|(_, run)| run.pid == *holder && published_waits_on_agent(run))
         })
         .collect();
-    if holders.is_empty() {
-        return Vec::new();
-    }
-    all.iter()
-        .filter(|(_, run)| run.last_status.is_none() && !holders.contains(&run.pid))
-        .map(|(_, run)| run.pid)
-        .collect()
+    let why = match holders.is_empty() {
+        false => "the keyring lock it needs is held by a run that waits on gpg-agent".to_owned(),
+        true => match super::lock_holder::orphaned_database_holder()? {
+            Some(orphaned) => orphaned,
+            None => return Ok(Vec::new()),
+        },
+    };
+    Ok(quiet
+        .into_iter()
+        .filter(|pid| !holders.contains(pid))
+        .map(|pid| (pid, why.clone()))
+        .collect())
 }
 
 /// Why a `gpg` run would queue behind wedged daemons right now, when it
 /// would: every child in flight, in this process and in every other Skarbiec
 /// process of this account, is waiting on the agent, or has written no
-/// status while the keyring's lock is held by one that is. A child that is
-/// progressing (any other last status, or none while no waiting run holds
-/// the lock) means the daemons answer, and a new run joins the queue as
-/// usual.
+/// status while it is held back from the keyring ([`held_back`]). A child
+/// that is progressing (any other last status, or none while nothing holds
+/// it back) means the daemons answer, and a new run joins the queue as
+/// usual. A keyring lock that cannot be read while children are in flight
+/// is refused with its cause: a run now could not be told from one that
+/// waits.
 pub fn agent_refusal() -> Option<String> {
     let (all, _) = everyone();
-    let behind = behind_waiting_holder(&all);
-    let wedged = |run: &PublishedRun| published_waits_on_agent(run) || behind.contains(&run.pid);
-    if all.is_empty() || !all.iter().all(|(_, run)| wedged(run)) {
+    if all.is_empty() {
+        return None;
+    }
+    let blocked = match held_back(&all) {
+        Ok(blocked) => blocked,
+        Err(why) => {
+            return Some(format!(
+                "{} gpg run(s) of this account are in flight and whether they wait on the \
+                 keyring cannot be told: {why}",
+                all.len()
+            ))
+        }
+    };
+    let reason = |run: &PublishedRun| {
+        blocked
+            .iter()
+            .find(|(pid, _)| *pid == run.pid)
+            .map(|(_, why)| why)
+    };
+    if !all
+        .iter()
+        .all(|(_, run)| published_waits_on_agent(run) || reason(run).is_some())
+    {
         return None;
     }
     let mut waits = sentences(&all);
-    waits.extend(
-        all.iter()
-            .filter(|(_, run)| behind.contains(&run.pid))
-            .map(|(owner, run)| {
-                format!(
-                    "gpg {} (pid {}, of {owner}) since {} has written no status: the keyring \
-                     lock it needs is held by a run that waits on gpg-agent",
-                    run.verb, run.pid, run.started
-                )
-            }),
-    );
+    waits.extend(all.iter().filter_map(|(owner, run)| {
+        reason(run).map(|why| {
+            format!(
+                "gpg {} (pid {}, of {owner}) since {} has written no status: {why}",
+                run.verb, run.pid, run.started
+            )
+        })
+    }));
     Some(format!(
-        "{} gpg run(s) of this account are in flight and every one waits on gpg-agent, \
-         directly or behind the keyring lock a waiting run holds, so a run now would wait \
+        "{} gpg run(s) of this account are in flight and every one waits on the GnuPG daemons, \
+         on gpg-agent directly or behind a keyring lock it cannot take, so a run now would wait \
          behind the same daemons: {}. Recover them with `skarbiec maintain`",
         waits.len(),
         waits.join("; ")
