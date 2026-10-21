@@ -48,8 +48,8 @@ fn legacy_envelope(vault: &Vault, credential_id: &str) -> bool {
 // The fields the item actually carries, sorted. `Ok(None)` when there is no
 // item or it is still on a legacy envelope (the envelope guards refuse that);
 // an item that exists but cannot be decrypted or read is an error naming it,
-// because read as "no item" it let a lifecycle operation write the contract
-// field beside whatever the item really holds.
+// because a lifecycle operation must not write the contract field beside
+// fields nobody could read.
 fn item_fields(vault: &Vault, credential_id: &str) -> Result<Option<Vec<String>>> {
     if !live_item_exists(vault, credential_id) || legacy_envelope(vault, credential_id) {
         return Ok(None);
@@ -120,7 +120,7 @@ pub(super) fn lifecycle_blockers(
         // reason to stop listing the others.
         } else if let Some(required) = provider
             .or(sealed_provider)
-            .map(|provider| operation_contract_field(operation.unwrap_or_default(), provider))
+            .map(|provider| operation_contract_field(operation, provider))
         {
             match item_fields(vault, credential_id) {
                 Ok(Some(fields)) if !fields.iter().any(|name| name == required) => {

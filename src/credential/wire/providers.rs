@@ -20,14 +20,14 @@ pub(in crate::credential) fn contract_field(provider: &str) -> &'static str {
 
 // The field one operation's contract writes for one provider. Subscription
 // reauth signs a human login in, so the item it names carries that account's
-// password; every other operation keeps the provider's own mapping. Eligibility
-// and the operation read this one answer, so a report can never contradict the
-// operation it describes.
+// password; every other operation, and a status read that names none, keeps
+// the provider's own mapping. Eligibility and the operation read this one
+// answer, so a report can never contradict the operation it describes.
 pub(in crate::credential) fn operation_contract_field(
-    operation: &str,
+    operation: Option<&str>,
     provider: &str,
 ) -> &'static str {
-    if Operation::parse(operation) == Some(Operation::Reauth) {
+    if operation.and_then(Operation::parse) == Some(Operation::Reauth) {
         return "password";
     }
     contract_field(provider)

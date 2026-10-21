@@ -6,11 +6,11 @@
 #
 # A credential operation reads the credential's pending request before it is
 # submitted, and enforces the retry barrier and the pending-request refusals on
-# it. A pending request that is live but is not a credential operation record
-# used to read as no request at all, and the operation ran on past it. Here
-# the pending request of a generic provider's credential is a login item, which
-# carries no operation record; `credential acquire --local` must refuse naming
-# that item, contact no Weles, and leave the item exactly as it was.
+# it; a pending request that is live but is not a credential operation record
+# must refuse the operation rather than pass as no request. Here the pending
+# request of a generic provider's credential is a login item, which carries no
+# operation record; `credential acquire --local` must refuse naming that item,
+# contact no Weles, and leave the item exactly as it was.
 #
 # Supply SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION, then run
 # tests/credential/unreadable_request.sh.

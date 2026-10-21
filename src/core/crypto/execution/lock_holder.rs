@@ -42,8 +42,8 @@ fn command_of(pid: &str) -> String {
 /// One lock file's holder, as a sentence: its pid, host and what the pid
 /// runs now, and when the lock was taken.
 fn describe(lock: &Path) -> Option<String> {
-    // A lock that exists and cannot be read is a held lock nobody can name;
-    // omitting it left a waiting gpg with no holder in the answer.
+    // A lock that exists and cannot be read is a held lock nobody can name; it
+    // is reported with the read error, so a waiting gpg still has a holder.
     let held = match std::fs::read_to_string(lock) {
         Ok(held) => held,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return None,

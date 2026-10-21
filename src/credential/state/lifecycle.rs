@@ -27,8 +27,8 @@ pub(in crate::credential) fn quarantine_tagged(vault: &Vault, id: &str) -> bool 
 
 /// Whether the credential's request record says quarantined. Only an absent
 /// request item reads as not quarantined; one that cannot be decrypted or
-/// parsed is an error naming it, because read as "not quarantined" it let a
-/// lifecycle operation start on a credential nobody can vouch for.
+/// parsed is an error naming it, because no lifecycle operation may start on
+/// a credential whose quarantine nobody can check.
 pub(in crate::credential) fn record_quarantined(
     vault: &Vault,
     credential_id: &str,

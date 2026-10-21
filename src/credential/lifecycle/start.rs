@@ -185,10 +185,10 @@ pub(in crate::credential) fn start_operation(
 /// The pending request of `credential_id`, when one is live, must be readable
 /// before preflight judges it. Preflight enforces the retry barrier and the
 /// pending- and conflicting-request refusals only on a request it can decrypt
-/// and parse; one it could not read was taken for no request at all, and the
-/// operation ran past its barrier and over another pending request. A request
-/// item that is not live is no request; a live one that cannot be decrypted or
-/// is not a credential operation record refuses the operation, naming it.
+/// and parse, so an unreadable one must stop the operation here rather than
+/// pass as no request. A request item that is not live is no request; a live
+/// one that cannot be decrypted or is not a credential operation record
+/// refuses the operation, naming it.
 fn readable_pending_request(
     vault_path: &Path,
     credential_id: &str,
