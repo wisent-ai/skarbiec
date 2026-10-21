@@ -185,8 +185,8 @@ pub fn ensure_registered_tags(carried: &[Value], written: &[Value]) -> Result<()
         if carried.contains(written_tag) {
             continue;
         }
-        // A tag that is not text is refused here, not passed over: skipped,
-        // it was written without any namespace judging it.
+        // A tag that is not text is refused here, not passed over, so no tag
+        // is written without a namespace judging it.
         let Some(tag) = written_tag.as_str() else {
             bail!("tag {written_tag} is not text, so no registered namespace can cover it");
         };

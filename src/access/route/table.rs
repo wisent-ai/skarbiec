@@ -108,8 +108,8 @@ fn utc(format: &str) -> String {
 /// series.
 fn publish(path: &Path, table: &Value) -> Result<Option<String>> {
     let mut backup = None;
-    // A table that cannot be examined refuses: read as absent, it was
-    // rewritten without the backup a replacement takes.
+    // A table that cannot be examined refuses, so it is never rewritten
+    // without the backup a replacement takes.
     if crate::core::is_present(path, "capability route table")? {
         let stamp = utc(STAMP_FORMAT);
         if stamp.is_empty() {
