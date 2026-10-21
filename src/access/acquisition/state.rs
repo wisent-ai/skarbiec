@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use stado_wait as wait;
 
-pub(super) use crate::core::vault::private_file_mode;
+use crate::core::vault::private_file_mode;
 use crate::core::{effective_uid, vault_path};
 
 /// The held lock on the acquisition state; closing the file releases it.
