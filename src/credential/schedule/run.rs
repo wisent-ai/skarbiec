@@ -85,8 +85,8 @@ fn record(item: &str, outcome: &Result<Value>, now: i64) -> Result<Value> {
     let (accepted, status, request_id, error) = match outcome {
         Ok(report) => {
             let accepted = report.get("ok").and_then(Value::as_bool) == Some(true);
-            // The status the rotation report states, or none: "unknown" was
-            // stored as the policy's last status as if the report had said it.
+            // The status the rotation report states, or none: no word is
+            // stored as the policy's last status that the report did not say.
             let status = report
                 .get("status")
                 .and_then(Value::as_str)
