@@ -49,12 +49,12 @@ impl Vault {
         duplicates::groups(items)
             .into_iter()
             .map(|(_, ids)| {
+                // The kind the group's first item records, null when it
+                // records none.
                 let kind = ids
                     .first()
                     .and_then(|id| items.get(id))
-                    .and_then(|entry| entry.get("kind"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                    .and_then(|entry| entry.get("kind"));
                 json!({"kind": kind, "items": ids})
             })
             .collect()
@@ -66,15 +66,14 @@ impl Vault {
     /// An item written before 0.3.11 has no fingerprint, so it cannot be
     /// compared with anything and an empty duplicate report over such a vault
     /// means "nothing comparable", not "no duplicates". Saying so is the
-    /// difference between a report and a reassurance: on this fleet the vault
-    /// held 66 login rows, 29 of them describing 12 platforms, and every one
-    /// of them predates the fingerprint.
+    /// difference between a report and a reassurance.
     pub fn duplicate_coverage(&self) -> (usize, usize) {
-        let Some(items) = self.doc.get("items").and_then(Value::as_object) else {
-            return (0, 0);
-        };
-        let active: Vec<&Value> = items
-            .values()
+        let active: Vec<&Value> = self
+            .doc
+            .get("items")
+            .and_then(Value::as_object)
+            .into_iter()
+            .flat_map(|items| items.values())
             .filter(|entry| entry.get("state").and_then(Value::as_str) == Some("active"))
             .collect();
         let unstamped = active
@@ -110,7 +109,7 @@ impl Vault {
             .get("items")
             .and_then(Value::as_object)
             .cloned()
-            .unwrap_or_default();
+            .context("vault document carries no items object")?;
         let planned = duplicates::stamp::plan(&items, &salt, |id| self.get_item(id));
         let report = planned.report(apply);
         if !apply || planned.prints.is_empty() {
@@ -135,50 +134,53 @@ impl Vault {
         Ok(report)
     }
 
+    /// Every item's cleartext envelope, without decrypting anything. An item
+    /// still in the legacy envelope reports its state as `legacy`, since that
+    /// envelope records none; a field an item does not record is null.
     pub fn list(&self, include_deleted: bool) -> Vec<Value> {
         self.doc
             .get("items")
             .and_then(Value::as_object)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(|(id, item)| {
-                        let state = item
-                            .get("state")
-                            .and_then(Value::as_str)
-                            .unwrap_or("legacy");
-                        let deleted = state == "trashed";
-                        if deleted && !include_deleted {
-                            return None;
-                        }
-                        let history_len = item
-                            .get("history")
-                            .and_then(Value::as_array)
-                            .map(Vec::len)
-                            .unwrap_or_default();
-                        let versions = history_len.saturating_add(std::iter::once(()).count());
-                        Some(json!({
-                            "id": id,
-                            // `null` for an item that predates the field, the
-                            // same way this projection already reports a
-                            // missing `kind`. That null is useful rather than
-                            // untidy: it is how an operator sees which items
-                            // `skarbiec upgrade` still has to stamp.
-                            "item_uid": item.get("item_uid"),
-                            "kind": item.get("kind"),
-                            "state": state,
-                            "revision": item.get("revision"),
-                            "management": item.get("management"),
-                            "tags": item.get("tags"),
-                            "recipients": item.get("recipients"),
-                            "updated_at": item.get("updated_at"),
-                            "deleted": deleted,
-                            "versions": versions,
-                        }))
-                    })
-                    .collect()
+            .into_iter()
+            .flat_map(|items| items.iter())
+            .filter_map(|(id, item)| {
+                let state = if item.get("format").and_then(Value::as_u64) == Some(current_envelope())
+                {
+                    item.get("state").and_then(Value::as_str)
+                } else {
+                    Some("legacy")
+                };
+                let deleted = state == Some("trashed");
+                if deleted && !include_deleted {
+                    return None;
+                }
+                // Every revision the item keeps: its history and its current one.
+                let versions = item
+                    .get("history")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .chain(item.get("current"))
+                    .count();
+                Some(json!({
+                    "id": id,
+                    // `null` for an item that predates the field, the same
+                    // way this projection reports a missing `kind`. That null
+                    // is how an operator sees which items `skarbiec upgrade`
+                    // still has to stamp.
+                    "item_uid": item.get("item_uid"),
+                    "kind": item.get("kind"),
+                    "state": state,
+                    "revision": item.get("revision"),
+                    "management": item.get("management"),
+                    "tags": item.get("tags"),
+                    "recipients": item.get("recipients"),
+                    "updated_at": item.get("updated_at"),
+                    "deleted": deleted,
+                    "versions": versions,
+                }))
             })
-            .unwrap_or_default()
+            .collect()
     }
 
     // Trash is recoverable. Purge remains a separate owner-only operation.
@@ -197,11 +199,10 @@ impl Vault {
     ///
     /// `management` is written from the identity of whoever first wrote the
     /// item, and afterwards only that authority may change it. A consumer that
-    /// wrote through an API the broker no longer serves therefore leaves the
-    /// item with **no writer at all**: the owner is refused as "not
-    /// owner-controlled", and the consumer's own path is gone. Three fleet SSH
-    /// host keys reached exactly that state, and a key that cannot be rotated
-    /// cannot be revoked either.
+    /// wrote through an API the broker no longer serves leaves the item with
+    /// no writer at all: the owner is refused as "not owner-controlled", the
+    /// consumer's own path is gone, and a key that cannot be rotated cannot be
+    /// revoked either.
     ///
     /// Reclaiming is deliberately narrow. It moves control and touches nothing
     /// else - no field, tag, recipient or revision changes - so the material
@@ -223,8 +224,8 @@ impl Vault {
         if mode == Some(ManagementMode::Managed) {
             bail!("{id} is under the credential lifecycle; use a credential operation");
         }
-        // A tags field that is not a list of text is refused: read as no
-        // tags, a Weles-managed item passed as owner-controlled.
+        // A tags field that is not a list of text is refused, so a
+        // Weles-managed item never passes as owner-controlled.
         if crate::core::vault::entry_texts(id, entry, "tags")?
             .iter()
             .any(|tag| tag == "managed:weles")
@@ -237,11 +238,12 @@ impl Vault {
         {
             return Ok(());
         }
+        // The controller the item recorded, null in the audit entry when it
+        // recorded none.
         let previous = management
             .get("controller")
             .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
+            .map(str::to_string);
         let stamp = now();
         let entry = obj_mut(&mut self.doc, "items")
             .get_mut(id)

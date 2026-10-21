@@ -3,14 +3,18 @@
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
+use std::num::NonZeroU64;
 
 use crate::core::vault::{ManagementMode, Vault};
 use crate::core::{crypto, schema};
 
+/// The v2 id of a legacy item: a credential request becomes the credential
+/// operation it names, and every other id is kept as it is.
 pub(super) fn canonical_item_id(id: &str) -> String {
-    id.strip_prefix("request:credential/")
-        .map(|suffix| format!("operation:credential/{suffix}"))
-        .unwrap_or_else(|| id.to_string())
+    match id.strip_prefix("request:credential/") {
+        Some(suffix) => format!("operation:credential/{suffix}"),
+        None => id.to_string(),
+    }
 }
 
 fn decrypt_payload(ciphertext: &str, legacy_kind: &str) -> Result<(String, Value)> {
@@ -19,27 +23,26 @@ fn decrypt_payload(ciphertext: &str, legacy_kind: &str) -> Result<(String, Value
     schema::migrate_legacy(legacy_kind, legacy)
 }
 
-fn operation_id(payload: &Value) -> Value {
-    schema::field(payload, "context")
-        .ok()
-        .and_then(Value::as_object)
-        .and_then(|context| context.get("request_id"))
+/// The credential operation a payload belongs to: the request id its context
+/// records, or none for a payload whose context names no request.
+fn operation_id(payload: &Value) -> Option<Value> {
+    payload
+        .get("context")?
+        .as_object()?
+        .get("request_id")
         .cloned()
-        .unwrap_or(Value::Null)
 }
 
 /// The fingerprints a legacy item is re-enveloped to: every recipient it
-/// lists, the owner, and the recovery key. A recipients field that is not a
-/// list of text is refused; it was read as fewer recipients. A listed uid the
-/// vault holds no fingerprint for (a recipient removed since) is not carried
-/// over, and that is said, since the migrated item is then readable by fewer
-/// people than the legacy one.
-fn recipient_fingerprints(vault: &Vault, id: &str, entry: &Value) -> Result<Vec<String>> {
-    let mut recipients = crate::core::vault::entry_texts(id, entry, "recipients")?;
-    recipients.push(vault.owner_uid().to_string());
+/// lists, the owner, and the recovery key. A listed uid the vault holds no
+/// fingerprint for (a recipient removed since) is not carried over, and that
+/// is said, since the migrated item is then readable by fewer people than the
+/// legacy one.
+fn recipient_fingerprints(vault: &Vault, id: &str, listed: &[String]) -> Vec<String> {
+    let owner = vault.owner_uid().to_string();
     let mut fingerprints = Vec::new();
-    for uid in recipients {
-        match vault.recipient_fpr(&uid) {
+    for uid in listed.iter().chain(std::iter::once(&owner)) {
+        match vault.recipient_fpr(uid) {
             Some(fingerprint) => {
                 if !fingerprints.contains(&fingerprint) {
                     fingerprints.push(fingerprint);
@@ -54,7 +57,7 @@ fn recipient_fingerprints(vault: &Vault, id: &str, entry: &Value) -> Result<Vec<
     if !recovery.is_empty() && !fingerprints.contains(&recovery) {
         fingerprints.push(recovery);
     }
-    Ok(fingerprints)
+    fingerprints
 }
 
 fn canonical_revision(
@@ -62,7 +65,7 @@ fn canonical_revision(
     legacy_kind: &str,
     fingerprints: &[String],
     revision: u64,
-    created_at: Value,
+    created_at: &Value,
     writer: &str,
 ) -> Result<(String, Value, Value)> {
     let (kind, payload) = decrypt_payload(ciphertext, legacy_kind)?;
@@ -78,74 +81,86 @@ fn canonical_revision(
     Ok((kind, payload, record))
 }
 
+/// The item in the v2 envelope, its field names, and how many revisions the
+/// migration re-enveloped: none for an item already in the current envelope.
+///
+/// A v1 entry always records its type, creation and update times, recipients,
+/// tags, history, deleted flag and deletion time, and each history revision
+/// its time and ciphertext; one missing any of them is refused naming the
+/// field. Only `written_by` may be absent: v1 recorded it once writers other
+/// than the owner existed, so an entry without it was written by the owner.
 pub(super) fn migrate_item(
     vault: &Vault,
     id: &str,
     entry: &Value,
-) -> Result<(Value, Vec<String>, usize)> {
+) -> Result<(Value, Vec<String>, Option<usize>)> {
     if entry.get("format").and_then(Value::as_u64) == Some(crate::core::vault::current_envelope()) {
         let payload = entry
             .get("current")
             .context("v2 item has no current revision")
             .and_then(revision_payload)?;
         let fields = schema::fields(&payload)?.keys().cloned().collect();
-        return Ok((entry.clone(), fields, usize::MIN));
+        return Ok((entry.clone(), fields, None));
     }
-    let legacy_kind = entry
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("opaque");
+    let recorded = |name: &str| {
+        entry
+            .get(name)
+            .with_context(|| format!("legacy item {id} records no {name}"))
+    };
+    let legacy_kind = recorded("type")?
+        .as_str()
+        .with_context(|| format!("legacy item {id} records a type that is not text"))?;
     let current_ciphertext = entry
         .get("current")
         .and_then(Value::as_str)
         .context("legacy item has no current ciphertext")?;
-    let fingerprints = recipient_fingerprints(vault, id, entry)?;
+    let recipients = crate::core::vault::entry_texts(id, entry, "recipients")?;
+    let fingerprints = recipient_fingerprints(vault, id, &recipients);
     if fingerprints.is_empty() {
         bail!("{id} has no valid recipient fingerprint");
     }
-    let writer = entry
-        .get("written_by")
-        .and_then(Value::as_str)
-        .unwrap_or_else(|| vault.owner_uid());
+    let writer = match entry.get("written_by") {
+        None => vault.owner_uid(),
+        Some(named) => named
+            .as_str()
+            .with_context(|| format!("legacy item {id} records a writer that is not text"))?,
+    };
+    let legacy_history = recorded("history")?
+        .as_array()
+        .with_context(|| format!("legacy item {id} records a history that is not a list"))?;
     let mut history = Vec::new();
-    let mut revision: u64 = std::iter::once(()).count().try_into()?;
-    if let Some(legacy_history) = entry.get("history").and_then(Value::as_array) {
-        for legacy_revision in legacy_history {
-            let ciphertext = legacy_revision
-                .get("cipher")
-                .or_else(|| legacy_revision.get("ciphertext"))
-                .and_then(Value::as_str)
-                .context("legacy history revision has no ciphertext")?;
-            let created_at = legacy_revision
-                .get("at")
-                .or_else(|| legacy_revision.get("created_at"))
-                .cloned()
-                .unwrap_or(Value::Null);
-            let (_, _, record) = canonical_revision(
-                ciphertext,
-                legacy_kind,
-                &fingerprints,
-                revision,
-                created_at,
-                writer,
-            )?;
-            history.push(record);
-            revision = revision
-                .checked_add(std::iter::once(()).count().try_into()?)
-                .context("revision overflow")?;
-        }
+    // Revisions are numbered from the first, as every v2 write numbers them.
+    let mut revision = NonZeroU64::MIN.get();
+    for legacy_revision in legacy_history {
+        let ciphertext = legacy_revision
+            .get("cipher")
+            .or_else(|| legacy_revision.get("ciphertext"))
+            .and_then(Value::as_str)
+            .context("legacy history revision has no ciphertext")?;
+        let created_at = legacy_revision
+            .get("at")
+            .or_else(|| legacy_revision.get("created_at"))
+            .with_context(|| format!("a legacy history revision of {id} records no time"))?;
+        let (_, _, record) = canonical_revision(
+            ciphertext,
+            legacy_kind,
+            &fingerprints,
+            revision,
+            created_at,
+            writer,
+        )?;
+        history.push(record);
+        revision = revision
+            .checked_add(NonZeroU64::MIN.get())
+            .context("revision overflow")?;
     }
-    let current_at = entry
-        .get("updated_at")
-        .or_else(|| entry.get("created_at"))
-        .cloned()
-        .unwrap_or(Value::Null);
+    let current_at = recorded("updated_at")?;
     let (kind, payload, current) = canonical_revision(
         current_ciphertext,
         legacy_kind,
         &fingerprints,
         revision,
-        current_at.clone(),
+        current_at,
         writer,
     )?;
     // Carried across verbatim, and deliberately not put through the tag
@@ -154,18 +169,15 @@ pub(super) fn migrate_item(
     // would make a v1 vault holding one unregistered tag impossible to migrate
     // at all, which is the opposite of the repair -- the tag has to reach v2
     // before an operator can retag it away.
-    let tags: Vec<Value> = entry
-        .get("tags")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
+    let tags = recorded("tags")?
+        .as_array()
+        .with_context(|| format!("legacy item {id} records tags that are not a list"))?
+        .clone();
     // `managed:weles` is a reserved tag: the CLI and `import` refuse it by name,
     // so only an authenticated Weles managed write ever put it on a legacy item.
-    // That tag is therefore the item's own declaration that Weles controls it.
-    // The writer identity recorded beside it is a mutable name, and testing it
-    // for a `weles-` prefix meant renaming a consumer silently stripped the
-    // declared tag and downgraded the item's management authority from managed
-    // to owner or external, with nothing raised. The declaration decides.
+    // That tag is therefore the item's own declaration that Weles controls it;
+    // the writer identity recorded beside it is a mutable name and decides
+    // nothing here.
     let managed_by_weles = tags.iter().any(|tag| tag.as_str() == Some("managed:weles"));
     let management = if kind == "credential-operation" {
         json!({
@@ -179,15 +191,10 @@ pub(super) fn migrate_item(
     } else {
         json!({"mode": ManagementMode::External.as_str(), "controller": writer})
     };
-    let state = if entry
-        .get("deleted")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        "trashed"
-    } else {
-        "active"
-    };
+    let deleted = recorded("deleted")?.as_bool().with_context(|| {
+        format!("legacy item {id} records a deleted flag that is not true or false")
+    })?;
+    let state = if deleted { "trashed" } else { "active" };
     // A v1 envelope has no `item_uid`, and this builds the v2 entry from scratch, so
     // the identity is minted here rather than left for the backfill. A legacy
     // item that somehow carries one keeps it: an `item_uid` is never reissued.
@@ -202,16 +209,16 @@ pub(super) fn migrate_item(
         "state": state,
         "revision": revision,
         "management": management,
-        "created_at": entry.get("created_at").cloned().unwrap_or(current_at.clone()),
+        "created_at": recorded("created_at")?,
         "updated_at": current_at,
-        "deleted_at": entry.get("deleted_at").cloned().unwrap_or(Value::Null),
-        "recipients": entry.get("recipients").cloned().unwrap_or_else(|| json!([])),
+        "deleted_at": recorded("deleted_at")?,
+        "recipients": recipients,
         "tags": tags,
         "current": current,
         "history": history,
     });
     let fields = schema::fields(&payload)?.keys().cloned().collect();
-    Ok((canonical, fields, revision as usize))
+    Ok((canonical, fields, Some(usize::try_from(revision)?)))
 }
 
 pub(super) fn revision_payload(revision: &Value) -> Result<Value> {

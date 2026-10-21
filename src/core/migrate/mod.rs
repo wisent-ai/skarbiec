@@ -34,7 +34,9 @@ pub fn migrate(vault: &mut Vault) -> Result<MigrationReport> {
 
     let mut canonical_items = Map::new();
     let mut item_fields = BTreeMap::new();
-    let mut revisions = usize::MIN;
+    // How many revisions each re-enveloped item carried; an item already in
+    // the current envelope re-envelopes none and adds nothing.
+    let mut migrated: Vec<usize> = Vec::new();
     for (id, entry) in &source_items {
         let (canonical, fields, count) =
             migrate_item(vault, id, entry).with_context(|| format!("migrate item {id}"))?;
@@ -44,7 +46,7 @@ pub fn migrate(vault: &mut Vault) -> Result<MigrationReport> {
         }
         canonical_items.insert(canonical_id.clone(), canonical);
         item_fields.insert(canonical_id, fields);
-        revisions += count;
+        migrated.extend(count);
     }
     let mut tokens = vault
         .doc()
@@ -64,7 +66,7 @@ pub fn migrate(vault: &mut Vault) -> Result<MigrationReport> {
     vault.save()?;
     Ok(MigrationReport {
         items: source_items.len(),
-        revisions,
+        revisions: migrated.iter().sum(),
         grants,
     })
 }

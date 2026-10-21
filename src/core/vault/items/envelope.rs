@@ -117,8 +117,8 @@ impl Vault {
             }
         }
         // A previous recipients list is kept as stored; one that is not a list
-        // of text is refused, since read with its odd entries dropped the
-        // item was re-encrypted to fewer recipients with nothing said.
+        // of text is refused, so the item is never re-encrypted to fewer
+        // recipients with nothing said.
         let stored_recipients = previous.as_ref().filter(|entry| {
             entry
                 .get("recipients")
