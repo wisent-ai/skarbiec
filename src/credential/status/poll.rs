@@ -35,8 +35,8 @@ pub(in crate::credential) fn status_once(vault_path: &Path, args: &[String]) -> 
     let sealed_only =
         !live_item_exists(&vault, credential_id) && sealed_record(&vault, credential_id)?.is_some();
     // Only an absent request record means no operation is in flight. One
-    // that exists but cannot be read is refused with its cause: read as
-    // absent, a running operation was reported as the item's settled state.
+    // that exists but cannot be read is refused with its cause, so a running
+    // operation is never reported as the item's settled state.
     let mut request = if live_item_exists(&vault, &request_item) {
         vault
             .get_item(&request_item)

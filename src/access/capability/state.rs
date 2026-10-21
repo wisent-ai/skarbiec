@@ -159,13 +159,13 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
 /// it does not find exactly as it refuses one that is not `issued`, so a
 /// dropped record changes no answer, and a nonce matters only while its
 /// capability can still be redeemed; the audit log keeps what was issued,
-/// redeemed and cancelled. A broker that issues one single-use capability
-/// per request kept every spent one until its expiry: the state grew to
-/// hundreds of megabytes that every request read, matched and rewrote.
+/// redeemed and cancelled. The state every request reads and rewrites
+/// therefore grows with the capabilities that can still be redeemed, not
+/// with every one ever issued.
 ///
-/// Nonces are matched against a set of the live capability ids: matched
-/// against a list, the work grew with the product of the two counts and one
-/// request on a large state took minutes.
+/// Nonces are matched against a set of the live capability ids, so the work
+/// grows with the number of nonces, not with their product with the
+/// capabilities.
 fn forget_stale(state: &mut Value, now: u64) -> Result<()> {
     let Some(capabilities) = state["capabilities"].as_object_mut() else {
         bail!("capability state is malformed: capabilities is not an object");
