@@ -51,9 +51,8 @@ fn canary_item_ids(vault: &Vault) -> Result<Vec<String>> {
 ///
 /// The canary decrypt runs `gpg`, and a `gpg` whose keyring lock another
 /// process holds waits on that lock for as long as the holder keeps it, so a
-/// `/health` that decrypted behind a held lock accepted its connection and
-/// never answered: every reader through the resolver, and every hook judge
-/// that needs a credential, stalled with no cause to act on. The lock files
+/// `/health` that decrypted behind a held lock would accept its connection
+/// and never answer, leaving every reader with no cause to act on. The lock files
 /// name their holder, so when a `gpg` child of this process is in flight and
 /// a keyring lock is held, the check answers with the holders — pid, host,
 /// what it runs, since when — instead of becoming one more waiter behind it.

@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { constants } from 'node:http2';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, watch, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,16 +81,35 @@ try {
   report.holder = { pid: holder.pid, stderr: '' };
   holder.stderr.on('data', chunk => { report.holder.stderr += chunk.toString(); });
   holder.stdin.write(exported.stdout);
-  while (!locks.some(existsSync)) {
-    assert.equal(holder.exitCode, null, `the holding gpg ended before taking the lock: ${report.holder.stderr}`);
-    await yieldOnce();
-  }
+  // The lock appears as a file in the keyring; the wait ends when it does,
+  // or fails when the holding gpg ends first.
+  await new Promise((tookLock, endedFirst) => {
+    const watcher = watch(keyring, { recursive: true }, () => {
+      if (locks.some(existsSync)) {
+        watcher.close();
+        tookLock();
+      }
+    });
+    holder.once('exit', (status, signal) => {
+      watcher.close();
+      endedFirst(new Error(`the holding gpg ended (${status ?? signal}) before taking the lock: ${report.holder.stderr}`));
+    });
+    if (locks.some(existsSync)) {
+      watcher.close();
+      tookLock();
+    }
+  });
   report.holder.lock = locks.find(existsSync);
 
   // The decrypt of this read queues behind the held lock; it is awaited only
-  // after the holder ends.
+  // after the holder ends. Until its gpg child is in the process table, the
+  // read must still be open: an answer before it means the read never queued.
   const queued = readiness('queued behind the held lock');
+  let queuedEnded = false;
+  const ended = () => { queuedEnded = true; };
+  queued.then(ended, ended);
   while (!gpgChildOfListener()) {
+    assert.ok(!queuedEnded, `the queued read answered before its gpg child ran: ${JSON.stringify(report.requests.at(-1))}`);
     await yieldOnce();
   }
   const refused = await readiness('while the lock is held');
