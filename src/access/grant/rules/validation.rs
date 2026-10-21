@@ -31,16 +31,28 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
     {
         bail!("workload public key must be a PEM public key");
     }
+    // The same OpenSSL that verifies the key's proofs judges the key, and an
+    // OpenSSL that cannot read it says so rather than calling the key invalid.
+    let openssl = crate::core::crypto::signature::openssl_bin();
     let output = stado_wait::output(
-        Command::new("openssl")
+        Command::new(&openssl)
             .args(["pkey", "-pubin", "-in"])
             .arg(path)
             .args(["-text_pub", "-noout"]),
     )
-    .context("validate workload public key with openssl")?;
+    .with_context(|| format!("validate workload public key with {}", openssl.display()))?;
+    if !output.status.success() {
+        bail!(
+            "{} could not read the workload public key {} ({}): {}; SKARBIEC_OPENSSL names an Ed25519-capable OpenSSL",
+            openssl.display(),
+            path.display(),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
     let description = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || !description.to_ascii_uppercase().contains("ED25519") {
-        bail!("workload public key must be a valid Ed25519 public key");
+    if !description.to_ascii_uppercase().contains("ED25519") {
+        bail!("workload public key {} is not an Ed25519 public key", path.display());
     }
     Ok(key)
 }

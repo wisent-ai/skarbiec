@@ -19,10 +19,10 @@ use std::process::Command;
 /// what tells a denial from a verifier that could not answer.
 const VERIFICATION_FAILURE: &str = "Signature Verification Failure";
 
-/// The `openssl` proofs are verified with: SKARBIEC_OPENSSL when it names one,
-/// otherwise Homebrew's linked OpenSSL when it is installed, otherwise
-/// `openssl` on PATH.
-fn openssl_bin() -> PathBuf {
+/// The `openssl` workload keys are validated and proofs verified with:
+/// SKARBIEC_OPENSSL when it names one, otherwise Homebrew's linked OpenSSL
+/// when it is installed, otherwise `openssl` on PATH.
+pub(crate) fn openssl_bin() -> PathBuf {
     if let Some(configured) = crate::core::env::path("SKARBIEC_OPENSSL") {
         return configured;
     }
