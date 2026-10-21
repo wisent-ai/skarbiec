@@ -17,8 +17,8 @@ use std::path::PathBuf;
 const SUFFIX: &str = ".vault.json";
 
 /// Directories this product and its own examples write vaults into. HOME
-/// unset is refused: read as no directories, the inventory said this machine
-/// holds no vault.
+/// unset is refused, because no directory list could then support a claim
+/// that this machine holds no vault.
 fn search_directories() -> Result<Vec<PathBuf>> {
     let home = std::env::home_dir()
         .filter(|home| !home.as_os_str().is_empty())

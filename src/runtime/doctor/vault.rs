@@ -120,8 +120,8 @@ pub(super) fn selection_check() -> Value {
     };
 
     // A vault the inventory could not read, or an inventory that failed, is
-    // said beside the visible ones: read as none, the doctor called a choice
-    // unambiguous that another, unreadable vault might contest.
+    // said beside the visible ones: an unreadable vault might contest the
+    // choice, so the choice is not called unambiguous without it.
     let (visible, unread): (Vec<Value>, Vec<String>) = match vaults::inventory() {
         Ok(report) => (
             report["vaults"]

@@ -1,7 +1,7 @@
 // Submitting one credential operation: record the request, hand it to Weles,
 // and write down exactly what came back.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -35,9 +35,6 @@ pub(in crate::credential) fn start_operation(
     } else {
         Some(acquire_credential_operation_lock(vault_path)?)
     };
-    if !dry_run {
-        readable_pending_request(vault_path, credential_id, operation, &request_item)?;
-    }
     let proceed = match preflight(vault_path, &submission)? {
         Preflight::Answered(answer) => return Ok(answer),
         Preflight::Proceed(proceed) => proceed,
@@ -180,33 +177,4 @@ pub(in crate::credential) fn start_operation(
         "request_id": request_id,
         "weles": response,
     }))
-}
-
-/// The pending request of `credential_id`, when one is live, must be readable
-/// before preflight judges it. Preflight enforces the retry barrier and the
-/// pending- and conflicting-request refusals only on a request it can decrypt
-/// and parse, so an unreadable one must stop the operation here rather than
-/// pass as no request. A request item that is not live is no request; a live
-/// one that cannot be decrypted or is not a credential operation record
-/// refuses the operation, naming it.
-fn readable_pending_request(
-    vault_path: &Path,
-    credential_id: &str,
-    operation: &str,
-    request_item: &str,
-) -> Result<()> {
-    let vault = crate::core::vault::Vault::open(vault_path.to_path_buf())?;
-    if !super::super::state::live_item_exists(&vault, request_item) {
-        return Ok(());
-    }
-    vault
-        .get_item(request_item)
-        .and_then(super::super::wire::request_payload)
-        .with_context(|| {
-            format!(
-                "the pending request {request_item} of {credential_id} in {} cannot be read; {operation} is refused until it can",
-                vault_path.display()
-            )
-        })?;
-    Ok(())
 }
