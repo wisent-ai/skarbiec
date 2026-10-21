@@ -17,13 +17,15 @@ use super::{branch, checked_git, git, leaf, sync_dir, vault_path};
 
 const PUBLISH_KEY: &str = "skarbiec.publish";
 
-fn has_mirror() -> bool {
-    sync_dir().join(".git").exists()
+/// Whether this host holds a mirror; a mirror directory that cannot be
+/// examined is the error, never a host without one.
+fn has_mirror() -> Result<bool> {
+    crate::core::is_present(&sync_dir().join(".git"), "Git ciphertext mirror")
 }
 
 /// `mirror publish` (true) and `mirror unpublish` (false).
 pub(super) fn set(publish: bool) -> Result<Value> {
-    if !has_mirror() {
+    if !has_mirror()? {
         bail!(
             "no mirror in {}; `skarbiec mirror init <remote-url>` creates it",
             sync_dir().display()
@@ -37,7 +39,7 @@ pub(super) fn set(publish: bool) -> Result<Value> {
 /// One `mirror push` when this host publishes its mirror, `None` when it does
 /// not. A push that fails is the caller's error, naming the Git step.
 pub(crate) fn push_if_published() -> Result<Option<Value>> {
-    if !has_mirror() {
+    if !has_mirror()? {
         return Ok(None);
     }
     // `git config --bool` exits nonzero and says nothing when the key is
@@ -62,8 +64,10 @@ pub(crate) fn push_if_published() -> Result<Option<Value>> {
 /// no mirror, `Ok` when the live vault is the one last pushed, `Err` naming
 /// how it differs and when the last push was.
 pub(crate) fn published_state() -> Option<std::result::Result<String, String>> {
-    if !has_mirror() {
-        return None;
+    match has_mirror() {
+        Ok(true) => {}
+        Ok(false) => return None,
+        Err(error) => return Some(Err(format!("{error:#}"))),
     }
     let pushed = match branch(&HashMap::new()) {
         Ok(branch) => format!("refs/remotes/origin/{branch}"),
