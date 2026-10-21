@@ -62,17 +62,16 @@ pub struct ChainReport {
 /// remain part of the report.
 pub fn chain_report(flags: &HashMap<String, String>) -> Result<ChainReport> {
     let (entries, malformed) = lines_with_faults()?;
-    let one: usize = 1;
     let total = entries.len();
+    // The digest scan covers the newest --tail entries, or every entry.
     let digests_from = match flags.get("tail") {
         Some(raw) => {
-            let requested: usize = raw.parse().context("--tail must be a whole number")?;
-            if requested < one {
-                anyhow::bail!("--tail must be at least one");
-            }
-            total.saturating_sub(requested)
+            let requested: std::num::NonZeroUsize = raw
+                .parse()
+                .context("--tail must be a whole number of at least one")?;
+            Some(total.saturating_sub(requested.get()))
         }
-        None => usize::MIN,
+        None => None,
     };
     let mut faults: Vec<Value> = malformed
         .iter()
@@ -86,22 +85,30 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<ChainReport> {
             })
         })
         .collect();
-    let mut linked = usize::MIN;
-    let mut digested = usize::MIN;
-    let mut epochs = usize::MIN;
-    let mut previous_hash = String::new();
-    for (offset, entry) in entries.iter().enumerate() {
-        let line = offset.saturating_add(one);
-        let mut missing = Vec::new();
-        let at = required(entry, "at", &mut missing);
-        let op = required(entry, "op", &mut missing);
-        let stored_prev = required(entry, "prev", &mut missing);
-        let stored_hash = required(entry, "hash", &mut missing);
-        if !missing.is_empty() {
-            // Read as empty, a missing prev passed the first line's linkage
-            // and a missing hash or op read as tampering. The line is
-            // malformed, and says which fields; its hash still carries on,
-            // so the next line's link is checked against what is there.
+    // The lines each check verified; their counts are the report's.
+    let mut linked = Vec::new();
+    let mut digested = Vec::new();
+    let mut epochs = Vec::new();
+    // The hash the next line must name as prev: the empty hash before the
+    // genesis line, and none after a line that carries no hash.
+    let mut previous_hash = Some(String::new());
+    for (offset, (line, entry)) in entries.iter().enumerate() {
+        let line = *line;
+        let at = text(entry, "at");
+        let op = text(entry, "op");
+        let prev = text(entry, "prev");
+        let hash = text(entry, "hash");
+        let (Some(at), Some(op), Some(stored_prev), Some(stored_hash)) = (at, op, prev, hash)
+        else {
+            // A line missing one of these fields is neither linked nor
+            // digested, so a missing prev cannot pass linkage and a missing
+            // hash or op is not taken for tampering: the line is malformed and
+            // says which fields.
+            let missing: Vec<&str> = [("at", at), ("op", op), ("prev", prev), ("hash", hash)]
+                .into_iter()
+                .filter(|(_, value)| value.is_none())
+                .map(|(name, _)| name)
+                .collect();
             faults.push(json!({
                 "line": line,
                 "at": at,
@@ -109,52 +116,82 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<ChainReport> {
                 "fault": "malformed",
                 "detail": format!("missing or not text: {}", missing.join(", ")),
             }));
-            previous_hash = stored_hash.to_string();
+            previous_hash = hash.map(str::to_string);
             continue;
-        }
-        let extra = entry.get("extra").cloned().unwrap_or(Value::Null);
+        };
+        let extra = match entry.get("extra") {
+            Some(extra) => extra.clone(),
+            // append writes every entry with its extra; a line without one
+            // hashes as the null its digest input then names.
+            None => Value::Null,
+        };
         let epoch_link = if op == "audit-epoch-start" {
-            let mut absent = Vec::new();
-            let prior = required(&extra, "previous_tail", &mut absent);
-            let payload = required(&extra, "checkpoint", &mut absent);
-            let signed = required(&extra, "signed_checkpoint", &mut absent);
-            if !absent.is_empty() {
-                faults.push(json!({
-                    "line": line,
-                    "at": at,
-                    "op": op,
-                    "fault": "malformed",
-                    "detail": format!("epoch start missing or not text: {}", absent.join(", ")),
-                }));
+            let prior = text(&extra, "previous_tail");
+            let payload = text(&extra, "checkpoint");
+            let signed = text(&extra, "signed_checkpoint");
+            match (prior, payload, signed) {
+                (Some(prior), Some(payload), Some(signed)) => {
+                    let verification = crate::core::crypto::verify_clearsigned(signed);
+                    let verified = verification
+                        .as_ref()
+                        .is_ok_and(|cleartext| cleartext.trim_end() == payload.trim_end());
+                    let valid = stored_prev.is_empty()
+                        && previous_hash.as_deref() == Some(prior)
+                        && verified;
+                    if valid {
+                        epochs.push(line);
+                    } else {
+                        let detail = match verification {
+                            Err(error) => Value::String(format!("checkpoint signature: {error:#}")),
+                            Ok(_) => Value::Null,
+                        };
+                        faults.push(json!({
+                            "line": line, "at": at, "op": op, "fault": "epoch", "detail": detail,
+                        }));
+                    }
+                    valid
+                }
+                (prior, payload, signed) => {
+                    let absent: Vec<&str> = [
+                        ("previous_tail", prior),
+                        ("checkpoint", payload),
+                        ("signed_checkpoint", signed),
+                    ]
+                    .into_iter()
+                    .filter(|(_, value)| value.is_none())
+                    .map(|(name, _)| name)
+                    .collect();
+                    faults.push(json!({
+                        "line": line,
+                        "at": at,
+                        "op": op,
+                        "fault": "malformed",
+                        "detail": format!("epoch start missing or not text: {}", absent.join(", ")),
+                    }));
+                    false
+                }
             }
-            let verified = crate::core::crypto::verify_clearsigned(signed)
-                .map(|cleartext| cleartext.trim_end() == payload.trim_end())
-                .unwrap_or(false);
-            let valid =
-                absent.is_empty() && stored_prev.is_empty() && prior == previous_hash && verified;
-            if valid {
-                epochs = epochs.saturating_add(one);
-            } else if absent.is_empty() {
-                faults.push(json!({"line": line, "at": at, "op": op, "fault": "epoch"}));
-            }
-            valid
         } else {
             false
         };
-        if stored_prev == previous_hash || epoch_link {
-            linked = linked.saturating_add(one);
+        if previous_hash.as_deref() == Some(stored_prev) || epoch_link {
+            linked.push(line);
         } else {
             faults.push(json!({"line": line, "at": at, "op": op, "fault": "linkage"}));
         }
-        if offset >= digests_from {
+        let in_window = match digests_from {
+            Some(from) => offset >= from,
+            None => true,
+        };
+        if in_window {
             let recomputed = sha256_hex(&digest_input(stored_prev, at, op, &extra));
             if stored_hash == recomputed {
-                digested = digested.saturating_add(one);
+                digested.push(line);
             } else {
                 faults.push(json!({"line": line, "at": at, "op": op, "fault": "digest"}));
             }
         }
-        previous_hash = stored_hash.to_string();
+        previous_hash = Some(stored_hash.to_string());
     }
     let broken_at = faults
         .first()
@@ -166,28 +203,23 @@ pub fn chain_report(flags: &HashMap<String, String>) -> Result<ChainReport> {
         entries: total,
         malformed: malformed.len(),
         linkage_checked: total,
-        linkage_verified: linked,
-        epochs,
-        digests_checked: total.saturating_sub(digests_from),
-        digests_verified: digested,
+        linkage_verified: linked.len(),
+        epochs: epochs.len(),
+        digests_checked: match digests_from {
+            Some(from) => total - from,
+            None => total,
+        },
+        digests_verified: digested.len(),
         intact: faults.is_empty(),
         broken_at,
         faults,
     })
 }
 
-/// The text field `name` of a journal line or its `extra`, or `name` noted in
-/// `missing` when it is absent or not text. The empty answer then stands in
-/// only for the fault report; the caller reports the line as malformed
-/// instead of checking it.
-fn required<'a>(object: &'a Value, name: &'static str, missing: &mut Vec<&'static str>) -> &'a str {
-    match object.get(name).and_then(Value::as_str) {
-        Some(value) => value,
-        None => {
-            missing.push(name);
-            ""
-        }
-    }
+/// The text field `name` of a journal line or its `extra`; `None` when it is
+/// absent or not text, which the caller reports as a malformed line.
+fn text<'a>(object: &'a Value, name: &str) -> Option<&'a str> {
+    object.get(name).and_then(Value::as_str)
 }
 
 /// `skarbiec audit`: journal entries, oldest first, filtered by operation,
@@ -199,11 +231,12 @@ fn required<'a>(object: &'a Value, name: &'static str, missing: &mut Vec<&'stati
 pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
     let limit: Option<usize> = flags
         .get("limit")
-        .map(|raw| raw.parse().context("--limit must be a whole number"))
+        .map(|raw| {
+            raw.parse::<std::num::NonZeroUsize>()
+                .map(std::num::NonZeroUsize::get)
+                .context("--limit must be a whole number of at least one")
+        })
         .transpose()?;
-    if limit == Some(usize::MIN) {
-        anyhow::bail!("--limit must be at least one");
-    }
     let operation = flags.get("op").map(String::as_str);
     let consumer = flags.get("consumer").map(String::as_str);
     let item = flags.get("item").map(String::as_str);
@@ -220,7 +253,7 @@ pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
     let mut entries: Vec<Value> = lines()?
         .into_iter()
         .filter(|entry| {
-            let at = entry.get("at").and_then(Value::as_str).unwrap_or_default();
+            let at = entry.get("at").and_then(Value::as_str);
             let extra = entry.get("extra");
             operation.is_none_or(|value| entry.get("op").and_then(Value::as_str) == Some(value))
                 && consumer.is_none_or(|value| {
@@ -235,8 +268,8 @@ pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
                         .and_then(Value::as_str)
                         == Some(value)
                 })
-                && since.is_none_or(|value| at >= value)
-                && until.is_none_or(|value| at <= value)
+                && since.is_none_or(|value| at.is_some_and(|at| at >= value))
+                && until.is_none_or(|value| at.is_some_and(|at| at <= value))
         })
         .collect();
     let matched = entries.len();
@@ -246,11 +279,14 @@ pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
     Ok(json!({"matched": matched, "returned": entries.len(), "entries": entries}))
 }
 
-/// How many entries the journal holds, counted by line without parsing them.
+/// How many entries the journal holds, counted by line without parsing them;
+/// a journal that does not exist yet holds none.
 fn journal_length() -> Result<usize> {
     let path = audit_path();
-    let Some(text) = crate::core::read_present(&path, "audit journal")? else {
-        return Ok(usize::MIN);
-    };
-    Ok(text.lines().filter(|line| !line.trim().is_empty()).count())
+    let text = crate::core::read_present(&path, "audit journal")?;
+    Ok(text
+        .iter()
+        .flat_map(|text| text.lines())
+        .filter(|line| !line.trim().is_empty())
+        .count())
 }

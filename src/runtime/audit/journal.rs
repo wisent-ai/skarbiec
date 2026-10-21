@@ -55,30 +55,31 @@ pub(super) fn lines() -> Result<Vec<Value>> {
             audit_path().display()
         );
     }
-    Ok(entries)
+    Ok(entries.into_iter().map(|(_, entry)| entry).collect())
 }
 
-/// Every parseable line, plus the ones that are not.
-///
-/// A single malformed line used to end the whole read, which is the failure
-/// an audit surface must not have: `verify-chain` refused a journal of two
-/// million entries over one interleaved write and named neither the line nor
-/// the reason. The scan the chain report documents does not stop at the first
-/// fault, so the reader it is built on cannot either.
-pub(super) fn lines_with_faults() -> Result<(Vec<Value>, Vec<Value>)> {
+/// Every parseable line with the number of the line it was read from, plus
+/// the ones that are not. The chain report does not stop at the first fault,
+/// so the reader it is built on cannot either, and every fault it reports
+/// names the line an editor shows for it.
+pub(super) fn lines_with_faults() -> Result<(Vec<(usize, Value)>, Vec<Value>)> {
     let path = audit_path();
     let Some(body) = crate::core::read_present(&path, "audit journal")? else {
         return Ok((Vec::new(), Vec::new()));
     };
     let mut out = Vec::new();
     let mut malformed = Vec::new();
-    // Lines are numbered from one, as an editor shows them.
-    for (line_number, line) in (std::num::NonZeroUsize::MIN.get()..).zip(body.lines()) {
+    // A line's number is how many lines have been read once it is, blank
+    // lines included, as an editor counts them.
+    let mut read = Vec::new();
+    for line in body.lines() {
+        read.push(());
+        let line_number = read.len();
         if line.trim().is_empty() {
             continue;
         }
         match serde_json::from_str(line) {
-            Ok(entry) => out.push(entry),
+            Ok(entry) => out.push((line_number, entry)),
             Err(error) => malformed.push(json!({
                 "line": line_number,
                 "error": error.to_string(),
