@@ -55,8 +55,7 @@ pub(crate) fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]
         }
     }
     // Decrypted items: the file is written owner-only from the first byte
-    // (atomic_write), never readable under the umask and narrowed afterwards by
-    // a chmod whose failure went unread while the export reported ok.
+    // (atomic_write), so no plaintext is ever readable under the umask.
     let target = std::env::current_dir()
         .context("the working directory cannot be read to place the export")?
         .join(out);

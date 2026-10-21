@@ -1,11 +1,9 @@
 //! Skarbiec's environment overrides, read one way everywhere.
 //!
 //! Only an unset (or blank) variable is absence. `std::env::var` answers
-//! `NotUnicode` for a value that is set but not UTF-8, and reading that as
-//! "unset" sent a vault, audit or state file to the default path, or ran
-//! without the token the operator gave, with no word. A path is therefore
-//! read as the OS hands it over, and a text value that is set but not UTF-8
-//! is an error naming the variable.
+//! `NotUnicode` for a value that is set but not UTF-8, which must not pass as
+//! unset: a path is therefore read as the OS hands it over, and a text value
+//! that is set but not UTF-8 is an error naming the variable.
 
 use anyhow::{bail, Result};
 use std::path::PathBuf;
