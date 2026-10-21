@@ -99,8 +99,8 @@ pub fn generate_password(
 
 // Words available for a passphrase: the system dictionary, or the built-in list
 // on a host that has none. A dictionary that exists but cannot be read is
-// refused with its path and cause: swallowed, a passphrase was drawn from the
-// small built-in list in silence, a far weaker secret than the caller expected.
+// refused with its path and cause, because drawing from the small built-in
+// list instead would give a weaker secret than the caller expects.
 fn words() -> Result<Vec<String>> {
     let path = "/usr/share/dict/words";
     let dict = match std::fs::read_to_string(path) {

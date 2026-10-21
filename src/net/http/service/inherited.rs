@@ -14,22 +14,30 @@ use std::path::PathBuf;
 
 use crate::core::vault_path;
 
-/// `<vault>.inherited-ports.json`, beside the vault's other side state.
-fn record() -> PathBuf {
+/// `<vault>.inherited-ports.json`, beside the vault's other side state. A
+/// vault path that names no file has no place beside it, and is refused.
+fn record() -> Result<PathBuf> {
     let vault = vault_path();
-    let mut name = vault.file_name().map(ToOwned::to_owned).unwrap_or_default();
+    let mut name = vault
+        .file_name()
+        .with_context(|| {
+            format!(
+                "vault path {} names no file, so the inherited ports record has no place beside it",
+                vault.display()
+            )
+        })?
+        .to_owned();
     name.push(".inherited-ports.json");
-    vault.with_file_name(name)
+    Ok(vault.with_file_name(name))
 }
 
 /// The ports the record holds and whether it exists. A host the previous
 /// release converged kept no record, and its journal's `unit-retired` entries
 /// name the ports instead. A record that exists and cannot be read or parsed
-/// is an error naming it: read as empty, the next write replaced it with
-/// only the ports retired at that start, and consumers dialing the others
-/// found nothing answering.
+/// is an error naming it, because rewriting it from a partial set would stop
+/// the ports consumers still dial from answering.
 pub(super) fn remembered() -> Result<(BTreeSet<u16>, bool)> {
-    let path = record();
+    let path = record()?;
     match std::fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes)
             .map(|ports| (ports, true))
@@ -43,7 +51,7 @@ pub(super) fn remembered() -> Result<(BTreeSet<u16>, bool)> {
 
 /// Keep `ports` for the next start, replacing the record in one rename.
 pub(super) fn remember(ports: &BTreeSet<u16>) -> Result<()> {
-    let path = record();
+    let path = record()?;
     let staged = path.with_extension("json.staged");
     std::fs::write(&staged, serde_json::to_vec(ports)?)
         .with_context(|| format!("write {}", staged.display()))?;
