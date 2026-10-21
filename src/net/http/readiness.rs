@@ -15,8 +15,8 @@ use crate::core::vault::Vault;
 /// `SKARBIEC_READINESS_ITEMS` names) so repeated probes exercise the same
 /// ciphertext and a passing probe means the same thing every time. Only the
 /// ids are returned; the caller decrypts and drops the values. A configured
-/// item this vault does not hold is the error naming it: skipped, the probe
-/// proved less than the operator asked for and said nothing.
+/// item this vault does not hold is the error naming it, so the probe never
+/// proves less than the operator asked for without saying so.
 fn canary_item_ids(vault: &Vault) -> Result<Vec<String>> {
     let mut ids: Vec<String> = vault
         .list(false)
@@ -122,8 +122,8 @@ fn daemon_ceiling_pass() -> Result<()> {
 /// this account in flight has asked gpg-agent for its key and heard nothing,
 /// or stands behind the keyring lock such a run holds. That is the state
 /// `recover-daemons` exists for, and the refusal tells the reader to run
-/// this pass; a pass that only refused again left every credential read
-/// standing until an operator replaced the daemons by hand. The keyring's
+/// this pass, so the pass replaces the daemons rather than refusing again
+/// and leaving every credential read standing. The keyring's
 /// locks are read first, so the pass knows which run holds them. The daemons
 /// are replaced, and the journal row names why and what each held, so
 /// `audit --op` answers when and why it happened.
