@@ -200,11 +200,10 @@ pub fn with_vault_override<T>(path: Option<PathBuf>, work: impl FnOnce() -> T) -
     })
 }
 
-/// A state file's text, or `None` only when it does not exist. Testing
-/// `exists()` first answers false for a file that cannot be stat'ed too, so
-/// an unreadable inbox, capability state or route table read as empty and the
-/// next save wrote that empty document over it; any failure other than
-/// NotFound is the error, naming `what` and the path.
+/// A state file's text, or `None` only when it does not exist. Any failure
+/// other than NotFound is the error, naming `what` and the path: `exists()`
+/// answers false for a file that cannot be stat'ed too, and a state file read
+/// as empty would be written over by the next save.
 pub fn read_present(path: &std::path::Path, what: &str) -> anyhow::Result<Option<String>> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
