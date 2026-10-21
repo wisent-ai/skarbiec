@@ -37,15 +37,13 @@ pub(super) fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> 
 /// structured document -- the shape a browser sign-in banks an OAuth grant
 /// in -- is served as its canonical JSON text: redemption's contract is text,
 /// and the serialization is that text, exactly what the consumer's own
-/// credential reduction expects to peel. Refusing the object here parked
-/// every signed-in subscription behind "capability redemption denied" while
-/// the vault held a working grant.
+/// credential reduction expects to peel.
 ///
 /// `None` is only "nothing is written there": no such item, or the field is
 /// absent or null. An item that exists but cannot be opened (GnuPG refused,
 /// legacy envelope, trashed, not the declared shape) is an error naming the
-/// item; read as `None`, it answered "no value" - or, for a challenge,
-/// "pending" forever - while the cause sat in the keyring.
+/// item, because "no value" or a challenge left pending would hide a cause
+/// that sits in the keyring.
 pub(super) fn item_field(vault: &Vault, item: &str, field: &str) -> Result<Option<String>> {
     let present = vault
         .doc()

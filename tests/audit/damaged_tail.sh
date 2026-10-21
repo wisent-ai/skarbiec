@@ -68,7 +68,7 @@ case "$out" in
   *"ends with a line that is not an entry"*) ;;
   *) fail "the refusal does not name the damaged last journal line" ;;
 esac
-[ "$(tail -n "$(printf 'x' | wc -c | tr -d ' ')" "$SKARBIEC_AUDIT_FILE")" = "$damaged" ] \
+[ "$(sed -n '$p' "$SKARBIEC_AUDIT_FILE")" = "$damaged" ] \
   || fail "an entry was chained past the damaged line"
 echo "ok: a damaged last line refuses the next entry and stays last" >>"$REPORT"
 

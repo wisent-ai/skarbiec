@@ -116,10 +116,9 @@ pub(super) fn tail_hash() -> Result<String> {
     let mut buf = String::new();
     file.read_to_string(&mut buf)?;
     // The window may open mid-line, so only its first line may be a cut
-    // fragment. The last entry must parse and carry its hash: walking back
-    // past a damaged last line chained the next entry onto an older hash, and
-    // an entry without one restarted the chain - both silently forked the
-    // tamper-evident journal.
+    // fragment. The last entry must parse and carry its hash, because chaining
+    // onto an older hash or restarting the chain would fork the tamper-evident
+    // journal.
     let cut = len > window;
     let mut lines = buf.lines().map(str::trim).filter(|line| !line.is_empty());
     if cut {
