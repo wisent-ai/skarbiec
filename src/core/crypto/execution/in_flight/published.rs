@@ -131,8 +131,8 @@ pub(super) fn others() -> Result<Vec<(u32, PublishedRun)>, String> {
 
 /// Whether `process` runs now, as the process table says: `ps -p` names it,
 /// or exits non-zero because no such process runs. A `ps` that cannot be run
-/// is the error itself; read as "ended", it removed the published runs of
-/// every live process.
+/// is the error itself, so no live process's published runs are removed as
+/// if it had ended.
 fn runs(process: u32) -> Result<bool, String> {
     match super::super::run_once("ps", &["-o", "pid=", "-p", &process.to_string()], None) {
         Ok(_) => Ok(true),
