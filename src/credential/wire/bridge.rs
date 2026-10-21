@@ -155,8 +155,8 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
         },
     )
     .context("wait for Weles credential acquisition bridge")?;
-    // A stderr that could not be read is said as such: read as empty, a
-    // failed bridge was reported as one that gave no diagnostics.
+    // A stderr that could not be read is said as such, so a failed bridge is
+    // never reported as one that gave no diagnostics.
     let detail = match diagnostics.join() {
         Ok(Ok(captured)) => sanitized_diagnostics(&captured),
         Ok(Err(error)) => format!("its stderr could not be read: {error}"),
