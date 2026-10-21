@@ -110,14 +110,14 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
         .context("onboarding state path has no parent")?;
     fs::create_dir_all(parent)
         .with_context(|| format!("create onboarding state directory {}", parent.display()))?;
-    fs::set_permissions(parent, fs::Permissions::from_mode(0o700))?;
+    fs::set_permissions(parent, fs::Permissions::from_mode(u32::from(libc::S_IRWXU)))?;
     let suffix = crate::core::crypto::random_token()?;
-    let temporary = path.with_extension(format!("json.tmp-{}", &suffix[..12]));
+    let temporary = path.with_extension(format!("json.tmp-{suffix}"));
     let body = format!("{}\n", serde_json::to_string(state)?);
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(0o600)
+        .mode(crate::core::vault::private_file_mode()?)
         .open(&temporary)
         .with_context(|| format!("create onboarding state {}", temporary.display()))?;
     file.write_all(body.as_bytes())?;
@@ -127,10 +127,10 @@ pub(super) fn save_state(state: &Value) -> Result<()> {
     Ok(())
 }
 
-/// Whose journey this is: the account this process runs as and the machine's
-/// own name. Read from USER and HOSTNAME, an unset one was a placeholder
-/// shared by every account or host without it; a host whose name cannot be
-/// read refuses with the cause.
+/// Whose journey this is: the account this process runs as, read from the
+/// kernel, and the machine's own name, read from the hostname program,
+/// never a placeholder for either; a host whose name cannot be read refuses
+/// with the cause.
 pub(super) fn subject_hash() -> Result<String> {
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
@@ -139,8 +139,7 @@ pub(super) fn subject_hash() -> Result<String> {
 }
 
 /// The onboarding state under the account's home, which HOME or the user
-/// database names. Read from HOME alone, an unset one filed the state under
-/// whatever directory the process started in.
+/// database names, never under the directory the process started in.
 pub(super) fn state_path() -> PathBuf {
     crate::core::home_dir().join(".local/share/skarbiec/onboarding.json")
 }

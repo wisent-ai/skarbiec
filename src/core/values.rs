@@ -4,8 +4,7 @@
 // same Vault API so the operator console and the local vault cannot drift.
 // Writing goes through set-json alone: the payload arrives whole on standard
 // input (or in the console's request body) and is validated as one canonical
-// document. A field-by-field `set`, which rebuilt an item from key=value
-// pairs with an assumed kind and replaced it, is gone.
+// document, never rebuilt from key=value pairs under an assumed kind.
 
 use crate::cli::args::OrUsage;
 use anyhow::{Context, Result};
@@ -19,13 +18,13 @@ pub fn dispatch(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
-    let Some(subcommand) = positionals.first().map(String::as_str) else {
+    let [subcommand, operands @ ..] = positionals else {
         return Ok(None);
     };
-    match (command, subcommand) {
+    match (command, subcommand.as_str()) {
         ("credential", "get") => {
-            let id = positionals
-                .get(1)
+            let id = operands
+                .first()
                 .or_usage("usage: credential get <id> [--field <field>]")?;
             let value = crate::cli::reads::get_value(flags, std::slice::from_ref(id))?;
             if flags.contains_key("field") {
@@ -37,8 +36,8 @@ pub fn dispatch(
             }
         }
         ("credential", "set-json") => {
-            let id = positionals
-                .get(1)
+            let id = operands
+                .first()
                 .or_usage("usage: credential set-json <id> [--type <canonical-kind>]")?;
             let encoded = flags
                 .get("__payload__")
