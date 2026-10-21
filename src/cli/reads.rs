@@ -30,9 +30,8 @@ pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
 
 /// `restore <id> [--at <at>]`: bring a trashed item back to the live
 /// inventory, or, with `--at`, make the historical revision recorded at
-/// `<at>` the item's new current revision. One verb for putting an item back
-/// as it was; a second command for the revision case was the same verb
-/// spelled twice.
+/// `<at>` the item's new current revision: one verb for putting an item back
+/// as it was.
 pub(crate) fn cmd_restore(positionals: &[String], at: Option<&str>) -> Result<Value> {
     let id = positionals
         .first()
