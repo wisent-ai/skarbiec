@@ -71,8 +71,8 @@ pub(crate) fn handle_enroll(
         return http::write_response(stream, bad, &json!({"error": "armored required"}));
     };
     // The items to share with the enrolled key. An absent list shares none; a
-    // list with an entry that is not an item id is refused, since dropping it
-    // left that item unshared and unnamed among the skipped ones.
+    // list with an entry that is not an item id is refused, so no item is
+    // left unshared without being named.
     let items: Vec<String> = match parsed.get("items") {
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(listed)) => match listed

@@ -179,8 +179,8 @@ impl Vault {
             // as it is.
             let movable =
                 ManagementMode::of(entry).is_some_and(|mode| mode != ManagementMode::Managed);
-            // A tags field that is not a list of text is refused: read as no
-            // tags, a Weles-managed item's control moved to the owner.
+            // A tags field that is not a list of text is refused, so a
+            // Weles-managed item's control never moves to the owner.
             let weles = crate::core::vault::entry_texts(id, entry, "tags")?
                 .iter()
                 .any(|tag| tag == "managed:weles");

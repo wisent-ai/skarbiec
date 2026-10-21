@@ -224,9 +224,9 @@ fn leaf(
             }
             let live = vault_path();
             let mut backup: Option<PathBuf> = None;
-            // A live vault that cannot be examined is refused, not read as
-            // absent: as absent it was overwritten by the mirror unbacked and
-            // unchecked for local items the mirror lacks.
+            // A live vault that cannot be examined is refused, never read as
+            // absent and overwritten by the mirror without a backup or a check
+            // for local items the mirror lacks.
             if crate::core::is_present(&live, "live vault")? {
                 let path = live.with_extension(format!("json.pre-pull-{}", now_stamp()));
                 std::fs::copy(&live, &path)
