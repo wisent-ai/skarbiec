@@ -1,13 +1,13 @@
 // The journal file itself: where it is, how a line is hashed onto the one
 // before it, and the lock that keeps two writers from sharing a predecessor.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
@@ -94,13 +94,48 @@ pub(super) fn digest_input(prev: &str, at: &str, op: &str, extra: &Value) -> Str
     format!("{prev}|{at}|{op}|{extra}")
 }
 
-/// Read only the journal's tail: the hash of the last complete line. Seeks to
-/// the final window instead of parsing the whole file on every request.
+/// The SHA-256 of `input`, as the lowercase hex the journal chains with.
 pub(super) fn sha256_hex(input: &str) -> String {
     let mut digest = Sha256::new();
     digest.update(input.as_bytes());
     format!("{:x}", digest.finalize())
 }
+
+/// The journal's complete lines in a window reaching back `window` bytes
+/// from its end, and whether that window reaches the start of the file.
+fn tail_window(file: &mut File, length: u64, window: u64) -> Result<(Vec<String>, bool)> {
+    let from_start = window >= length;
+    file.seek(std::io::SeekFrom::Start(length.saturating_sub(window)))?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    // A window that opens mid-file may cut its first line, even inside a
+    // character, so everything before its first line break is left out
+    // before the rest is decoded.
+    let complete: &[u8] = match (from_start, bytes.iter().position(|byte| *byte == b'\n')) {
+        (true, _) => &bytes,
+        (false, Some(first_break)) => &bytes[first_break..],
+        (false, None) => &[],
+    };
+    let text = std::str::from_utf8(complete).context("audit journal holds text that is not UTF-8")?;
+    let lines = text
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    Ok((lines, from_start))
+}
+
+/// The first window a tail read takes: the file system's preferred I/O block
+/// for the journal. Each wider window doubles it.
+fn first_window(metadata: &fs::Metadata) -> Result<u64> {
+    Ok(std::num::NonZeroU64::new(metadata.blksize())
+        .context("the file system reports no I/O block size for the audit journal")?
+        .get())
+}
+
+/// Read only the journal's tail: the hash of the last complete line, read in
+/// windows from the end instead of parsing the whole file on every request.
 pub(super) fn tail_hash() -> Result<String> {
     let path = audit_path();
     let mut file = match std::fs::File::open(&path) {
@@ -110,44 +145,35 @@ pub(super) fn tail_hash() -> Result<String> {
             return Err(error).with_context(|| format!("open audit journal {}", path.display()));
         }
     };
-    let len = file.metadata()?.len();
-    let window = u64::from(u16::MAX);
-    let skip = len.saturating_sub(window);
-    file.seek(std::io::SeekFrom::Start(skip))?;
-    let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
-    // The window may open mid-line, so only its first line may be a cut
-    // fragment. The last entry must parse and carry its hash, because chaining
-    // onto an older hash or restarting the chain would fork the tamper-evident
-    // journal.
-    let cut = len > window;
-    let mut lines = buf.lines().map(str::trim).filter(|line| !line.is_empty());
-    if cut {
-        lines.next();
-    }
-    let Some(last) = lines.next_back() else {
-        if cut {
-            bail!(
-                "audit journal {} holds no complete entry in its last {window} bytes",
-                path.display()
-            );
+    let metadata = file.metadata()?;
+    let length = metadata.len();
+    let mut window = first_window(&metadata)?;
+    loop {
+        let (lines, from_start) = tail_window(&mut file, length, window)?;
+        // The last entry must parse and carry its hash, because chaining onto
+        // an older hash or restarting the chain would fork the tamper-evident
+        // journal.
+        if let Some(last) = lines.last() {
+            let entry: Value = serde_json::from_str(last).with_context(|| {
+                format!(
+                    "audit journal {} ends with a line that is not an entry",
+                    path.display()
+                )
+            })?;
+            let hash = entry.get("hash").and_then(Value::as_str).with_context(|| {
+                format!(
+                    "audit journal {}'s last entry carries no hash",
+                    path.display()
+                )
+            })?;
+            return Ok(hash.to_string());
         }
-        // An empty journal: the chain starts here.
-        return Ok(String::new());
-    };
-    let entry: Value = serde_json::from_str(last).with_context(|| {
-        format!(
-            "audit journal {} ends with a line that is not an entry",
-            path.display()
-        )
-    })?;
-    let hash = entry.get("hash").and_then(Value::as_str).with_context(|| {
-        format!(
-            "audit journal {}'s last entry carries no hash",
-            path.display()
-        )
-    })?;
-    Ok(hash.to_string())
+        if from_start {
+            // An empty journal: the chain starts here.
+            return Ok(String::new());
+        }
+        window = window.saturating_add(window);
+    }
 }
 
 /// The journal's cross-process critical section. The kernel owns lock lifetime:
@@ -190,8 +216,7 @@ pub(super) fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
 
 /// Parse only the journal's final `limit` entries, walking backwards in
 /// widening windows, so the cost follows the size of the answer instead of
-/// the size of the file. A dashboard asking for ten rows must not read
-/// seventeen megabytes to get them.
+/// the size of the file.
 pub(super) fn tail_lines(limit: usize) -> Result<Vec<Value>> {
     let path = audit_path();
     let mut file = match std::fs::File::open(&path) {
@@ -201,29 +226,18 @@ pub(super) fn tail_lines(limit: usize) -> Result<Vec<Value>> {
             return Err(error).with_context(|| format!("open audit journal {}", path.display()));
         }
     };
-    let length = file.metadata()?.len();
-    let mut window = u64::from(u16::MAX);
+    let metadata = file.metadata()?;
+    let length = metadata.len();
+    let mut window = first_window(&metadata)?;
     loop {
-        // A window that does not reach the start of the file opens mid-file,
-        // so its first line may be cut: it is left to the next, wider window.
-        let from_start = window >= length;
-        file.seek(std::io::SeekFrom::Start(length.saturating_sub(window)))?;
-        let mut buffer = String::new();
-        file.read_to_string(&mut buffer)?;
-        let mut lines = buffer
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty());
-        if !from_start {
-            lines.next();
-        }
-        let mut parsed: Vec<Value> = Vec::new();
-        for line in lines {
-            parsed.push(serde_json::from_str(line).context("audit line is not JSON")?);
-        }
-        if parsed.len() >= limit || from_start {
-            let excess = parsed.len().saturating_sub(limit);
-            return Ok(parsed.split_off(excess));
+        let (lines, from_start) = tail_window(&mut file, length, window)?;
+        if lines.len() >= limit || from_start {
+            let excess = lines.len().saturating_sub(limit);
+            let mut parsed: Vec<Value> = Vec::new();
+            for line in &lines[excess..] {
+                parsed.push(serde_json::from_str(line).context("audit line is not JSON")?);
+            }
+            return Ok(parsed);
         }
         // Each wider window reads as much again as the last one did.
         window = window.saturating_add(window);
