@@ -93,8 +93,8 @@ const PROBE: &str = "a connection to the canonical Skarbiec";
 
 /// Whether anything accepts a connection at `authority`, and the operating
 /// system's refusal when nothing does. "Connection refused" and "permission
-/// denied" call for different repairs, and a bare `false` told the operator
-/// neither.
+/// denied" call for different repairs, so the refusal is reported beside the
+/// verdict.
 fn connect_probe(authority: &str) -> (bool, Value) {
     let network = wait::Kind::Network;
     match wait::blocking(network, PROBE, authority, || TcpStream::connect(authority)) {
