@@ -9,7 +9,7 @@ pub mod http;
 pub mod mcp;
 pub mod operator;
 pub mod owner;
-mod serve;
+pub(crate) mod serve;
 pub mod sync;
 
 use anyhow::Result;

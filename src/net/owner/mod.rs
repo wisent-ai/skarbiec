@@ -26,7 +26,7 @@ pub(crate) fn request(route: &str, path: &str, body: &Value) -> Result<Value> {
         &endpoint,
         || -> std::io::Result<Value> {
             let (status, value) =
-                super::bond::serve_request(&endpoint, "POST", path, "", "", Some(&body))
+                super::serve::serve_request(&endpoint, "POST", path, "", "", Some(&body))
                     .map_err(std::io::Error::other)?;
             if status != super::operator::OK_LINE {
                 return Err(std::io::Error::other(format!(

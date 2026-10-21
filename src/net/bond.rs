@@ -19,7 +19,7 @@ fn now_iso() -> String {
     crate::core::clock::now_iso()
 }
 
-pub(crate) use super::serve::serve_request;
+use super::serve::serve_request;
 
 /// `GET /v1/vault` — replica-mode pull of the whole ciphertext document.
 /// Requires a `sync:pull` grant; items are served exactly as stored

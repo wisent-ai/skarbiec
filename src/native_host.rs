@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::io::{Read, Write};
 
 use crate::core::totp;
-use crate::net::{bond::serve_request, operator::OK_LINE};
+use crate::net::{operator::OK_LINE, serve::serve_request};
 
 /// The browser-host grant file: `SKARBIEC_BROWSER_TOKEN_FILE`, else under HOME.
 /// An unset HOME is refused rather than read as the empty path, which would put

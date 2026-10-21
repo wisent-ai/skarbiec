@@ -27,7 +27,7 @@ pub(super) fn donate(flags: &HashMap<String, String>, positionals: &[String]) ->
         .context("canonical item has no kind")?
         .to_string();
     let (_status, owner) =
-        crate::net::bond::serve_request(to, "GET", "/v1/owner-pubkey", consumer, token, None)?;
+        crate::net::serve::serve_request(to, "GET", "/v1/owner-pubkey", consumer, token, None)?;
     let armored = owner
         .get("armored")
         .and_then(Value::as_str)
@@ -47,7 +47,7 @@ pub(super) fn donate(flags: &HashMap<String, String>, positionals: &[String]) ->
         Some(from) => from,
         None => consumer,
     };
-    let (_status, response) = crate::net::bond::serve_request(
+    let (_status, response) = crate::net::serve::serve_request(
         to,
         "POST",
         "/v1/donations",

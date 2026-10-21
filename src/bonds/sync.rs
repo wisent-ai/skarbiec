@@ -198,7 +198,7 @@ fn remote_state(channel: Option<&Value>, consumer: &str, token: Option<&String>)
             .push("the serve channel records no address".to_string());
         return remote;
     };
-    match crate::net::bond::serve_request(address, "GET", "/health", "", "", None) {
+    match crate::net::serve::serve_request(address, "GET", "/health", "", "", None) {
         Ok((status, health)) => match health.get("ok") {
             Some(ok) => remote.healthy = Some(ok.clone()),
             None => remote.errors.push(format!(
@@ -208,7 +208,7 @@ fn remote_state(channel: Option<&Value>, consumer: &str, token: Option<&String>)
         Err(error) => remote.errors.push(format!("{error:#}")),
     }
     if let Some(presented) = token {
-        match crate::net::bond::serve_request(
+        match crate::net::serve::serve_request(
             address,
             "GET",
             "/v1/vault",
