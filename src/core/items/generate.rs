@@ -39,8 +39,7 @@ impl Entropy {
 
     /// An index below `bound`, every one equally likely. A 64-bit draw below
     /// 2^64 mod `bound` is drawn again, so the draws that remain divide evenly
-    /// among the indices; `byte % bound` favoured the first 256 mod `bound`
-    /// of them.
+    /// among the indices and no index is favoured.
     fn below(&mut self, bound: usize) -> Result<usize> {
         let bound = NonZeroU64::new(u64::try_from(bound).context("draw range exceeds 64 bits")?)
             .context("draw from an empty range")?;
