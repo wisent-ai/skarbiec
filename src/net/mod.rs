@@ -15,6 +15,7 @@ use anyhow::Result;
 use serde_json::Value;
 use std::collections::HashMap;
 
+pub(crate) use api::access_request::handle_access_request;
 pub(crate) use api::donation::handle_donation;
 pub(crate) use api::identity::{handle_owner_pubkey, handle_tokens_introspect};
 pub(crate) use api::items::{handle_items_put, handle_items_read, handle_items_revision};

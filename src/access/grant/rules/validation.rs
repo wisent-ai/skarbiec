@@ -107,6 +107,11 @@ pub(in crate::access::grant) fn allowed_action(action: &str) -> bool {
             // exact route within it, so a client's reach is a grant here rather
             // than a list compiled into the service it calls.
             | "call"
+            // File an access request of one kind (`request:secret`,
+            // `request:device`, `request:membership`) into this vault's
+            // register from another host. Reads and grants nothing; a person
+            // still decides (docs/design/access-requests.md).
+            | "request"
     )
 }
 

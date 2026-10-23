@@ -177,7 +177,7 @@ pub(in crate::access::grant) fn group(
             "actions": [
                 "read", "acquire", "stage", "rotate", "verify", "revoke", "share", "trash",
                 "purge", "admin", "sync", "enroll", "donate", "lifecycle", "reseal",
-                "introspect", "call",
+                "introspect", "call", "request",
             ],
         }))),
         other => Err(crate::cli::args::Usage(format!(

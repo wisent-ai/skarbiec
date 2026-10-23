@@ -81,6 +81,17 @@ pub(in crate::access::grant) fn parse_capabilities(
             capabilities.push(capability);
             continue;
         }
+        // A `request` capability names a kind of access request, not an item.
+        if action == "request" {
+            if field.is_some() || !crate::access::request::KINDS.contains(&item) {
+                bail!(
+                    "request capability names one request kind without a field: request:{}",
+                    crate::access::request::KINDS.join("|request:")
+                );
+            }
+            capabilities.push(capability);
+            continue;
+        }
         // Lifecycle scopes can name the item an acquire operation will create.
         // They grant no value access; requiring an existing item here would
         // make acquisition of a new credential through the canonical API impossible.

@@ -1,6 +1,6 @@
 # Access requests: an agent asks, a person decides, Skarbiec grants
 
-Status: accepted by Zuzanna (2026-10-22); being implemented. Decisions below are settled.
+Status: accepted by Zuzanna (2026-10-22). Implemented in Skarbiec (delivery step 1) and Las (step 2); steps 3–5 belong to Oko, Tama and Most. Decisions below are settled.
 
 ## Problem
 
@@ -84,6 +84,17 @@ Skarbiec records every decision even when another product issues the grant, so t
 3. **wisent-supabase-oko + Oko**: addressed asks (`--to`), and the ruling subject Tama reads.
 4. **Tama**: device-permission requests filed into the register instead of printing commands.
 5. **Most** (optional): reply-to-approve bridge.
+
+## Implemented in Skarbiec
+
+- Register `<vault>.requests.json` (mode 0600, flock beside it): `src/access/request/register.rs`. Records carry `{id (UUID v4), requested_at, requester {agent, harness, host, person}, kind, resource, action, reason, decider, dual_control, grant, via, state, decisions [{by, at, answer, lifetime, uses}], issued}`. `grant` is `{form: capability, purpose, target, ttl_seconds, max_uses}` (asked bounds), `{form: consumer, consumer}` or `{form: record}`.
+- CLI `skarbiec request file|list|show|approve|deny|withdraw|watch` (`src/access/request/`). `--decider` is `owner`, `admin` (any owner or admin, the default) or one recipient uid. A request is dual-control when filed with `--dual-control` or when its secret resolves to an item tagged `dual-control`.
+- Approval issues `grant capability … --authorization-id <request id>` or `grant issue <consumer> --capabilities <action>:<resource> --token-file <owner-only file>`; a consumer that already holds a grant is refused rather than having its bearer replaced. Two approvals of a dual-control request take the narrower lifetime and fewer uses.
+- `skarbiec request watch --local --by <uid>`: osascript dialogs; between requests it blocks on the FIFO `<vault>.requests.wake`, which every register write pokes.
+- Journal ops `access-requested`, `access-approved` (with `granted`), `access-denied`, `access-withdrawn`, and `access-request-sent` on the filing host.
+- Operator routes `/v1/operator/requests`, `/requests/approve`, `/requests/deny`; cross-host `POST /v1/access-requests` gated by `request:secret|device|membership`.
+- `skarbiec mcp broker`: exactly `health`, `capability_available`, `capability_request`, `access_request_status`, with the input schemas Las pins. `health` reports `policy_sequence` = the vault document generation, `registry_sequence` = audit journal entries, `anomaly_count` = audit chain faults.
+- Runnable proof: `docs/examples/sharing/request-access.sh` (in `sharing/` because `docs/examples/` already holds its five files); refusals: `tests/access/request.sh`.
 
 ## Decisions
 

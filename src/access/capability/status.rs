@@ -9,7 +9,7 @@ use std::path::absolute;
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 
-use super::state::{routes_path, state_path};
+use super::state::{acquire_state_lock, load_state, now_epoch, routes_path, state_path};
 use crate::core::vault_path;
 
 pub(super) const VERSION: &str = "skarbiec.capability-status.v1";
@@ -78,4 +78,40 @@ pub(super) fn inspect(flags: &HashMap<String, String>) -> Result<Value> {
     );
     response["socket"] = serde_json::to_value(socket)?;
     Ok(response)
+}
+
+/// Whether one capability record can still be redeemed: issued, unexpired,
+/// with a use left — the same conditions a redemption checks.
+fn redeemable(record: &Value, now: u64) -> bool {
+    record.get("state").and_then(Value::as_str) == Some("issued")
+        && record
+            .get("expires_at")
+            .and_then(Value::as_u64)
+            .is_some_and(|until| until > now)
+        && record
+            .get("remaining_uses")
+            .and_then(Value::as_u64)
+            .is_some_and(|uses| uses > u64::MIN)
+}
+
+/// How many capabilities could be redeemed right now.
+pub(crate) fn active_count() -> Result<usize> {
+    let _lock = acquire_state_lock()?;
+    let state = load_state()?;
+    let now = now_epoch()?;
+    Ok(state["capabilities"].as_object().map_or(usize::MIN, |all| {
+        all.values()
+            .filter(|record| redeemable(record, now))
+            .count()
+    }))
+}
+
+/// Whether this capability could be redeemed right now.
+pub(crate) fn live(capability_id: &str) -> Result<bool> {
+    let _lock = acquire_state_lock()?;
+    let state = load_state()?;
+    let now = now_epoch()?;
+    Ok(state["capabilities"]
+        .get(capability_id)
+        .is_some_and(|record| redeemable(record, now)))
 }
