@@ -1,6 +1,6 @@
 # Access requests: an agent asks, a person decides, Skarbiec grants
 
-Status: proposal (not implemented). Author: Zuzanna's coding agent, for review by the wisent-ai team.
+Status: accepted by Zuzanna (2026-10-22); being implemented. Decisions below are settled.
 
 ## Problem
 
@@ -85,8 +85,9 @@ Skarbiec records every decision even when another product issues the grant, so t
 4. **Tama**: device-permission requests filed into the register instead of printing commands.
 5. **Most** (optional): reply-to-approve bridge.
 
-## Open decisions for the team
+## Decisions
 
-1. Who may approve membership and org-wide resources: only the org `owner`, or `owner` and `admin`?
-2. Is the Las identity rule (operator env when the client sends none) acceptable, or must clients be wrapped to send `agentId`?
-3. Should approvals that grant high authority (e.g. the Oko `service_role_key`, which can sign in as anyone) require two deciders?
+1. Membership and organization-wide resources are approved by the organization's `owner` and `admin` roles; in a vault, by recipients with role `owner` or `admin`.
+2. Las takes the agent identity from its operator-provided environment (`SKARBIEC_MCP_AGENT_ID`) when the client sends no `agentId`.
+3. High-authority resources (marked dual-control by their owner, e.g. the Oko `service_role_key`) need two different deciders before the grant is issued.
+4. Until the decider has a Wisent account on the vault host, the local dialog is the delivery channel; `oko asks` is used once it is available.
