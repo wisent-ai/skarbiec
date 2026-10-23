@@ -14,7 +14,10 @@ use crate::core::{crypto, vault::Vault};
 // Liveness matches grant::active: a consumer entry carries no state field, only an
 // expiry. Checking for a "state" the vault never writes would deny every redemption
 // while looking like a working guard.
-pub(super) fn workload_public_key(vault: &Vault, agent: &str) -> Option<String> {
+pub(in crate::access::capability) fn workload_public_key(
+    vault: &Vault,
+    agent: &str,
+) -> Option<String> {
     let entry = vault
         .doc()
         .get("tokens")

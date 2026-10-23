@@ -13,6 +13,7 @@ mod proof;
 mod request;
 mod wire;
 
+pub(in crate::access::capability) use proof::workload_public_key;
 pub(in crate::access::capability) use wire::challenge_put;
 
 use request::handle;

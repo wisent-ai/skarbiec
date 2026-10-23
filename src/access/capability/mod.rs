@@ -78,3 +78,10 @@ pub(super) use state::{routes_path, write_private_file};
 
 use redeem::challenge_put;
 pub(crate) use redeem::CapabilityListener;
+pub(crate) use status::{active_count, live};
+
+/// Whether a live consumer grant registers a workload key for this agent,
+/// without which no capability issued to it could ever be redeemed.
+pub(crate) fn workload_registered(vault: &crate::core::vault::Vault, agent: &str) -> bool {
+    redeem::workload_public_key(vault, agent).is_some()
+}

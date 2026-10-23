@@ -144,7 +144,7 @@ fn run() -> Result<()> {
         "export" => cmd_export(&flags, &positionals),
         "onboarding" => emit(&onboarding::run(&flags)?),
         "help" => emit(&cli::help::listing()),
-        "mcp" => net::mcp::serve(),
+        "mcp" => net::mcp::serve(&positionals),
         "native-host" => native_host::run(),
         "browser-host-install" => emit(&browser::install_host(&flags)?),
         other => {

@@ -261,6 +261,9 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     if method == "POST" && path == "/v1/donations" {
         return crate::net::handle_donation(&mut stream, &headers, &body);
     }
+    if method == "POST" && path == "/v1/access-requests" {
+        return crate::net::handle_access_request(&mut stream, &headers, &body);
+    }
     if method == "POST" && path == "/v1/enroll" {
         return crate::net::bond::handle_enroll(&mut stream, &headers, &body);
     }

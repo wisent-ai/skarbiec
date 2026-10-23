@@ -34,6 +34,7 @@ pub(super) fn is_mutation(method: &str, path: &str) -> bool {
             | ("POST", "/v1/acquisitions")
             | ("POST", "/v1/acquisitions/read")
             | ("POST", "/v1/donations")
+            | ("POST", "/v1/access-requests")
             | ("POST", "/v1/enroll")
             | ("POST", CREDENTIAL_OPERATIONS_PATH)
     )

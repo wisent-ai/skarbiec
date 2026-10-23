@@ -2,7 +2,7 @@
 // bodies carry JSON; the backends take the flags and positionals a command
 // line would have carried.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -133,4 +133,78 @@ pub(super) fn flags(parsed: &Value, keys: &[&str]) -> HashMap<String, String> {
 
 pub(super) fn positionals(parsed: &Value, keys: &[&str]) -> Result<Vec<String>> {
     keys.iter().map(|key| text(parsed, key)).collect()
+}
+
+/// One `request` leaf: the access request register's list, approve and deny,
+/// reached through the same dispatcher the command line uses.
+pub(super) fn request(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
+    answered(crate::access::request::dispatch(
+        command,
+        flags,
+        positionals,
+    ))
+}
+
+/// One `/v1/operator/credential` operation, already checked against the list
+/// routes.rs serves.
+pub(super) fn credential_operation(operation: String, parsed: &Value) -> Result<Value> {
+    match operation.as_str() {
+        "status" | "acquire" | "rotate" | "resume" => {
+            // Always this vault file: the console reports on and drives the
+            // vault in view, never a canonical Skarbiec somewhere else.
+            let mut call_flags = flags(parsed, &["provider", "consumer", "purpose", "account"]);
+            call_flags.insert("local".to_string(), "true".to_string());
+            credential(&call_flags, &[operation, text(parsed, "item")?])
+        }
+        "get" => {
+            let call_flags = flags(parsed, &["field"]);
+            crate::core::values::dispatch(
+                "credential",
+                &call_flags,
+                &["get".to_string(), text(parsed, "item")?],
+            )?
+            .context("get operation failed")
+        }
+        "set" => {
+            let item_id = text(parsed, "item")?;
+            let call_flags = flags(parsed, &["type"]);
+            // Collect all remaining fields from the parsed JSON (excluding known keys)
+            let mut field_updates = Vec::new();
+            if let Some(obj) = parsed.as_object() {
+                for (key, value) in obj.iter() {
+                    if !["operation", "item", "type", "vault"].contains(&key.as_str()) {
+                        if let Some(s) = value.as_str() {
+                            field_updates.push(format!("{}={}", key, s));
+                        }
+                    }
+                }
+            }
+            let mut positionals = vec!["set".to_string(), item_id];
+            positionals.extend(field_updates);
+            crate::core::values::dispatch("credential", &call_flags, &positionals)?
+                .context("set operation failed")
+        }
+        "set-json" => {
+            let item_id = text(parsed, "item")?;
+            let mut call_flags = flags(parsed, &["type", "tags", "recipients", "if-absent"]);
+            // Pass the payload as a special flag to the dispatcher
+            if let Some(payload) = parsed.get("payload") {
+                call_flags.insert("__payload__".to_string(), payload.to_string());
+            }
+            let positionals = vec!["set-json".to_string(), item_id];
+            crate::core::values::dispatch("credential", &call_flags, &positionals)?
+                .context("set-json operation failed")
+        }
+        "totp" => {
+            let call_flags = flags(parsed, &[]);
+            let positionals = vec![text(parsed, "item")?];
+            crate::runtime::totp::dispatch("totp", &call_flags, &positionals)?
+                .context("totp operation failed")
+        }
+        _ => bail!("unknown credential operation: {}", operation),
+    }
 }

@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use crate::core::{items, schema, vault::Vault, vault_path};
+use crate::core::{items, vault::Vault, vault_path};
 
 pub fn dispatch(
     command: &str,
