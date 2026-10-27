@@ -28,6 +28,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
     let none: Vec<String> = Vec::new();
     let no_flags = HashMap::new();
     match path {
+
         // Mutations, one route per verb, bodies naming exact targets.
         "/v1/operator/vaults/create" => {
             crate::cmd_init(&no_flags, &positionals(parsed, &["owner"])?)

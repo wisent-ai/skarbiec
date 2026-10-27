@@ -12,6 +12,7 @@ pub mod owner_key;
 pub mod policy;
 pub mod recipients;
 pub mod recovery;
+pub mod request;
 pub mod route;
 
 use anyhow::Result;
@@ -45,6 +46,9 @@ pub fn dispatch(
         return Ok(Some(v));
     }
     if let Some(v) = owner_key::dispatch(command, flags, positionals)? {
+        return Ok(Some(v));
+    }
+    if let Some(v) = request::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
     Ok(None)

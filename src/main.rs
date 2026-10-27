@@ -212,7 +212,7 @@ fn run() -> Result<()> {
             print!("{script}");
             Ok(())
         }
-        "mcp" => net::mcp::serve(),
+        "mcp" => net::mcp::serve(&positionals),
         "browser" => browser::command(&flags, &positionals),
         // `helper answer <tool>` is the tool's protocol, answered on standard
         // output in the tool's own words; the rest answer as every command does.

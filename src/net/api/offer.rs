@@ -46,9 +46,12 @@ pub(crate) fn handle_offer(stream: &mut TcpStream, headers: &HashMap<String, Str
     if let Err(error) = crate::runtime::gitcred::checked_host(site) {
         return http::write_response(stream, bad, &json!({"error": format!("{error:#}")}));
     }
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return http::unidentified(stream, &reason),
+    };
     let vault = http::load()?;
-    if consumer.is_empty() || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "offer", OFFERED)? {
+    if !grant::token_allows_vault_action(&vault, &consumer, &bearer, "offer", OFFERED)? {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

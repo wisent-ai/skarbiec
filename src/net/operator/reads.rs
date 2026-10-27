@@ -6,7 +6,9 @@ use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::calls::{access, bonds, flags, grant, inbox, optional, positionals, rotation, runtime, verbed};
+use super::calls::{
+    access, bonds, flags, grant, inbox, optional, positionals, request, rotation, runtime, verbed,
+};
 
 /// The answer to a read route, or `None` when `path` is not one.
 pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
@@ -53,6 +55,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         "/v1/operator/status" => crate::core::items::status_json(),
         "/v1/operator/vaults" => crate::runtime::vaults::inventory(),
         "/v1/operator/donations" => inbox("donation list", &no_flags, &none),
+        "/v1/operator/requests" => request("request list", &flags(parsed, &["state"]), &none),
         "/v1/operator/emergency" => access("emergency list", &no_flags, &none),
         "/v1/operator/recovery" => access("recovery status", &no_flags, &none),
         "/v1/operator/key-doctor" => access("keys", &no_flags, &["check".to_string()]),

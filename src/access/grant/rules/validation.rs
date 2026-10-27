@@ -87,6 +87,7 @@ pub(in crate::access::grant) fn exact_resource(value: &str) -> bool {
         })
 }
 
+
 /// A route within a service: components joined by `/`, each one exact.
 ///
 /// Separators are allowed because a route has them; nothing else is. No empty

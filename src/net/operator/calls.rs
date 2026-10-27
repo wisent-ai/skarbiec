@@ -2,7 +2,7 @@
 // bodies carry JSON; the backends take the flags and positionals a command
 // line would have carried.
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -141,4 +141,14 @@ pub(super) fn verbed(verb: &str, parsed: &Value, keys: &[&str]) -> Result<Vec<St
     let mut words = vec![verb.to_string()];
     words.extend(positionals(parsed, keys)?);
     Ok(words)
+}
+
+/// One `request` leaf: the access request register's list, approve and deny,
+/// reached through the same dispatcher the command line uses.
+pub(super) fn request(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
+    answered(crate::access::request::dispatch(command, flags, positionals))
 }

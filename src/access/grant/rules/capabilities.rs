@@ -81,6 +81,17 @@ pub(in crate::access::grant) fn parse_capabilities(
             capabilities.push(capability);
             continue;
         }
+        // A `request` capability names a kind of access request, not an item.
+        if action.files_request() {
+            if field.is_some() || !crate::access::request::KINDS.contains(&item) {
+                bail!(
+                    "request capability names one request kind without a field: request:{}",
+                    crate::access::request::KINDS.join("|request:")
+                );
+            }
+            capabilities.push(capability);
+            continue;
+        }
         if !preserved && field == Some("context") && !action.reads_context() {
             bail!("context is metadata and may only be named by read capabilities");
         }

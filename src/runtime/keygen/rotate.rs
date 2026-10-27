@@ -81,7 +81,7 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
     let comment = match (flags.get("comment"), retired.as_deref().and_then(comment_of)) {
         (Some(given), _) => given.clone(),
         (None, Some(kept)) => kept.to_string(),
-        (None, None) => id.clone(),
+        (None, None) => id.to_string(),
     };
     let (private_key, public_key) = super::generate(&comment)?;
     // The forges' deploy keys first, then the servers: the vault takes the

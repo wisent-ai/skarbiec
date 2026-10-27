@@ -13,11 +13,15 @@
 // params, so no bearer in transcript/log/argv), and always emits to a required,
 // absolute SKARBIEC_MCP_OUT_DIR (relative refused) returning only the owner-only
 // file path plus exported variable NAMES — values never leave disk.
+//
+// `skarbiec mcp broker` serves a different surface on the same loop: the
+// capability broker v1 tools Las federates, and only those (broker.rs).
 
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
+mod broker;
 mod catalog;
 mod endpoints;
 mod resolve;
@@ -57,7 +61,7 @@ fn server_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
+fn handle(request: &Value, out: &mut impl Write, broker: bool) -> Result<()> {
     // No `id` key => notification: never answer.
     let id = match request.get("id") {
         Some(id) => id.clone(),
@@ -75,10 +79,20 @@ fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
             "serverInfo": {"name": "skarbiec", "version": server_version()}}}),
         ),
         "ping" => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": {}})),
-        "tools/list" => send(
-            out,
-            &json!({"jsonrpc": "2.0", "id": id, "result": {"tools": tools()}}),
-        ),
+        "tools/list" => {
+            let listed = if broker {
+                match broker::tools() {
+                    Ok(listed) => listed,
+                    Err(e) => return send(out, &error_response(id, CODE_INTERNAL_ERROR, &format!("{e:#}"))),
+                }
+            } else {
+                tools()
+            };
+            send(
+                out,
+                &json!({"jsonrpc": "2.0", "id": id, "result": {"tools": listed}}),
+            )
+        }
         "tools/call" => {
             // JSON-RPC lets a call omit `params`; a tool call without a tool name cannot run.
             let Some(name) = request.pointer("/params/name").and_then(Value::as_str) else {
@@ -92,7 +106,12 @@ fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
             if let Some(stated) = request.pointer("/params/arguments") {
                 args.clone_from(stated);
             }
-            match call_tool(name, &args) {
+            let result = if broker {
+                broker::call_tool(name, &args)
+            } else {
+                call_tool(name, &args)
+            };
+            match result {
                 Ok(result) => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": result})),
                 Err(e) => send(
                     out,
@@ -112,8 +131,20 @@ fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
 }
 
 /// Run the stdio JSON-RPC loop until stdin closes. Owns stdout exclusively.
-pub fn serve() -> Result<()> {
-    crate::runtime::audit::append("mcp-serve", &json!({"transport": "stdio"}))?;
+/// `surface` is the positional after `mcp`: none for the vault tools, or
+/// `broker` for the capability broker v1 surface.
+pub fn serve(surface: &[String]) -> Result<()> {
+    let broker = match surface {
+        [] => false,
+        [only] if only == "broker" => true,
+        _ => {
+            return Err(crate::cli::args::Usage("usage: skarbiec mcp [broker]".to_string()).into())
+        }
+    };
+    crate::runtime::audit::append(
+        "mcp-serve",
+        &json!({"transport": "stdio", "surface": if broker { "broker" } else { "vault" }}),
+    )?;
     eprintln!("skarbiec MCP server on stdio (protocol {PROTOCOL_VERSION})");
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -124,7 +155,7 @@ pub fn serve() -> Result<()> {
             continue;
         }
         match serde_json::from_str::<Value>(trimmed) {
-            Ok(request) => handle(&request, &mut stdout)?,
+            Ok(request) => handle(&request, &mut stdout, broker)?,
             Err(error) => send(
                 &mut stdout,
                 &error_response(Value::Null, CODE_PARSE_ERROR, &format!("parse error: {error}")),

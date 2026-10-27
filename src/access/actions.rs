@@ -37,6 +37,11 @@ pub(crate) enum Action {
     /// in the donation inbox until the owner accepts it. Names `logins`, not
     /// an item, and reads nothing.
     Offer,
+    /// File an access request of one kind (`request:secret`,
+    /// `request:device`, `request:membership`) into this vault's register
+    /// from another host. Names the request kind, not an item, and reads and
+    /// grants nothing: a person still decides.
+    Request,
 }
 
 const ALL: &[Action] = &[
@@ -58,6 +63,7 @@ const ALL: &[Action] = &[
     Action::Introspect,
     Action::Call,
     Action::Offer,
+    Action::Request,
 ];
 
 impl Action {
@@ -82,6 +88,7 @@ impl Action {
             Action::Introspect => "introspect",
             Action::Call => "call",
             Action::Offer => "offer",
+            Action::Request => "request",
         }
     }
 
@@ -113,7 +120,12 @@ impl Action {
     pub(crate) fn names_vault_item(self) -> bool {
         !matches!(
             self,
-            Action::Call | Action::Sync | Action::Enroll | Action::Introspect | Action::Offer
+            Action::Call
+                | Action::Sync
+                | Action::Enroll
+                | Action::Introspect
+                | Action::Offer
+                | Action::Request
         )
     }
 
@@ -125,9 +137,9 @@ impl Action {
         )
     }
 
-    /// Acts on a whole item, so it names no field.
+    /// Acts on a whole item, or names a request kind, so it names no field.
     pub(crate) fn forbids_field(self) -> bool {
-        matches!(self, Action::Lifecycle | Action::Reseal)
+        matches!(self, Action::Lifecycle | Action::Reseal | Action::Request)
     }
 
     /// Resolves a `role:<role>` coordinate to the item playing that role.
@@ -154,11 +166,21 @@ impl Action {
         matches!(self, Action::Call)
     }
 
+    /// Names a kind of access request rather than a vault item.
+    pub(crate) fn files_request(self) -> bool {
+        matches!(self, Action::Request)
+    }
+
     /// Was grantable before the v2 vault: a legacy grant names only these.
     pub(crate) fn legacy(self) -> bool {
         !matches!(
             self,
-            Action::Lifecycle | Action::Reseal | Action::Introspect | Action::Call | Action::Offer
+            Action::Lifecycle
+                | Action::Reseal
+                | Action::Introspect
+                | Action::Call
+                | Action::Offer
+                | Action::Request
         )
     }
 

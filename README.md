@@ -92,6 +92,7 @@ journal.
 | Issue a finite capability against a routed credential | Issuance refuses before handing one out, naming the coordinate and the reason, unless the credential the route names can actually serve | [Capability issuance example](docs/examples/operations/issue-a-capability.sh) |
 | Store and inspect a credential without printing it | The write returns the item id; `list` returns metadata only | [Add a credential](docs/examples/add-credential.sh) |
 | Share an item, then withdraw access | The recipient can decrypt only the shared item; revocation re-encrypts it to the remaining recipients | [Sharing example](docs/examples/sharing/share-credential-with-user.sh) |
+| Let an agent ask for access and a person decide | The request waits as `pending`; only an owner or admin approves, stating the lifetime and uses; the grant is bound to the request id; a denial issues nothing | [Access request example](docs/examples/sharing/request-access.sh) |
 | Replace a lost or departing owner | Every current and historical ciphertext is rewrapped and recovery remains present | [Owner rotation](https://skarbiec.wisent.com/docs/examples) |
 | Prove recovery before an incident | An isolated custodian keyring opens and discards a deterministic canary and records pass/fail | [Recovery commands](https://skarbiec.wisent.com/docs/cli#recovery-and-emergency-access) |
 | Move ciphertext between hosts | A replica receives encrypted vault state; local-only data is protected from accidental overwrite | [Sync examples](https://skarbiec.wisent.com/docs/examples#command-surfaces--which-tool-for-what) |
@@ -268,13 +269,70 @@ The scheduling lifecycle journey, `tests/rotation/scheduled_command.sh`, require
 password length from an interval or supplies an undeclared numeric default.
 
 
+### Access requests: an agent asks, a person decides
+
+An agent that needs a credential it does not hold files a request instead of
+printing a command for a person to run (design:
+[docs/design/access-requests.md](docs/design/access-requests.md)). The request
+lands in the owner-only register `<vault>.requests.json` beside the vault, and
+every step is journaled as `access-requested`, `access-approved`,
+`access-denied` or `access-withdrawn`.
+
+```sh
+# The agent asks (or calls capability_request on `skarbiec mcp broker`):
+skarbiec request file --kind secret --resource provider:openai --action read \
+  --purpose jeden.chat --target jeden --ttl-seconds 600 --max-uses 1 \
+  --agent jeden --harness omp --reason "answer the user's question"
+
+# A person with role owner or admin decides, stating lifetime and uses:
+skarbiec request list --state pending
+skarbiec request approve <request-id> --by <uid> --ttl-seconds 600 --uses 1
+skarbiec request deny <request-id> --by <uid> --reason "not for this task"
+
+# Or answers each request in a native macOS dialog on the vault host:
+skarbiec request watch --local --by <uid>
+```
+
+- A **secret** request names a bounded capability (`--purpose`, `--target`,
+  asked `--ttl-seconds` and `--max-uses`), issued on approval as
+  `grant capability --authorization-id <request id>`, so the workload must sign
+  the request id into its redemption proof; or a standing consumer grant
+  (`--for-consumer <name>`), issued as `grant issue` with the bearer written to
+  an owner-only file named in the answer and never printed. **Device** and
+  **membership** requests are recorded as approved for Tama or the organization
+  to act on.
+- `approve` has no defaults: `--ttl-seconds N` or `--until-revoked`, and
+  `--uses N` for a capability. The decider must be a recipient with role
+  `owner` or `admin` whose secret key is in this host's keyring.
+- An item tagged `dual-control` (or a request filed with `--dual-control`) is
+  granted only after two different deciders approved it, within the narrower
+  of their bounds.
+- Another host files with `request file --to <base-url> --consumer <name>
+  --token-file <path>`, through `POST /v1/access-requests`, gated by an exact
+  `request:<kind>` grant on this vault (`grant issue <consumer> --capabilities
+  request:secret ...`).
+- Agents reach it through Las: `skarbiec mcp broker` serves exactly the
+  capability broker v1 tools `health`, `capability_available`,
+  `capability_request` and `access_request_status`, for the agent the operator
+  names in `SKARBIEC_MCP_AGENT_ID`. `capability_request` answers
+  `{"status":"issued","capability_id":…}` when an approved request holds a live
+  capability, and otherwise files one and answers
+  `{"status":"pending","request_id":…}`.
+- The loopback operator API serves `/v1/operator/requests`,
+  `/v1/operator/requests/approve` and `/v1/operator/requests/deny`.
+
+`sh docs/examples/sharing/request-access.sh` runs the whole path in a
+throwaway vault: MCP request → CLI approval → capability → one redemption,
+then a denial that issues nothing, a dual-control item that needs two
+deciders, and a request filed by another host.
+
 ## Primary interfaces
 
 | Interface | Canonical purpose | Stability | Documentation and example |
 | --- | --- | --- | --- |
 | `skarbiec` CLI | Owner administration, diagnostics, and supervised automation | Public `0.2.x`; tracked by the versioned command surface | [CLI reference](https://skarbiec.wisent.com/docs/cli) · [Examples](https://skarbiec.wisent.com/docs/examples) |
 | Loopback HTTP broker | Service acquisition, compatibility item access, health, and ciphertext sync | Public `/v1`; acquisition is the default, direct scopes are compatibility-only | [Acquisition contract](https://skarbiec.wisent.com/docs/cli#service-account-grants) · [Examples](https://skarbiec.wisent.com/docs/examples) |
-| MCP server | Agent-safe metadata and audit, plus explicitly configured declared route resolution | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](https://skarbiec.wisent.com/docs/security#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](https://skarbiec.wisent.com/docs/cli#servers) |
+| MCP server | Agent-safe metadata and audit, plus explicitly configured declared route resolution; `mcp broker` serves the capability broker v1 tools Las federates, where a capability is issued only after a person approves the access request | Public restricted surface; raw reads and administrative mutation are intentionally absent | [MCP boundary](https://skarbiec.wisent.com/docs/security#the-mcp-boundary-is-tighter-than-the-cli) · [Server commands](https://skarbiec.wisent.com/docs/cli#servers) |
 | Chrome native host | Origin-checked fill through the managed extension | Public managed integration; the extension never receives a vault bearer or private key | [Browser boundary](https://skarbiec.wisent.com/docs/security#the-browser-boundary) · [Managed installation](https://skarbiec.wisent.com/docs/install#managed-browser-installation-and-updates) |
 | Stado adapter | Preserve exact deployed Wisent consumer/item contracts over the broker | Compatibility interface outside the core binary | [Examples](https://skarbiec.wisent.com/docs/examples) |
 

@@ -170,7 +170,7 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     let root = repo.join("target/real-tests/recovery").join(&run);
     fs::DirBuilder::new()
         .recursive(true)
-        .mode(libc::S_IRWXU.into())
+        .mode(owner_only_mode())
         .create(&root)
         .unwrap();
     let keyring = repo.join("target").join(format!("g{}", std::process::id()));
@@ -228,7 +228,7 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
         );
     }
     fs::DirBuilder::new()
-        .mode(libc::S_IRWXU.into())
+        .mode(owner_only_mode())
         .create(&journey.keyring)
         .unwrap();
     journey.active = true;
@@ -296,4 +296,12 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     journey.maintain_recovers_silent_agent(&item, &value);
     journey.read_behind_held_lock(&item, &value, node.trim());
     journey.passed = true;
+}
+
+/// `S_IRWXU` as the `u32` `DirBuilderExt::mode` takes. libc types `mode_t` as
+/// `u32` on Linux and `u16` on macOS, so the conversion is required on one
+/// platform and the identity on the other.
+#[allow(clippy::useless_conversion)]
+fn owner_only_mode() -> u32 {
+    libc::S_IRWXU.into()
 }

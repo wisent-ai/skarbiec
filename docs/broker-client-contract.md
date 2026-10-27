@@ -6,6 +6,18 @@ The broker and desktop client communicate via HTTP over loopback. The client sen
 
 This check validates that the desktop client only calls credential operations the broker implements, catching integration defects early.
 
+## Access request routes
+
+The broker also serves the access request register (docs/design/access-requests.md) to a console. These routes are not credential operations, so the check below does not compare them; a client calling them sends exactly these bodies:
+
+| Route | Body | Answer |
+| --- | --- | --- |
+| `POST /v1/operator/requests` | `{"state"?: "pending"\|"approved"\|"denied"\|"withdrawn"}` | the `request list` array |
+| `POST /v1/operator/requests/approve` | `{"id", "by", "ttl-seconds": N \| "until-revoked": true, "uses"?: N}` | the `request approve` answer: `status` `granted` or `awaiting-second-decider` |
+| `POST /v1/operator/requests/deny` | `{"id", "by", "reason"?}` | `{"ok", "request_id", "state": "denied"}` |
+
+`by` names the deciding recipient; the broker refuses anyone who is not an `owner` or `admin` recipient with their secret key in this host's keyring, and an approval that states no lifetime. Approve and deny are mutations and take the listener's write lock.
+
 ## How It Works
 
 The check extracts:
