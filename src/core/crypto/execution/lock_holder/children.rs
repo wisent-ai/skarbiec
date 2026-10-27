@@ -79,7 +79,9 @@ pub(in crate::core::crypto::execution) fn of_skarbiec() -> Result<Stranded, Stri
             Err(why) if Path::new(&command).file_name() == Some(OsStr::new("gpg")) => {
                 unidentified.push(format!("gpg {pid} under parent {parent}: {why}"));
             }
-            Err(_) => {}
+            // A parent this process cannot identify, whose child is not gpg, holds
+            // nothing Skarbiec started: it is neither ended nor worth naming.
+            Err(_not_a_skarbiec_child) => {}
         }
     }
     Ok(Stranded {

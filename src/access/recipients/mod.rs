@@ -11,6 +11,12 @@ use crate::cli::args::OrUsage;
 use crate::core::{crypto, vault::Vault, vault_path};
 
 mod donate;
+mod reach;
+mod rekey;
+mod tagged;
+mod timed;
+
+pub use timed::{expire as expire_timed_shares, follow_rename as carry_share_ends};
 
 // Canonical item kind + tags as stored, so re-encryption preserves them.
 fn item_meta(vault: &Vault, id: &str) -> Result<(String, Vec<String>)> {
@@ -44,10 +50,7 @@ pub fn dispatch(
 
 fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let Some((verb, positionals)) = positionals.split_first() else {
-        return Err(crate::cli::args::Usage(
-            "recipient needs a subcommand; `skarbiec recipient help` lists them".to_string(),
-        )
-        .into());
+        return Err(crate::cli::args::Usage("recipient needs a subcommand; `skarbiec recipient help` lists them".to_string()).into());
     };
     if verb == "help" {
         return Ok(json!({
@@ -56,9 +59,14 @@ fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Valu
                 "recipient remove <uid> --yes",
                 "recipient list",
                 "recipient export <uid>",
+                "recipient items <uid>",
+                "recipient rekey <uid> --import <public-key-file> --yes",
             ],
-            "usage": "recipient add registers a recipient identity without sharing any existing item; recipient remove takes one person out of every item, every historical revision and the registry, and changes nothing without --yes; recipient list prints the registered recipients; recipient export prints one recipient's public key.",
+            "usage": "recipient add registers a recipient identity without sharing any existing item; recipient remove takes one person out of every item, every historical revision and the registry, and changes nothing without --yes; recipient list prints the registered recipients; recipient export prints one recipient's public key; recipient items lists every item one recipient can open, live and trashed, without decrypting anything; recipient rekey gives one person a new key and writes every live item they read again to it, listing them first without --yes.",
         }));
+    }
+    if verb == "rekey" {
+        return rekey::run(flags, positionals);
     }
     leaf(&format!("recipient {verb}"), flags, positionals)?.ok_or_else(|| {
         crate::cli::args::Usage(format!(
@@ -74,6 +82,7 @@ fn leaf(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
+        "shares" => timed::dispatch(positionals).map(Some),
         "recipient add" => {
             let mut args = positionals.iter();
             let uid = args.next().or_usage(
@@ -94,7 +103,7 @@ fn leaf(
             // is unreadable and the audit log shows only a successful
             // `recipient add` (audited as `add-user`, the journal's own name).
             //
-            // `rotate-owner` is the operation that means what this looked like:
+            // `owner rotate` is the operation that means what this looked like:
             // it rewraps every current and historical ciphertext onto the new
             // fingerprint and keeps the recovery recipient. Refuse here rather
             // than half-do it.
@@ -102,7 +111,7 @@ fn leaf(
                 anyhow::bail!(
                     "recipient add cannot install an owner: it would register the key without \
                      re-encrypting the {} item(s) already stored, leaving an owner that \
-                     cannot read them. Use `rotate-owner <uid>`, which rewraps every \
+                     cannot read them. Use `owner rotate <uid>`, which rewraps every \
                      version onto the new key and preserves the recovery recipient.",
                     Vault::open(vault_path())?.list(true).len()
                 );
@@ -127,31 +136,14 @@ fn leaf(
                 json!({"ok": true, "uid": uid, "fingerprint": fpr, "role": role}),
             ))
         }
-        "rotate-owner" => {
-            let mut args = positionals.iter();
-            let uid = args
-                .next()
-                .or_usage("usage: rotate-owner <new-owner-uid>")?;
-            // Deliberately no key generation. `add-user` generating a key for
-            // an unknown uid is what turned one command into an outage: a key
-            // minted here would be a key no ciphertext was ever encrypted to.
-            // The new owner's key must already be in the keyring, imported or
-            // generated on purpose beforehand.
-            let fpr = crypto::fingerprint_for(uid)?.with_context(|| {
-                format!(
-                    "no key in the keyring for {uid}: import or generate it first \
-                     (recipient add {uid} --import <pubkey-file>), then rotate"
-                )
-            })?;
-            let mut vault = Vault::open(vault_path())?;
-            let report = vault.rotate_owner(uid, &fpr)?;
-            crate::runtime::audit::append("rotate-owner", &report)?;
-            Ok(Some(report))
-        }
         "share" => {
+            if let Some(tag) = flags.get("tag") {
+                let uid = positionals.first().or_usage("usage: share --tag <tag> <uid>")?;
+                return tagged::share_tagged(tag, uid, flags).map(Some);
+            }
             let mut args = positionals.iter();
-            let id = args.next().or_usage("usage: share <item-id> <uid>")?;
-            let uid = args.next().or_usage("usage: share <item-id> <uid>")?;
+            let id = args.next().or_usage("usage: share <item-id> <uid> | share --tag <tag> <uid>")?;
+            let uid = args.next().or_usage("usage: share <item-id> <uid> | share --tag <tag> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
             if vault.recipient_fpr(uid).is_none() {
                 return Ok(Some(
@@ -159,34 +151,63 @@ fn leaf(
                 ));
             }
             let (item_kind, tags) = item_meta(&vault, id)?;
-            let payload = vault.get_item(id)?;
+            let until = timed::apply(&mut vault, id, uid, flags)?;
             let mut recipients = vault.item_recipient_uids(id)?;
-            if !recipients.iter().any(|r| r == uid) {
-                recipients.push(uid.clone());
+            // Sharing with someone who already reads the item changes
+            // nothing, so nothing is written: a second share used to add a
+            // revision and an audit entry for a value that never changed.
+            if recipients.iter().any(|r| r == uid) {
+                return Ok(Some(
+                    json!({"ok": true, "item": id, "recipients": recipients, "already_shared": true, "until": until}),
+                ));
             }
+            let payload = vault.get_item(id)?;
+            recipients.push(uid.clone());
             vault.set_item(id, &item_kind, &payload, &recipients, &tags)?;
             crate::runtime::audit::append("share", &json!({"item": id, "uid": uid}))?;
             Ok(Some(
-                json!({"ok": true, "item": id, "recipients": recipients}),
+                json!({"ok": true, "item": id, "recipients": recipients, "already_shared": false, "until": until}),
             ))
         }
+        // Revoking rewraps every saved version without the uid, not only the
+        // current one: a new current revision left every earlier ciphertext
+        // readable by the person it was meant to shut out, and `restore --at`
+        // handed that value straight back. The revision does not move,
+        // because the value did not change.
         "revoke" => {
+            if let Some(tag) = flags.get("tag") {
+                let uid = positionals.first().or_usage("usage: revoke --tag <tag> <uid>")?;
+                return tagged::revoke_tagged(tag, uid).map(Some);
+            }
             let mut args = positionals.iter();
-            let id = args.next().or_usage("usage: revoke <item-id> <uid>")?;
-            let uid = args.next().or_usage("usage: revoke <item-id> <uid>")?;
+            let id = args.next().or_usage("usage: revoke <item-id> <uid> | revoke --tag <tag> <uid>")?;
+            let uid = args.next().or_usage("usage: revoke <item-id> <uid> | revoke --tag <tag> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
-            let (item_kind, tags) = item_meta(&vault, id)?;
-            let payload = vault.get_item(id)?;
-            let recipients: Vec<String> = vault
-                .item_recipient_uids(id)?
-                .into_iter()
-                .filter(|r| r != uid)
-                .collect();
-            vault.set_item(id, &item_kind, &payload, &recipients, &tags)?;
-            crate::runtime::audit::append("revoke", &json!({"item": id, "uid": uid}))?;
-            Ok(Some(
-                json!({"ok": true, "item": id, "recipients": recipients}),
-            ))
+            item_meta(&vault, id)?;
+            let readers = vault.item_recipient_uids(id)?;
+            if !readers.iter().any(|reader| reader == uid) {
+                anyhow::bail!(
+                    "{uid} is not a recipient of {id}, so there is nothing to revoke; its recipients are: {}",
+                    if readers.is_empty() {
+                        "only the owner and recovery keys".to_string()
+                    } else {
+                        readers.join(", ")
+                    }
+                );
+            }
+            let report = vault.withdraw_recipient(uid, std::slice::from_ref(id))?;
+            timed::forget(&mut vault, id, uid);
+            vault.save()?;
+            crate::runtime::audit::append(
+                "revoke",
+                &json!({"item": id, "uid": uid, "historical_versions": report["historical_versions"]}),
+            )?;
+            Ok(Some(json!({
+                "ok": true,
+                "item": id,
+                "recipients": vault.item_recipient_uids(id)?,
+                "historical_versions": report["historical_versions"],
+            })))
         }
         // A person leaving loses every item at once, not one `revoke` at a
         // time. The rewrap stops future reads; values they already read are
@@ -232,6 +253,10 @@ fn leaf(
                 Some(users) => users.clone(),
                 None => json!({}),
             }))
+        }
+        "recipient items" => {
+            let uid = positionals.first().or_usage("usage: recipient items <uid>")?;
+            reach::items_of(uid).map(Some)
         }
         "recipient export" => {
             let uid = positionals

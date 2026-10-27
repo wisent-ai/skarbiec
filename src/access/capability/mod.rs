@@ -34,24 +34,31 @@ const WIRE_VERSION: &str = "skarbiec.redeem.v1";
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
-    _positionals: &[String],
+    positionals: &[String],
 ) -> Result<Option<Value>> {
-    match command {
-        // Redemption is served only by `skarbiec serve`, the host's one
-        // Skarbiec process; there is no standalone broker command.
-        "capability-status" => Ok(Some(status::inspect(flags)?)),
-        "challenge-put" => Ok(Some(challenge_put(_positionals)?)),
-        _ => Ok(None),
+    if command != "capability" {
+        return Ok(None);
+    }
+    // Redemption is served only by `skarbiec serve`, the host's one
+    // Skarbiec process; there is no standalone broker command.
+    match positionals.split_first() {
+        Some((verb, [])) if verb == "status" => Ok(Some(status::inspect(flags)?)),
+        Some((verb, rest)) if verb == "challenge" => Ok(Some(challenge_put(rest)?)),
+        _ => Err(crate::cli::args::Usage(
+            "usage: capability status [--socket <unix-socket-path>] | capability challenge <challenge:resource>  (digits on stdin)".to_string(),
+        )
+        .into()),
     }
 }
 
 mod issue;
+mod journal;
 mod redeem;
 mod state;
 mod status;
 
 pub(super) use issue::issue;
-pub(super) use state::{routes_path, write_private_file};
+pub(super) use state::{install_private_file, routes_path, write_private_file};
 
 use redeem::challenge_put;
 pub(crate) use redeem::CapabilityListener;

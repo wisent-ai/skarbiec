@@ -16,7 +16,13 @@ use std::path::{Path, PathBuf};
 pub struct Vault {
     pub path: PathBuf,
     doc: Value,
-    base_generation: u64,
+    /// The saves the document recorded when it was opened; `None` for one
+    /// never saved, which only a vault being created is.
+    base_generation: Option<std::num::NonZeroU64>,
+    /// The owner's user id, checked non-empty when the document was opened.
+    owner: String,
+    /// The recovery key's fingerprint, checked to be text when opened.
+    recovery: String,
 }
 pub(crate) struct ItemWrite<'a> {
     pub id: &'a str,
@@ -101,7 +107,7 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
     if !parent.exists() {
         fs::DirBuilder::new()
             .recursive(true)
-            .mode(0o700)
+            .mode(u32::from(libc::S_IRWXU))
             .create(parent)
             .with_context(|| format!("create vault directory {}", parent.display()))?;
     }
@@ -132,17 +138,23 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
 /// The owner-only mode every private file the vault and its companions
 /// write is given.
 pub(crate) fn private_file_mode() -> Result<u32> {
-    Ok(0o600)
+    Ok(u32::from(libc::S_IRUSR | libc::S_IWUSR))
 }
 
-/// The only item envelope revision this build reads. It was written inline at
-/// each comparison, so a reader could not tell which number was load-bearing.
+/// The item envelope revisions this product has written, oldest first; an
+/// envelope's `format` is its place in this list, counted from one.
+const ENVELOPE_REVISIONS: &[&str] = &[
+    "one ciphertext per item, without item_uid, kind or state",
+    "item_uid, kind, state and saved revisions beside the current one",
+];
+
+/// The only item envelope revision this build reads: the newest one written.
 pub fn current_envelope() -> u64 {
-    2
+    ENVELOPE_REVISIONS.len() as u64
 }
 
-/// Bytes of OS entropy behind one `item_uid`.
-const ITEM_UID_ENTROPY_BYTES: usize = 16;
+/// Bytes of OS entropy behind one `item_uid`: one 128-bit number.
+const ITEM_UID_ENTROPY_BYTES: usize = std::mem::size_of::<u128>();
 
 /// Mint an item's permanent identifier.
 ///
@@ -212,10 +224,17 @@ pub fn entry_texts(id: &str, entry: &Value, field: &str) -> Result<Vec<String>> 
     }
 }
 
-fn document_generation(doc: &Value) -> u64 {
-    doc.get("generation")
-        .and_then(Value::as_u64)
-        .unwrap_or_default()
+/// The saves `doc` records: none for a document never saved, and a refusal
+/// for a generation that is not a count above zero, which no writer of this
+/// file produces.
+fn document_generation(doc: &Value) -> Result<Option<std::num::NonZeroU64>> {
+    match doc.get("generation") {
+        None => Ok(None),
+        Some(recorded) => match recorded.as_u64().and_then(std::num::NonZeroU64::new) {
+            Some(generation) => Ok(Some(generation)),
+            None => bail!("records generation {recorded}, not a count of saves above zero"),
+        },
+    }
 }
 
 /// Write a vault document privately and atomically: a fresh owner-only
@@ -245,10 +264,13 @@ pub fn atomic_write(path: &Path, body: &[u8]) -> Result<()> {
     result
 }
 
-fn obj_mut<'a>(v: &'a mut Value, key: &str) -> &'a mut Map<String, Value> {
+/// The vault document's `key` section, refused naming it when it is absent
+/// or not an object, so a damaged vault refuses the one write that needs
+/// the section instead of aborting the process serving every consumer.
+fn obj_mut<'a>(v: &'a mut Value, key: &str) -> Result<&'a mut Map<String, Value>> {
     v.get_mut(key)
         .and_then(Value::as_object_mut)
-        .expect("vault section is an object")
+        .with_context(|| format!("the vault's {key} section is missing or not a JSON object"))
 }
 
 fn now() -> String {

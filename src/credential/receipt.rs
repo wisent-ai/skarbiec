@@ -6,8 +6,8 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
 use super::common::{
-    checked_enum, checked_timestamp, checked_uuid, exact_name, hex_digest, now_iso, opaque_handle,
-    present, safe_string, timestamp_shaped, zulu_seconds, Operation,
+    bounded_host, checked_enum, checked_timestamp, checked_uuid, exact_name, hex_digest, now_iso,
+    opaque_handle, present, safe_string, zulu_seconds, Operation, HOST_NAME_MAX,
 };
 use super::{PROVIDER_EFFECTS, RESPONSE_PHASES};
 
@@ -18,14 +18,11 @@ pub(super) const DIRECTORY_IDENTITY_KEYS: &[&str] =
 // An expired approval releases the operation instead of resuming it, so a
 // clock we cannot read is a refusal, never an assumption.
 pub(super) fn approval_expired(expires_at: &str) -> Result<bool> {
-    let now = now_iso();
-    if !timestamp_shaped(&now) {
-        bail!("cannot read the current time to check the approval window");
-    }
-    if !timestamp_shaped(expires_at) {
-        bail!("approval expiry is not an ISO 8601 zulu timestamp");
-    }
-    Ok(zulu_seconds(expires_at) <= zulu_seconds(&now))
+    let now = zulu_seconds(&now_iso())
+        .context("cannot read the current time to check the approval window")?;
+    let expires = zulu_seconds(expires_at)
+        .context("approval expiry is not an ISO 8601 zulu timestamp")?;
+    Ok(expires <= now)
 }
 
 // An approval is a resource: all six fields or no object at all, because a
@@ -84,13 +81,14 @@ pub(super) fn checked_receipt(value: &Value) -> Result<Option<Value>> {
     let request_id = safe_string(receipt, "request_id").context("receipt is missing request_id")?;
     let evidence_digest =
         safe_string(receipt, "evidence_digest").context("receipt is missing evidence_digest")?;
-    if !hex_digest(&request_id)? || !hex_digest(&evidence_digest)? {
-        bail!("receipt request_id and evidence_digest must be 64 hexadecimal characters");
+    if !hex_digest(&request_id) || !hex_digest(&evidence_digest) {
+        bail!("receipt request_id and evidence_digest must be SHA-256 digests in hexadecimal");
     }
-    let host_max: usize = 128;
     let execution_host = safe_string(receipt, "execution_host")
-        .filter(|host| !host.is_empty() && host.len() <= host_max)
-        .context("receipt is missing a bounded execution_host")?;
+        .filter(|host| bounded_host(host))
+        .with_context(|| {
+            format!("receipt is missing an execution_host of at most {HOST_NAME_MAX} characters")
+        })?;
     let changed_at = match receipt.get("changed_at") {
         Some(Value::Null) => Value::Null,
         Some(_) => Value::String(

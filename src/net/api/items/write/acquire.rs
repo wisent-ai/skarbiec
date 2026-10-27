@@ -48,8 +48,8 @@ pub(super) fn acquire(
             json!("provider verification required before acquire"),
         );
     }
-    if consumer.is_empty()
-        || !grant::token_allows_field_action(
+    // The route refused a request without a consumer or bearer by name.
+    if !grant::token_allows_field_action(
             vault,
             consumer,
             bearer,
@@ -82,18 +82,12 @@ pub(super) fn acquire(
         Ok(request) => request,
         Err(error) => return refuse("HTTP/1.1 409 Conflict", json!(format!("{error:#}"))),
     };
-    // An acquisition starts from no item, at the baseline its operation
-    // recorded; authorize_managed_write holds that baseline to zero.
-    let Some(baseline) = request
+    // An acquisition starts from no item, so its operation records no
+    // baseline; authorize_managed_write holds the write to that.
+    let baseline = request
         .as_ref()
         .and_then(|request| request.get("baseline_revision"))
-        .and_then(Value::as_u64)
-    else {
-        return refuse(
-            "HTTP/1.1 409 Conflict",
-            json!("managed write has no active credential operation with a baseline_revision"),
-        );
-    };
+        .and_then(Value::as_u64);
     if let Err(error) = crate::credential::authorize_managed_write(
         vault,
         id,

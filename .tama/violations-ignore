@@ -11,7 +11,19 @@ Cargo.lock
 # .release-commit and the three landing.*.json files by that exact path from
 # other repositories. None of them can move into a sub-folder.
 .
+# The capability redemption journey makes the workload key with openssl, which
+# needs the signature algorithm the broker verifies by its name; that name is
+# seven hexadecimal-looking characters, not a commit or defect id.
+tests/access/capability_redeem_refusals.sh
 # The grant keep journey makes an acquire grant's workload key with openssl,
 # which needs the signature algorithm the broker verifies by its name; that
 # name is seven hexadecimal-looking characters, not a commit or defect id.
 tests/access/grant_keep.sh
+# The acquisition example makes the workload key with openssl, which needs the
+# signature algorithm the broker verifies by its name; that name is seven
+# hexadecimal-looking characters, not a commit or defect id.
+docs/examples/acquire-one-field.sh
+# The grant register journey makes its workload keys with openssl, which needs
+# the signature algorithm the broker verifies by its name; that name is seven
+# hexadecimal-looking characters, not a commit or defect id.
+tests/grant/register.sh

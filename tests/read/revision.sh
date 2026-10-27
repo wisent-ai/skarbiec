@@ -14,7 +14,9 @@
 #   new value under it;
 # - retagging (no new value) leaves the revision as it was;
 # - a wrong bearer and an ungranted field are refused 403, a missing id 400,
-#   a trashed item 410, and `get --revision --field` is refused naming both.
+#   a trashed item 410, and `get --revision --field` is refused naming both;
+# - a request with no x-consumer, or with no bearer, is refused 401 naming
+#   the header it lacks.
 # - a second real broker with an empty keyring can return the revision but
 #   refuses the encrypted value with the actual missing-secret-key cause;
 #   the original broker still reads the unchanged value afterward.
@@ -41,14 +43,19 @@ export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
 SERVE_PID=
 EMPTY_KEYRING="$PWD/target/e$$"
 EMPTY_SERVE_PID=
+# Cleanup runs on every exit; a step that cannot be done is written to the
+# report with the command's own error rather than passed over.
+cleanup_step() {
+  if ! "$@" 2>>"$REPORT"; then echo "cleanup: $* did not complete" >>"$REPORT"; fi
+}
 cleanup() {
-  if [ -n "$SERVE_PID" ]; then kill "$SERVE_PID" || true; fi
-  if [ -n "$EMPTY_SERVE_PID" ]; then kill "$EMPTY_SERVE_PID" || true; fi
+  if [ -n "$SERVE_PID" ]; then cleanup_step kill "$SERVE_PID"; fi
+  if [ -n "$EMPTY_SERVE_PID" ]; then cleanup_step kill "$EMPTY_SERVE_PID"; fi
   if [ -d "$EMPTY_KEYRING" ]; then
-    gpgconf --homedir "$EMPTY_KEYRING" --kill all || true
+    cleanup_step gpgconf --homedir "$EMPTY_KEYRING" --kill all
     rm -rf "$EMPTY_KEYRING"
   fi
-  gpgconf --homedir "$GNUPGHOME" --kill all || true
+  cleanup_step gpgconf --homedir "$GNUPGHOME" --kill all
   rm -rf "$KEYRING"
 }
 trap cleanup EXIT
@@ -97,7 +104,7 @@ CONSUMER="revision-test-$RUN"
 WANT=ok run init "revision-test-owner-$RUN"
 jq -n --arg value "first-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "$ITEM" --type note
+  | WANT=ok run set "$ITEM" --type note
 WANT=ok run grant issue "$CONSUMER" --capabilities "read:$ITEM#$FIELD" --until-revoked
 TOKEN=$(member token)
 [ -n "$TOKEN" ] || fail "grant issue answered no token"
@@ -139,7 +146,7 @@ echo "ok: /v1/items/read returns the value under the same revision" >>"$REPORT"
 
 jq -n --arg value "second-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "$ITEM" --type note
+  | WANT=ok run set "$ITEM" --type note
 api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 SECOND=$(member revision)
 [ "$status" = "200" ] && [ -n "$SECOND" ] && [ "$SECOND" != "$CLI_REVISION" ] \
@@ -193,6 +200,23 @@ api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"other\"}" "$TOKEN"
 api /v1/items/revision "{\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$status" = "400" ] || fail "a request with no id answered $status"
 echo "ok: a wrong bearer and an ungranted field are refused 403, a missing id 400" >>"$REPORT"
+
+# A request that presents no consumer, or a consumer with no bearer, is
+# refused 401 naming the header it lacks, before the vault is read; it is
+# never answered as a grant the consumer does not hold.
+unidentified() {
+  status=$(curl -sS -o "$ROOT/body" -w '%{http_code}' -X POST "http://$ADDRESS/v1/items/read" \
+    -H 'content-type: application/json' "$@" -d "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}")
+  out=$(cat "$ROOT/body")
+  printf 'POST /v1/items/read (headers: %s)\nstatus: %s\nbody: %s\n\n' "$*" "$status" "$out" >>"$REPORT"
+}
+unidentified -H "authorization: Bearer $TOKEN"
+[ "$status" = "401" ] && printf '%s' "$out" | jq -e '.error | contains("x-consumer")' >/dev/null \
+  || fail "a request with no x-consumer answered $status: $out"
+unidentified -H "x-consumer: $CONSUMER"
+[ "$status" = "401" ] && printf '%s' "$out" | jq -e --arg consumer "$CONSUMER" '.error | contains("carries no bearer") and contains($consumer)' >/dev/null \
+  || fail "a request with no bearer answered $status: $out"
+echo "ok: a missing x-consumer or bearer is refused 401 naming the header it lacks" >>"$REPORT"
 
 WANT=refused run get "$ITEM" --revision --field "$FIELD"
 says "--field or --revision" "get refuses --revision with --field, naming both"

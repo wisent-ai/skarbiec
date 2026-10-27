@@ -55,7 +55,7 @@ pub(crate) fn cmd_bond_edit(
         .cloned()
         .with_context(|| format!("no bond named: {name}; `skarbiec bond list` lists them"))?;
     drop(vault);
-    let mut merged = configured_flags(&current);
+    let mut merged = configured_flags(name, &current)?;
     merged.extend(
         flags
             .iter()
@@ -64,42 +64,65 @@ pub(crate) fn cmd_bond_edit(
     write_bond(name, &merged, "bond-edit")
 }
 
-/// The flags `bond add` would take to configure `bond` as it stands.
-fn configured_flags(bond: &Value) -> HashMap<String, String> {
+/// The flags `bond add` would take to configure `bond` as it stands. A field
+/// the bond holds in another shape is refused naming it: dropped, `bond
+/// edit` wrote the bond back without it (its peers among them).
+fn configured_flags(name: &str, bond: &Value) -> Result<HashMap<String, String>> {
     let mut flags = HashMap::new();
-    let mut keep = |key: &str, value: Option<String>| {
-        if let Some(value) = value {
-            flags.insert(key.to_string(), value);
+    let text = |field: &str, value: &Value| -> Result<Option<String>> {
+        match value {
+            Value::Null => Ok(None),
+            Value::String(text) => Ok(Some(text.clone())),
+            other => anyhow::bail!("bond {name} holds {field} as no text: {other}"),
         }
     };
-    let text = |value: &Value| value.as_str().map(str::to_string);
     let channel = &bond["channel"];
-    keep("mode", text(&bond["mode"]));
-    keep("role", text(&bond["role"]));
-    keep(
-        "channel",
-        text(&channel["type"])
-            .zip(text(&channel["address"]))
-            .map(|(kind, address)| format!("{kind}:{address}")),
-    );
-    keep(
-        "interval",
-        channel["interval_seconds"]
-            .as_u64()
-            .map(|seconds| seconds.to_string()),
-    );
-    keep("token-file", text(&channel["token_file"]));
-    keep("consumer", text(&channel["consumer"]));
-    let peers: Vec<String> = bond["peers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(text)
-        .collect();
-    if !peers.is_empty() {
-        keep("peers", Some(peers.join(",")));
+    for (flag, field, value) in [
+        ("mode", "mode", &bond["mode"]),
+        ("role", "role", &bond["role"]),
+        ("token-file", "channel.token_file", &channel["token_file"]),
+        ("consumer", "channel.consumer", &channel["consumer"]),
+    ] {
+        if let Some(value) = text(field, value)? {
+            flags.insert(flag.to_string(), value);
+        }
     }
-    flags
+    match (
+        text("channel.type", &channel["type"])?,
+        text("channel.address", &channel["address"])?,
+    ) {
+        (Some(kind), Some(address)) => {
+            flags.insert("channel".to_string(), format!("{kind}:{address}"));
+        }
+        // Half a channel is no channel `bond add` takes: the edit then needs
+        // --channel, and write_bond refuses it without one.
+        (_kind, _address) => {}
+    }
+    match &channel["interval_seconds"] {
+        Value::Null => {}
+        interval => {
+            let seconds = interval.as_u64().with_context(|| {
+                format!("bond {name} holds channel.interval_seconds as no whole number of seconds: {interval}")
+            })?;
+            flags.insert("interval".to_string(), seconds.to_string());
+        }
+    }
+    let peers = match &bond["peers"] {
+        Value::Null => Vec::new(),
+        Value::Array(peers) => peers
+            .iter()
+            .map(|peer| {
+                peer.as_str().map(str::to_string).with_context(|| {
+                    format!("bond {name} holds a peer that is no fingerprint: {peer}")
+                })
+            })
+            .collect::<Result<Vec<String>>>()?,
+        other => anyhow::bail!("bond {name} holds its peers as no list: {other}"),
+    };
+    if !peers.is_empty() {
+        flags.insert("peers".to_string(), peers.join(","));
+    }
+    Ok(flags)
 }
 
 /// Checks the flags and writes the bond `name` as they describe it.

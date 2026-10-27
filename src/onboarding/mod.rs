@@ -44,7 +44,7 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
             .context("onboarding state has no attempt id")?
             .to_string();
         let screen = screen_by_id(&definition, &screen_id)?.clone();
-        render(&screen);
+        render(&screen)?;
 
         match screen.get("screen_kind").and_then(Value::as_str) {
             Some("first_action") => {

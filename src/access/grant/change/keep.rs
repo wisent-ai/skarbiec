@@ -7,6 +7,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 
+use crate::access::actions::Action;
 use crate::access::grant::lookup::load;
 use crate::access::grant::rules::validation::exact_component;
 use crate::access::grant::UNTIL_REVOKED;
@@ -39,7 +40,7 @@ pub(in crate::access::grant) fn keep_once(consumer: &str) -> Result<Value> {
         .and_then(Value::as_array)
         .context("existing grant is not v2; run `skarbiec upgrade --apply` first")?
         .iter()
-        .any(|capability| capability.get("action").and_then(Value::as_str) == Some("acquire"));
+        .any(|capability| Action::of(capability) == Some(Action::Acquire));
     if acquire {
         bail!(
             "consumer {consumer} holds an acquire grant, which lends its lifetime to every \

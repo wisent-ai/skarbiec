@@ -57,14 +57,24 @@ pub(in crate::credential) fn checked_code(value: &Value) -> Result<Option<String
     Ok(Some(text))
 }
 
+/// The longest name a host can carry: DNS names are at most 255 octets.
+/// <https://www.rfc-editor.org/rfc/rfc1035#section-2.3.4>
+pub(in crate::credential) const HOST_NAME_MAX: usize = 255;
+
+/// Whether `host` is a single-line host name within [`HOST_NAME_MAX`].
+pub(in crate::credential) fn bounded_host(host: &str) -> bool {
+    !host.is_empty() && host.len() <= HOST_NAME_MAX
+}
+
 pub(in crate::credential) fn checked_host(value: &Value) -> Result<Option<String>> {
     if !present(value, "executionHost") {
         return Ok(None);
     }
-    let max: usize = 128;
     let host = safe_string(value, "executionHost")
-        .filter(|host| !host.is_empty() && host.len() <= max)
-        .context("Weles response executionHost must be a bounded single-line host name")?;
+        .filter(|host| bounded_host(host))
+        .with_context(|| {
+            format!("Weles response executionHost must be a single-line host name of at most {HOST_NAME_MAX} characters")
+        })?;
     Ok(Some(host))
 }
 
@@ -74,56 +84,43 @@ pub(in crate::credential) fn checked_uuid(value: &Value, key: &str) -> Result<Op
     }
     let text =
         safe_string(value, key).with_context(|| format!("Weles response {key} is not a string"))?;
-    if !uuid_shaped(&text)? {
+    if !uuid_shaped(&text) {
         bail!("Weles response {key} must be a lowercase 8-4-4-4-12 hexadecimal UUID");
     }
     Ok(Some(text))
 }
 
-pub(in crate::credential) fn hex_digest(value: &str) -> Result<bool> {
-    let width: usize = 64;
-    Ok(value.len() == width && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+/// The hexadecimal digits of a SHA-256 digest, two for each of its bytes.
+/// <https://csrc.nist.gov/pubs/fips/180-4/upd1/final>
+const SHA256_HEX_DIGITS: usize = 64;
+
+pub(in crate::credential) fn hex_digest(value: &str) -> bool {
+    value.len() == SHA256_HEX_DIGITS && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
-// The only timestamp shape Skarbiec writes or accepts: zulu seconds, with an
-// optional fraction, so two stamps compare as text.
+/// The whole-second stamp a Weles timestamp names: the shape
+/// `clock::now_iso` writes and `clock::is_iso` checks, which every stored
+/// stamp has, with an optional fraction of a second before its `Z`. Two
+/// answers compare as text in time order because both carry that shape;
+/// anything else is `None`.
+pub(in crate::credential) fn zulu_seconds(value: &str) -> Option<String> {
+    let body = value.strip_suffix('Z')?;
+    let seconds = match body.split_once('.') {
+        Some((seconds, fraction))
+            if !fraction.is_empty() && fraction.bytes().all(|byte| byte.is_ascii_digit()) =>
+        {
+            seconds
+        }
+        Some(_) => return None,
+        None => body,
+    };
+    let stamp = format!("{seconds}Z");
+    crate::core::clock::is_iso(&stamp).then_some(stamp)
+}
+
+/// The only timestamp shape Skarbiec writes or accepts (see [`zulu_seconds`]).
 pub(in crate::credential) fn timestamp_shaped(value: &str) -> bool {
-    let Some((date, rest)) = value.split_once('T') else {
-        return false;
-    };
-    let Some(time) = rest.strip_suffix('Z') else {
-        return false;
-    };
-    let (clock, fraction) = match time.split_once('.') {
-        Some((clock, fraction)) => (clock, Some(fraction)),
-        None => (time, None),
-    };
-    let date_widths = ["4", "2", "2"];
-    let clock_widths = ["2", "2", "2"];
-    let date_groups: Vec<&str> = date.split('-').collect();
-    let clock_groups: Vec<&str> = clock.split(':').collect();
-    let digits = |group: &&str, width: &&str| {
-        width
-            .parse::<usize>()
-            .is_ok_and(|width| group.len() == width)
-            && group.bytes().all(|byte| byte.is_ascii_digit())
-    };
-    let fraction_max: usize = 6;
-    date_groups.len() == date_widths.len()
-        && clock_groups.len() == clock_widths.len()
-        && date_groups
-            .iter()
-            .zip(date_widths.iter())
-            .all(|(group, width)| digits(group, width))
-        && clock_groups
-            .iter()
-            .zip(clock_widths.iter())
-            .all(|(group, width)| digits(group, width))
-        && fraction.is_none_or(|fraction| {
-            !fraction.is_empty()
-                && fraction.len() <= fraction_max
-                && fraction.bytes().all(|byte| byte.is_ascii_digit())
-        })
+    zulu_seconds(value).is_some()
 }
 
 pub(in crate::credential) fn checked_timestamp(value: &Value, key: &str) -> Result<Option<String>> {
@@ -136,25 +133,18 @@ pub(in crate::credential) fn checked_timestamp(value: &Value, key: &str) -> Resu
     Ok(Some(text))
 }
 
-pub(in crate::credential) fn zulu_seconds(value: &str) -> String {
-    value
-        .trim_end_matches('Z')
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .to_string()
-}
+/// The hexadecimal digits of each hyphen-separated group of a UUID.
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-4>
+const UUID_GROUP_DIGITS: &[usize] = &[8, 4, 4, 4, 12];
 
-pub(in crate::credential) fn uuid_shaped(value: &str) -> Result<bool> {
-    let expected = ["8", "4", "4", "4", "12"];
+/// Whether `value` is a UUID written in lowercase hexadecimal groups.
+pub(in crate::credential) fn uuid_shaped(value: &str) -> bool {
     let groups: Vec<&str> = value.split('-').collect();
-    Ok(groups.len() == expected.len()
-        && groups.iter().zip(expected.iter()).all(|(group, width)| {
-            width
-                .parse::<usize>()
-                .is_ok_and(|width| group.len() == width)
+    groups.len() == UUID_GROUP_DIGITS.len()
+        && groups.iter().zip(UUID_GROUP_DIGITS).all(|(group, digits)| {
+            group.len() == *digits
                 && group
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        }))
+        })
 }

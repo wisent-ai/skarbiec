@@ -3,13 +3,14 @@
 
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
+use super::journal;
 use crate::core::vault_path;
 
 /// The kernel owns this lock's lifetime: process exit releases it, so a
@@ -99,58 +100,53 @@ pub(in crate::access) fn write_private_file(path: &Path, bytes: &[u8]) -> Result
         .with_context(|| format!("make {} owner-only", path.display()))?;
     file.write_all(bytes)
         .with_context(|| format!("write {}", path.display()))?;
-    Ok(())
+    file.sync_all()
+        .with_context(|| format!("flush {} to disk", path.display()))
 }
 
+/// Put the staged file `staging` in place as `path` and flush the directory
+/// holding it, so the replacement survives a crash; a write is reported done
+/// only once both happened, and a flush that fails is the error.
+pub(in crate::access) fn install_private_file(staging: &Path, path: &Path) -> Result<()> {
+    fs::rename(staging, path).with_context(|| format!("install {}", path.display()))?;
+    let parent = path
+        .parent()
+        .with_context(|| format!("{} has no directory to flush", path.display()))?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .with_context(|| format!("flush the directory {} after installing {}", parent.display(), path.display()))
+}
+
+/// The capability state the journal replays to, without the capabilities
+/// that can no longer be redeemed (`forget_stale`). Bytes after the last
+/// complete value (an append or replacement interrupted mid-write) are kept
+/// beside the journal and the journal is replaced by what replayed, and
+/// that is said; a journal with no complete value at all is refused.
 pub(in crate::access::capability) fn load_state() -> Result<Value> {
     let path = state_path();
     let Some(raw) = crate::core::read_present(&path, "capability state")? else {
-        return Ok(json!({"capabilities": {}, "nonces": {}}));
+        return Ok(journal::empty());
     };
-    let parsed: Value = match serde_json::from_str(&raw) {
-        Ok(value) => value,
-        Err(original) => {
-            // Older writers could leave two complete snapshots concatenated
-            // after an interrupted replacement. Capabilities are short-lived,
-            // so the newest complete snapshot is safer than disabling every
-            // provider indefinitely. Preserve the bytes before repairing them,
-            // and say what was repaired.
-            let mut complete: Vec<Value> = Vec::new();
-            let mut trailing = None;
-            for snapshot in serde_json::Deserializer::from_str(&raw).into_iter::<Value>() {
-                match snapshot {
-                    Ok(value) => complete.push(value),
-                    Err(error) => {
-                        trailing = Some(error);
-                        break;
-                    }
-                }
-            }
-            let Some(recovered) = complete.last().cloned() else {
-                return Err(original).context("parse capability state");
-            };
-            let backup = path.with_extension(format!("json.corrupt-{}", std::process::id()));
-            fs::copy(&path, &backup).with_context(|| {
-                format!("back up corrupt capability state to {}", backup.display())
-            })?;
-            save_state(&recovered)
-                .context("repair capability state from newest complete snapshot")?;
-            let rest = match trailing {
-                Some(error) => format!(", then bytes that do not parse ({error})"),
-                None => String::new(),
-            };
-            eprintln!(
-                "skarbiec: capability state {} held {} complete snapshot(s){rest}; kept the newest, original bytes in {}",
-                path.display(),
-                complete.len(),
-                backup.display()
-            );
-            recovered
+    let replayed = journal::replay(&raw)?;
+    let mut state = replayed.state;
+    if let Some(error) = replayed.trailing {
+        if !replayed.complete {
+            return Err(error).context("parse capability state");
         }
-    };
-    let mut parsed = parsed;
-    forget_stale(&mut parsed, now_epoch()?)?;
-    Ok(parsed)
+        let backup = path.with_extension(format!("json.corrupt-{}", std::process::id()));
+        fs::copy(&path, &backup).with_context(|| {
+            format!("back up corrupt capability state to {}", backup.display())
+        })?;
+        save_state(&state).context("repair capability state from the values that replay")?;
+        eprintln!(
+            "skarbiec: capability state {} ends in bytes that do not parse ({error}); kept what \
+             replays before them, original bytes in {}",
+            path.display(),
+            backup.display()
+        );
+    }
+    forget_stale(&mut state, now_epoch()?)?;
+    Ok(state)
 }
 
 /// Drop every capability that can no longer be redeemed -- past its expiry,
@@ -187,13 +183,36 @@ fn forget_stale(state: &mut Value, now: u64) -> Result<()> {
     Ok(())
 }
 
+/// Replace the journal with one snapshot of `state`.
 pub(in crate::access::capability) fn save_state(state: &Value) -> Result<()> {
     let path = state_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
     let staging = path.with_extension("json.staging");
-    write_private_file(&staging, serde_json::to_string_pretty(state)?.as_bytes())?;
-    fs::rename(&staging, &path)?;
+    let mut snapshot = serde_json::to_vec(state)?;
+    snapshot.push(b'\n');
+    write_private_file(&staging, &snapshot)?;
+    install_private_file(&staging, &path)
+}
+
+/// Record what changed in `state` for `capability_id`: its record as
+/// `state` holds it, and the nonce `nonce` names when one was seen, appended
+/// to the journal, so the write is the size of that one entry. The caller
+/// holds the state lock. A journal whose dead entries outweigh the live state
+/// is then replaced by one snapshot of it (`journal::outweighed`).
+pub(in crate::access::capability) fn save_entry(
+    state: &Value,
+    capability_id: &str,
+    nonce: Option<&str>,
+) -> Result<()> {
+    let path = state_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    journal::append(&path, &journal::entries(state, capability_id, nonce)?)?;
+    if journal::outweighed(&path, state)? {
+        save_state(state)?;
+    }
     Ok(())
 }

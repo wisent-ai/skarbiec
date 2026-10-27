@@ -67,7 +67,7 @@ FOREVER="keep-until-revoked-$RUN"
 AGENT="keep-acquire-$RUN"
 WANT=ok run init "keep-test-owner-$RUN"
 jq -n '{schema:"skarbiec.item.v2",kind:"api-key",fields:{api_key:"not-a-secret"},context:{}}' \
-  | "$BIN" set-json "$ITEM" --type api-key >>"$REPORT" 2>&1 || fail "set-json $ITEM was refused"
+  | "$BIN" set "$ITEM" --type api-key >>"$REPORT" 2>&1 || fail "set $ITEM was refused"
 
 # The bearer the consumer holds is the one the issue generates and prints
 # once; it goes to a file in this owner-only run directory and never into the

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Real test of the one-vault rule for the commands a machine that holds no
-# vault still refuses. get, list, set-json and status forward to the vault
+# vault still refuses. get, list, set and status forward to the vault
 # owner there (tests/vault/remote_owner.mjs runs that path); init and every
 # command that is not forwarded must neither create, read nor write the
 # fallback file ~/.local/share/skarbiec/skarbiec.vault.json, a leftover copy
@@ -99,7 +99,7 @@ echo "ok: an unreadable Stado config refused the default vault and created no fi
 config "{\"secrets\":{\"skarbiec\":{\"url\":\"$ROUTE\"}}}"
 VAULT="$OWN" WANT=ok run init "vault-test-owner-$RUN"
 item_json
-VAULT="$OWN" WANT=ok run set-json "$ITEM" --type login
+VAULT="$OWN" WANT=ok run set "$ITEM" --type login
 : >"$ROOT/stdin"
 VAULT="$OWN" WANT=ok run get "$ITEM" --field password
 [ "$out" = "$SECRET" ] || fail "an explicitly named vault did not return the stored value"
@@ -123,7 +123,7 @@ echo "ok: the copy named explicitly is readable, for moving its items out" >>"$R
 config "{\"secrets\":{\"skarbiec\":{\"url\":\"$ROUTE\",\"vault_file\":\"$DECLARED\"}}}"
 cp "$OWN" "$DECLARED"
 item_json
-VAULT= WANT=ok run set-json "$ITEM" --type login
+VAULT= WANT=ok run set "$ITEM" --type login
 : >"$ROOT/stdin"
 VAULT= WANT=ok run get "$ITEM" --field password
 [ "$out" = "$SECRET" ] || fail "the declared vault did not return the stored value"

@@ -1,80 +1,33 @@
 // One operator route to one backend command. Every arm names a command that
-// exists, so a route that answers nothing is a bug in this table.
+// exists, so a route that answers nothing is a bug in this table. The reads
+// live in `reads`; this table answers the ones that change something.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::calls::{
-    access, bonds, flags, grant, inbox, net, optional, positionals, rotation, runtime, text,
-};
+use super::calls::{access, flags, grant, inbox, net, optional, positionals, rotation, text};
 use crate::core;
 
 pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
+    if let Some(read) = super::reads::answer(path, parsed)? {
+        return Ok(read);
+    }
+    if let Some(changed) = super::items::answer(path, parsed)? {
+        return Ok(changed);
+    }
+    if let Some(reached) = super::replicas::answer(path, parsed)? {
+        return Ok(reached);
+    }
+    if let Some(copied) = super::copies::answer(path, parsed)? {
+        return Ok(copied);
+    }
+    if let Some(owned) = super::owner::answer(path, parsed)? {
+        return Ok(owned);
+    }
     let none: Vec<String> = Vec::new();
     let no_flags = HashMap::new();
     match path {
-        // Reads, each delegating to the dispatcher its command twin uses.
-        "/v1/operator/items/get"
-        | "/v1/operator/items/list"
-        | "/v1/operator/items/set-json"
-        | "/v1/operator/items/retag"
-        | "/v1/operator/totp/seed-state" => crate::net::owner::local(path, parsed),
-        "/v1/operator/items" => {
-            crate::cmd_list(&HashMap::from([("all".to_string(), "true".to_string())]))
-        }
-        "/v1/operator/recipients" => access("recipient list", &no_flags, &none),
-        "/v1/operator/audit" => runtime(
-            "audit list",
-            &flags(
-                parsed,
-                &["op", "consumer", "item", "since", "until", "limit"],
-            ),
-            &none,
-        ),
-        "/v1/operator/chain" => runtime("audit verify", &flags(parsed, &["tail"]), &none),
-        "/v1/operator/policy" => access("policy get", &no_flags, &none),
-        "/v1/operator/grants" => grant("list", &no_flags, &none),
-        "/v1/operator/rotation" => rotation("list", &no_flags, &none),
-        "/v1/operator/doctor" => crate::runtime::doctor::report(None),
-        "/v1/operator/status" => crate::core::items::status_json(),
-        "/v1/operator/vaults" => crate::runtime::vaults::inventory(),
-        "/v1/operator/donations" => inbox("donation list", &no_flags, &none),
-        "/v1/operator/emergency" => access("emergency list", &no_flags, &none),
-        "/v1/operator/recovery" => access("recovery status", &no_flags, &none),
-        "/v1/operator/key-doctor" => access("key-doctor", &no_flags, &none),
-        "/v1/operator/bonds" => bonds("bond list", &no_flags, &none),
-        "/v1/operator/version" => crate::cmd_version(),
-        "/v1/operator/route/resolve" => {
-            let mut positionals = vec!["resolve".to_string()];
-            // A body without `names` asks about no named route, as the
-            // command line does without positionals; a `names` that is not
-            // a list of text is refused, never read as empty.
-            match parsed.get("names") {
-                None => {}
-                Some(Value::Array(names)) => {
-                    for name in names {
-                        let name = name.as_str().with_context(|| {
-                            format!("route resolve: names holds {name}, which is not text")
-                        })?;
-                        positionals.push(name.to_string());
-                    }
-                }
-                Some(other) => bail!("route resolve: names is {other}, not a list of text"),
-            }
-            let mut resolve_flags = HashMap::new();
-            if let Some(consumer) = optional(parsed, "consumer") {
-                resolve_flags.insert("consumer".to_string(), consumer);
-            }
-            // A console reads metadata only: no token is accepted here, so no
-            // value can be materialized through this route.
-            access("route", &resolve_flags, &positionals)
-        }
-        "/v1/operator/route/verify" => {
-            // The report is the answer, broken rows included: a console came
-            // for exactly the routes a bare refusal would throw away.
-            crate::access::route::resolution::verify_report(optional(parsed, "consumer").as_deref())
-        }
         // Mutations, one route per verb, bodies naming exact targets.
         "/v1/operator/vaults/create" => {
             crate::cmd_init(&no_flags, &positionals(parsed, &["owner"])?)
@@ -83,16 +36,119 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["format", "conflict"]),
             &positionals(parsed, &["path"])?,
         ),
-        "/v1/operator/items/trash" => crate::cmd_delete(&positionals(parsed, &["id"])?),
+        // One id, or `tag` / `untouched-since` (with `yes` to act) as delete takes them.
+        "/v1/operator/items/trash" => match crate::cli::bulk::delete_set(&flags(parsed, &["tag", "untouched-since", "yes"])) {
+            Some(answer) => answer,
+            None => crate::cmd_delete(&positionals(parsed, &["id"])?),
+        },
         "/v1/operator/items/reclaim" => crate::cmd_reclaim(&positionals(parsed, &["id"])?),
-        "/v1/operator/items/restore" => crate::cmd_restore(&positionals(parsed, &["id"])?, None),
+        "/v1/operator/items/rename" => crate::cli::rename::rename_value(
+            &flags(parsed, &["move-grants"]),
+            &positionals(parsed, &["id", "to"])?,
+        ),
+        // Connecting the autofill extension mints a grant and writes the two
+        // manifests for the user the serving process runs as.
+        "/v1/operator/browser-host/install" => crate::browser::install_host(&flags(parsed, &["binary"])),
+        "/v1/operator/browser-host/uninstall" => crate::browser::uninstall_host(),
+        "/v1/operator/browser-host/cover" => crate::browser::cover_all(),
+        // A review is journalled, so it is serialized with the writes;
+        // `breached` asks Have I Been Pwned too, as `--breached` does, and
+        // `alert` posts the findings as `--alert` does.
+        "/v1/operator/review" => {
+            let mut chosen = flags(parsed, &["before"]);
+            chosen.extend(flags(parsed, &["breached", "alert"]));
+            super::calls::runtime("review", &chosen, &none)
+        }
+        // The desktop sends this only from its own confirmation, after showing
+        // the preview `/v1/operator/upgrade` answers.
+        "/v1/operator/upgrade/apply" => {
+            let mut chosen = flags(parsed, &["snapshot"]);
+            chosen.insert("apply".to_string(), "true".to_string());
+            core::items::upgrade(&chosen)
+        }
+        // The signing secret is generated in the vault and never answered.
+        "/v1/operator/agents/enrol" => crate::access::agent::enrol(&positionals(parsed, &["agent"])?),
+        // On the vault owner, where the daemons decrypt; a receipt that says
+        // the daemons were not replaced is an error carrying gpgconf's cause.
+        "/v1/operator/recover-daemons" => {
+            let receipt = crate::runtime::doctor::recover_daemons()?;
+            if receipt["recovered"] != serde_json::json!(true) {
+                let cause = match receipt["detail"].as_str() {
+                    Some(detail) => detail.to_string(),
+                    None => receipt.to_string(),
+                };
+                bail!("keyring recover: the GnuPG daemons were not replaced: {cause}");
+            }
+            Ok(receipt)
+        }
+        // With `at`, the saved version recorded at that stamp becomes the
+        // current value, as `restore <id> --at <at>` does; with `tag` (and
+        // `yes` to act), every trashed item carrying it comes back.
+        "/v1/operator/items/restore" => match optional(parsed, "tag") {
+            Some(tag) => crate::cli::bulk::restore_tagged(&flags(parsed, &["yes"]), &tag),
+            None => crate::cmd_restore(&positionals(parsed, &["id"])?, optional(parsed, "at").as_deref()),
+        },
+        // Only the write: a generated value never travels in an API answer,
+        // so `into` is required here and the answer names the revision.
+        "/v1/operator/items/generate" => {
+            text(parsed, "into")?;
+            crate::cli::generate::generate_value(&flags(
+                parsed,
+                &[
+                    "into",
+                    "field",
+                    "length",
+                    "lower",
+                    "upper",
+                    "digits",
+                    "symbols",
+                    "symbols-from",
+                    "unambiguous",
+                    "passphrase",
+                    "words",
+                    "separator",
+                    "capitalize",
+                    "with-digit",
+                    "rules",
+                    "rules-of",
+                ],
+            ))
+        }
         // The desktop asks "Purge Permanently" before it sends this request.
         "/v1/operator/items/purge" => crate::cmd_purge(&positionals(parsed, &["id"])?, true),
-        "/v1/operator/items/share" => {
-            access("share", &no_flags, &positionals(parsed, &["id", "uid"])?)
+        // `purge --trashed-before`: without `yes` it lists what would go, and
+        // the desktop sends `yes` only from its own confirmation.
+        "/v1/operator/items/purge-trash" => crate::cli::tools::cmd_purge_trash(
+            &flags(parsed, &["yes"]),
+            &none,
+            &text(parsed, "trashed-before")?,
+        ),
+        // Either one item (`id`) or every item carrying `tag`, each with an
+        // optional `until` ending the share, as the command line's
+        // `share`/`revoke [--tag <tag>]` take.
+        "/v1/operator/items/share" | "/v1/operator/items/revoke" => {
+            let command = leaf(path).trim_start_matches("items ").to_string();
+            match parsed.get("tag") {
+                Some(_) => access(&command, &flags(parsed, &["tag", "until"]), &positionals(parsed, &["uid"])?),
+                None => access(&command, &flags(parsed, &["until"]), &positionals(parsed, &["id", "uid"])?),
+            }
         }
-        "/v1/operator/items/revoke" => {
-            access("revoke", &no_flags, &positionals(parsed, &["id", "uid"])?)
+        "/v1/operator/shares/expire" => crate::access::recipients::expire_timed_shares(),
+        // `import` is the key file's path on the serving machine, as add takes it.
+        "/v1/operator/recipients/rekey" => access(
+            "recipient",
+            &flags(parsed, &["import", "yes"]),
+            &[vec!["rekey".to_string()], positionals(parsed, &["uid"])?].concat(),
+        ),
+        // Both files are paths on the machine serving this API; a relative one
+        // would resolve against a working directory nobody sees.
+        "/v1/operator/migrate" => {
+            let from = text(parsed, "from")?;
+            let to = text(parsed, "to")?;
+            if !std::path::Path::new(&from).is_absolute() || !std::path::Path::new(&to).is_absolute() {
+                bail!("from and to must be absolute paths of vault files on this machine; got {from} and {to}");
+            }
+            crate::core::items::migrate_vault(&flags(parsed, &["from", "to", "force", "reconcile"]))
         }
         "/v1/operator/recipients/add" => access(
             "recipient add",
@@ -110,13 +166,13 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         }
         "/v1/operator/rotation/set" => rotation(
             "set",
-            &flags(parsed, &["every-days", "provider", "consumer", "purpose"]),
+            &flags(parsed, &["every-days", "provider", "consumer", "purpose", "with", "url", "length", "delete-old", "comment", "hosts", "account", "github", "gitlab", "github-account", "gitlab-account", "github-signing", "tenant", "end-date", "years", "days"]),
             &positionals(parsed, &["item"])?,
         ),
         "/v1/operator/rotation/remove" => {
             rotation("remove", &no_flags, &positionals(parsed, &["item"])?)
         }
-        "/v1/operator/rotation/run" => rotation("run", &flags(parsed, &["item"]), &none),
+        "/v1/operator/rotation/run" => rotation("run", &flags(parsed, &["item", "now"]), &none),
         "/v1/operator/grants/capability" => grant(
             "capability",
             &flags(
@@ -161,6 +217,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/grants/keep" => {
             grant("keep", &no_flags, &positionals(parsed, &["consumer"])?)
         }
+        "/v1/operator/grants/retarget" => grant(
+            "retarget",
+            &flags(parsed, &["from", "to"]),
+            &positionals(parsed, &["consumer"])?,
+        ),
         // `--token-file` and never `--token`: the command line offers both, and
         // a loopback body is the one place a bearer must not travel, so a
         // console proves possession through the same owner-only file the
@@ -170,9 +231,12 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &flags(parsed, &["action", "field", "token-file"]),
             &positionals(parsed, &["consumer", "item"])?,
         ),
-        "/v1/operator/grants/revoke" => {
-            grant("revoke", &no_flags, &positionals(parsed, &["consumer"])?)
-        }
+        // One consumer, `expired: true`, or `idle-since` with `yes`, as the
+        // command line takes them.
+        "/v1/operator/grants/revoke" => match optional(parsed, "consumer") {
+            Some(consumer) => grant("revoke", &no_flags, &[consumer]),
+            None => grant("revoke", &flags(parsed, &["expired", "idle-since", "yes"]), &none),
+        },
         "/v1/operator/donations/accept" => {
             inbox("donation accept", &no_flags, &positionals(parsed, &["id"])?)
         }
@@ -188,7 +252,7 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/emergency/cancel" => {
             access(&leaf(path), &no_flags, &positionals(parsed, &["grantee"])?)
         }
-        "/v1/operator/emergency/activate" => {
+        "/v1/operator/emergency/activate" | "/v1/operator/emergency/revoke" => {
             access(&leaf(path), &no_flags, &positionals(parsed, &["grantee"])?)
         }
         "/v1/operator/recovery/drill" => {

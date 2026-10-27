@@ -133,7 +133,7 @@ pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
     let mut errors = child.stderr.take().context("open Weles bridge stderr")?;
     let diagnostics = std::thread::spawn(move || {
         let mut captured = Vec::new();
-        errors.read_to_end(&mut captured).map(|_| captured)
+        errors.read_to_end(&mut captured).map(|_bytes| captured)
     });
     child
         .stdin

@@ -17,14 +17,17 @@ enum Operation {
     Rotate,
     Resume,
     Get,
-    SetJson,
+    Set,
     Totp,
 }
 
 pub(super) fn answer(parsed: &Value) -> Result<Value> {
-    let operation: Operation = Operation::deserialize(&parsed["operation"]).with_context(|| {
-        format!(
-            "operator credential operation {} is none of status, acquire, rotate, resume, get, set-json, totp; a field write sends the whole payload with set-json",
+    // serde names the operations the enum declares ("unknown variant `x`,
+    // expected one of `status`, …"), so the refusal lists exactly the set the
+    // dispatch below takes and no second list can drift from it.
+    let operation: Operation = Operation::deserialize(&parsed["operation"]).map_err(|error| {
+        anyhow::anyhow!(
+            "operator credential operation {}: {error}; a field write sends the whole payload with set",
             parsed["operation"]
         )
     })?;
@@ -45,7 +48,7 @@ pub(super) fn answer(parsed: &Value) -> Result<Value> {
             &["get".to_string(), text(parsed, "item")?],
         )?
         .context("get operation failed"),
-        Operation::SetJson => {
+        Operation::Set => {
             let mut call_flags = flags(
                 parsed,
                 &["type", "tags", "recipients", "if-absent", "if-unchanged"],
@@ -54,12 +57,12 @@ pub(super) fn answer(parsed: &Value) -> Result<Value> {
             if let Some(payload) = parsed.get("payload") {
                 call_flags.insert("__payload__".to_string(), payload.to_string());
             }
-            let positionals = vec!["set-json".to_string(), text(parsed, "item")?];
+            let positionals = vec!["set".to_string(), text(parsed, "item")?];
             crate::core::values::dispatch("credential", &call_flags, &positionals)?
-                .context("set-json operation failed")
+                .context("set operation failed")
         }
         Operation::Totp => {
-            crate::runtime::totp::dispatch("totp", &flags(parsed, &[]), &[text(parsed, "item")?])?
+            crate::runtime::totp::dispatch("totp", &flags(parsed, &[]), &["code".to_string(), text(parsed, "item")?])?
                 .context("totp operation failed")
         }
     }

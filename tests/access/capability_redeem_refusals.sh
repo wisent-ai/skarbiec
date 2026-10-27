@@ -76,8 +76,8 @@ WANT=ok run init "redeem-test-owner-$RUN"
 item() {
   jq -n --arg value "not-a-secret-$1" \
     '{schema:"skarbiec.item.v2",kind:"api-key",fields:{api_key:$value},context:{}}' \
-    | "$BIN" set-json "$1" --type api-key "--tags=brama:$RESOURCE" >>"$REPORT" 2>&1 \
-    || fail "set-json $1 was refused"
+    | "$BIN" set "$1" --type api-key "--tags=brama:$RESOURCE" >>"$REPORT" 2>&1 \
+    || fail "set $1 was refused"
 }
 item "$ITEM"
 
@@ -138,9 +138,16 @@ against_broker() {
     *capability-challenge-*) fail "a provider resource was read from a challenge item: $said" ;;
   esac
 
-  # The second capability's stored record loses its agent.
-  jq --arg id "$DAMAGED" 'del(.capabilities[$id].agent)' "$SKARBIEC_CAPABILITY_FILE" >"$ROOT/damaged.json"
-  cat "$ROOT/damaged.json" >"$SKARBIEC_CAPABILITY_FILE"
+  # The second capability's stored record loses its agent: the journal gains
+  # an entry setting the record it replays to, without the agent.
+  jq -s -c --arg id "$DAMAGED" '
+    reduce .[] as $v ({capabilities: {}, nonces: {}};
+      if ($v | has("capabilities")) then $v
+      elif ($v | has("capability")) then .capabilities[$v.capability] = $v.record
+      else .nonces[$v.nonce] = $v.seen_at end)
+    | {capability: $id, record: (.capabilities[$id] | del(.agent))}' \
+    "$SKARBIEC_CAPABILITY_FILE" >"$ROOT/damaged.json"
+  cat "$ROOT/damaged.json" >>"$SKARBIEC_CAPABILITY_FILE"
   redeem "$DAMAGED" "nonce-$RUN-damaged" </dev/null
   logged "redemption denied"
   case "$said" in

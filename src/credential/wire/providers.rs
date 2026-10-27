@@ -109,7 +109,7 @@ pub(in crate::credential) fn declared_signup_origin(
     let Some(value) = value.map(|value| value.trim().to_string()) else {
         return Ok(None);
     };
-    if operation != "acquire" || !generic_provider(provider) {
+    if Operation::parse(operation) != Some(Operation::Acquire) || !generic_provider(provider) {
         bail!(
             "--signup-origin is accepted only by credential acquire for a generic provider; {provider} registers no new account here"
         );
@@ -161,7 +161,7 @@ pub(in crate::credential) fn provider_contract(
         IDENTITY_PROVIDER => {
             if directory.is_none() {
                 bail!(
-                    "{credential_id} has no sealed directory contract; run credential seal-directory {credential_id} --provider {IDENTITY_PROVIDER} --tenant <uuid> --object-id <uuid> --account-upn <email> before any lifecycle operation"
+                    "{credential_id} has no sealed directory contract; run credential directory seal {credential_id} --provider {IDENTITY_PROVIDER} --tenant <uuid> --object-id <uuid> --account-upn <email> before any lifecycle operation"
                 );
             }
             if account.is_some() {

@@ -34,26 +34,28 @@ pub(crate) fn local(path: &str, body: &Value) -> Result<Value> {
         .collect::<Result<_>>()?;
     match path {
         "/v1/operator/items/get" => crate::cli::reads::get_value(&flags, &positionals),
-        "/v1/operator/items/list" => crate::cli::reads::cmd_list(&flags),
+        "/v1/operator/items/list" => crate::cli::list::cmd_list(&flags),
         "/v1/operator/items/set-json" => {
             let id = positionals
                 .first()
-                .context("set-json requires an item id")?;
+                .context("set requires an item id")?;
             let encoded = body
                 .get("payload")
                 .and_then(Value::as_str)
-                .context("set-json requires its encoded stdin payload")?;
+                .context("set requires its encoded stdin payload")?;
             crate::cli::items::set_json_value(&flags, id, encoded)
         }
         "/v1/operator/items/retag" => crate::cli::items::retag_value(&flags, &positionals),
         "/v1/operator/totp/seed-state" => {
-            crate::runtime::totp::dispatch(TOTP_SEED_STATE, &flags, &positionals)?
-                .context("totp-seed-state answered nothing")
+            let mut asked = vec![SEED_LEAF.to_string()];
+            asked.extend(positionals);
+            crate::runtime::totp::dispatch(TOTP, &flags, &asked)?.context("totp seed answered nothing")
         }
         _ => bail!("unknown owner item operation {path}"),
     }
 }
 
-/// The TOTP seed diagnostic's command name, which a forwarded request runs
-/// on the owner as the command line runs it.
-pub(crate) const TOTP_SEED_STATE: &str = "totp-seed-state";
+/// The TOTP seed diagnostic's command and leaf, which a forwarded request
+/// runs on the owner as the command line runs it.
+pub(crate) const TOTP: &str = "totp";
+pub(crate) const SEED_LEAF: &str = "seed";

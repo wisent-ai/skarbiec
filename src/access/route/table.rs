@@ -17,7 +17,7 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
 
-use super::super::capability::{routes_path, write_private_file};
+use super::super::capability::{install_private_file, routes_path, write_private_file};
 use crate::core::vault::Vault;
 use anyhow::{bail, Context, Result};
 use fs2::FileExt;
@@ -138,7 +138,7 @@ fn publish(path: &Path, table: &Value) -> Result<Option<String>> {
             staging.display()
         )
     })?;
-    fs::rename(&staging, path)
+    install_private_file(&staging, path)
         .with_context(|| format!("install capability routes {}", path.display()))?;
     Ok(backup)
 }

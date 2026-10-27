@@ -49,18 +49,18 @@ function refused(args, payload, cause) {
 async function operator(expected, payload, accepted) {
   const response = await fetch(`${endpoint}/v1/operator/credential`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ operation: 'set-json', item: id, 'if-unchanged': true,
+    body: JSON.stringify({ operation: 'set', item: id, 'if-unchanged': true,
       payload: { expected, payload } }),
   });
   const body = await response.text();
-  report.requests.push({ operation: 'set-json', status: response.status, body });
+  report.requests.push({ operation: 'set', status: response.status, body });
   save();
   assert.equal(response.ok, accepted, body);
   if (!accepted) assert.ok(body.includes('item_payload_changed'), body);
 }
-// The field-by-field `set` operation is gone: a console write sends the whole
-// payload with set-json, so a `set` request is refused naming that and the
-// item is left as it was.
+// There is no field-by-field write: a console write sends the whole payload
+// with set, so a `set` request naming a field and no payload is refused
+// naming the payload and the item is left as it was.
 async function removedSet(field) {
   const response = await fetch(`${endpoint}/v1/operator/credential`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -70,23 +70,24 @@ async function removedSet(field) {
   report.requests.push({ operation: 'set', status: response.status, body });
   save();
   assert.equal(response.ok, false, body);
-  assert.ok(body.includes('set-json'), body);
+  assert.ok(body.includes('set payload required'), body);
 }
 try {
   const head = run('git', ['rev-parse', 'HEAD']);
   assert.ok(head.status !== null && !head.status, head.stderr);
   assert.equal(head.stdout.trim(), revision);
   assert.equal(success(['version']).commit, revision);
-  const createdResult = success(['set-json', id, '--if-absent'], original);
+  const createdResult = success(['set', id, '--if-absent'], original);
   assert.equal(createdResult.created, true);
   created = true;
   assert.deepEqual(success(['get', id]), original);
-  success(['set-json', id, '--if-unchanged'], { expected: original, payload: updated });
+  success(['set', id, '--if-unchanged'], { expected: original, payload: updated });
   assert.deepEqual(success(['get', id]), updated);
-  refused(['set-json', id, '--if-unchanged'], { expected: original, payload: rebound }, 'item_payload_changed');
+  refused(['set', id, '--if-unchanged'], { expected: original, payload: rebound }, 'item_payload_changed');
   assert.deepEqual(success(['get', id]), updated);
-  refused(['set-json', id, '--if-absent', '--if-unchanged'], { expected: updated, payload: rebound }, 'only one');
-  refused(['set-json', id, '--if-unchanged'], { expected: updated }, 'requires expected and payload');
+  refused(['set', id, '--if-absent', '--if-unchanged'], { expected: updated, payload: rebound }, 'only one');
+  refused(['set', id, '--if-unchanged'], { expected: updated }, 'requires expected and payload');
+  refused(['set-json', id, '--if-absent'], original, 'unknown command: set-json');
   assert.deepEqual(success(['get', id]), updated);
   await operator(updated, rebound, true);
   assert.deepEqual(success(['get', id]), rebound);

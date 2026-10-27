@@ -11,6 +11,7 @@ mod epoch;
 mod journal;
 mod reports;
 mod retired;
+mod summary;
 
 pub use journal::{append, append_sync};
 pub use reports::{chain_report, probe};
@@ -19,7 +20,7 @@ pub use retired::retired_ports;
 use epoch::start_epoch;
 use reports::audit;
 
-/// `audit list|verify|epoch` is a group: the journal is the object and the
+/// `audit list|verify|epoch|summary` is a group: the journal is the object and the
 /// verb its first positional; the operator routes call the leaves by their
 /// whole name ("audit list"). A started epoch is still journalled under its
 /// own operation name, audit-epoch-start, which every chain already holds.
@@ -45,10 +46,11 @@ fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Valu
         return Ok(json!({
             "commands": [
                 "audit list [--op <operation>] [--consumer <name>] [--item <id>] [--since <iso>] [--until <iso>] [--limit <N>]",
+                "audit summary --since <iso> [--until <iso>]",
                 "audit verify [--tail <N>]",
                 "audit epoch --reason <text>",
             ],
-            "usage": "audit list reads the journal oldest first, filtered by operation, consumer, item and time, every match or with --limit the newest N; audit verify checks the journal's linkage and entry digests and reports every fault; audit epoch starts a signed epoch after acknowledging an already-broken chain.",
+            "usage": "audit list reads the journal oldest first, filtered by operation, consumer, item and time, every match or with --limit the newest N; audit summary counts a span's entries by operation, consumer and item, most frequent first; audit verify checks the journal's linkage and entry digests and reports every fault; audit epoch starts a signed epoch after acknowledging an already-broken chain.",
         }));
     }
     leaf(&format!("audit {verb}"), flags)?.ok_or_else(|| {
@@ -62,6 +64,7 @@ fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Valu
 fn leaf(command: &str, flags: &HashMap<String, String>) -> Result<Option<Value>> {
     match command {
         "audit list" => Ok(Some(audit(flags)?)),
+        "audit summary" => Ok(Some(summary::summary(flags)?)),
         "audit verify" => Ok(Some(serde_json::to_value(chain_report(flags)?)?)),
         "audit epoch" => Ok(Some(start_epoch(flags)?)),
         _ => Ok(None),

@@ -1,17 +1,18 @@
 // The route table: one request in, one handler chosen, one answer out.
 // Mutating routes take the process-wide write lock; read-only routes do not.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::{BufReader, Read};
+use std::io::BufReader;
 use std::net::TcpStream;
 use wisent_errors::Code;
 
 use super::readiness::readiness_check;
-use super::request::{credential_status_item, is_mutation, read_line};
+use super::request::{browser_refusal, credential_status_item, is_mutation, read_body, read_line};
 use super::{
-    detail_text, load, presented_identity, request_field, request_id, request_json, write_guard,
+    detail_text, load, presented_identity, request_field, request_id, request_json, unidentified,
+    write_guard,
     write_response,
 };
 use crate::access::grant;
@@ -46,15 +47,13 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             headers.insert(k.trim().to_lowercase(), v.trim().to_string());
         }
     }
-    let body = match headers.get("content-length") {
-        Some(value) => {
-            let length = value.parse::<usize>().context("invalid content-length")?;
-            let mut body_buf = vec![Default::default(); length];
-            reader.read_exact(&mut body_buf)?;
-            String::from_utf8_lossy(&body_buf).into_owned()
-        }
-        // A request without a content-length carries no body.
-        None => String::new(),
+    // No route answers a web page: see request::browser_refusal.
+    if let Some(reason) = browser_refusal(&method, &path, &headers) {
+        return write_response(&mut stream, "HTTP/1.1 403 Forbidden", &json!({"error": reason}));
+    }
+    let body = match read_body(&mut reader, &headers)? {
+        Ok(body) => body,
+        Err(reason) => return write_response(&mut stream, "HTTP/1.1 400 Bad Request", &json!({"error": reason})),
     };
 
     let ok_line = "HTTP/1.1 200 OK";
@@ -133,8 +132,9 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     // count of what this caller is allowed to see. The audit journal itself is
     // `/v1/operator/audit`.
     if method == "GET" && path == "/audit" {
-        let Some(visible) = crate::net::mcp::authorized_items(&headers)? else {
-            return crate::net::mcp::refuse_without_grant(&mut stream);
+        let visible = match crate::net::mcp::authorized_items(&headers)? {
+            Ok(visible) => visible,
+            Err(refusal) => return crate::net::mcp::refuse_items(&mut stream, refusal),
         };
         return write_response(&mut stream, ok_line, &json!({"items": visible.len()}));
     }
@@ -152,21 +152,20 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                 &json!({"error": "exact id and field required"}),
             );
         };
-        let (consumer, acquisition_token) = presented_identity(&headers);
+        let (consumer, acquisition_token) = match presented_identity(&headers) {
+            Ok(identity) => identity,
+            Err(reason) => return unidentified(&mut stream, &reason),
+        };
         // A redemption that failed to read its own state is not a wrong
         // token: it answers unavailable with the cause, never 401.
-        let acquired = if consumer.is_empty() {
-            None
-        } else {
-            match crate::access::acquisition::consume(&consumer, &acquisition_token, item, field) {
-                Ok(acquired) => acquired,
-                Err(error) => {
-                    return write_response(
-                        &mut stream,
-                        unavailable_line,
-                        &json!({"error": format!("the acquisition could not be redeemed: {error:#}")}),
-                    );
-                }
+        let acquired = match crate::access::acquisition::consume(&consumer, &acquisition_token, item, field) {
+            Ok(acquired) => acquired,
+            Err(error) => {
+                return write_response(
+                    &mut stream,
+                    unavailable_line,
+                    &json!({"error": format!("the acquisition could not be redeemed: {error:#}")}),
+                );
             }
         };
         let Some(acquired) = acquired else {
@@ -216,7 +215,10 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         let Some(id) = request_id(&parsed) else {
             return write_response(&mut stream, bad_line, &json!({"error": "id required"}));
         };
-        let (consumer, bearer) = presented_identity(&headers);
+        let (consumer, bearer) = match presented_identity(&headers) {
+            Ok(identity) => identity,
+            Err(reason) => return unidentified(&mut stream, &reason),
+        };
         let mut vault = load()?;
         if crate::credential::lifecycle_owned_item(&vault, id) {
             return write_response(
@@ -225,8 +227,7 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                 &json!({"error": "credential lifecycle requests and sealed directory contracts cannot be changed through item APIs"}),
             );
         }
-        if consumer.is_empty()
-            || !grant::token_allows_action(
+        if !grant::token_allows_action(
                 &vault,
                 &consumer,
                 &bearer,
@@ -286,6 +287,9 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     }
     if method == "POST" && path == "/v1/donations" {
         return crate::net::handle_donation(&mut stream, &headers, &body);
+    }
+    if method == "POST" && path == "/v1/offers" {
+        return crate::net::handle_offer(&mut stream, &headers, &body);
     }
     if method == "POST" && path == "/v1/enroll" {
         return crate::net::bond::handle_enroll(&mut stream, &headers, &body);

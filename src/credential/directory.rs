@@ -1,5 +1,5 @@
 // The sealed directory contract: the one authority on which principal an item
-// speaks for. Written by seal-directory, changed only by reseal, and never
+// speaks for. Written by directory seal, changed only by directory reseal, and never
 // supplied by a lifecycle caller: `--expect-*` can refuse it, never set it.
 
 use anyhow::{bail, Context, Result};
@@ -44,7 +44,7 @@ pub(super) fn checked_directory(block: &Value) -> Result<Value> {
     let tenant_id = safe_string(block, "tenant_id").context("sealed directory has no tenant_id")?;
     let principal_object_id = safe_string(block, "principal_object_id")
         .context("sealed directory has no principal_object_id")?;
-    if !uuid_shaped(&tenant_id)? || !uuid_shaped(&principal_object_id)? {
+    if !uuid_shaped(&tenant_id) || !uuid_shaped(&principal_object_id) {
         bail!("sealed directory tenant_id and principal_object_id must be lowercase UUIDs");
     }
     let account_upn = email_address(
@@ -173,7 +173,7 @@ pub(super) fn seal_directory(
     args: &[String],
     reseal: bool,
 ) -> Result<Value> {
-    let command = if reseal { "reseal" } else { "seal-directory" };
+    let command = if reseal { "directory reseal" } else { "directory seal" };
     let allowed = [
         "provider",
         "tenant",
@@ -224,7 +224,7 @@ pub(super) fn seal_directory(
         }
     } else if resolved_directory(&vault, credential_id)?.is_some() {
         bail!(
-            "{credential_id} already carries a sealed directory contract; changing it requires credential reseal and a reseal capability"
+            "{credential_id} already carries a sealed directory contract; changing it requires credential directory reseal and a reseal capability"
         );
     }
     let seal_item = seal_item_id(credential_id);

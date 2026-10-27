@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 
 use super::proof::{item_field, verify_proof, workload_public_key};
 use super::wire::{challenge_item, denied, denied_because, pending, reply};
-use crate::access::capability::state::{acquire_state_lock, load_state, now_epoch, save_state};
+use crate::access::capability::state::{acquire_state_lock, load_state, now_epoch, save_entry};
 use crate::access::capability::{PROOF_DOMAIN, WIRE_VERSION};
 use crate::core::schema::exact_token;
 use crate::core::{vault::Vault, vault_path};
@@ -24,7 +24,7 @@ const PROOF_LENGTH: usize = 86;
 /// A redemption spends one of the capability's `--max-uses`.
 /// https://skarbiec.wisent.com/docs/cli/grant/capability
 const ONE_USE: u64 = 1;
-/// The resources whose value a device writes with `challenge-put` after the
+/// The resources whose value a device writes with `capability challenge` after the
 /// capability is issued, into the resource's challenge item; every other
 /// resource is read through its route.
 const CHALLENGE_PREFIX: &str = "challenge:";
@@ -157,7 +157,7 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         // The cancelled state is what refuses every later redemption; the
         // record keeps the uses it had left when it was cancelled.
         state["capabilities"][capability_id]["state"] = json!("cancelled");
-        save_state(&state)?;
+        save_entry(&state, capability_id, Some(&nonce_key))?;
         crate::runtime::audit::append_sync(
             "capability-cancelled",
             &json!({"capability_id": capability_id, "agent": agent, "resource": resource}),
@@ -170,7 +170,7 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         );
     }
 
-    // A challenge resource is read from the item `challenge-put` writes; any
+    // A challenge resource is read from the item `capability challenge` writes; any
     // other resource through exactly one route, and a resource the route
     // table cannot resolve is refused with the table's own sentence, never
     // read from an item nobody writes.
@@ -200,7 +200,7 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         // Nothing has written the value yet. For a challenge that is the
         // normal state between issuing and the relay storing.
         if challenge {
-            save_state(&state)?;
+            save_entry(&state, capability_id, Some(&nonce_key))?;
             return pending(stream);
         }
         // A bare refusal here sends the caller a redemption that "was denied"
@@ -219,7 +219,7 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
     if left < ONE_USE {
         state["capabilities"][capability_id]["state"] = json!("spent");
     }
-    save_state(&state)?;
+    save_entry(&state, capability_id, Some(&nonce_key))?;
     crate::runtime::audit::append_sync(
         "capability-redeemed",
         &json!({"capability_id": capability_id, "agent": agent, "resource": resource}),

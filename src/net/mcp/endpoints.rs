@@ -33,11 +33,13 @@ pub(crate) fn handle_acquisitions_issue(
         let e = &json!({"error": "exact id, field, and workload proof required"});
         return http::write_response(stream, "HTTP/1.1 400 Bad Request", e);
     };
-    let (consumer, _) = http::presented_identity(headers);
-    let issued = if consumer.is_empty() {
-        None
-    } else {
-        match crate::access::acquisition::issue(
+    let consumer = match http::presented_consumer(headers) {
+        Ok(consumer) => consumer,
+        Err(reason) => {
+            return http::write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
+        }
+    };
+    let issued = match crate::access::acquisition::issue(
             &consumer,
             item,
             field,
@@ -61,7 +63,6 @@ pub(crate) fn handle_acquisitions_issue(
                 let e = &json!({"error": Code::InfraDown.as_str()});
                 return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
             }
-        }
     };
     let Some(issued) = issued else {
         let e = &json!({"error": "unauthorized"});
@@ -85,26 +86,38 @@ pub(crate) fn handle_acquisitions_issue(
     http::write_response(stream, "HTTP/1.1 200 OK", &out)
 }
 
-/// The items one caller is allowed to see, or `None` when the caller presented
-/// no usable consumer grant.
+/// Why an item-index request sees nothing: it presented no identity (named),
+/// or its identity holds no valid consumer grant.
+pub(crate) enum ItemsRefusal {
+    Unidentified(String),
+    NoGrant,
+}
+
+/// The items one caller is allowed to see, or why it may see none.
 ///
 /// This is the authorization for every route that hands back the item index,
 /// held in one place so the legacy `GET /list` and `GET /audit` aliases cannot
-/// drift away from the gate `POST /v1/items/list` applies.
-pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Option<Vec<Value>>> {
-    let (consumer, bearer) = http::presented_identity(headers);
+/// drift away from the gate `POST /v1/items/list` applies. A request that
+/// presents no identity is refused before the vault is read.
+pub(crate) fn authorized_items(
+    headers: &HashMap<String, String>,
+) -> Result<std::result::Result<Vec<Value>, ItemsRefusal>> {
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return Ok(Err(ItemsRefusal::Unidentified(reason))),
+    };
     let vault = http::load()?;
     // Hash the bearer once: hashing shells out to `shasum`, so per-item
     // hashing turned this filter into one subprocess spawn per vault item.
     let hash = grant::presented_hash(&bearer)?;
-    if consumer.is_empty() || !grant::token_valid_hash(&vault, &consumer, &hash) {
-        return Ok(None);
+    if !grant::token_valid_hash(&vault, &consumer, &hash) {
+        return Ok(Err(ItemsRefusal::NoGrant));
     }
     // A grant may cover an item by its id or by a role it plays
     // (`read:role:<role>#<field>`): the item carrying `stado:role:<role>` is
     // listed for that consumer too, so a reader granted roles sees the items
     // it may read without naming any of them.
-    Ok(Some(
+    Ok(Ok(
         vault
             .list(false)
             .into_iter()
@@ -129,17 +142,25 @@ pub(crate) fn authorized_items(headers: &HashMap<String, String>) -> Result<Opti
 
 /// The refusal every item-index route answers with, so an operator who loses
 /// access to one of them reads the same reason from all of them.
-pub(crate) fn refuse_without_grant(stream: &mut TcpStream) -> Result<()> {
-    let e = &json!({"error": "consumer grant required"});
-    http::write_response(stream, "HTTP/1.1 403 Forbidden", e)
+pub(crate) fn refuse_items(stream: &mut TcpStream, refusal: ItemsRefusal) -> Result<()> {
+    match refusal {
+        ItemsRefusal::Unidentified(reason) => {
+            http::write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
+        }
+        ItemsRefusal::NoGrant => http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": "consumer grant required"}),
+        ),
+    }
 }
 
 pub(crate) fn handle_items_list(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
 ) -> Result<()> {
-    let Some(visible) = authorized_items(headers)? else {
-        return refuse_without_grant(stream);
-    };
-    http::write_response(stream, "HTTP/1.1 200 OK", &json!(visible))
+    match authorized_items(headers)? {
+        Ok(visible) => http::write_response(stream, "HTTP/1.1 200 OK", &json!(visible)),
+        Err(refusal) => refuse_items(stream, refusal),
+    }
 }

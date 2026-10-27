@@ -98,7 +98,12 @@ const ROUTES_TABLE: &str = "capability-routes.json";
 /// the same cleartext envelope `vaults` reads.
 pub(super) fn selection_check() -> Value {
     let resolved = vault_path();
-    let declaration = crate::core::stado_config_file();
+    // A config search that failed is said by stado_declared_vault's own
+    // refusal below (it searches the same way); here it names no file.
+    let declaration = match crate::core::stado_config_file() {
+        Ok(found) => found,
+        Err(_said_below) => None,
+    };
     let (selected_by, explicit) = if std::env::var_os("SKARBIEC_VAULT_FILE").is_some() {
         ("SKARBIEC_VAULT_FILE".to_string(), true)
     } else {
@@ -121,22 +126,35 @@ pub(super) fn selection_check() -> Value {
 
     // A vault the inventory could not read, or an inventory that failed, is
     // said beside the visible ones: an unreadable vault might contest the
-    // choice, so the choice is not called unambiguous without it.
+    // choice, so the choice is not called unambiguous without it. A list the
+    // inventory answered in another shape is unread too: read as empty, it
+    // left no vault to contest the choice and called it unambiguous.
     let (visible, unread): (Vec<Value>, Vec<String>) = match vaults::inventory() {
-        Ok(report) => (
-            report["vaults"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .cloned()
-                .collect(),
-            report["unreadable"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|entry| format!("{} {}", entry["path"], entry["cause"]))
-                .collect(),
-        ),
+        Ok(report) => {
+            let mut unread = Vec::new();
+            let visible = match report["vaults"].as_array() {
+                Some(vaults) => vaults.clone(),
+                None => {
+                    unread.push(format!(
+                        "the vault inventory listed its vaults as no list: {}",
+                        report["vaults"]
+                    ));
+                    Vec::new()
+                }
+            };
+            match report["unreadable"].as_array() {
+                Some(entries) => unread.extend(
+                    entries
+                        .iter()
+                        .map(|entry| format!("{} {}", entry["path"], entry["cause"])),
+                ),
+                None => unread.push(format!(
+                    "the vault inventory listed its unreadable vaults as no list: {}",
+                    report["unreadable"]
+                )),
+            }
+            (visible, unread)
+        }
         // No vault is listed as visible, and the failure is the one unread
         // entry, so the selection below is never called unambiguous.
         Err(error) => (
@@ -155,9 +173,27 @@ pub(super) fn selection_check() -> Value {
     // it is not the vault that answered, because it is the vault that answers
     // whenever the variable is dropped.
     let default = default_vault_path();
-    let orphan_default = default.is_file() && !default.with_file_name(ROUTES_TABLE).is_file();
+    let examined = (|| -> Result<(bool, bool), String> {
+        let orphan_default =
+            file_state(&default)? && !file_state(&default.with_file_name(ROUTES_TABLE))?;
+        Ok((orphan_default, file_state(&resolved)?))
+    })();
+    let (orphan_default, resolved_present) = match examined {
+        Ok(found) => found,
+        Err(cause) => {
+            let mut entry = check(
+                "selection",
+                FAIL,
+                format!("{cause}, so which vault answers cannot be told"),
+            );
+            entry["resolved"] = json!(resolved.display().to_string());
+            entry["selected_by"] = json!(selected_by);
+            entry["candidates"] = json!(visible);
+            return entry;
+        }
+    };
 
-    if !resolved.is_file() {
+    if !resolved_present {
         let mut entry = check(
             "selection",
             NOT_CONFIGURED,
@@ -212,4 +248,15 @@ pub(super) fn selection_check() -> Value {
 /// The path `vault_path` falls back to, computed the same way it computes it.
 fn default_vault_path() -> std::path::PathBuf {
     crate::core::default_vault_path()
+}
+
+/// Whether `path` is a file. One that cannot be examined is the error naming
+/// it: read as absent, the doctor said "no vault" for a vault it could not
+/// look at, and named no orphan default it could not look at either.
+fn file_state(path: &std::path::Path) -> Result<bool, String> {
+    match std::fs::metadata(path) {
+        Ok(metadata) => Ok(metadata.is_file()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(format!("{} cannot be examined: {error}", path.display())),
+    }
 }

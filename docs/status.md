@@ -14,7 +14,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 | Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
 | Latest complete release | [`v0.2.37`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.37) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
-| Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking. TOTP is computed in process |
+| Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking. TOTP is computed in process. Commands that change another system run that system's own client only when used: `ssh` and `ssh-keygen` for SSH keys, `gh` and `glab` for deploy keys and `gh` for Actions secrets, `psql` or `mysql` for database rotation, `aws`, `gcloud`, `az` and `kubectl` for cloud credentials, `curl` for GitLab, Cloudflare, Twilio, SendGrid and Vercel tokens and alert webhooks. Terraform and Cargo run this binary themselves as their credentials helper and provider; npm, twine, gh, gem, the Hugging Face libraries and flyctl read their tokens through `exec` |
 | Storage | One local JSON vault; values are per-recipient GPG ciphertext |
 | Metadata | Item ids, types, tags, recipients, and revision counts are cleartext |
 | Default machine access | Ed25519 workload proof → one short-lived, one-use, field-bound capability |

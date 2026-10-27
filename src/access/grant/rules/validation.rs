@@ -33,7 +33,7 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
     }
     // The same OpenSSL that verifies the key's proofs judges the key, and an
     // OpenSSL that cannot read it says so rather than calling the key invalid.
-    let openssl = crate::core::crypto::signature::openssl_bin();
+    let openssl = crate::core::crypto::signature::openssl_bin()?;
     let output = stado_wait::output(
         Command::new(&openssl)
             .args(["pkey", "-pubin", "-in"])

@@ -41,6 +41,22 @@ pub fn fingerprint_for(uid: &str) -> Result<Option<String>> {
         .map(str::to_string))
 }
 
+/// The fingerprint of the primary key an armored key holds, read without
+/// importing it, so a key replacing another under the same user id is named
+/// exactly rather than found by that user id.
+pub fn fingerprint_of_armored(armored: &str) -> Result<String> {
+    let listing = run(
+        "gpg",
+        &["--batch", "--with-colons", "--import-options", "show-only", "--import"],
+        Some(armored),
+    )?;
+    listing
+        .lines()
+        .find_map(|line| hex_field(line, "fpr"))
+        .map(str::to_string)
+        .context("the key file holds no key gpg can list")
+}
+
 /// The hex value of a `--with-colons` record of `kind` (`fpr`, `grp`): its
 /// first field that is non-empty and all hex digits, or `None` for a record
 /// of another kind.
@@ -48,6 +64,47 @@ fn hex_field<'a>(line: &'a str, kind: &str) -> Option<&'a str> {
     line.strip_prefix(kind)?
         .split(':')
         .find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit()))
+}
+
+/// What the keyring says about one public key's life: the moment it expires
+/// (none when it never does) and gpg's validity letter for it, where `e`
+/// means expired and `r` revoked. A key either way still decrypts what was
+/// written to it, but new writes to it fail, so a share to it breaks.
+pub struct KeyValidity {
+    pub expires_epoch: Option<i64>,
+    pub validity: String,
+}
+
+/// The validity of the primary key `fingerprint` names, from its `pub`
+/// record (`pub:<validity>:<length>:<algorithm>:<keyid>:<created>:<expires>`),
+/// or none when the keyring does not hold it.
+pub fn key_validity(fingerprint: &str) -> Result<Option<KeyValidity>> {
+    let Some(listing) = absent_as_none(
+        run("gpg", &["--list-keys", "--with-colons", fingerprint], None),
+        "GPG_ERR_NO_PUBKEY",
+    )?
+    else {
+        return Ok(None);
+    };
+    let Some(record) = listing.lines().find(|line| line.starts_with("pub:")) else {
+        bail!("gpg listed {fingerprint} without a pub record");
+    };
+    let mut fields = record.split(':');
+    let _kind = fields.next();
+    let validity = fields.next().with_context(|| format!("{fingerprint}'s pub record has no validity field"))?;
+    let _length = fields.next();
+    let _algorithm = fields.next();
+    let _key_id = fields.next();
+    let _created = fields.next();
+    let expires = fields.next().with_context(|| format!("{fingerprint}'s pub record has no expiry field"))?;
+    let expires_epoch = match expires {
+        "" => None,
+        text => Some(
+            text.parse::<i64>()
+                .with_context(|| format!("{fingerprint}'s pub record states expiry {text}, which is not a time"))?,
+        ),
+    };
+    Ok(Some(KeyValidity { expires_epoch, validity: validity.to_string() }))
 }
 
 /// Whether the private half for this fingerprint is in the local keyring. The

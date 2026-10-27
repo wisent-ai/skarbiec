@@ -2,7 +2,7 @@
 //
 // The directory identity of an item (provider, tenant, principal object id,
 // account UPN) is a sealed item contract, written once by `credential
-// seal-directory` and changed only by `credential reseal`. No lifecycle call
+// directory seal` and changed only by `credential directory reseal`. No lifecycle call
 // carries it: Skarbiec reads it from the item and puts it on the wire, so no
 // caller can rotate one principal's password while naming another. The
 // `--expect-*` flags are a cross-check only, refused before anything is
@@ -21,7 +21,7 @@ mod lifecycle;
 mod quarantine;
 mod receipt;
 mod schedule;
-pub(crate) use schedule::mark_due;
+pub(crate) use schedule::{follow_rename as follow_rotation_rename, forget as forget_rotation, mark_due};
 mod serve;
 mod state;
 mod status;
@@ -72,16 +72,20 @@ const IDENTITY_PROVIDER: &str = "microsoft_entra";
 // Provider bound to one exact consumer account address only.
 const ACCOUNT_PROVIDER: &str = "microsoft";
 
-/// What `declare-endpoint` says when asked to declare nothing: the marker it
+/// What `endpoint declare` says when asked to declare nothing: the marker it
 /// writes is the one Stado's service directory materializes from the
 /// registry, so the ordinary way it comes to exist is `stado service
 /// directory publish`, and an address the operator declares by hand is the
 /// operator's own word. The command never guesses the loopback port `serve`
 /// binds by default: on a machine whose Skarbiec is placed elsewhere that
 /// would declare an undeclared local process as the canonical one.
-const DECLARE_ENDPOINT_USAGE: &str = "usage: credential declare-endpoint <url> (or --url <url>): \
+const DECLARE_ENDPOINT_USAGE: &str = "usage: credential endpoint declare <url>: \
      the canonical Skarbiec's address from this machine; `stado service directory publish` \
      writes the same marker from the fleet's declaration";
+
+/// The credential nouns whose verb follows them: `credential directory seal`
+/// is the command `directory seal`, its arguments after the verb.
+const CREDENTIAL_NOUNS: &[&str] = &["directory", "quarantine", "endpoint"];
 
 // Lifecycle state of one credential item.
 const STATE_UNMANAGED: &str = "unmanaged";
@@ -102,7 +106,7 @@ const ITEM_STATES: &[&str] = &[
 // written without re-encrypting a payload that carries a staged candidate.
 pub(super) const QUARANTINE_TAG: &str = "lifecycle:quarantined";
 
-// `credential resolve-quarantine --confirm` demands this exact sentence.
+// `credential quarantine resolve --confirm` demands this exact sentence.
 pub(super) const QUARANTINE_CONFIRMATION: &str =
     "I know which password this provider account accepts";
 
@@ -178,23 +182,51 @@ pub fn dispatch(
         .into());
     };
     let subcommand = subcommand.as_str();
+    let (subcommand, args) = match (subcommand, args.split_first()) {
+        (noun, Some((verb, rest))) if CREDENTIAL_NOUNS.contains(&noun) => {
+            (format!("{noun} {verb}"), rest)
+        }
+        (noun, None) if CREDENTIAL_NOUNS.contains(&noun) => {
+            return Err(crate::cli::args::Usage(format!(
+                "credential {noun} needs a verb; `skarbiec credential help` lists them"
+            ))
+            .into());
+        }
+        (other, _) => (other.to_string(), args),
+    };
+    let subcommand = subcommand.as_str();
     // The canonical Skarbiec is the default target: `--local` is the only way
     // to act on this vault file directly.
     let local = flags.get("local").is_some_and(|value| value == "true");
     let mut client_flags = flags.clone();
     client_flags.remove("local");
-    let value = match subcommand {
-        // Administrative commands hold the vault file and the operator's own
-        // secrets: they exist only in local mode.
-        "seal-directory" | "reseal" | "resolve-quarantine" | "adopt" if !local => {
+    // Administrative commands hold the vault file and the operator's own
+    // secrets: they exist only in local mode.
+    let local_only = || -> Result<()> {
+        if !local {
             bail!(
                 "credential {subcommand} runs against the vault file it owns; rerun it with --local on the canonical Skarbiec host"
             );
         }
-        "seal-directory" => seal_directory(vault_path, &client_flags, args, false)?,
-        "reseal" => seal_directory(vault_path, &client_flags, args, true)?,
-        "resolve-quarantine" => resolve_quarantine(vault_path, &client_flags, args)?,
-        "adopt" => start_operation("adopt", vault_path, &client_flags, args)?,
+        Ok(())
+    };
+    let value = match subcommand {
+        "directory seal" => {
+            local_only()?;
+            seal_directory(vault_path, &client_flags, args, false)?
+        }
+        "directory reseal" => {
+            local_only()?;
+            seal_directory(vault_path, &client_flags, args, true)?
+        }
+        "quarantine resolve" => {
+            local_only()?;
+            resolve_quarantine(vault_path, &client_flags, args)?
+        }
+        "adopt" => {
+            local_only()?;
+            start_operation("adopt", vault_path, &client_flags, args)?
+        }
         operation if Operation::parse(operation).is_some_and(Operation::remote) => {
             if local {
                 start_operation(operation, vault_path, &client_flags, args)?
@@ -219,18 +251,14 @@ pub fn dispatch(
         // Not gated on `--local`: this declares where the canonical Skarbiec
         // is, so requiring a working canonical Skarbiec to run it would be a
         // lock whose key is inside the box.
-        "declare-endpoint" => {
-            let endpoint = args
-                .first()
-                .map(String::as_str)
-                .or_else(|| flags.get("url").map(String::as_str))
-                .context(DECLARE_ENDPOINT_USAGE)?;
+        "endpoint declare" => {
+            let endpoint = args.first().context(DECLARE_ENDPOINT_USAGE)?;
             declare_canonical_endpoint(endpoint)?
         }
         "help" => json!({
             "commands": [
-                "credential seal-directory",
-                "credential reseal",
+                "credential directory seal",
+                "credential directory reseal",
                 "credential acquire",
                 "credential adopt",
                 "credential rotate",
@@ -239,11 +267,11 @@ pub fn dispatch(
                 "credential remove",
                 "credential reauth",
                 "credential resume",
-                "credential resolve-quarantine",
+                "credential quarantine resolve",
                 "credential status",
-                "credential declare-endpoint"
+                "credential endpoint declare"
             ],
-            "usage": "credential <acquire|rotate|reset|verify|remove|reauth> <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; reauth accepts a named login item and delegates browser authentication to Weles while Skarbiec remains the operation owner; an item named after a generic provider slug acquires that provider's api_key with no sealed contract; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential seal-directory <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential resolve-quarantine <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id>; credential declare-endpoint …",
+            "usage": "credential <acquire|rotate|reset|verify|remove|reauth> <item-id> --provider <provider> --consumer <consumer> [--purpose <purpose>] [--account <email>] [--signup-origin https://<host>] [--expect-tenant <uuid>] [--expect-object-id <uuid>] [--expect-upn <email>] --as <caller> --token-file <path>; reauth accepts a named login item and delegates browser authentication to Weles while Skarbiec remains the operation owner; an item named after a generic provider slug acquires that provider's api_key with no sealed contract; credential adopt <item-id> --provider <provider> --consumer <consumer> --password-stdin --local; credential directory seal <item-id> --provider <provider> --tenant <uuid> --object-id <uuid> --account-upn <email> --local; credential directory reseal <item-id> ... --as <consumer> --token-file <path> --local; credential resume <item-id> --approval <id> --resume-token <token>; credential quarantine resolve <item-id> --confirm '<phrase>' --as <consumer> --token-file <path> --local; credential status <item-id>; credential endpoint declare <url>",
             "wire": WIRE_VERSION,
             "item_states": ITEM_STATES,
             "provider_effects": PROVIDER_EFFECTS,

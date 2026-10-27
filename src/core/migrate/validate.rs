@@ -61,7 +61,10 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
         {
             bail!("{id} credential record is not lifecycle-managed");
         }
-        let mut previous_revision = u64::MIN;
+        // Skarbiec numbers revisions from one, so each revision is held as a
+        // NonZeroU64: none has been read yet, and each one read must exceed
+        // the last.
+        let mut previous_revision: Option<std::num::NonZeroU64> = None;
         for revision in item
             .get("history")
             .and_then(Value::as_array)
@@ -73,10 +76,12 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
                 .get("revision")
                 .and_then(Value::as_u64)
                 .context("v2 revision has no number")?;
-            if number <= previous_revision {
+            let number = std::num::NonZeroU64::new(number)
+                .with_context(|| format!("{id} has a revision numbered zero; revisions are numbered from one"))?;
+            if previous_revision.is_some_and(|previous| number <= previous) {
                 bail!("{id} revisions are not strictly increasing");
             }
-            previous_revision = number;
+            previous_revision = Some(number);
             let revision_kind = revision
                 .get("kind")
                 .and_then(Value::as_str)
@@ -84,7 +89,7 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
             let revision_payload = revision_payload(revision)?;
             schema::validate_payload(&revision_payload, revision_kind)?;
         }
-        if item.get("revision").and_then(Value::as_u64) != Some(previous_revision) {
+        if item.get("revision").and_then(Value::as_u64) != previous_revision.map(std::num::NonZeroU64::get) {
             bail!("{id} envelope revision does not match current revision");
         }
     }
@@ -101,9 +106,8 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
             .get("capabilities")
             .and_then(Value::as_array)
             .context("v2 grant has no capabilities array")?;
-        let has_acquire = capabilities
-            .iter()
-            .any(|capability| capability.get("action").and_then(Value::as_str) == Some("acquire"));
+        let is_acquire = |capability: &Value| Action::of(capability) == Some(Action::Acquire);
+        let has_acquire = capabilities.iter().any(is_acquire);
         if has_acquire
             && entry
                 .get("workload_public_key")
@@ -120,11 +124,7 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
         }) {
             bail!("{consumer} has an unsupported capability action");
         }
-        if has_acquire
-            && capabilities.iter().any(|capability| {
-                capability.get("action").and_then(Value::as_str) != Some("acquire")
-            })
-        {
+        if has_acquire && !capabilities.iter().all(is_acquire) {
             bail!("{consumer} mixes acquisition and direct capabilities");
         }
         for capability in capabilities {

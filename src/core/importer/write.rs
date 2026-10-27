@@ -30,7 +30,6 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
     let mut seen = HashSet::with_capacity(document.rows.len());
     let mut selected = Vec::new();
     let mut results = Vec::with_capacity(document.rows.len());
-    let (mut imported, mut updated, mut unchanged, mut conflicts) = (0, 0, 0, 0);
     for (index, row) in document.rows.iter_mut().enumerate() {
         if let Some(source) = &row.source_key {
             if let Some(id) = source_ids.get(source) {
@@ -72,11 +71,13 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
             row.tags = crate::core::vault::entry_texts(&row.id, existing, "tags")?;
         }
         let tags: Vec<Value> = row.tags.iter().cloned().map(Value::String).collect();
-        let carried = existing
-            .and_then(|item| item.get("tags"))
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default();
+        // Tags the existing item carries: none when it records none, and a
+        // refusal when they are not a list, never read as none.
+        let carried: &[Value] = match existing.and_then(|item| item.get("tags")) {
+            None | Some(Value::Null) => &[],
+            Some(Value::Array(carried)) => carried.as_slice(),
+            Some(other) => bail!("{} carries tags {other}, not a list; no items were written", row.id),
+        };
         schema::ensure_registered_tags(carried, &tags)?;
         let status = if let Some(existing) = existing {
             vault.ensure_owner_controlled(&row.id)?;
@@ -94,10 +95,8 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
                 && carried == tags.as_slice()
                 && vault.item_recipient_uids(&row.id)? == row.recipients;
             if same {
-                unchanged += 1;
                 "unchanged"
             } else if conflict == Conflict::Keep {
-                conflicts += 1;
                 "kept_existing"
             } else if conflict == Conflict::Error {
                 bail!(
@@ -105,12 +104,10 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
                     row.id
                 );
             } else {
-                updated += 1;
                 selected.push(index);
                 "updated"
             }
         } else {
-            imported += 1;
             selected.push(index);
             "imported"
         };
@@ -119,25 +116,29 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
             "warning": row.payload.get("context").and_then(|context| context.get("import_warning")),
         }));
     }
-    let writes: Vec<ItemWrite<'_>> = selected
-        .iter()
-        .map(|index| {
-            let row = &document.rows[*index];
-            ItemWrite {
-                id: &row.id,
-                kind: row.payload["kind"].as_str().expect("validated kind"),
-                payload: &row.payload,
-                recipients: &row.recipients,
-                tags: &row.tags,
-                import_source: row.source_key.as_deref(),
-            }
-        })
-        .collect();
+    let mut writes: Vec<ItemWrite<'_>> = Vec::with_capacity(selected.len());
+    for index in &selected {
+        let row = &document.rows[*index];
+        let Some(kind) = row.payload["kind"].as_str() else {
+            bail!("{} names no kind in its payload, so it cannot be written; no items were written", row.id);
+        };
+        writes.push(ItemWrite {
+            id: &row.id,
+            kind,
+            payload: &row.payload,
+            recipients: &row.recipients,
+            tags: &row.tags,
+            import_source: row.source_key.as_deref(),
+        });
+    }
     vault.set_items_atomic(&writes)?;
+    // Each count is read off the rows' own answers, so the totals and the
+    // per-item statuses cannot disagree.
+    let counted = |status: &str| results.iter().filter(|result| result["status"] == status).count();
     Ok(json!({
         "ok": true, "format": document.format, "total": results.len(),
         "vault": vault.path,
-        "imported": imported, "updated": updated, "unchanged": unchanged,
-        "conflicts": conflicts, "items": results,
+        "imported": counted("imported"), "updated": counted("updated"), "unchanged": counted("unchanged"),
+        "conflicts": counted("kept_existing"), "items": results,
     }))
 }

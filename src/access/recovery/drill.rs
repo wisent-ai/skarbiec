@@ -10,6 +10,19 @@ use crate::core::{crypto, vault_path};
 use super::load;
 use crate::cli::args::OrUsage;
 
+/// The command whose verbs this module answers (`recovery status|drill`).
+pub(super) const GROUP: &str = "recovery";
+
+pub(super) fn help() -> Value {
+    json!({
+        "commands": [
+            "recovery status",
+            "recovery drill <recipient-uid|recovery>",
+        ],
+        "usage": "recovery status reports the vault's recovery recipient and whether its secret key is in this keyring; recovery drill proves that one expected recovery identity in an isolated keyring can open the vault.",
+    })
+}
+
 pub(super) fn dispatch(
     command: &str,
     _flags: &HashMap<String, String>,
@@ -33,11 +46,8 @@ pub(super) fn dispatch(
             }
             let mut local_openers: Vec<String> = Vec::new();
             for fingerprint in vault
-                .doc()
-                .get("recipients")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(|recipients| recipients.values())
+                .section("recipients", "uid -> recipient")?
+                .values()
                 .filter_map(|entry| entry.get("fingerprint").and_then(Value::as_str))
             {
                 if crypto::secret_key_present(fingerprint)? {
@@ -96,15 +106,7 @@ pub(super) fn dispatch(
         }
         "recovery status" => {
             let vault = load()?;
-            // A vault document without an items object is damaged, not empty:
-            // reporting zero items would read as a vault with nothing to recover.
-            let items = match vault.doc().get("items") {
-                Some(Value::Object(items)) => items.len(),
-                other => anyhow::bail!(
-                    "the vault document's items section is {}, not an object of id -> item",
-                    other.map_or_else(|| "missing".to_string(), Value::to_string)
-                ),
-            };
+            let items = vault.section("items", "id -> item")?.len();
             let fpr = vault.recovery_fpr().to_string();
             // Reporting the fingerprint proved nothing about recoverability:
             // this command answered identically whether the offline material
@@ -121,7 +123,7 @@ pub(super) fn dispatch(
                 "item_count": items,
             })))
         }
-        "key-doctor" => {
+        "keys check" => {
             // The question every outage asks and nothing could answer: can any
             // key on this machine still open the vault, and if not, exactly
             // which file has to come back from backup. Reads the vault document
@@ -133,15 +135,10 @@ pub(super) fn dispatch(
             let recovery = vault.recovery_fpr().to_string();
             let mut recipients = Vec::new();
             let mut openers = Vec::new();
-            // A vault document without a recipients object is damaged: reading it
-            // as no recipients would report that no key can open the vault.
-            let registry = match vault.doc().get("recipients") {
-                Some(Value::Object(entries)) => entries.clone(),
-                other => anyhow::bail!(
-                    "the vault document's recipients section is {}, not an object of uid -> recipient, so key-doctor cannot say which key opens it",
-                    other.map_or_else(|| "missing".to_string(), Value::to_string)
-                ),
-            };
+            let registry = vault
+                .section("recipients", "uid -> recipient")
+                .context("keys check cannot say which key opens the vault")?
+                .clone();
             for (uid, entry) in &registry {
                 let role = entry.get("role").and_then(Value::as_str);
                 // A recipient that records no fingerprint names no key: asking

@@ -33,6 +33,10 @@ pub(crate) enum Action {
     /// route within it, so a client's reach is a grant here rather than a
     /// list compiled into the service it calls.
     Call,
+    /// Offer a new login to the owner: it waits, sealed to the owner's key,
+    /// in the donation inbox until the owner accepts it. Names `logins`, not
+    /// an item, and reads nothing.
+    Offer,
 }
 
 const ALL: &[Action] = &[
@@ -53,6 +57,7 @@ const ALL: &[Action] = &[
     Action::Reseal,
     Action::Introspect,
     Action::Call,
+    Action::Offer,
 ];
 
 impl Action {
@@ -76,6 +81,7 @@ impl Action {
             Action::Reseal => "reseal",
             Action::Introspect => "introspect",
             Action::Call => "call",
+            Action::Offer => "offer",
         }
     }
 
@@ -85,6 +91,15 @@ impl Action {
         ALL.iter().copied().find(|action| action.as_str() == name)
     }
 
+    /// The action a stored capability record names in its `action` field;
+    /// nothing when the field is absent, not text, or names no action.
+    pub(crate) fn of(capability: &serde_json::Value) -> Option<Action> {
+        capability
+            .get("action")
+            .and_then(serde_json::Value::as_str)
+            .and_then(Action::parse)
+    }
+
     /// Every action's name, in declaration order, as `grant --help` lists them.
     pub(crate) fn names() -> Vec<&'static str> {
         ALL.iter().map(|action| action.as_str()).collect()
@@ -92,12 +107,13 @@ impl Action {
 
     /// Its resource slot names a vault item. The rest name something else
     /// there: `call` a service and a route inside it, `sync` the replication
-    /// channel as `sync:pull`, `enroll` a recipient uid, and `introspect` the
-    /// token table.
+    /// channel as `sync:pull`, `enroll` a recipient uid, `introspect` the
+    /// token table and `offer` the logins a consumer may offer, as
+    /// `offer:logins`.
     pub(crate) fn names_vault_item(self) -> bool {
         !matches!(
             self,
-            Action::Call | Action::Sync | Action::Enroll | Action::Introspect
+            Action::Call | Action::Sync | Action::Enroll | Action::Introspect | Action::Offer
         )
     }
 
@@ -142,7 +158,7 @@ impl Action {
     pub(crate) fn legacy(self) -> bool {
         !matches!(
             self,
-            Action::Lifecycle | Action::Reseal | Action::Introspect | Action::Call
+            Action::Lifecycle | Action::Reseal | Action::Introspect | Action::Call | Action::Offer
         )
     }
 

@@ -1,7 +1,7 @@
 // Submitting one credential operation: record the request, hand it to Weles,
 // and write down exactly what came back.
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
@@ -67,11 +67,12 @@ pub(in crate::credential) fn start_operation(
         let candidate = read_password_stdin()?;
         let staged = stage_adopted_candidate(vault_path, &staging, &candidate);
         zeroize(candidate);
-        baseline_revision = staged?;
+        baseline_revision = Some(staged?);
     }
 
-    let request = resumable_request.unwrap_or_else(|| {
-        json!({
+    let request = match resumable_request {
+        Some(request) => request,
+        None => json!({
             "version": WIRE_VERSION,
             "mode": "submit",
             "action_log_id": Value::Null,
@@ -91,8 +92,8 @@ pub(in crate::credential) fn start_operation(
             "created_at": now_iso(),
             "dry_run": dry_run,
             "adopt_shape": adopt_shape.map(AdoptShape::as_str),
-        })
-    });
+        }),
+    };
 
     if !dry_run {
         save_request(vault_path, &request_item, &request)?;
@@ -136,10 +137,32 @@ pub(in crate::credential) fn start_operation(
         }
         Err(error) => return Err(error),
     };
-    let response_status = response
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("failed");
+    let Some(response_status) = response.get("status").and_then(Value::as_str) else {
+        if !dry_run {
+            let frozen = enforce_provider_effect(
+                vault_path,
+                credential_id,
+                operation,
+                &request_id,
+                &response,
+            )?;
+            let recorded = if frozen {
+                STATE_QUARANTINED
+            } else {
+                "operation_failed"
+            };
+            update_request(
+                vault_path,
+                &request_item,
+                &request,
+                recorded,
+                Some(&response),
+            )?;
+        }
+        bail!(
+            "Weles answered {operation} of {credential_id} without a status, so whether it ran is unknown: {response}"
+        );
+    };
     if dry_run {
         return Ok(json!({
             "ok": response_status == "operation_plan",

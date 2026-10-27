@@ -12,6 +12,7 @@ use super::rules::capabilities::{parse_capabilities, redemption_contract};
 use super::rules::validation::{
     exact_component, exact_resource, read_fixed_token, read_workload_public_key,
 };
+use crate::access::actions::Action;
 use crate::core::{clock, crypto, vault_path};
 
 pub(in crate::access::grant) fn issue_once(
@@ -58,14 +59,9 @@ pub(in crate::access::grant) fn issue_once(
             );
         }
     }
-    let has_acquire = capabilities
-        .iter()
-        .any(|capability| capability.get("action").and_then(Value::as_str) == Some("acquire"));
-    if has_acquire
-        && capabilities
-            .iter()
-            .any(|capability| capability.get("action").and_then(Value::as_str) != Some("acquire"))
-    {
+    let is_acquire = |capability: &Value| Action::of(capability) == Some(Action::Acquire);
+    let has_acquire = capabilities.iter().any(is_acquire);
+    if has_acquire && !capabilities.iter().all(is_acquire) {
         bail!("acquire capabilities cannot share a grant with direct capabilities");
     }
     // Driving a credential lifecycle never authorizes reading the

@@ -4,6 +4,7 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::fs;
+use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -19,7 +20,7 @@ pub(in crate::credential) fn lowercase_uuid(
     let Some(value) = value.map(|value| value.trim().to_string()) else {
         return Ok(None);
     };
-    if !uuid_shaped(&value)? {
+    if !uuid_shaped(&value) {
         bail!("{flag} must be a lowercase 8-4-4-4-12 hexadecimal UUID");
     }
     Ok(Some(value))
@@ -32,11 +33,12 @@ pub(in crate::credential) fn email_address(
     let Some(value) = value.map(|value| value.trim().to_lowercase()) else {
         return Ok(None);
     };
-    let valid = value.len() <= 254
-        && !value.chars().any(char::is_control)
-        && value.split('@').count() == std::iter::once(()).count().saturating_add(1)
+    let valid = !value.chars().any(char::is_control)
         && value.split_once('@').is_some_and(|(local, domain)| {
-            !local.is_empty() && domain.contains('.') && !domain.ends_with('.')
+            !local.is_empty()
+                && !domain.contains('@')
+                && domain.contains('.')
+                && !domain.ends_with('.')
         });
     if !valid {
         bail!("{flag} must be one valid email address");
@@ -62,11 +64,11 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     }
     let metadata = fs::symlink_metadata(path)
         .with_context(|| format!("inspect credential token file {}", path.display()))?;
-    let unsafe_bits = 0o077;
+    let group_and_other = u32::from(libc::S_IRWXG | libc::S_IRWXO);
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
-        || metadata.permissions().mode() & unsafe_bits != u32::MIN
+        || NonZeroU32::new(metadata.permissions().mode() & group_and_other).is_some()
     {
         bail!("credential token file must be an owner-only regular file");
     }
@@ -105,15 +107,9 @@ pub(in crate::credential) fn client_identity(
     exact_name("consumer", &consumer)?;
     let path = match flags.get("token-file") {
         Some(path) => PathBuf::from(path.trim()),
-        None => {
-            let configured = std::env::var(TOKEN_FILE_ENV)
-                .ok()
-                .filter(|path| !path.trim().is_empty())
-                .with_context(|| {
-                    format!("--token-file <path> or {TOKEN_FILE_ENV} is required to reach the canonical Skarbiec")
-                })?;
-            PathBuf::from(configured.trim())
-        }
+        None => crate::core::env::path(TOKEN_FILE_ENV).with_context(|| {
+            format!("--token-file <path> or {TOKEN_FILE_ENV} is required to reach the canonical Skarbiec")
+        })?,
     };
     let token = read_secret_file(&path)?;
     Ok((consumer, token))

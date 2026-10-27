@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real test of `skarbiec agent-enrol <agent>`, through the real binary on a
+# Real test of `skarbiec agent enrol <agent>`, through the real binary on a
 # vault of its own: SKARBIEC_VAULT_FILE, SKARBIEC_AUDIT_FILE and GNUPGHOME point
 # into this checkout's target directory, so the operator's vault and keyring are
 # never read or written. The keyring sits at a short path because gpg-agent's
@@ -67,7 +67,7 @@ has() {
 WANT=ok run init "enrol-test-owner-$RUN"
 
 AGENT="enrol-test-agent-$RUN"
-WANT=ok run agent-enrol "$AGENT"
+WANT=ok run agent enrol "$AGENT"
 has "\"item\": \"$AGENT-agent-signing\""
 has "\"resource\": \"agent:$AGENT\""
 has '"created": true'
@@ -77,9 +77,9 @@ WANT=ok run get "$AGENT-agent-signing" --field agent_auth_secret
 SECRET="$out"
 [ -n "$SECRET" ] || fail "the enrolled item holds an empty agent_auth_secret"
 case "$ENROL_OUTPUT" in
-  *"$SECRET"*) fail "agent-enrol printed the generated secret" ;;
+  *"$SECRET"*) fail "agent enrol printed the generated secret" ;;
 esac
-echo "ok: agent_auth_secret is generated, stored and absent from agent-enrol's output" >>"$REPORT"
+echo "ok: agent_auth_secret is generated, stored and absent from agent enrol's output" >>"$REPORT"
 
 WANT=ok run get "$AGENT-agent-signing" --field id
 [ "$out" = "$AGENT" ] || fail "the enrolled item's id field is '$out', not '$AGENT'"
@@ -91,24 +91,26 @@ has "$AGENT-agent-signing"
 TAKEN="enrol-test-taken-$RUN"
 printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"enrol-test-user-%s","password":"enrol-test-password-%s"},"context":{}}' \
   "$RUN" "$RUN" >"$ROOT/stdin"
-WANT=ok run set-json "$TAKEN-agent-signing" --type login
+WANT=ok run set "$TAKEN-agent-signing" --type login
 : >"$ROOT/stdin"
 
 WANT=ok run list
 BEFORE="$out"
 has "$AGENT-agent-signing"
 
-WANT=refused run agent-enrol "$AGENT"
+WANT=refused run agent enrol "$AGENT"
 has "already has a signing identity in item $AGENT-agent-signing"
 
-WANT=refused run agent-enrol "enrol/test/$RUN"
+WANT=refused run agent enrol "enrol/test/$RUN"
 has "agent name of letters, digits"
 
-WANT=refused run agent-enrol "$TAKEN"
+WANT=refused run agent enrol "$TAKEN"
 has "item $TAKEN-agent-signing already exists and is not $TAKEN's signing identity"
+WANT=refused run agent "$AGENT"
+WANT=refused run agent-enrol "$AGENT"
 
 WANT=ok run list
-[ "$out" = "$BEFORE" ] || fail "a refused agent-enrol changed the vault's items"
+[ "$out" = "$BEFORE" ] || fail "a refused agent enrol changed the vault's items"
 echo "ok: the refusals left the vault's items unchanged" >>"$REPORT"
 
 touch "$ROOT/passed"

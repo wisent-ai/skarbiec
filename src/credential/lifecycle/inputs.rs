@@ -11,7 +11,7 @@ use std::path::Path;
 
 use crate::core::vault::Vault;
 
-use super::super::common::{email_address, exact_name, purpose};
+use super::super::common::{email_address, exact_name, purpose, Operation};
 use super::super::directory::{cross_check_expectations, resolved_directory, wire_directory};
 use super::super::eligibility::enforce_field_contract;
 use super::super::state::refuse_quarantined;
@@ -31,7 +31,7 @@ pub(super) struct Submission<'a> {
     pub(super) role: Option<String>,
     pub(super) provider: &'a str,
     pub(super) consumer: &'a str,
-    pub(super) purpose: String,
+    pub(super) purpose: Option<String>,
     pub(super) account: Option<String>,
     pub(super) signup_origin: Option<String>,
     pub(super) dry_run: bool,
@@ -59,10 +59,13 @@ pub(super) fn read_submission<'a>(
         "signup-origin",
         "local",
     ];
+    let declared = Operation::parse(operation);
+    let acquire = declared == Some(Operation::Acquire);
+    let adopt = declared == Some(Operation::Adopt);
     // Only acquire may leave the item id out: it is the one operation that can
     // name a credential nobody holds yet, and a generic provider already names
     // it.
-    let item_argument = if operation == "acquire" {
+    let item_argument = if acquire {
         "[<item-id>|role:<role>]"
     } else {
         "<item-id>|role:<role>"
@@ -76,19 +79,19 @@ pub(super) fn read_submission<'a>(
     let password_stdin = flags
         .get("password-stdin")
         .is_some_and(|value| value == "true");
-    if operation == "adopt" && !password_stdin {
+    if adopt && !password_stdin {
         bail!(
             "credential adopt requires --password-stdin: the current password is read from stdin and never from argv"
         );
     }
-    if operation != "adopt" && password_stdin {
+    if !adopt && password_stdin {
         bail!("--password-stdin is accepted only by credential adopt");
     }
     let provider = flags.get("provider").context("--provider is required")?;
     exact_name("provider", provider)?;
     let named = match args.first() {
         Some(named) => named.as_str(),
-        None if operation == "acquire" && generic_provider(provider) => {
+        None if acquire && generic_provider(provider) => {
             generic_credential_id(provider)?
         }
         None => bail!("{usage}"),
@@ -107,14 +110,17 @@ pub(super) fn read_submission<'a>(
     let consumer = flags.get("consumer").context("--consumer is required")?;
     exact_name("credential item id", &credential_id)?;
     exact_name("consumer", consumer)?;
-    let purpose = purpose(flags.get("purpose"), consumer)?;
+    let purpose = flags
+        .get("purpose")
+        .map(|value| purpose(value))
+        .transpose()?;
     let account = email_address("--account", flags.get("account"))?;
     // Where the account this acquisition registers is signed up. Weles echoes
     // the origin it captured at, and the managed write is refused unless the
     // two agree, so the declaration is recorded before anything is submitted.
     let signup_origin = declared_signup_origin(operation, provider, flags.get("signup-origin"))?;
     let dry_run = flags.get("dry-run").is_some_and(|value| value == "true");
-    if operation == "adopt" && dry_run {
+    if adopt && dry_run {
         bail!("credential adopt stages an operator-supplied password and has no dry run");
     }
 

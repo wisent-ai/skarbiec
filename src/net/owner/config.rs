@@ -6,7 +6,7 @@ pub(crate) fn selected() -> Result<Option<String>> {
     if std::env::var_os("SKARBIEC_VAULT_FILE").is_some() {
         return Ok(None);
     }
-    let Some(path) = crate::core::stado_config_file() else {
+    let Some(path) = crate::core::stado_config_file().map_err(anyhow::Error::msg)? else {
         return Ok(None);
     };
     let text = std::fs::read_to_string(&path)

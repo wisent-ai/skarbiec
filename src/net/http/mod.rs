@@ -27,20 +27,51 @@ pub(crate) use service::survive_accept;
 use pool::RequestPool;
 use readiness::maintenance_pass;
 
-const LOOPBACK: &str = "127.0.0.1";
+/// The API answers on the loopback interface only.
+const LOOPBACK: std::net::Ipv4Addr = std::net::Ipv4Addr::LOCALHOST;
 
 pub(crate) fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-pub(crate) fn presented_identity(headers: &HashMap<String, String>) -> (String, String) {
-    let consumer = headers.get("x-consumer").cloned().unwrap_or_default();
-    let bearer = headers
-        .get("authorization")
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .map(str::to_string)
-        .unwrap_or_default();
-    (consumer, bearer)
+/// The consumer a request names in its `x-consumer` header, or the refusal
+/// naming the header it lacks. Read as an empty name, a dropped header was
+/// answered as a grant the consumer does not hold.
+pub(crate) fn presented_consumer(headers: &HashMap<String, String>) -> Result<String, String> {
+    match headers.get("x-consumer") {
+        Some(consumer) if !consumer.trim().is_empty() => Ok(consumer.clone()),
+        _ => Err("the request names no consumer: send its x-consumer header".to_string()),
+    }
+}
+
+/// The bearer a request from `consumer` presents in `Authorization: Bearer`,
+/// or the refusal naming it.
+pub(crate) fn presented_bearer(
+    headers: &HashMap<String, String>,
+    consumer: &str,
+) -> Result<String, String> {
+    match headers.get("authorization").and_then(|value| value.strip_prefix("Bearer ")) {
+        Some(bearer) if !bearer.is_empty() => Ok(bearer.to_string()),
+        _ => Err(format!(
+            "the request from {consumer} carries no bearer: send Authorization: Bearer <token>"
+        )),
+    }
+}
+
+/// The consumer and bearer a request presents, or the refusal naming the
+/// header it lacks, answered before the vault is read. A wrong token is still
+/// judged by the grant check, which does not say which part was wrong.
+pub(crate) fn presented_identity(
+    headers: &HashMap<String, String>,
+) -> Result<(String, String), String> {
+    let consumer = presented_consumer(headers)?;
+    let bearer = presented_bearer(headers, &consumer)?;
+    Ok((consumer, bearer))
+}
+
+/// The 401 a request answers when it presents no identity, naming what it lacks.
+pub(crate) fn unidentified(stream: &mut TcpStream, reason: &str) -> Result<()> {
+    write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
 }
 
 /// Operator-facing failure text, length-capped.

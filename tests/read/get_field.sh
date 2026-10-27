@@ -6,7 +6,7 @@
 # read or written. The keyring sits at a short path because gpg-agent's socket
 # lives in it and a Unix socket path is limited in length.
 #
-# It creates the vault with `init`, writes one login item with `set-json` (the
+# It creates the vault with `init`, writes one login item with `set` (the
 # payload on stdin, so no value is in argv), reads one field back and checks
 # that the command printed exactly that field's plaintext and nothing else,
 # then checks the refusals: a field the item does not hold and an item the
@@ -14,11 +14,11 @@
 # and whether it succeeded go to the run's report.txt, with its output for the
 # refusals; a read value is never written there.
 #
-# Usage: tests/read/get_field.sh   (SKARBIEC selects the binary, default
-#   target/debug/skarbiec)
+# Usage: SKARBIEC=<binary> tests/read/get_field.sh   (SKARBIEC names the
+#   binary under test; there is no default)
 set -eu
 cd "$(dirname "$0")/../.."
-BIN=${SKARBIEC:-$PWD/target/debug/skarbiec}
+BIN=${SKARBIEC:?SKARBIEC must name the skarbiec binary under test, such as target/debug/skarbiec}
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/read/$RUN"
 REPORT="$ROOT/report.txt"
@@ -63,7 +63,7 @@ ITEM="read-test-login-$RUN"
 SECRET="read-test-secret-$RUN"
 printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"read-test-user-%s","password":"%s"},"context":{}}' \
   "$RUN" "$SECRET" >"$ROOT/stdin"
-WANT=ok run set-json "$ITEM" --type login
+WANT=ok run set "$ITEM" --type login
 : >"$ROOT/stdin"
 
 WANT=ok run get "$ITEM" --field password

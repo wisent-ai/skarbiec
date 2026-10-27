@@ -231,16 +231,16 @@ fn leaf(
                 let path = live.with_extension(format!("json.pre-pull-{}", now_stamp()));
                 std::fs::copy(&live, &path)
                     .with_context(|| format!("back up live vault to {}", path.display()))?;
-                backup = Some(path);
                 let missing = items_missing_from_mirror(&live, &mirror)?;
                 if !missing.is_empty() && !flags.contains_key("force") {
                     bail!(
                         "mirror pull: {} local item(s) are not in the mirror and would be lost: {}; the live vault is unchanged and backed up at {}. Push them first, or re-run with --force to accept the loss",
                         missing.len(),
                         missing.join(", "),
-                        backup.map(|p| p.display().to_string()).unwrap_or_default()
+                        path.display()
                     );
                 }
+                backup = Some(path);
             }
             std::fs::copy(&mirror, &live).context("copy synced vault into place")?;
             let backup = backup.map(|path| path.display().to_string());

@@ -55,95 +55,99 @@ pub fn dispatch(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
-    match command {
-        "token-register-acquisitions" => {
-            let catalog = positionals.first().or_usage(
-                "usage: token-register-acquisitions <absolute-catalog> --workload-public-key-file PATH --ttl-seconds N [--replace-capabilities]",
-            )?;
-            let allowed_flags = [
-                "workload-public-key-file",
-                "ttl-seconds",
-                "replace-capabilities",
-            ];
-            if flags
-                .keys()
-                .any(|flag| !allowed_flags.contains(&flag.as_str()))
-            {
-                bail!("unsupported token-register-acquisitions flag");
-            }
-            let public_key_path = flags
-                .get("workload-public-key-file")
-                .or_usage("--workload-public-key-file is required")?;
-            let workload_public_key = read_workload_public_key(Path::new(public_key_path))?;
-            // A lifetime is a positive whole number of seconds: zero is
-            // refused by the type it is read as.
-            let ttl_seconds: std::num::NonZeroU64 = flags
-                .get("ttl-seconds")
-                .or_usage("token-register-acquisitions requires --ttl-seconds: the grants' lifetime in whole seconds")?
-                .parse()
-                .or_usage("--ttl-seconds must be a positive integer")?;
-            let expires_at = crate::core::clock::epoch_seconds()?
-                .checked_add(ttl_seconds.get())
-                .context("grant expiry overflow")?;
-            let replace = flags
-                .get("replace-capabilities")
-                .is_some_and(|value| value == "true");
-            let rows = read_acquisition_catalog(Path::new(catalog))?;
-            let mut vault = load()?;
-            let mut registrations = Vec::new();
-            for (consumer, item, field) in &rows {
-                let capabilities =
-                    parse_capabilities(&vault, &format!("acquire:{item}#{field}"), &[])?;
-                if let Some(existing) = vault
-                    .doc()
-                    .get("tokens")
-                    .and_then(Value::as_object)
-                    .and_then(|tokens| tokens.get(consumer))
-                {
-                    let same_capabilities = existing.get("capabilities").and_then(Value::as_array)
-                        == Some(&capabilities);
-                    let same_key = existing.get("workload_public_key").and_then(Value::as_str)
-                        == Some(workload_public_key.as_str());
-                    if (!same_capabilities || !same_key) && !replace {
-                        bail!(
-                            "{consumer} differs from the acquisition catalog; pass --replace-capabilities"
-                        );
-                    }
-                }
-                registrations.push((consumer.clone(), capabilities));
-            }
-            let tokens = vault
-                .doc_mut()
-                .get_mut("tokens")
-                .and_then(Value::as_object_mut)
-                .context("tokens section")?;
-            for (consumer, capabilities) in &registrations {
-                tokens.insert(
-                    consumer.clone(),
-                    json!({
-                        "hash": Value::Null,
-                        "capabilities": capabilities,
-                        "workload_public_key": workload_public_key,
-                        "audience": consumer,
-                        "expires_at": expires_at,
-                    }),
-                );
-            }
-            vault.save()?;
-            crate::runtime::audit::append(
-                "token-register-acquisitions",
-                &json!({
-                    "consumers": registrations.iter().map(|(consumer, _)| consumer).collect::<Vec<_>>(),
-                    "expires_at": expires_at,
-                }),
-            )?;
-            Ok(Some(json!({
-                "ok": true,
-                "registered": registrations.len(),
-                "expires_at": expires_at,
-            })))
-        }
-        "grant" => group(flags, positionals),
+    match (command, positionals.split_first()) {
+        ("grant", Some((verb, rest))) if verb == "register" => register_catalog(flags, rest).map(Some),
+        ("grant", _) => group(flags, positionals),
         _ => Ok(None),
     }
+}
+
+/// `grant register <catalog>`: one workload-bound acquire grant for every
+/// consumer, item and field row the catalog file lists, all bound to one
+/// workload key and one lifetime.
+fn register_catalog(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+    let catalog = positionals.first().or_usage(
+        "usage: grant register <absolute-catalog> --workload-public-key-file PATH --ttl-seconds N [--replace-capabilities]",
+    )?;
+    let allowed_flags = [
+        "workload-public-key-file",
+        "ttl-seconds",
+        "replace-capabilities",
+    ];
+    if flags
+        .keys()
+        .any(|flag| !allowed_flags.contains(&flag.as_str()))
+    {
+        bail!("unsupported grant register flag");
+    }
+    let public_key_path = flags
+        .get("workload-public-key-file")
+        .or_usage("--workload-public-key-file is required")?;
+    let workload_public_key = read_workload_public_key(Path::new(public_key_path))?;
+    // A lifetime is a positive whole number of seconds: zero is
+    // refused by the type it is read as.
+    let ttl_seconds: std::num::NonZeroU64 = flags
+        .get("ttl-seconds")
+        .or_usage("grant register requires --ttl-seconds: the grants' lifetime in whole seconds")?
+        .parse()
+        .or_usage("--ttl-seconds must be a positive integer")?;
+    let expires_at = crate::core::clock::epoch_seconds()?
+        .checked_add(ttl_seconds.get())
+        .context("grant expiry overflow")?;
+    let replace = flags
+        .get("replace-capabilities")
+        .is_some_and(|value| value == "true");
+    let rows = read_acquisition_catalog(Path::new(catalog))?;
+    let mut vault = load()?;
+    let mut registrations = Vec::new();
+    for (consumer, item, field) in &rows {
+        let capabilities = parse_capabilities(&vault, &format!("acquire:{item}#{field}"), &[])?;
+        if let Some(existing) = vault
+            .doc()
+            .get("tokens")
+            .and_then(Value::as_object)
+            .and_then(|tokens| tokens.get(consumer))
+        {
+            let same_capabilities =
+                existing.get("capabilities").and_then(Value::as_array) == Some(&capabilities);
+            let same_key = existing.get("workload_public_key").and_then(Value::as_str)
+                == Some(workload_public_key.as_str());
+            if (!same_capabilities || !same_key) && !replace {
+                bail!("{consumer} differs from the acquisition catalog; pass --replace-capabilities");
+            }
+        }
+        registrations.push((consumer.clone(), capabilities));
+    }
+    let tokens = vault
+        .doc_mut()
+        .get_mut("tokens")
+        .and_then(Value::as_object_mut)
+        .context("tokens section")?;
+    for (consumer, capabilities) in &registrations {
+        tokens.insert(
+            consumer.clone(),
+            json!({
+                "hash": Value::Null,
+                "capabilities": capabilities,
+                "workload_public_key": workload_public_key,
+                "audience": consumer,
+                "expires_at": expires_at,
+            }),
+        );
+    }
+    vault.save()?;
+    // The journal keeps the operation's recorded name, which readers of
+    // older entries already match on.
+    crate::runtime::audit::append(
+        "token-register-acquisitions",
+        &json!({
+            "consumers": registrations.iter().map(|(consumer, _)| consumer).collect::<Vec<_>>(),
+            "expires_at": expires_at,
+        }),
+    )?;
+    Ok(json!({
+        "ok": true,
+        "registered": registrations.len(),
+        "expires_at": expires_at,
+    }))
 }

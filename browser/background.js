@@ -58,6 +58,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     callNative({ action: "list", domain: message.domain }).then(sendResponse);
     return true;
   }
+  if (message.type === "skarbiec-search") {
+    callNative({ action: "search", text: message.text }).then(sendResponse);
+    return true;
+  }
+  if (message.type === "skarbiec-offer") {
+    callNative({ action: "offer", site: message.site, username: message.username, password: message.password }).then(sendResponse);
+    return true;
+  }
   if (message.type === "skarbiec-fill") {
     callNative({ action: "fill", id: message.id }).then(sendResponse);
     return true;

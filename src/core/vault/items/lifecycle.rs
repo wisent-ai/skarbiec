@@ -186,7 +186,7 @@ impl Vault {
     // Trash is recoverable. Purge remains a separate owner-only operation.
     pub fn delete_item(&mut self, id: &str) -> Result<()> {
         let stamp = now();
-        let entry = obj_mut(&mut self.doc, "items")
+        let entry = obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .with_context(|| format!("no item: {id}"))?;
@@ -245,7 +245,7 @@ impl Vault {
             .and_then(Value::as_str)
             .map(str::to_string);
         let stamp = now();
-        let entry = obj_mut(&mut self.doc, "items")
+        let entry = obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .with_context(|| format!("no item: {id}"))?;
@@ -267,7 +267,7 @@ impl Vault {
 
     pub fn restore_item(&mut self, id: &str) -> Result<()> {
         let stamp = now();
-        let entry = obj_mut(&mut self.doc, "items")
+        let entry = obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .with_context(|| format!("no item: {id}"))?;
@@ -277,7 +277,7 @@ impl Vault {
     }
 
     pub fn purge_item(&mut self, id: &str) -> Result<()> {
-        obj_mut(&mut self.doc, "items")
+        obj_mut(&mut self.doc, "items")?
             .remove(id)
             .with_context(|| format!("no item: {id}"))?;
         self.save()

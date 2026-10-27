@@ -10,6 +10,9 @@ use std::num::{NonZeroU64, NonZeroUsize};
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const SYMBOLS: &str = "!@#$%^&*()-_=+[]{}";
+/// Characters one font or one reader takes for another: a value someone has
+/// to read off a screen and type is generated without them on request.
+const LOOKALIKES: &str = "0O1lI|";
 
 // Small built-in wordlist used when the system dictionary is unavailable.
 const BUILTIN_WORDS: &str = "\
@@ -55,45 +58,94 @@ impl Entropy {
     }
 }
 
-// default is lower+upper+digits (symbols stay opt-in for paste-safety).
-fn charset(lower: bool, upper: bool, digits: bool, symbols: bool) -> String {
-    let mut set = String::new();
+/// The character classes a password draws from, each without the
+/// look-alikes when asked. The default is lower+upper+digits (symbols stay
+/// opt-in for paste-safety); `symbols_from` names the symbols a site
+/// accepts, in place of the built-in set.
+fn classes(
+    lower: bool,
+    upper: bool,
+    digits: bool,
+    symbols: bool,
+    symbols_from: Option<&str>,
+    unambiguous: bool,
+) -> Vec<Vec<char>> {
+    let symbols = symbols || symbols_from.is_some();
     let any = lower || upper || digits || symbols;
+    let mut chosen: Vec<String> = Vec::new();
     if lower || !any {
-        set.push_str(LOWER);
+        chosen.push(LOWER.to_string());
     }
     if upper || !any {
-        set.push_str(UPPER);
+        chosen.push(UPPER.to_string());
     }
     if digits || !any {
-        set.extend(self::digits());
+        chosen.push(self::digits().collect());
     }
     if symbols {
-        set.push_str(SYMBOLS);
+        chosen.push(match symbols_from {
+            Some(set) => set.to_string(),
+            None => SYMBOLS.to_string(),
+        });
     }
-    set
+    chosen
+        .into_iter()
+        .map(|class| {
+            class
+                .chars()
+                .filter(|candidate| !unambiguous || !LOOKALIKES.contains(*candidate))
+                .collect()
+        })
+        .collect()
 }
 
+/// A password of `length` characters drawn uniformly from the chosen classes,
+/// holding at least one character of every class chosen — what a site's
+/// "must contain a digit" rule and the policy's min_character_classes ask.
+/// A draw missing a class is drawn again whole, so every password that holds
+/// them all stays equally likely. With `unambiguous` the characters in
+/// `LOOKALIKES` are left out of the alphabet, so a value read aloud or typed
+/// from a screen survives the trip.
 pub fn generate_password(
     length: usize,
     lower: bool,
     upper: bool,
     digits: bool,
     symbols: bool,
+    symbols_from: Option<&str>,
+    unambiguous: bool,
 ) -> Result<String> {
     if NonZeroUsize::new(length).is_none() {
         bail!("password length must be positive");
     }
-    let chars: Vec<char> = charset(lower, upper, digits, symbols).chars().collect();
-    if chars.is_empty() {
-        bail!("empty character set");
+    if let Some(set) = symbols_from {
+        // A symbol set holds symbols: a letter, digit or space there would
+        // be a second class wearing the symbols' name.
+        if set.is_empty() || set.chars().any(|held| !held.is_ascii_punctuation()) {
+            bail!("--symbols-from {set:?} must list ASCII symbols only, such as !#%-_");
+        }
+    }
+    let classes = classes(lower, upper, digits, symbols, symbols_from, unambiguous);
+    if length < classes.len() {
+        bail!(
+            "a password of {length} characters cannot hold one of each of the {} classes chosen; ask for a longer one or fewer classes",
+            classes.len()
+        );
+    }
+    let chars: Vec<char> = classes.iter().flatten().copied().collect();
+    if chars.is_empty() || classes.iter().any(Vec::is_empty) {
+        bail!("a chosen character class is empty once the look-alikes are left out; choose another");
     }
     let mut entropy = Entropy::open()?;
-    let mut password = String::with_capacity(length);
-    while password.chars().count() < length {
-        password.push(chars[entropy.below(chars.len())?]);
+    loop {
+        let mut password = String::with_capacity(length);
+        while password.chars().count() < length {
+            password.push(chars[entropy.below(chars.len())?]);
+        }
+        if classes.iter().all(|class| password.chars().any(|held| class.contains(&held))) {
+            return Ok(password);
+        }
     }
-    Ok(password)
 }
 
 // Words available for a passphrase: the system dictionary, or the built-in list
@@ -119,8 +171,15 @@ fn words() -> Result<Vec<String>> {
 }
 
 /// `count` distinct words of this host's pool, each drawn uniformly from the
-/// words not yet drawn, joined by `separator`.
-pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
+/// words not yet drawn, joined by `separator`. With `capitalize` each word
+/// starts upper case; with `with_digit` one digit, drawn uniformly, follows
+/// the last word, so a site whose rules ask for either accepts the phrase.
+pub fn generate_passphrase(
+    count: usize,
+    separator: &str,
+    capitalize: bool,
+    with_digit: bool,
+) -> Result<String> {
     if NonZeroUsize::new(count).is_none() {
         bail!("passphrase word count must be positive");
     }
@@ -139,5 +198,22 @@ pub fn generate_passphrase(count: usize, separator: &str) -> Result<String> {
         let index = entropy.below(pool.len())?;
         picked.push(pool.swap_remove(index));
     }
-    Ok(picked.join(separator))
+    if capitalize {
+        picked = picked.iter().map(|word| capitalized(word)).collect();
+    }
+    let mut phrase = picked.join(separator);
+    if with_digit {
+        let pool: Vec<char> = digits().collect();
+        phrase.push(pool[entropy.below(pool.len())?]);
+    }
+    Ok(phrase)
+}
+
+/// The word with its first letter upper case.
+fn capitalized(word: &str) -> String {
+    let mut letters = word.chars();
+    match letters.next() {
+        Some(first) => first.to_uppercase().chain(letters).collect(),
+        None => String::new(),
+    }
 }

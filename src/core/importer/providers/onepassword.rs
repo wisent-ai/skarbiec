@@ -4,7 +4,21 @@ use serde_json::{json, Map, Value};
 use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
-use super::super::{login_fields, source_row, text, ImportDocument};
+use super::super::{login_fields, source_row, text, ImportDocument, NOT_STATED};
+
+/// The 1PUX export version this reader understands.
+/// <https://support.1password.com/1pux-format/>
+const EXPORT_VERSION: u64 = 3;
+/// The `categoryUuid` 1Password gives a login.
+/// <https://support.1password.com/1pux-format/>
+const LOGIN_CATEGORY: &str = "001";
+/// The `categoryUuid` 1Password gives a secure note.
+/// <https://support.1password.com/1pux-format/>
+const SECURE_NOTE_CATEGORY: &str = "003";
+/// Where a 1PUX archive keeps documents, attachments and custom icons.
+const FILES_PREFIX: &str = "files/";
+/// What separates a stored file's 1Password id from its own name.
+const FILE_NAME_SEPARATOR: &str = "___";
 
 pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument> {
     let mut archive =
@@ -14,8 +28,14 @@ pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument>
     let attributes: Value =
         serde_json::from_slice(&read_member(&mut archive, "export.attributes")?)
             .context("invalid 1PUX export.attributes")?;
-    if attributes.get("version").and_then(Value::as_u64) != Some(3) {
-        bail!("unsupported 1PUX export version; export version 3 from 1Password");
+    match attributes.get("version").and_then(Value::as_u64) {
+        Some(EXPORT_VERSION) => {}
+        Some(version) => bail!(
+            "1PUX export version {version} is not read here; export version {EXPORT_VERSION} from 1Password"
+        ),
+        None => bail!(
+            "1PUX export.attributes states no version; export version {EXPORT_VERSION} from 1Password"
+        ),
     }
     let value: Value = serde_json::from_slice(&data).context("invalid 1PUX export.data")?;
     let mut account_ids: Vec<String> = value
@@ -23,32 +43,29 @@ pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument>
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|account| text(&account["attrs"], "uuid").to_string())
-        .collect();
+        .map(|account| Ok(text(&account["attrs"], "uuid").context("1Password account")?.to_string()))
+        .collect::<Result<_>>()?;
     account_ids.sort();
     let mut document = document(value)?;
     // Keep documents, attachments and custom icons as encrypted bundle items.
     // No archive path is ever extracted to the filesystem.
-    for index in 0..archive.len() {
+    let names: Vec<String> = archive.file_names().map(str::to_string).collect();
+    for name in names {
         let mut member = archive
-            .by_index(index)
-            .context("read 1PUX archive member")?;
-        if member.is_dir() {
+            .by_name(&name)
+            .with_context(|| format!("read 1PUX archive member {name}"))?;
+        if member.is_dir() || name == "export.data" || name == "export.attributes" {
             continue;
         }
-        let name = member.name().to_string();
-        if name == "export.data" || name == "export.attributes" {
-            continue;
-        }
-        if !name.starts_with("files/") {
+        let Some(stored) = name.strip_prefix(FILES_PREFIX) else {
             bail!("unsupported 1PUX archive member {name}; no items were written");
-        }
+        };
         let mut content = Vec::new();
         member.read_to_end(&mut content)?;
-        let file_name = name
-            .rsplit_once("___")
-            .map(|(_, name)| name)
-            .unwrap_or_else(|| name.trim_start_matches("files/"));
+        let file_name = match stored.rsplit_once(FILE_NAME_SEPARATOR) {
+            Some((_, file_name)) => file_name,
+            None => stored,
+        };
         let fields = Map::from_iter([
             ("file_name".into(), json!(file_name)),
             (
@@ -84,6 +101,43 @@ pub(in crate::core::importer) fn read_member(
     Ok(bytes)
 }
 
+/// The value of the login field whose `designation` is `designation`, or
+/// nothing when the item has no such field.
+fn designated<'a>(login: Option<&'a Vec<Value>>, designation: &str) -> Result<&'a str> {
+    for field in login.into_iter().flatten() {
+        if text(field, "designation")? == designation {
+            return text(field, "value");
+        }
+    }
+    Ok(NOT_STATED)
+}
+
+/// The first one-time-password seed any of the item's sections states, or
+/// nothing when none does.
+fn first_totp(details: &Value) -> Result<&str> {
+    let fields = details
+        .get("sections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|section| {
+            section
+                .get("fields")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        });
+    for field in fields {
+        if let Some(value) = field.get("value") {
+            let totp = text(value, "totp")?;
+            if !totp.is_empty() {
+                return Ok(totp);
+            }
+        }
+    }
+    Ok(NOT_STATED)
+}
+
 pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocument> {
     let accounts = value
         .get_mut("accounts")
@@ -115,65 +169,47 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                 .context("1Password vault requires items")?;
             for item in items {
                 let item_id = required_id(&item, "item")?.to_string();
+                let at = format!("1Password item {item_id}");
                 let overview = item
                     .get("overview")
-                    .context("1Password item requires overview")?;
+                    .with_context(|| format!("{at} requires overview"))?;
                 let details = item
                     .get("details")
-                    .context("1Password item requires details")?;
-                let title = text(overview, "title").to_string();
+                    .with_context(|| format!("{at} requires details"))?;
+                let title = text(overview, "title").with_context(|| at.clone())?.to_string();
+                let notes = text(details, "notesPlain").with_context(|| at.clone())?;
+                let state = text(&item, "state").with_context(|| at.clone())?;
                 let mut context = Map::from_iter([
-                    ("url".into(), json!(text(overview, "url"))),
-                    ("notes".into(), json!(text(details, "notesPlain"))),
-                    ("folder".into(), json!(text(&vault_attrs, "name"))),
-                    ("source_state".into(), json!(text(&item, "state"))),
+                    ("url".into(), json!(text(overview, "url").with_context(|| at.clone())?)),
+                    ("notes".into(), json!(notes)),
+                    ("folder".into(), json!(text(&vault_attrs, "name").with_context(|| at.clone())?)),
+                    ("source_state".into(), json!(state)),
                 ]);
                 if let Some(urls) = overview.get("urls") {
                     context.insert("urls".into(), urls.clone());
                 }
                 let login = details.get("loginFields").and_then(Value::as_array);
-                let field = |designation: &str| {
-                    login
-                        .into_iter()
-                        .flatten()
-                        .find(|field| text(field, "designation") == designation)
-                        .map(|field| text(field, "value"))
-                        .unwrap_or_default()
-                };
-                let totp = details
-                    .get("sections")
-                    .and_then(Value::as_array)
-                    .into_iter()
-                    .flatten()
-                    .flat_map(|section| {
-                        section
-                            .get("fields")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                    })
-                    .find_map(|field| {
-                        field
-                            .get("value")
-                            .and_then(|value| value.get("totp"))
-                            .and_then(Value::as_str)
-                    })
-                    .unwrap_or_default();
-                let (kind, fields) = if text(&item, "state") == "archived" {
+                let category = text(&item, "categoryUuid").with_context(|| at.clone())?;
+                let (kind, fields) = if state == "archived" {
                     context.insert("import_warning".into(), json!("Archived source item retained as a bundle; its credentials were not activated."));
                     (
                         "bundle",
                         Map::from_iter([("source_record".into(), item.clone())]),
                     )
-                } else if login.is_some() || text(&item, "categoryUuid") == "001" {
+                } else if login.is_some() || category == LOGIN_CATEGORY {
                     (
                         "login",
-                        login_fields(field("username"), field("password"), totp, &mut context),
+                        login_fields(
+                            designated(login, "username").with_context(|| at.clone())?,
+                            designated(login, "password").with_context(|| at.clone())?,
+                            first_totp(details).with_context(|| at.clone())?,
+                            &mut context,
+                        ),
                     )
-                } else if text(&item, "categoryUuid") == "003" {
+                } else if category == SECURE_NOTE_CATEGORY {
                     (
                         "note",
-                        Map::from_iter([("value".into(), json!(text(details, "notesPlain")))]),
+                        Map::from_iter([("value".into(), json!(notes))]),
                     )
                 } else {
                     (
@@ -205,7 +241,7 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
 }
 
 fn required_id<'a>(value: &'a Value, kind: &str) -> Result<&'a str> {
-    let id = text(value, "uuid");
+    let id = text(value, "uuid").with_context(|| format!("1Password {kind}"))?;
     if id.is_empty() {
         bail!("1Password {kind} requires a nonempty uuid");
     }

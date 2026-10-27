@@ -6,8 +6,8 @@ use anyhow::Context;
 /// acts on. The seed arrives on standard input — never in an argument, where
 /// it would sit in every process table on the host.
 pub const SEED_REPAIR_COMMAND: &str =
-    "send the complete updated login JSON with totp_secret on stdin to \
-     skarbiec set-json <login-item> --type login; preserve the item's other fields";
+    "send the Base32 seed or the provider's otpauth:// address on stdin to \
+     skarbiec totp set <login-item>; only totp_secret changes";
 
 /// What the vault can prove about one login row's authenticator seed.
 ///
@@ -67,10 +67,10 @@ impl SeedState {
         match self {
             Self::Present => None,
             Self::Placeholder => Some(
-                "replace the placeholder account values with a real account first; then enrol TOTP and send the complete updated login JSON with totp_secret on stdin to skarbiec set-json <login-item> --type login",
+                "replace the placeholder account values with a real account first; then enrol TOTP and send its Base32 seed or otpauth:// address on stdin to skarbiec totp set <login-item>",
             ),
             Self::Invalid => Some(
-                "replace the invalid totp_secret with the real Base32 seed from the account's authenticator enrolment; send the complete updated login JSON on stdin to skarbiec set-json <login-item> --type login",
+                "replace the invalid totp_secret with the real seed from the account's authenticator enrolment: send its Base32 seed or otpauth:// address on stdin to skarbiec totp set <login-item>",
             ),
             Self::DeclaredEmpty => Some(SEED_REPAIR_COMMAND),
             Self::FieldAbsent => Some(
@@ -87,7 +87,7 @@ impl SeedState {
 /// nowhere better to be. When it names an identity in `context.identity`, the
 /// factor belongs to that identity: one Google account holds the authenticator
 /// and a dozen platform rows sign in as it. Resolving here rather than in each
-/// caller keeps `totp` and `totp-seed-state` answering about the same seed.
+/// caller keeps `totp code` and `totp seed` answering about the same seed.
 pub(crate) struct Resolved {
     pub(crate) payload: Value,
     pub(crate) identity: Option<String>,
@@ -117,9 +117,9 @@ pub(crate) fn resolve(vault: &Vault, payload: Value) -> Result<Resolved> {
     // identity that cannot be opened is a key or envelope fault. Its seed is
     // not knowable then: judging the login's own payload instead answered
     // "no seed" for a factor that may well be stored.
-    let identity_payload = vault
-        .get_item(&reference)
-        .with_context(|| format!("the identity {reference} this login signs in as cannot be opened"))?;
+    let identity_payload = vault.get_item(&reference).with_context(|| {
+        format!("the identity {reference} this login signs in as cannot be opened")
+    })?;
     Ok(Resolved {
         payload: identity_payload,
         identity: Some(reference),

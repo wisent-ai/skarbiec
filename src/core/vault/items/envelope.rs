@@ -134,7 +134,7 @@ impl Vault {
             (Some(entry), true) => stored_tags(id, entry)?,
             _ => tags.iter().cloned().map(Value::String).collect(),
         };
-        // Every item write in this crate arrives here -- `set`, `set-json`,
+        // Every item write in this crate arrives here -- `set`, `credential set`,
         // `import`, the cross-vault copy, share, revoke, the emergency grant,
         // the bond pull, donation accept, the credential lifecycle and the
         // HTTP acquire -- so the tag registry is enforced once, where the

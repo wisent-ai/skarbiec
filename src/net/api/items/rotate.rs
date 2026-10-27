@@ -46,8 +46,8 @@ pub(super) fn handle(
         bearer,
         value,
     } = rotation;
-    if consumer.is_empty()
-        || !grant::token_allows_field_action(
+    // The write route refused a request without a consumer or bearer by name.
+    if !grant::token_allows_field_action(
             &vault,
             consumer,
             bearer,
@@ -77,7 +77,7 @@ pub(super) fn handle(
         );
     }
     if let Err(error) = crate::cli::items::ensure_not_replica(&vault, "rotate") {
-        return refuse(stream, "HTTP/1.1 409 Conflict", error.to_string());
+        return refuse(stream, "HTTP/1.1 409 Conflict", format!("{error:#}"));
     }
     let Some(stored) = vault
         .doc()
@@ -134,7 +134,7 @@ pub(super) fn handle(
     };
     fields.insert(field.to_string(), value.clone());
     if let Err(error) = schema::validate_payload(&payload, &kind) {
-        return refuse(stream, "HTTP/1.1 400 Bad Request", error.to_string());
+        return refuse(stream, "HTTP/1.1 400 Bad Request", format!("{error:#}"));
     }
     // The stored lists are written back with the new field: one that is not a
     // list of text is refused rather than written back shortened or empty.

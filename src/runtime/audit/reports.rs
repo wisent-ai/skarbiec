@@ -262,11 +262,14 @@ pub(super) fn audit(flags: &HashMap<String, String>) -> Result<Value> {
                         .and_then(Value::as_str)
                         == Some(value)
                 })
+                // An entry names one item in `item`, or several in `items`
+                // (a share or revoke by tag, a trash purge): either answers.
                 && item.is_none_or(|value| {
-                    extra
-                        .and_then(|object| object.get("item"))
-                        .and_then(Value::as_str)
-                        == Some(value)
+                    extra.and_then(|object| object.get("item")).and_then(Value::as_str) == Some(value)
+                        || extra
+                            .and_then(|object| object.get("items"))
+                            .and_then(Value::as_array)
+                            .is_some_and(|items| items.iter().any(|named| named.as_str() == Some(value)))
                 })
                 && since.is_none_or(|value| at.is_some_and(|at| at >= value))
                 && until.is_none_or(|value| at.is_some_and(|at| at <= value))

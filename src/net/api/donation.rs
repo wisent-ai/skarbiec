@@ -37,21 +37,26 @@ pub(crate) fn handle_donation(
     else {
         return http::write_response(stream, bad, &json!({"error": "armor required"}));
     };
-    let (header_consumer, bearer) = http::presented_identity(headers);
     // The donor names itself in the body; a body that names no one donates
-    // as the consumer its headers present.
+    // as the consumer its headers present, and a request naming neither is
+    // refused by name before the vault is read.
     let consumer = match parsed
         .get("consumer")
         .and_then(Value::as_str)
         .filter(|name| !name.is_empty())
     {
         Some(named) => named.to_string(),
-        None => header_consumer,
+        None => match http::presented_consumer(headers) {
+            Ok(consumer) => consumer,
+            Err(reason) => return http::unidentified(stream, &reason),
+        },
+    };
+    let bearer = match http::presented_bearer(headers, &consumer) {
+        Ok(bearer) => bearer,
+        Err(reason) => return http::unidentified(stream, &reason),
     };
     let vault = http::load()?;
-    if consumer.is_empty()
-        || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "donate", item_id)?
-    {
+    if !grant::token_allows_vault_action(&vault, &consumer, &bearer, "donate", item_id)? {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

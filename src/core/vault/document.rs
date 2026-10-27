@@ -4,6 +4,7 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 use super::{acquire_write_lock, atomic_write, document_generation, now, Vault};
@@ -13,8 +14,17 @@ use super::{acquire_write_lock, atomic_write, document_generation, now, Vault};
 /// `downcast_ref`; the sentence is for the person reading the refusal.
 #[derive(Debug)]
 pub(crate) struct VaultChangedConcurrently {
-    loaded: u64,
-    persisted: u64,
+    loaded: Option<NonZeroU64>,
+    persisted: Option<NonZeroU64>,
+}
+
+/// A generation as a sentence reads it: the count of saves, or that the
+/// document records none.
+fn shown(generation: Option<NonZeroU64>) -> String {
+    match generation {
+        Some(generation) => generation.to_string(),
+        None => "none".to_string(),
+    }
 }
 
 impl std::fmt::Display for VaultChangedConcurrently {
@@ -22,7 +32,8 @@ impl std::fmt::Display for VaultChangedConcurrently {
         write!(
             formatter,
             "vault changed concurrently: loaded generation {}, persisted generation {}; reopen and retry",
-            self.loaded, self.persisted
+            shown(self.loaded),
+            shown(self.persisted)
         )
     }
 }
@@ -39,9 +50,9 @@ impl Vault {
         if crate::core::is_present(&path, "vault")? {
             bail!("vault already exists at {}", path.display());
         }
+        // No generation yet: the first save below writes the first one.
         let doc = json!({
             "version": "v1",
-            "generation": u64::MIN,
             "owner": owner_uid,
             "recovery": recovery_fpr,
             "recipients": { owner_uid: {"fingerprint": owner_fpr, "role": "owner", "added_at": now()} },
@@ -52,7 +63,9 @@ impl Vault {
         let mut vault = Self {
             path,
             doc,
-            base_generation: u64::MIN,
+            base_generation: None,
+            owner: owner_uid.to_string(),
+            recovery: recovery_fpr.to_string(),
         };
         vault.save()?;
         Ok(vault)
@@ -77,11 +90,31 @@ impl Vault {
                 path.display()
             )
         })?;
-        let base_generation = document_generation(&doc);
+        let base_generation = document_generation(&doc)
+            .with_context(|| format!("vault file {}", path.display()))?;
+        // Who writes as the owner and which key recovers the vault are read
+        // once, here: a document naming neither is refused, never read as an
+        // owner called "" that items would then be written and controlled by.
+        let owner = match doc.get("owner") {
+            Some(Value::String(owner)) if !owner.is_empty() => owner.clone(),
+            recorded => bail!(
+                "vault file {} records its owner as {recorded:?}, not a user id, so who writes as the owner is unknown",
+                path.display()
+            ),
+        };
+        let recovery = match doc.get("recovery") {
+            Some(Value::String(recovery)) => recovery.clone(),
+            recorded => bail!(
+                "vault file {} records its recovery key as {recorded:?}, not a fingerprint, so whether it can be recovered is unknown",
+                path.display()
+            ),
+        };
         Ok(Self {
             path,
             doc,
             base_generation,
+            owner,
+            recovery,
         })
     }
 
@@ -93,7 +126,8 @@ impl Vault {
         if let Some(text) = crate::core::read_present(&self.path, "persisted vault")? {
             let persisted: Value =
                 serde_json::from_str(&text).context("parse persisted vault under write lock")?;
-            let persisted_generation = document_generation(&persisted);
+            let persisted_generation = document_generation(&persisted)
+                .context("the persisted vault under write lock")?;
             if persisted_generation != self.base_generation {
                 return Err(VaultChangedConcurrently {
                     loaded: self.base_generation,
@@ -101,27 +135,29 @@ impl Vault {
                 }
                 .into());
             }
-        } else if self.base_generation != u64::MIN {
+        } else if self.base_generation.is_some() {
             bail!("vault disappeared before save; refusing to recreate it from stale state");
         }
-        let next_generation = self
-            .base_generation
-            .checked_add(std::iter::once(()).count() as u64)
-            .context("vault generation overflow")?;
-        self.doc
-            .as_object_mut()
-            .context("vault document is not an object")?
-            .insert("generation".to_string(), json!(next_generation));
+        let next_generation = match self.base_generation {
+            None => NonZeroU64::MIN,
+            Some(generation) => generation
+                .checked_add(NonZeroU64::MIN.get())
+                .context("vault generation overflow")?,
+        };
+        let document = self.doc.as_object_mut().context("vault document is not an object")?;
+        let loaded = document.insert("generation".to_string(), json!(next_generation.get()));
         let mut encoded = serde_json::to_vec_pretty(&self.doc)?;
         encoded.push(b'\n');
         if let Err(error) = atomic_write(&self.path, &encoded) {
-            self.doc
-                .as_object_mut()
-                .context("vault document is not an object")?
-                .insert("generation".to_string(), json!(self.base_generation));
+            // The copy in memory goes back to the generation it was opened at.
+            let document = self.doc.as_object_mut().context("vault document is not an object")?;
+            match loaded {
+                Some(loaded) => document.insert("generation".to_string(), loaded),
+                None => document.remove("generation"),
+            };
             return Err(error).context("atomically persist vault");
         }
-        self.base_generation = next_generation;
+        self.base_generation = Some(next_generation);
         Ok(())
     }
 
@@ -136,14 +172,14 @@ impl Vault {
         &mut self.doc
     }
 
+    /// The owner's user id, as the document named it when it was opened or
+    /// as `rotate_owner` last set it.
     pub fn owner_uid(&self) -> &str {
-        self.doc.get("owner").and_then(Value::as_str).unwrap_or("")
+        &self.owner
     }
 
+    /// The recovery key's fingerprint; empty for a vault created without one.
     pub fn recovery_fpr(&self) -> &str {
-        self.doc
-            .get("recovery")
-            .and_then(Value::as_str)
-            .unwrap_or("")
+        &self.recovery
     }
 }

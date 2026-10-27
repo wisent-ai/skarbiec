@@ -56,7 +56,7 @@ export SKARBIEC_VAULT_FILE="$ROOT/owner.vault.json" SKARBIEC_SYNC_DIR="$ROOT/syn
 WANT=ok run init "mirror-test-owner-$RUN"
 jq -n --arg value "mirror-value-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "$ITEM" --type note
+  | WANT=ok run set "$ITEM" --type note
 WANT=ok run mirror init "$REMOTE"
 WANT=ok run mirror push
 PUBLISHED=$(git --git-dir="$REMOTE" rev-parse refs/heads/main)
@@ -67,7 +67,7 @@ WANT=ok run mirror push
   || fail "pushing unchanged ciphertext must not create another commit"
 jq -n --arg value "updated-mirror-value-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "$ITEM" --type note
+  | WANT=ok run set "$ITEM" --type note
 mkdir "$SKARBIEC_SYNC_DIR/.git/index.lock"
 WANT=refused run mirror push
 says "git add" "a locked index reports the failed staging operation"

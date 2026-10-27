@@ -49,7 +49,10 @@ pub(crate) fn handle_items_put(
             &json!({"error": "mode required: acquire, stage or rotate"}),
         );
     };
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return http::unidentified(stream, &reason),
+    };
     let mut vault = http::load()?;
     // Grants name the requested coordinate; records and writes use its resolved
     // item. An unreadable acquisition refuses resolution before any mutation.
@@ -134,8 +137,7 @@ pub(crate) fn handle_items_put(
             }
         }
         "stage" => {
-            if consumer.is_empty()
-                || !grant::token_allows_field_action(
+            if !grant::token_allows_field_action(
                     &vault,
                     &consumer,
                     &bearer,
@@ -186,7 +188,7 @@ pub(crate) fn handle_items_put(
                 &consumer,
                 operation_id,
                 Operation::stages_revision,
-                base_revision,
+                Some(base_revision),
                 parsed.get("capture_origin").and_then(Value::as_str),
             ) {
                 return http::write_response(

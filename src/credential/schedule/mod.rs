@@ -1,7 +1,9 @@
-// Scheduled rotation: a per-item policy that says how often a Weles-managed
-// credential is rotated, and `rotation run`, which starts each due rotation
-// through the same `credential rotate` lifecycle an operator would start by
-// hand. A recurring trigger calls `rotation run`: on the Wisent fleet a Stado
+// Scheduled rotation: a per-item policy that says how often a credential is
+// rotated, and `rotation run`, which starts each due rotation. A Weles-managed
+// credential goes through the same `credential rotate` lifecycle an operator
+// would start by hand; an owner-controlled item goes through the provider
+// its policy names with --with, as `skarbiec rotate <id> --with <provider>`.
+// A recurring trigger calls `rotation run`: on the Wisent fleet a Stado
 // schedule pinned to the vault owner, on a standalone host cron or launchd.
 //
 // Policies live in the vault document under `rotation`, keyed by item id, so
@@ -9,6 +11,7 @@
 // replaced by the next pull, and the rotation belongs to the vault that is
 // written.
 
+mod local;
 mod policy;
 mod run;
 
@@ -27,22 +30,37 @@ const SECTION: &str = "rotation";
 /// declared with.
 const SUBMISSION: &str = "submission";
 
-const USAGE: &str = "usage: rotation set <item-id> --every-days <N> --provider <provider> --consumer <consumer> [--purpose <text>] | rotation list | rotation remove <item-id> | rotation run [--item <item-id>]";
+const USAGE: &str = "usage: rotation set <item-id> --every-days <N> (--provider <provider> --consumer <consumer> [--purpose <text>] | --with <provider> [that provider's flags]) | rotation list [--due] | rotation remove <item-id> | rotation run [--item <item-id> [--now]] | rotation providers";
 
 pub(super) fn dispatch(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    let leaf = positionals.first().map(String::as_str).unwrap_or("help");
-    let args = positionals
-        .get(std::iter::once(()).count()..)
-        .unwrap_or_default();
-    match leaf {
-        "set" => policy::set(flags, args),
-        "list" => policy::list(),
-        "remove" => policy::remove(args),
-        "run" => run::run_due(flags.get("item").map(String::as_str)),
-        "help" => Ok(json!({
-            "commands": ["rotation set", "rotation list", "rotation remove", "rotation run"],
+    let help = || -> Result<Value> {
+        Ok(json!({
+            "commands": ["rotation set", "rotation list", "rotation remove", "rotation run", "rotation providers"],
             "usage": USAGE,
-        })),
+        }))
+    };
+    let Some((leaf, args)) = positionals.split_first() else {
+        return help();
+    };
+    match leaf.as_str() {
+        "set" => policy::set(flags, args),
+        "list" => policy::list(flags),
+        "remove" => policy::remove(args),
+        "providers" => {
+            if !args.is_empty() || !flags.is_empty() {
+                return Err(crate::cli::args::Usage(format!("rotation providers takes no argument or flag; {USAGE}")).into());
+            }
+            Ok(crate::runtime::rotate::providers())
+        }
+        "run" => {
+            let at_once = crate::cli::args::flag_set(flags, "now");
+            let only = flags.get("item").map(String::as_str);
+            if at_once && only.is_none() {
+                return Err(crate::cli::args::Usage(format!("rotation run --now runs one policy before it falls due and needs --item <item-id>; {USAGE}")).into());
+            }
+            run::run_due(only, at_once)
+        }
+        "help" => help(),
         other => Err(crate::cli::args::Usage(format!(
             "unknown rotation command: {other}; {USAGE}"
         ))
@@ -50,14 +68,14 @@ pub(super) fn dispatch(flags: &HashMap<String, String>, positionals: &[String]) 
     }
 }
 
-/// Every policy, as the vault holds it.
-fn policies(vault: &Vault) -> Map<String, Value> {
-    vault
-        .doc()
-        .get(SECTION)
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default()
+/// Every policy, as the vault holds it; a vault that never declared one holds none.
+/// A rotation section that is not an object is refused.
+fn policies(vault: &Vault) -> Result<Map<String, Value>> {
+    match vault.doc().get(SECTION) {
+        None => Ok(Map::new()),
+        Some(Value::Object(section)) => Ok(section.clone()),
+        Some(other) => anyhow::bail!("the vault's {SECTION} section is {other}, not an object of policies"),
+    }
 }
 
 /// The policy section, created empty when absent.
@@ -95,4 +113,29 @@ pub(crate) fn mark_due(ids: &[String], reason: &str) -> Result<Vec<String>> {
         vault.save()?;
     }
     Ok(marked)
+}
+
+/// Carry an item's rotation policy to its new id after a rename, so the
+/// schedule keeps rotating it; the caller saves. True when there was one.
+pub(crate) fn follow_rename(vault: &mut Vault, from: &str, to: &str) -> bool {
+    let Some(section) = vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) else {
+        return false;
+    };
+    match section.remove(from) {
+        Some(policy) => {
+            section.insert(to.to_string(), policy);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Drop a purged item's rotation policy, which could only ever fail to run
+/// again; the caller saves. True when there was one.
+pub(crate) fn forget(vault: &mut Vault, id: &str) -> bool {
+    vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+        .is_some_and(|section| section.remove(id).is_some())
 }

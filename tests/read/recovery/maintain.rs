@@ -53,11 +53,40 @@ impl Journey {
         )
         .unwrap();
 
+        // The first pass that sees the child at ENC_TO records it and defers
+        // its proof; a healthy decrypt passes through ENC_TO too, so one
+        // sighting replaces nothing. A first pass may catch the child before
+        // its first status line, which defers too; then the second pass is
+        // the one that first sees ENC_TO. No such pass replaces the daemons.
+        // A deferred proof makes the pass fail, so it is observed, not run.
+        let mut deferring = |label: &str| {
+            let mut pass = self.command(&["maintain"]);
+            let said = String::from_utf8_lossy(&self.observe(label, &mut pass).stderr).into_owned();
+            assert!(
+                !said.contains("replaced the GnuPG daemons"),
+                "{label} replaced the daemons on a first sighting: {said}"
+            );
+            said
+        };
+        let at_agent = |said: &str| said.contains("deferred to the next pass") && said.contains("stopped at status ENC_TO");
+        let first = deferring("maintain-first-sighting");
+        if !at_agent(&first) {
+            assert!(
+                first.contains("deferred to the next pass") && first.contains("has written no status"),
+                "the first pass deferred on neither waiting point: {first}"
+            );
+            let second = deferring("maintain-second-sighting");
+            assert!(
+                at_agent(&second),
+                "the second pass did not defer on the child at ENC_TO; first: {first}; second: {second}"
+            );
+        }
+        // The next pass finds the same child still there and recovers.
         let maintained = self.skarbiec("maintain-silent-agent", &["maintain"]);
         let said = String::from_utf8_lossy(&maintained.stderr);
         assert!(
             said.contains("skarbiec maintain: replaced the GnuPG daemons")
-                && said.contains("asked gpg-agent for its key without an answer"),
+                && said.contains("stopped at status ENC_TO and was still there"),
             "maintain did not recover the silent agent: {said}"
         );
         let journal = fs::read_to_string(self.root.join("audit.jsonl")).expect("the audit file");

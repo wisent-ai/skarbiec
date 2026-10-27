@@ -279,7 +279,9 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
     let at = now_iso();
     let hash = sha256_hex(&digest_input(&prev, &at, op, extra));
     let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
-    let fresh = !path.exists();
+    // A journal that cannot be examined is refused, not taken for a fresh one
+    // whose directory entry then goes unsynced.
+    let fresh = !crate::core::is_present(&path, "the audit journal")?;
     let mut file = open_for_append(&path)?;
     writeln!(file, "{entry}")?;
     file.sync_data()?;

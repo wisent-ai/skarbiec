@@ -186,8 +186,11 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     let mut version = Command::new(&journey.binary);
     let version = journey.run("version", version.arg("--version"));
     let identity: Value = serde_json::from_slice(&version.stdout).expect("version receipt");
-    assert_eq!(identity["commit"].as_str(), Some(journey.revision.as_str()),
-        "tested binary must be a release of the exact candidate revision");
+    assert_eq!(
+        identity["commit"].as_str(),
+        Some(journey.revision.as_str()),
+        "tested binary must be a release of the exact candidate revision"
+    );
     let components = journey.run(
         "components",
         Command::new("gpgconf").arg("--list-components"),
@@ -244,10 +247,10 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
         .unwrap(),
     )
     .unwrap();
-    let mut write = journey.command(&["set-json", &item, "--type", "note"]);
+    let mut write = journey.command(&["set", &item, "--type", "note"]);
     write.stdin(fs::File::open(input).unwrap());
-    journey.run("set-json", &mut write);
-    journey.skarbiec("recover", &["recover-daemons"]);
+    journey.run("set", &mut write);
+    journey.skarbiec("recover", &["keyring", "recover"]);
     let before = journey.skarbiec("read-before", &["get", &item, "--field", "value"]);
     assert_eq!(String::from_utf8_lossy(&before.stdout).trim(), value);
     let help_paths = [
@@ -270,7 +273,7 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     fs::write(&invalid_home, "not a keyring directory").unwrap();
     let mut refusal = Command::new(&journey.binary);
     refusal
-        .arg("recover-daemons")
+        .args(["keyring", "recover"])
         .env("GNUPGHOME", &invalid_home)
         .env("SKARBIEC_VAULT_FILE", journey.root.join("vault.json"))
         .env("SKARBIEC_AUDIT_FILE", journey.root.join("audit.jsonl"));
@@ -291,5 +294,6 @@ fn recovery_preserves_values_and_refuses_unowned_locks() {
     assert_eq!(String::from_utf8_lossy(&after.stdout).trim(), value);
     journey.stranded_child_ended(&item, &value);
     journey.maintain_recovers_silent_agent(&item, &value);
+    journey.read_behind_held_lock(&item, &value, node.trim());
     journey.passed = true;
 }

@@ -60,9 +60,15 @@ run() {
   printf '$ skarbiec %s\nexit: %s\nresult: %s\n\n' "$*" "$status" "$got" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
 }
+# The capability state the journal replays to: a snapshot replaces what was
+# read before it, a capability entry sets one record, a nonce entry one nonce.
+REPLAY='reduce .[] as $v ({capabilities: {}, nonces: {}};
+  if ($v | has("capabilities")) then $v
+  elif ($v | has("capability")) then .capabilities[$v.capability] = $v.record
+  else .nonces[$v.nonce] = $v.seen_at end)'
 # Whether the capability state holds the capability or nonce key $2 under $1.
 holds() {
-  jq -e --arg key "$2" ".$1 | has(\$key)" "$SKARBIEC_CAPABILITY_FILE" >/dev/null
+  jq -s -e --arg key "$2" "$REPLAY | .$1 | has(\$key)" "$SKARBIEC_CAPABILITY_FILE" >/dev/null
 }
 keeps() {
   if holds "$1" "$2"; then echo "ok: kept $3" >>"$REPORT"; else fail "dropped $3"; fi
@@ -79,9 +85,9 @@ ITEM="prune-provider-$RUN"
 RESOURCE="provider:prune-$RUN"
 WANT=ok run init "prune-test-owner-$RUN"
 # The provider credential the capability route resolves to, written whole on
-# stdin through set-json, the one write command.
+# stdin through set, the one write command.
 jq -n '{schema:"skarbiec.item.v2",kind:"api-key",fields:{api_key:"not-a-secret"},context:{}}' \
-  | WANT=ok run set-json "$ITEM" --type api-key "--tags=brama:provider:prune-$RUN"
+  | WANT=ok run set "$ITEM" --type api-key "--tags=brama:provider:prune-$RUN"
 
 # The state a broker leaves behind, one record of each kind. The state keys
 # capabilities by id and nonces by `<id>:<nonce>`.
@@ -114,7 +120,9 @@ WANT=ok run grant capability --agent prune-agent --purpose prune --target prune 
   --resource "$RESOURCE" --ttl "$TTL" --max-uses "$USES"
 ISSUED=$(printf '%s' "$out" | jq -r '.capability_id')
 [ -n "$ISSUED" ] && [ "$ISSUED" != null ] || fail "grant capability answered no capability id: $out"
-
+# The grant appends its one entry; the dead records the state still carried
+# then outweigh the live ones, so the journal is replaced by a snapshot of
+# what can still be redeemed.
 keeps capabilities "$LIVE" "the redeemable capability"
 keeps capabilities "$ISSUED" "the capability just issued"
 keeps nonces "$LIVE:live-nonce" "the nonce of the redeemable capability"

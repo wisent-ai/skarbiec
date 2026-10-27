@@ -57,7 +57,7 @@ BIN_REVISION=$("$BIN" --version | jq -er '.commit') || fail "binary has no relea
 WANT=ok run init "held-lock-owner-$RUN"
 jq -n --arg value "held-lock-value-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "held-lock-note-$RUN" --type note
+  | WANT=ok run set "held-lock-note-$RUN" --type note
 
 node tests/health/held_lock.mjs
 echo "passed" >>"$REPORT"

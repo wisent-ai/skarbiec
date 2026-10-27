@@ -80,19 +80,29 @@ pub fn effective_uid() -> u32 {
 
 /// Stado's config file, the way Stado itself finds it: `$STADO_CONFIG`, then
 /// `stado.config.json` in the working directory, `~/.config/stado/config.json`,
-/// `~/.stado/config.json`.
-pub fn stado_config_file() -> Option<PathBuf> {
+/// `~/.stado/config.json`. A candidate that cannot be examined is the cause,
+/// not a missing file: read as missing, the search moved on to a later
+/// candidate, or to none, and the vault routing came from the wrong place.
+pub fn stado_config_file() -> Result<Option<PathBuf>, String> {
     if let Some(named) = std::env::var_os("STADO_CONFIG") {
-        return Some(PathBuf::from(named));
+        return Ok(Some(PathBuf::from(named)));
     }
     let home = home_dir();
-    [
+    for candidate in [
         PathBuf::from("stado.config.json"),
         home.join(".config/stado/config.json"),
         home.join(".stado/config.json"),
-    ]
-    .into_iter()
-    .find(|candidate| candidate.is_file())
+    ] {
+        match std::fs::metadata(&candidate) {
+            Ok(metadata) if metadata.is_file() => return Ok(Some(candidate)),
+            Ok(_not_file) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(format!("Stado's config candidate {} cannot be examined: {error}", candidate.display()))
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Stado's config document, the way `stado_config_file` finds it; `None`
@@ -100,7 +110,7 @@ pub fn stado_config_file() -> Option<PathBuf> {
 /// is not JSON is an error naming the file and cause: whether this machine
 /// holds a vault cannot be told from it.
 fn stado_document() -> Result<Option<serde_json::Value>, String> {
-    let Some(file) = stado_config_file() else {
+    let Some(file) = stado_config_file()? else {
         return Ok(None);
     };
     let text = std::fs::read_to_string(&file)

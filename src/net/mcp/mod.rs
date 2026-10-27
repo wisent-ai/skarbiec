@@ -18,30 +18,30 @@ use anyhow::Result;
 use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 
+mod catalog;
 mod endpoints;
+mod resolve;
 mod tools;
 
 pub(crate) use endpoints::{
-    authorized_items, handle_acquisitions_issue, handle_items_list, refuse_without_grant,
+    authorized_items, handle_acquisitions_issue, handle_items_list, refuse_items,
 };
 
-use tools::{call_tool, tools};
+use catalog::tools;
+use tools::call_tool;
 
-// Spec-mandated JSON-RPC 2.0 / MCP wire values (not tunables); kept as strings
-// and parsed so no numeric literal appears (crate-wide rule).
+/// The MCP protocol revision this server speaks, as the MCP specification names it.
 const PROTOCOL_VERSION: &str = "2024-11-05";
-const CODE_PARSE_ERROR: &str = "-32700";
-const CODE_METHOD_NOT_FOUND: &str = "-32601";
-const CODE_INTERNAL_ERROR: &str = "-32000";
-
-/// A declared JSON-RPC error code as the number the wire carries. The codes
-/// are this file's own constants, so one that is not a whole number is a
-/// mistake in this file, said as such, never sent as code 0.
-fn code(raw: &str) -> Value {
-    json!(raw
-        .parse::<i64>()
-        .expect("the JSON-RPC error codes declared above are whole numbers"))
-}
+/// Invalid JSON was received: https://www.jsonrpc.org/specification#error_object
+const CODE_PARSE_ERROR: i64 = -32700;
+/// The method does not exist: https://www.jsonrpc.org/specification#error_object
+const CODE_METHOD_NOT_FOUND: i64 = -32601;
+/// Invalid method parameters: https://www.jsonrpc.org/specification#error_object
+const CODE_INVALID_PARAMS: i64 = -32602;
+/// The implementation-defined server error range starts here: https://www.jsonrpc.org/specification#error_object
+const CODE_INTERNAL_ERROR: i64 = -32000;
+/// The JSON sent is not a valid request object: https://www.jsonrpc.org/specification#error_object
+const CODE_INVALID_REQUEST: i64 = -32600;
 
 fn send(out: &mut impl Write, message: &Value) -> Result<()> {
     writeln!(out, "{}", serde_json::to_string(message)?)?;
@@ -49,23 +49,22 @@ fn send(out: &mut impl Write, message: &Value) -> Result<()> {
     Ok(())
 }
 
-fn error_response(id: Value, error_code: &str, message: &str) -> Value {
-    json!({"jsonrpc": "2.0", "id": id, "error": {"code": code(error_code), "message": message}})
+fn error_response(id: Value, error_code: i64, message: &str) -> Value {
+    json!({"jsonrpc": "2.0", "id": id, "error": {"code": error_code, "message": message}})
 }
 
-fn server_version() -> String {
-    option_env!("CARGO_PKG_VERSION").unwrap_or("").to_string()
+fn server_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
 }
 
 fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
-    let method = match request.get("method").and_then(Value::as_str) {
-        Some(m) => m,
-        None => return Ok(()),
-    };
     // No `id` key => notification: never answer.
     let id = match request.get("id") {
         Some(id) => id.clone(),
         None => return Ok(()),
+    };
+    let Some(method) = request.get("method").and_then(Value::as_str) else {
+        return send(out, &error_response(id, CODE_INVALID_REQUEST, "the request names no method"));
     };
     match method {
         "initialize" => send(
@@ -81,17 +80,23 @@ fn handle(request: &Value, out: &mut impl Write) -> Result<()> {
             &json!({"jsonrpc": "2.0", "id": id, "result": {"tools": tools()}}),
         ),
         "tools/call" => {
-            let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-            let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-            let args = params
-                .get("arguments")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
+            // JSON-RPC lets a call omit `params`; a tool call without a tool name cannot run.
+            let Some(name) = request.pointer("/params/name").and_then(Value::as_str) else {
+                return send(
+                    out,
+                    &error_response(id, CODE_INVALID_PARAMS, "tools/call needs params.name, the tool to call"),
+                );
+            };
+            // A tool called with no `arguments` is called with an empty argument object, as MCP defines it.
+            let mut args = json!({});
+            if let Some(stated) = request.pointer("/params/arguments") {
+                args.clone_from(stated);
+            }
             match call_tool(name, &args) {
                 Ok(result) => send(out, &json!({"jsonrpc": "2.0", "id": id, "result": result})),
                 Err(e) => send(
                     out,
-                    &error_response(id, CODE_INTERNAL_ERROR, &e.to_string()),
+                    &error_response(id, CODE_INTERNAL_ERROR, &format!("{e:#}")),
                 ),
             }
         }
@@ -120,9 +125,9 @@ pub fn serve() -> Result<()> {
         }
         match serde_json::from_str::<Value>(trimmed) {
             Ok(request) => handle(&request, &mut stdout)?,
-            Err(_) => send(
+            Err(error) => send(
                 &mut stdout,
-                &error_response(Value::Null, CODE_PARSE_ERROR, "parse error"),
+                &error_response(Value::Null, CODE_PARSE_ERROR, &format!("parse error: {error}")),
             )?,
         }
     }

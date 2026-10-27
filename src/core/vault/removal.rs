@@ -23,7 +23,7 @@ impl Vault {
     pub fn remove_recipient(&mut self, uid: &str) -> Result<Value> {
         if uid == self.owner_uid() {
             bail!(
-                "{uid} is the vault owner; install another owner with rotate-owner first, then remove {uid}"
+                "{uid} is the vault owner; install another owner with owner rotate first, then remove {uid}"
             );
         }
         let Some(fingerprint) = self.recipient_fpr(uid) else {
@@ -81,7 +81,7 @@ impl Vault {
                 self.rewrap_item(id, &remaining)
             })
             .sum::<Result<usize>>()?;
-        obj_mut(&mut self.doc, "recipients").remove(uid);
+        obj_mut(&mut self.doc, "recipients")?.remove(uid);
         let emergency_cancelled = self
             .doc
             .get_mut("emergency")
@@ -100,6 +100,51 @@ impl Vault {
                 .iter()
                 .map(|(id, state)| json!({"item": id, "state": state}))
                 .collect::<Vec<Value>>(),
+        }))
+    }
+
+    /// Drop `uid` from exactly the items named in `ids`, every current and
+    /// historical ciphertext of each, without touching the recipient
+    /// registry or any other item.
+    ///
+    /// This is the undo of a bulk share whose item list was recorded, such as
+    /// an emergency activation: the uid keeps every item it was given some
+    /// other way. An id that is no longer in the vault (purged since) and an
+    /// item that no longer lists the uid are reported, not refused, because
+    /// both already are the state this asks for. Trashed items are rewrapped
+    /// as well, so a later restore does not hand the uid back its access.
+    /// Only the in-memory document changes; the caller saves once, so a
+    /// failed rewrap leaves the file as it was.
+    pub fn withdraw_recipient(&mut self, uid: &str, ids: &[String]) -> Result<Value> {
+        let mut rewrapped = Vec::new();
+        let mut absent = Vec::new();
+        let mut not_reader = Vec::new();
+        let mut versions = Vec::new();
+        for id in ids {
+            let present = self
+                .doc
+                .get("items")
+                .and_then(Value::as_object)
+                .is_some_and(|items| items.contains_key(id));
+            if !present {
+                absent.push(id.clone());
+                continue;
+            }
+            let readers = self.item_recipient_uids(id)?;
+            if !readers.iter().any(|reader| reader == uid) {
+                not_reader.push(id.clone());
+                continue;
+            }
+            let remaining: Vec<String> = readers.into_iter().filter(|reader| reader != uid).collect();
+            versions.push(self.rewrap_item(id, &remaining)?);
+            rewrapped.push(id.clone());
+        }
+        Ok(json!({
+            "uid": uid,
+            "rewrapped": rewrapped,
+            "historical_versions": versions.iter().sum::<usize>(),
+            "absent": absent,
+            "not_reader": not_reader,
         }))
     }
 }

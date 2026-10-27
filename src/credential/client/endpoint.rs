@@ -5,8 +5,9 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::net::TcpStream;
+use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use stado_wait as wait;
 
@@ -19,13 +20,10 @@ pub(in crate::credential) fn forwards_dir() -> Result<PathBuf> {
     if let Some(configured) = crate::core::env::path(FORWARDS_DIR_ENV) {
         return Ok(configured);
     }
-    let home = std::env::var("HOME")
-        .ok()
-        .filter(|home| !home.trim().is_empty())
-        .with_context(|| {
-            format!("{ENDPOINT_UNRESOLVED}: neither {FORWARDS_DIR_ENV} nor HOME is set")
-        })?;
-    Ok(Path::new(home.trim()).join(".stado").join("forwards"))
+    let home = std::env::home_dir().with_context(|| {
+        format!("{ENDPOINT_UNRESOLVED}: neither {FORWARDS_DIR_ENV} nor HOME nor the user database names a directory")
+    })?;
+    Ok(home.join(".stado").join("forwards"))
 }
 
 /// The remedy every `SKARBIEC_ENDPOINT_UNRESOLVED` carries.
@@ -34,7 +32,7 @@ pub(in crate::credential) fn forwards_dir() -> Result<PathBuf> {
 /// a new operator sees from `credential`, and until now it named a path with
 /// no way to produce one - the product enforced a contract it gave nobody the
 /// means to satisfy.
-const ENDPOINT_REMEDY: &str = "declare it with `skarbiec credential declare-endpoint <url>`";
+const ENDPOINT_REMEDY: &str = "declare it with `skarbiec credential endpoint declare <url>`";
 
 // The canonical Skarbiec is the only remote hop, and its address comes from
 // one owner-controlled Stado forward file.
@@ -46,11 +44,11 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
             path.display()
         )
     })?;
-    let group_world_write = 0o022;
+    let group_world_write = u32::from(libc::S_IWGRP | libc::S_IWOTH);
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
-        || metadata.permissions().mode() & group_world_write != u32::MIN
+        || NonZeroU32::new(metadata.permissions().mode() & group_world_write).is_some()
     {
         bail!(
             "{ENDPOINT_UNRESOLVED}: {} must be an owner-owned regular file without group or world write; {ENDPOINT_REMEDY}",
@@ -71,7 +69,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
 
 /// The canonical endpoint as it stands, without writing anything.
 ///
-/// `doctor` needs the same three facts `declare-endpoint` reports - which
+/// `doctor` needs the same three facts `endpoint declare` reports - which
 /// file, which address, does it answer - and must not create a file while
 /// diagnosing the absence of one.
 pub(crate) fn canonical_endpoint_report() -> Result<Value> {
@@ -109,16 +107,15 @@ fn connect_probe(authority: &str) -> (bool, Value) {
 /// contract - owner-owned, no group or world write, exactly one URL - and
 /// every fresh installation has no such file at all, so the first
 /// `credential` call on a new machine failed with a path and no way to
-/// produce it. Measured on this host: the file existed from an earlier
-/// session naming a port no Skarbiec serves.
+/// produce it.
 ///
 /// The declaration is verified through `canonical_endpoint` before returning,
 /// so a file this command wrote can never be one the reader rejects.
 pub(in crate::credential) fn declare_canonical_endpoint(endpoint: &str) -> Result<Value> {
     let endpoint = endpoint.trim();
     let directory = forwards_dir()?;
-    let owner_only_directory = 0o700;
-    let owner_only_file = 0o600;
+    let owner_only_directory = u32::from(libc::S_IRWXU);
+    let owner_only_file = crate::core::vault::private_file_mode()?;
     fs::create_dir_all(&directory)
         .with_context(|| format!("create forwards directory {}", directory.display()))?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(owner_only_directory))

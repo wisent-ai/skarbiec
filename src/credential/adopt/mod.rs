@@ -57,25 +57,20 @@ pub(crate) enum ManagedRead {
 }
 
 // The operator's password arrives on stdin and nowhere else: never argv, never
-// an endpoint body, never a log line. The read buffer is zeroed before return.
+// an endpoint body, never a log line. The read buffer is wiped before return.
 pub(super) fn read_password_stdin() -> Result<String> {
     let mut raw = Vec::new();
     std::io::stdin().lock().read_to_end(&mut raw)?;
-    let end = raw
-        .iter()
-        .rposition(|byte| !matches!(byte, b'\n' | b'\r'))
-        .map(|index| index.saturating_add(std::iter::once(()).count()))
-        .unwrap_or_default();
-    let decoded = String::from_utf8(raw[..end].to_vec());
-    raw.fill(u8::MIN);
+    // The secret is what was piped in, less the line breaks a shell appends to it.
+    let trailing = raw.iter().rev().take_while(|byte| matches!(byte, b'\n' | b'\r')).count();
+    let decoded = String::from_utf8(raw[..raw.len() - trailing].to_vec());
+    raw.fill(b'\0');
     let candidate = decoded.map_err(|error| {
-        let mut bytes = error.into_bytes();
-        bytes.fill(u8::MIN);
+        error.into_bytes().fill(b'\0');
         anyhow::Error::msg("adopted password must be valid UTF-8")
     })?;
     if candidate.is_empty() || candidate.chars().any(char::is_control) {
-        let mut bytes = candidate.into_bytes();
-        bytes.fill(u8::MIN);
+        zeroize(candidate);
         bail!("adopted password must be one non-empty line without control characters");
     }
     Ok(candidate)
@@ -83,8 +78,7 @@ pub(super) fn read_password_stdin() -> Result<String> {
 
 // Overwrite the operator's password buffer once it has been staged.
 pub(super) fn zeroize(candidate: String) {
-    let mut bytes = candidate.into_bytes();
-    bytes.fill(u8::MIN);
+    candidate.into_bytes().fill(b'\0');
 }
 
 pub(super) fn adopt_candidate_kind(field: &str) -> Result<&'static str> {

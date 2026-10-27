@@ -96,7 +96,7 @@ pub(in crate::credential) fn refuse_quarantined(
 ) -> Result<()> {
     if quarantine_state(vault, credential_id)? {
         bail!(
-            "{credential_id} is quarantined: nobody knows which password the provider accepts, so {operation} is refused. Resolve it with credential resolve-quarantine {credential_id} --confirm '{QUARANTINE_CONFIRMATION}'"
+            "{credential_id} is quarantined: nobody knows which password the provider accepts, so {operation} is refused. Resolve it with credential quarantine resolve {credential_id} --confirm '{QUARANTINE_CONFIRMATION}'"
         );
     }
     Ok(())

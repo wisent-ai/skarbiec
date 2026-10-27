@@ -243,7 +243,10 @@ pub(crate) fn handle_http_resolve(
             &json!({"error": "name required"}),
         );
     };
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return http::unidentified(stream, &reason),
+    };
     let vault = Vault::open(vault_path())?;
     let table = route_table::load()?;
     let rows = match rows_for(&vault, &table, name) {
@@ -270,7 +273,7 @@ pub(crate) fn handle_http_resolve(
         .into_iter()
         .map(|(_, variable, value)| (variable, value))
         .collect();
-    if consumer.is_empty() || mapping.is_empty() {
+    if mapping.is_empty() {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

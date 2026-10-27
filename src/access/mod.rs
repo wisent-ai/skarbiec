@@ -8,6 +8,7 @@ pub(crate) mod actions;
 pub mod agent;
 pub mod capability;
 pub mod grant;
+pub mod owner_key;
 pub mod policy;
 pub mod recipients;
 pub mod recovery;
@@ -41,6 +42,9 @@ pub fn dispatch(
         return Ok(Some(v));
     }
     if let Some(v) = policy::dispatch(command, flags, positionals)? {
+        return Ok(Some(v));
+    }
+    if let Some(v) = owner_key::dispatch(command, flags, positionals)? {
         return Ok(Some(v));
     }
     Ok(None)

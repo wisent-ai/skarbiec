@@ -19,10 +19,15 @@ use crate::core::{schema, vault::Vault};
 mod seed;
 
 pub(crate) use seed::base32_seed_shape;
-use seed::{inspect_seed, load, seed_of, seed_state};
+use seed::{inspect_seed, load, seed_of};
 
 mod dispatch;
+mod recovery_codes;
 mod seed_repair_command;
+mod set_seed;
 
 pub use dispatch::*;
+pub use recovery_codes::{recovery_code_dispatch, replace as replace_recovery_codes};
 pub use seed_repair_command::*;
+pub use set_seed::store as store_seed;
+pub(crate) use set_seed::given_seed;

@@ -31,12 +31,15 @@ pub(super) fn observed() -> Result<Value> {
     }))
 }
 
+/// The running broker's status, asked on the socket it serves: the one `--socket` or
+/// `SKARBIEC_CAP_SOCKET` names, as `serve` requires; no socket is guessed.
 pub(super) fn inspect(flags: &HashMap<String, String>) -> Result<Value> {
-    let socket = flags
-        .get("socket")
-        .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("SKARBIEC_CAP_SOCKET").map(Into::into))
-        .unwrap_or_else(|| vault_path().with_extension("sock"));
+    let socket = match flags.get("socket") {
+        Some(socket) => socket.clone(),
+        None => crate::core::env::text("SKARBIEC_CAP_SOCKET")?.context(
+            "capability status asks the broker on the socket it serves: name it with --socket or SKARBIEC_CAP_SOCKET",
+        )?,
+    };
     let socket = absolute(socket)?;
     let mut stream = UnixStream::connect(&socket).with_context(|| {
         format!(
@@ -65,7 +68,7 @@ pub(super) fn inspect(flags: &HashMap<String, String>) -> Result<Value> {
     ensure!(
         response["version"] == VERSION
             && response["status"] == "listening"
-            && response["pid"].as_u64().is_some_and(|pid| pid > 0),
+            && response["pid"].as_u64().is_some(),
         "capability broker {} returned an unsupported status response: {response}",
         socket.display()
     );

@@ -1,8 +1,8 @@
-// Value operations on vault items: get and set-json.
+// Value operations on vault items: get and set.
 //
 // These are the same operations the command line offers, delegating to the
 // same Vault API so the operator console and the local vault cannot drift.
-// Writing goes through set-json alone: the payload arrives whole on standard
+// Writing goes through set alone: the payload arrives whole on standard
 // input (or in the console's request body) and is validated as one canonical
 // document, never rebuilt from key=value pairs under an assumed kind.
 
@@ -35,13 +35,13 @@ pub fn dispatch(
                 Ok(Some(json!({"value": item_json})))
             }
         }
-        ("credential", "set-json") => {
+        ("credential", "set") => {
             let id = operands
                 .first()
-                .or_usage("usage: credential set-json <id> [--type <canonical-kind>]")?;
+                .or_usage("usage: credential set <id> [--type <canonical-kind>]")?;
             let encoded = flags
                 .get("__payload__")
-                .context("set-json payload required")?;
+                .context("set payload required")?;
             Ok(Some(crate::cli::items::set_json_value(flags, id, encoded)?))
         }
         _ => Ok(None),

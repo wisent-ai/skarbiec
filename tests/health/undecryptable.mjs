@@ -66,7 +66,7 @@ let closed;
 try {
   skarbiec(['init', `undecryptable-owner-${run}`]);
   const payload = { schema: 'skarbiec.item.v2', kind: 'note', fields: { value: `undecryptable-${run}` }, context: {} };
-  skarbiec(['set-json', `undecryptable-note-${run}`, '--type', 'note'], JSON.stringify(payload));
+  skarbiec(['set', `undecryptable-note-${run}`, '--type', 'note'], JSON.stringify(payload));
 
   // A key whose secret half only the other keyring holds.
   const identity = `stranger-${run}`;

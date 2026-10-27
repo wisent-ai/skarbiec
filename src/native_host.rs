@@ -1,4 +1,4 @@
-// Browser native messaging host (`skarbiec native-host`). The host is a
+// Browser native messaging host (`skarbiec browser host`). The host is a
 // field-scoped client of the loopback API: installation mints exact
 // `read:item#field` capabilities for the canonical login items that exist at
 // that point, so the extension never receives a whole vault item.
@@ -7,6 +7,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 
+use crate::core::items::{domain_matches, item_domains};
 use crate::core::totp;
 use crate::net::{operator::OK_LINE, serve::serve_request};
 
@@ -38,7 +39,7 @@ fn consumer() -> Result<String> {
 fn api_post(path: &str, body: &Value) -> Result<Value> {
     let base = crate::credential::canonical_authority()?;
     let token = std::fs::read_to_string(token_file()?)
-        .context("read browser-host grant (run `skarbiec browser-host-install`)")?;
+        .context("read browser-host grant (run `skarbiec browser install`)")?;
     let (status, value) =
         serve_request(&base, "POST", path, &consumer()?, token.trim(), Some(body))?;
     if let Some(error) = value.get("error").and_then(Value::as_str) {
@@ -61,33 +62,25 @@ fn read_text(id: &str, field: &str) -> Result<String> {
     }
 }
 
-/// True when `host` is `domain` itself or a subdomain of it; a suffix match
-/// alone would let `notexample.com` fill an `example.com` login.
-fn domain_matches(domain: &str, host: &str) -> bool {
-    host == domain || host.ends_with(&format!(".{domain}"))
-}
-
-/// The domains a login's context allows it on: its `domains` list and its
-/// single `domain`. A context that states neither allows no domain.
-fn item_domains(context: &Value) -> Vec<String> {
-    let mut out = Vec::new();
-    if let Some(rows) = context.get("domains").and_then(Value::as_array) {
-        out.extend(rows.iter().filter_map(Value::as_str).map(str::to_string));
-    }
-    if let Some(single) = context.get("domain").and_then(Value::as_str) {
-        out.push(single.to_string());
-    }
-    out
+/// Which logins the popup asks for: the ones offered on the site open in the
+/// tab, or every one whose name, username or sites hold the text typed.
+#[derive(Clone, Copy)]
+enum Select<'a> {
+    Site(&'a str),
+    Text(&'a str),
 }
 
 /// Login summary for the popup: ids, display name, and username only. Password
-/// and TOTP remain server-side until an explicit fill request.
-fn list_logins(host: &str) -> Result<Value> {
+/// and TOTP remain server-side until an explicit fill request. A login the
+/// grant does not reach (added since browser install) is named under
+/// `unreadable` with the API's refusal instead of failing the whole list.
+fn list_logins(select: Select) -> Result<Value> {
     let items = api_post("/v1/items/list", &json!({}))?;
     let Some(rows) = items.as_array() else {
         bail!("skarbiec API /v1/items/list answered no list");
     };
     let mut logins = Vec::new();
+    let mut unreadable = Vec::new();
     for row in rows {
         if row.get("kind").and_then(Value::as_str) != Some("login") {
             continue;
@@ -95,28 +88,43 @@ fn list_logins(host: &str) -> Result<Value> {
         let Some(id) = row.get("id").and_then(Value::as_str) else {
             bail!("skarbiec API /v1/items/list listed a login without an id");
         };
-        let reply = api_post("/v1/items/read", &json!({"id": id, "field": "context"}))?;
+        let reply = match api_post("/v1/items/read", &json!({"id": id, "field": "context"})) {
+            Ok(reply) => reply,
+            Err(error) => {
+                unreadable.push(json!({"id": id, "error": format!("{error:#}")}));
+                continue;
+            }
+        };
         let Some(context) = reply.get("value") else {
             bail!("item {id}: the read of context answered no value");
         };
         let domains = item_domains(context);
-        if !domains.iter().any(|domain| domain_matches(domain, host)) {
-            continue;
+        if let Select::Site(host) = select {
+            if !domains.iter().any(|domain| domain_matches(domain, host)) {
+                continue;
+            }
         }
-        // A login states its display name in context.name; one that states
-        // none is shown under its id, the only name it has.
-        let name = match context.get("name").and_then(Value::as_str) {
+        // A login states its display name in context.display_name, as the
+        // import writes it; one that states none is shown under its id.
+        let name = match crate::core::items::display_name(context) {
             Some(name) => name,
             None => id,
         };
+        let username = read_text(id, "username")?;
+        if let Select::Text(text) = select {
+            let found = |held: &str| held.to_lowercase().contains(text);
+            if !(found(name) || found(username.as_str()) || domains.iter().any(|domain| found(domain.as_str()))) {
+                continue;
+            }
+        }
         logins.push(json!({
             "id": id,
             "name": name,
-            "username": read_text(id, "username")?,
+            "username": username,
             "domains": domains,
         }));
     }
-    Ok(json!({"ok": true, "logins": logins}))
+    Ok(json!({"ok": true, "logins": logins, "unreadable": unreadable}))
 }
 
 /// Full credential material for one explicit fill. TOTP is computed here so
@@ -128,15 +136,12 @@ fn fill_login(id: &str) -> Result<Value> {
     // for a login that carries one, so a refused or unusable seed is reported
     // beside the fill with its reason instead of being dropped as no factor.
     let (totp, totp_unavailable) = match read_text(id, "totp_secret") {
-        Ok(seed) => match totp::code(&seed) {
-            Some(code) => (Some(code), None),
-            None => (
-                None,
-                Some(format!(
-                    "item {id}: totp_secret is not a usable Base32 seed; \
-                     `skarbiec totp-seed-state {id}` says why"
-                )),
-            ),
+        Ok(seed) => match crate::core::clock::epoch_seconds() {
+            Ok(now) => match totp::code(&seed, now) {
+                Ok(code) => (Some(code), None),
+                Err(reason) => (None, Some(format!("item {id}: totp_secret made no code: {reason}; `skarbiec totp seed {id}` says why"))),
+            },
+            Err(error) => (None, Some(format!("no code was computed for item {id}: {error:#}"))),
         },
         Err(error) => (None, Some(format!("{error:#}"))),
     };
@@ -190,13 +195,29 @@ pub fn run() -> Result<()> {
         let reply = match request.get("action").and_then(Value::as_str) {
             Some("ping") => Ok(json!({"ok": true, "service": "skarbiec-native-host"})),
             Some("list") => match request.get("domain").and_then(Value::as_str) {
-                Some(domain) => list_logins(&domain.to_lowercase()),
+                Some(domain) => list_logins(Select::Site(&domain.to_lowercase())),
                 None => Ok(json!({"ok": false, "error": "domain required"})),
+            },
+            // Every login whose name, username or sites hold the text, for a
+            // site the login names under another address.
+            Some("search") => match request.get("text").and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty()) {
+                Some(text) => list_logins(Select::Text(&text.to_lowercase())),
+                None => Ok(json!({"ok": false, "error": "text required: what the login's name, username or site holds"})),
             },
             Some("fill") => match request.get("id").and_then(Value::as_str) {
                 Some(id) => fill_login(id),
                 None => Ok(json!({"ok": false, "error": "id required"})),
             },
+            // A new login for the owner to accept: it waits sealed in the
+            // donation inbox, and the host keeps nothing of it.
+            Some("offer") => api_post(
+                "/v1/offers",
+                &json!({
+                    "site": request.get("site"),
+                    "username": request.get("username"),
+                    "password": request.get("password"),
+                }),
+            ),
             Some(action) => Ok(json!({"ok": false, "error": format!("unknown action {action:?}")})),
             None => Ok(json!({"ok": false, "error": "action required"})),
         };

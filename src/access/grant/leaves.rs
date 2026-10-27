@@ -21,7 +21,7 @@ pub(in crate::access::grant) fn group(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     let (subcommand, positionals) = positionals.split_first().or_usage(
-        "usage: grant <issue|capability|ensure|narrow|keep|list|verify|revoke|help>",
+        "usage: grant <issue|capability|ensure|narrow|keep|register|list|verify|revoke|help>",
     )?;
     let subcommand = subcommand.as_str();
     match subcommand {
@@ -78,6 +78,21 @@ pub(in crate::access::grant) fn group(
                 }
             }
         }
+        "retarget" => {
+            let usage = "usage: grant retarget <consumer> --from <item> --to <item>";
+            let consumer = positionals.first().or_usage(usage)?;
+            let from = flags.get("from").or_usage(usage)?;
+            let to = flags.get("to").or_usage(usage)?;
+            loop {
+                match super::change::retarget_once(consumer, from, to) {
+                    Ok(report) => return Ok(Some(report)),
+                    // A concurrent writer won; the next attempt re-reads its
+                    // generation and moves the capabilities in it.
+                    Err(error) if is_concurrent_change(&error) => {}
+                    Err(error) => return Err(error),
+                }
+            }
+        }
         "issue" => {
             let consumer = positionals
                 .first()
@@ -98,21 +113,7 @@ pub(in crate::access::grant) fn group(
                 }
             }
         }
-        "revoke" => {
-            let consumer = positionals
-                .first()
-                .or_usage("usage: grant revoke <consumer>")?;
-            let mut vault = load()?;
-            vault
-                .doc_mut()
-                .get_mut("tokens")
-                .and_then(Value::as_object_mut)
-                .context("tokens section")?
-                .remove(consumer);
-            vault.save()?;
-            crate::runtime::audit::append("grant-revoked", &json!({"consumer": consumer}))?;
-            Ok(Some(json!({"ok": true, "consumer": consumer})))
-        }
+        "revoke" => super::change::revoke(flags, positionals).map(Some),
         "verify" => {
             let (consumer, item) = consumer_and_item(
                 positionals,
@@ -148,14 +149,84 @@ pub(in crate::access::grant) fn group(
                 "allowed": allowed,
             })))
         }
+        // `grant list --item <id>` answers "which consumers may reach this
+        // item": a grant names it directly, or names a role the item plays
+        // through its `stado:role:<role>` tag.
         "list" => {
             let vault = load()?;
+            let roles: Vec<String> = match flags.get("item") {
+                Some(item) => {
+                    let entry = vault
+                        .doc()
+                        .get("items")
+                        .and_then(|items| items.get(item))
+                        .with_context(|| format!("no item: {item}; `skarbiec list` lists them"))?;
+                    crate::core::vault::entry_texts(item, entry, "tags")?
+                        .into_iter()
+                        .filter_map(|tag| tag.strip_prefix("stado:role:").map(|role| format!("role:{role}")))
+                        .collect()
+                }
+                None => Vec::new(),
+            };
+            let reaches = |entry: &Value| match flags.get("item") {
+                Some(item) => entry
+                    .get("capabilities")
+                    .and_then(Value::as_array)
+                    .is_some_and(|capabilities| {
+                        capabilities.iter().any(|capability| {
+                            capability
+                                .get("item")
+                                .and_then(Value::as_str)
+                                .is_some_and(|named| named == item.as_str() || roles.iter().any(|role| role == named))
+                        })
+                    }),
+                None => true,
+            };
+            // `--expired` keeps the grants whose end has passed: they answer
+            // nothing any more and are the ones `grant revoke` should clear.
+            let expired_only = crate::cli::args::flag_set(flags, "expired");
+            let now = crate::core::clock::epoch_seconds()?;
+            let has_expired = |entry: &Value| {
+                entry
+                    .get("expires_at")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|end| end != super::UNTIL_REVOKED && end <= now)
+            };
+            // `--expiring-within <seconds>` keeps the grants that still answer
+            // but stop within that window: the ones to renew or keep before a
+            // consumer fails on them. The window is the caller's to state.
+            let horizon = match flags.get("expiring-within") {
+                Some(text) => Some(now.saturating_add(text.parse::<u64>().map_err(|_| {
+                    crate::cli::args::Usage(format!(
+                        "--expiring-within {text} is not a whole number of seconds"
+                    ))
+                })?)),
+                None => None,
+            };
+            let ends_within = |entry: &Value| match horizon {
+                Some(horizon) => entry
+                    .get("expires_at")
+                    .and_then(Value::as_u64)
+                    .is_some_and(|end| end != super::UNTIL_REVOKED && end > now && end <= horizon),
+                None => true,
+            };
+            // Every row says which of its item names nothing live answers;
+            // `--dangling` keeps the grants that hold at least one.
+            let answerable = super::rules::answered::Answerable::of(&vault)?;
+            let dangling_only = crate::cli::args::flag_set(flags, "dangling");
+            // `--idle-since <iso>` keeps the grants no journal entry has used since.
+            let seen = super::rules::idle::Seen::since(flags.get("idle-since"))?;
             let listing: Vec<Value> = vault
                 .doc()
                 .get("tokens")
                 .and_then(Value::as_object)
                 .context("tokens section")?
                 .iter()
+                .filter(|(_, entry)| reaches(entry))
+                .filter(|(_, entry)| !expired_only || has_expired(entry))
+                .filter(|(_, entry)| ends_within(entry))
+                .filter(|(_, entry)| !dangling_only || !answerable.unanswered(entry).is_empty())
+                .filter(|(consumer, _)| seen.as_ref().is_none_or(|seen| seen.idle(consumer)))
                 .map(|(consumer, entry)| {
                     json!({
                         "consumer": consumer,
@@ -170,6 +241,8 @@ pub(in crate::access::grant) fn group(
                         // value that stands for "no end".
                         "until_revoked": entry.get("expires_at").and_then(Value::as_u64)
                             == Some(super::UNTIL_REVOKED),
+                        "expired": has_expired(entry),
+                        "unanswered": answerable.unanswered(entry),
                     })
                 })
                 .collect();
@@ -182,11 +255,13 @@ pub(in crate::access::grant) fn group(
                 "grant ensure <consumer> <item> --field <field> --token-file <path>",
                 "grant narrow <consumer> <item> --field <field>",
                 "grant keep <consumer>",
-                "grant list",
+                "grant retarget <consumer> --from <item> --to <item>",
+                "grant register <absolute-catalog> --workload-public-key-file <path> --ttl-seconds <N> [--replace-capabilities]",
+                "grant list [--item <id>] [--expired] [--expiring-within <seconds>] [--dangling] [--idle-since <iso>]",
                 "grant verify <consumer> <item> --action <action> [--field <field>] --token-file <path>",
-                "grant revoke <consumer>",
+                "grant revoke <consumer> | grant revoke --expired | grant revoke --idle-since <iso> --yes",
             ],
-            "usage": "A grant is one declaration: an action, one item, an optional exact field, and the Ed25519 workload public key an acquire capability requires. grant issue writes that declaration and rotates the bearer of that consumer, refusing a changed capability set unless the call states --replace-capabilities; an acquire grant returns no bearer at all and answers instead with the acquisition redemption contract for every exact coordinate it names. grant capability issues one bounded, use-counted redemption of a grant already declared, against a resource the capability-route table maps to a vault field, and refuses at issue time when that route is missing or the credential behind it cannot serve; capability-serve is what redeems it. grant ensure widens an existing direct grant by one exact field read without rotating anything, the owner proving possession through a mode-0600 --token-file that must hash to the recorded bearer; grant narrow takes one such read out again. grant keep makes a direct grant live until revoked, keeping its capabilities and the bearer the consumer holds, so a consumer whose bearer lives on another machine needs nothing delivered; it refuses an acquire grant and a grant that records no bearer, and answers unchanged for one already kept. grant list returns metadata only, never a bearer and never a workload public key. grant verify answers one exact question, its --action stated, about one item and optional field for one bearer presented through an owner-only --token-file. grant revoke drops the whole declaration and is idempotent.",
+            "usage": "A grant is one declaration: an action, one item, an optional exact field, and the Ed25519 workload public key an acquire capability requires. grant issue writes that declaration and rotates the bearer of that consumer, refusing a changed capability set unless the call states --replace-capabilities; an acquire grant returns no bearer at all and answers instead with the acquisition redemption contract for every exact coordinate it names. grant register declares one such acquire grant for every consumer, item and field row of an acquisition catalog, all bound to one workload key and one lifetime. grant capability issues one bounded, use-counted redemption of a grant already declared, against a resource the capability-route table maps to a vault field, and refuses at issue time when that route is missing or the credential behind it cannot serve; the capability socket `serve` listens on is what redeems it. grant ensure widens an existing direct grant by one exact field read without rotating anything, the owner proving possession through a mode-0600 --token-file that must hash to the recorded bearer; grant narrow takes one such read out again. grant keep makes a direct grant live until revoked, keeping its capabilities and the bearer the consumer holds, so a consumer whose bearer lives on another machine needs nothing delivered; it refuses an acquire grant and a grant that records no bearer, and answers unchanged for one already kept. grant list returns metadata only, never a bearer and never a workload public key. grant verify answers one exact question, its --action stated, about one item and optional field for one bearer presented through an owner-only --token-file. grant revoke drops the whole declaration and is idempotent.",
             "actions": crate::access::actions::Action::names(),
         }))),
         other => Err(crate::cli::args::Usage(format!(

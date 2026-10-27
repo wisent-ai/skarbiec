@@ -201,14 +201,19 @@ impl Vault {
         }
         let mut previous = Vec::with_capacity(prepared.len());
         let mut audits = Vec::with_capacity(prepared.len());
-        let items = obj_mut(&mut self.doc, "items");
+        let items = obj_mut(&mut self.doc, "items")?;
         for (id, entry, audit) in prepared {
             let old = items.insert(id.clone(), entry);
             previous.push((id, old));
             audits.push(audit);
         }
         if let Err(error) = self.save() {
-            let items = obj_mut(&mut self.doc, "items");
+            // The save failed; its error is the answer, and a rollback that
+            // cannot reach the section is said beside it.
+            let items = match obj_mut(&mut self.doc, "items") {
+                Ok(items) => items,
+                Err(lost) => return Err(error.context(format!("the in-memory rollback failed too: {lost:#}"))),
+            };
             for (id, old) in previous {
                 match old {
                     Some(entry) => {
@@ -239,9 +244,12 @@ impl Vault {
         self.ensure_fingerprint_salt()?;
         let (entry, audit) =
             self.prepare_item_with_writer(id, item_kind, payload, recipient_uids, tags, policy)?;
-        let previous = obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        let previous = obj_mut(&mut self.doc, "items")?.insert(id.to_string(), entry);
         if let Err(error) = self.save() {
-            let items = obj_mut(&mut self.doc, "items");
+            let items = match obj_mut(&mut self.doc, "items") {
+                Ok(items) => items,
+                Err(lost) => return Err(error.context(format!("the in-memory rollback failed too: {lost:#}"))),
+            };
             match previous {
                 Some(entry) => {
                     items.insert(id.to_string(), entry);

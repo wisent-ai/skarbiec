@@ -55,7 +55,7 @@ pub(super) fn challenge_item(resource: &str) -> String {
     format!("capability-challenge-{}", resource.replace(['/', ':'], "-"))
 }
 
-/// `challenge-put <resource>` -- store the digits a trusted device just
+/// `capability challenge <resource>` -- store the digits a trusted device just
 /// showed, under the resource an authorization already named. The resource
 /// names the provider (`challenge:apple/<authorization>`); the verb does not.
 ///
@@ -74,27 +74,28 @@ pub(super) fn challenge_item(resource: &str) -> String {
 pub(in crate::access::capability) fn challenge_put(positionals: &[String]) -> Result<Value> {
     let mut named = positionals.iter();
     let Some(resource) = named.next() else {
-        bail!("challenge-put requires exactly one resource");
+        bail!("capability challenge requires exactly one resource");
     };
     if named.next().is_some() {
-        bail!("challenge-put requires exactly one resource");
+        bail!("capability challenge requires exactly one resource");
     }
     if !resource.starts_with("challenge:") {
-        bail!("challenge-put only stores a challenge: resource");
+        bail!("capability challenge only stores a challenge: resource");
     }
 
     // Only an authorized challenge may be written. The capability is issued by the
     // authorization step before the login runs, so its absence means nobody asked
     // for this code and nothing would ever read it.
     let state = load_state()?;
-    let authorized = state["capabilities"]
-        .as_object()
-        .map(|entries| {
-            entries
-                .values()
-                .any(|entry| entry["resource"].as_str() == Some(resource.as_str()))
-        })
-        .unwrap_or(false);
+    // A state that never issued a capability holds none; one whose capabilities are
+    // not an object of entries is damaged and refused.
+    let authorized = match state.get("capabilities") {
+        None => false,
+        Some(Value::Object(entries)) => entries
+            .values()
+            .any(|entry| entry["resource"].as_str() == Some(resource.as_str())),
+        Some(other) => bail!("the capability state holds capabilities {other}, not an object of entries"),
+    };
     if !authorized {
         bail!("no capability names {resource}; nothing authorized this challenge");
     }
@@ -104,7 +105,7 @@ pub(in crate::access::capability) fn challenge_put(positionals: &[String]) -> Re
         .context("reading the challenge code from stdin")?;
     let code = code.trim().to_string();
     if code.is_empty() {
-        bail!("challenge-put reads the code from stdin and received nothing");
+        bail!("capability challenge reads the code from stdin and received nothing");
     }
     if !code.chars().all(|character| character.is_ascii_digit()) {
         bail!("a challenge code is digits only");

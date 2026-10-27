@@ -65,9 +65,9 @@ try {
   assert.equal(bare.status, unknown.status, bare.stderr);
   assert.ok(bare.stderr.includes('usage: restore <id> [--at <at>]'), bare.stderr);
 
-  assert.equal(success(['set-json', id, '--if-absent'], original).created, true);
+  assert.equal(success(['set', id, '--if-absent'], original).created, true);
   created = true;
-  success(['set-json', id, '--if-unchanged'], { expected: original, payload: updated });
+  success(['set', id, '--if-unchanged'], { expected: original, payload: updated });
   assert.deepEqual(success(['get', id]), updated);
   const [first] = history();
   assert.ok(first, 'the replaced revision was not kept in the item history');

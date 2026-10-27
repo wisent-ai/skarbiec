@@ -113,18 +113,18 @@ fn live(record: &Value) -> bool {
 
 /// Values an item declares under one tag prefix. The prefix is this product's
 /// and Brama's own vocabulary; the value after it is the declaration itself,
-/// not a name this crate minted or may rewrite.
+/// not a name this crate minted or may rewrite. An item without tags declares
+/// none; one whose tags are not a list of text is reported by [`ambiguous`]
+/// through `entry_texts` before this is asked.
 fn declared_tags<'a>(record: &'a Value, prefix: &str) -> Vec<&'a str> {
     record
         .get("tags")
         .and_then(Value::as_array)
-        .map(|tags| {
-            tags.iter()
-                .filter_map(Value::as_str)
-                .filter_map(|tag| tag.strip_prefix(prefix))
-                .collect()
-        })
-        .unwrap_or_default()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|tag| tag.strip_prefix(prefix))
+        .collect()
 }
 
 /// Every live item carrying exactly `tag`, sorted. A capability route that
@@ -199,7 +199,7 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
             continue;
         }
         let providers = declared_tags(record, PROVIDER_TAG);
-        if providers.len() > 1 {
+        if let [_, _, ..] = providers[..] {
             problems.push(json!({
                 "item": item,
                 "problem": format!("item declares {} provider tags: {}", providers.len(), providers.join(", ")),
@@ -212,7 +212,7 @@ pub(super) fn ambiguous(vault: &Vault) -> Vec<Value> {
             continue;
         }
         let ids = declared_tags(record, SUBSCRIPTION_TAG);
-        if ids.len() > 1 {
+        if let [_, _, ..] = ids[..] {
             problems.push(json!({
                 "item": item,
                 "problem": format!("item declares {} subscription ids: {}", ids.len(), ids.join(", ")),

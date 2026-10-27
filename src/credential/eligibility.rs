@@ -148,7 +148,7 @@ pub(super) fn lifecycle_blockers(
         blockers.push(blocker(
             BLOCKER_NO_DIRECTORY_CONTRACT,
             format!(
-                "{credential_id} has no sealed directory block; seal it with credential seal-directory before any lifecycle operation"
+                "{credential_id} has no sealed directory block; seal it with credential directory seal before any lifecycle operation"
             ),
         ));
     }
@@ -156,7 +156,7 @@ pub(super) fn lifecycle_blockers(
         Ok(true) => blockers.push(blocker(
             BLOCKER_QUARANTINED,
             format!(
-                "{credential_id} is quarantined until credential resolve-quarantine settles it"
+                "{credential_id} is quarantined until credential quarantine resolve settles it"
             ),
         )),
         Ok(false) => {}

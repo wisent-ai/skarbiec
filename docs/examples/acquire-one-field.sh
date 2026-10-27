@@ -1,10 +1,11 @@
 #!/bin/sh
 # acquire-one-field.sh — register one workload, borrow one field once, prove replay fails.
-# Run from a source checkout after installing skarbiec. The demo value is not a secret.
+# Run from a source checkout with SKARBIEC_BIN naming the installed skarbiec and
+# SKARBIEC_EXAMPLE_DIR naming a directory that does not exist yet. The demo value is not a secret.
 set -eu
 
-SB=${SKARBIEC_BIN:-skarbiec}
-DEMO_DIR=${SKARBIEC_EXAMPLE_DIR:-${TMPDIR:-/tmp}/skarbiec-acquisition-example}
+SB=${SKARBIEC_BIN:?SKARBIEC_BIN must name the skarbiec binary this example runs}
+DEMO_DIR=${SKARBIEC_EXAMPLE_DIR:?SKARBIEC_EXAMPLE_DIR must name a directory that does not exist yet, for the demo vault and keyring}
 
 if [ -e "$DEMO_DIR" ]; then
   printf '%s\n' "refusing to overwrite $DEMO_DIR; remove it or set SKARBIEC_EXAMPLE_DIR"

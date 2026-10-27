@@ -10,19 +10,37 @@ fn repair_target<'r>(identity: &'r Option<String>, id: &'r str) -> &'r str {
     }
 }
 
+/// Every form of `totp`; `uri` and `missing` are answered by the
+/// authenticator and logins modules, which this one leaves to them.
+const USAGE: &str = "usage: totp code <item-id> | totp set <item-id> (the seed or otpauth:// address on stdin) | totp uri <item-id> | totp seed [<item-id>] | totp missing";
+
 pub fn dispatch(
     command: &str,
     _flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
-    match command {
-        "totp" => {
-            let id = positionals.first().or_usage("usage: totp <item-id>")?;
+    if command != "totp" {
+        return Ok(None);
+    }
+    let Some((verb, positionals)) = positionals.split_first() else {
+        return Err(crate::cli::args::Usage(USAGE.to_string()).into());
+    };
+    match verb.as_str() {
+        "set" => super::set_seed::run(positionals).map(Some),
+        "code" => {
+            let id = positionals.first().or_usage(USAGE)?;
             let vault = load()?;
             let resolved = resolve(&vault, vault.get_item(id)?)?;
-            let inspected = inspect_seed(&resolved.payload);
+            // A clock that cannot be read refuses the command with its cause;
+            // it is never reported as a seed that made no code.
+            let now = crate::core::clock::epoch_seconds()?;
+            let inspected = inspect_seed(&resolved.payload, now);
             let state = inspected.state;
             let repair_for = repair_target(&resolved.identity, id);
+            // How long the code stays current, so a reader types it before it
+            // turns rather than after: the rest of this time step.
+            let period = crate::core::totp::PERIOD_SECONDS;
+            let seconds_left = period - now % period;
             Ok(Some(json!({
                 "item": id,
                 "identity": resolved.identity,
@@ -30,14 +48,19 @@ pub fn dispatch(
                 "seed_state": state.as_str(),
                 "description": state.description(),
                 "code": inspected.code,
+                "seconds_left": seconds_left,
+                "reason": inspected.reason,
                 "repair": state.repair().map(|repair| repair.replace("<login-item>", repair_for)),
             })))
         }
         // The seed-state diagnostic validates the stored value through the same
-        // real TOTP computation as `totp`, but never returns the short-lived
+        // real TOTP computation as `totp code`, but never returns the short-lived
         // code or the seed itself.
-        "totp-seed-state" => {
+        "seed" => {
             let vault = load()?;
+            // One clock read for the sweep; a clock that cannot be read refuses
+            // the command with its cause rather than marking every seed invalid.
+            let now = crate::core::clock::epoch_seconds()?;
             // A row this vault cannot open, or one whose identity it cannot
             // open, is reported as unreadable with the cause, not silently
             // dropped and not guessed at: "no seed" and "the envelope is
@@ -57,7 +80,10 @@ pub fn dispatch(
                         Ok(resolved) => resolved,
                         Err(error) => return unreadable(id, kind, error),
                     };
-                    let state = seed_state(&resolved.payload);
+                    // The same inspection as `totp`, without its code: the
+                    // reason says why a Base32-shaped seed still made none.
+                    let inspected = inspect_seed(&resolved.payload, now);
+                    let state = inspected.state;
                     let repair_for = repair_target(&resolved.identity, id);
                     json!({
                         "item": id,
@@ -69,6 +95,7 @@ pub fn dispatch(
                         "identity": resolved.identity,
                         "seed_state": state.as_str(),
                         "description": state.description(),
+                        "reason": inspected.reason,
                         // The repair names the row that would carry the seed;
                         // a command an operator has to edit before running is
                         // a command they run wrong.

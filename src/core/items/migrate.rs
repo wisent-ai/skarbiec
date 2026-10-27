@@ -13,10 +13,11 @@ use crate::core::{migrate, vault_path};
 /// `skarbiec upgrade [--apply] [--snapshot <path>]`: bring the configured
 /// vault to the current schema in one idempotent pass — the v2 envelope for
 /// its items and grants, an `item_uid` on every item, and a payload
-/// fingerprint on every active item, and owner control of every item a former
-/// owner still controls. Each step is skipped for what already has it, so a
-/// second run changes nothing and reports zero. Without `--apply` it reports
-/// what the pass would change and writes nothing.
+/// fingerprint on every active item, owner control of every item a former
+/// owner still controls, and canonical provider names in stored rotation
+/// policies. Each step skips records already upgraded. Unknown provider names
+/// remain saved and are reported; malformed policies refuse before any step
+/// writes. Without `--apply` the pass reports its plan and writes nothing.
 ///
 /// The envelope migration rewrites the file, so it is preceded by a
 /// mode-0600 snapshot — `--snapshot` names it, otherwise a timestamped path
@@ -27,6 +28,8 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
     let apply = crate::cli::args::flag_set(flags, "apply");
     let source = vault_path();
     let mut vault = Vault::open(source.clone())?;
+    // Validate and plan policy metadata before any upgrade step can write.
+    let mut rotation_policies = crate::runtime::rotate::policy_upgrade(vault.doc())?;
     let version = vault
         .doc()
         .get("version")
@@ -75,7 +78,7 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
         json!({"items": items.len(), "missing": missing.len(), "ids": missing})
     };
     let fingerprints = vault.stamp_fingerprints(apply)?;
-    // Control held by a former owner: a vault rotated before rotate-owner
+    // Control held by a former owner: a vault rotated before owner rotate
     // moved control with the ownership still has items nobody may write.
     let moved = vault.transfer_former_owner_control()?;
     if apply && !moved.is_empty() {
@@ -86,6 +89,16 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
         )?;
     }
     let control = json!({"former_owner_items": moved.len(), "ids": moved});
+    if apply {
+        rotation_policies.apply(vault.doc_mut())?;
+        if rotation_policies.has_changes() {
+            vault.save()?;
+            crate::runtime::audit::append_sync(
+                "rotation-policies-upgraded",
+                &serde_json::to_value(&rotation_policies)?,
+            )?;
+        }
+    }
     Ok(json!({
         "ok": true,
         "applied": apply,
@@ -94,6 +107,7 @@ pub fn upgrade(flags: &std::collections::HashMap<String, String>) -> Result<Valu
         "item_uids": item_uids,
         "fingerprints": fingerprints,
         "control": control,
+        "rotation_policies": rotation_policies,
     }))
 }
 
@@ -115,7 +129,7 @@ fn snapshot_vault(
             crate::core::clock::now_stamp()
         )),
     };
-    if snapshot.exists() {
+    if crate::core::is_present(&snapshot, "the upgrade snapshot")? {
         bail!(
             "upgrade snapshot already exists: {}; name another with --snapshot",
             snapshot.display()

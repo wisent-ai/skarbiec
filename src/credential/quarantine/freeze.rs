@@ -134,22 +134,19 @@ pub(in crate::credential) fn enforce_retry_barrier(
     let rollback = weles
         .and_then(|weles| weles.get("rollback_status"))
         .and_then(Value::as_str);
-    let status = existing
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let status = existing.get("status").and_then(Value::as_str);
     let previous = match existing.get("operation").and_then(Value::as_str) {
         Some(previous) => previous.to_string(),
         None => "operation (its record names none)".to_string(),
     };
     // A completed operation, or one an operator settled explicitly, is not a
     // provider state anybody still has to guess at.
-    if matches!(status, "completed" | "quarantine_resolved") {
+    if matches!(status, Some("completed" | "quarantine_resolved")) {
         return Ok(());
     }
     if effect == Some("unknown") {
         bail!(
-            "{credential_id} is quarantined: the last {previous} left the provider password in an unknown state, so {operation} is refused until credential resolve-quarantine settles it"
+            "{credential_id} is quarantined: the last {previous} left the provider password in an unknown state, so {operation} is refused until credential quarantine resolve settles it"
         );
     }
     if effect == Some("changed") && rollback != Some("completed") && operation != "verify" {

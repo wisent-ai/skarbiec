@@ -95,7 +95,7 @@ try {
   mayExist = false;
   const tags = [`stado:role:${role}`, id];
   mayExist = true;
-  const write = JSON.parse(cli(['set-json', id, '--type', 'login', '--tags', tags.join(',')], JSON.stringify(payload)));
+  const write = JSON.parse(cli(['set', id, '--type', 'login', '--tags', tags.join(',')], JSON.stringify(payload)));
   assert.equal(write.id, id);
   assert.equal(write.created, true);
   assert.deepEqual(JSON.parse(cli(['get', id])), payload);
@@ -104,7 +104,7 @@ try {
   const before = JSON.parse(cli(['get', id, '--revision']));
   assert.equal(before.item, id);
   payload.fields.password = replacement;
-  cli(['set-json', id], JSON.stringify(payload));
+  cli(['set', id], JSON.stringify(payload));
   const after = JSON.parse(cli(['get', id, '--revision']));
   assert.equal(after.item_uid, before.item_uid);
   assert.ok(after.revision > before.revision, 'owner revision must advance after the write');
@@ -112,7 +112,7 @@ try {
   assert.deepEqual(new Set(stored.tags), new Set(tags), 'an unqualified update must preserve metadata');
   assert.equal(cli(['get', id, '--field', 'password']), `${replacement}\n`);
   payload.fields.password = password;
-  assert.equal(JSON.parse(cli(['set-json', id, '--if-absent'], JSON.stringify(payload))).created, false);
+  assert.equal(JSON.parse(cli(['set', id, '--if-absent'], JSON.stringify(payload))).created, false);
   assert.equal(cli(['get', id, '--field', 'password']), `${replacement}\n`);
   const missing = invoke(binary, ['get', id, '--field', 'absent-test-field']);
   assert.ok(missing.status !== null && missing.status);
@@ -137,7 +137,7 @@ try {
   const unbound = invoke(binary, ['get', `role:${randomUUID()}`]);
   assert.ok(unbound.status !== null && unbound.status);
   assert.ok(unbound.stderr.includes(status.vault), 'role resolution failure must identify the serving vault');
-  const invalid = invoke(binary, ['set-json', id], '{');
+  const invalid = invoke(binary, ['set', id], '{');
   assert.ok(invalid.status !== null && invalid.status);
   assert.equal(cli(['get', id, '--field', 'password']), `${replacement}\n`);
   const graphical = await operator('/v1/operator/credential', { operation: 'get', item: id, field: 'password' });

@@ -7,14 +7,18 @@
 # than "is this resource known": a non-`challenge:` resource must map to a
 # credential that can actually serve, and issuance proves that before it issues
 # rather than leaving the failure to redemption.
-# Requires: skarbiec on PATH (or SKARBIEC_BIN), and openssl.
+# Requires: SKARBIEC_BIN naming the skarbiec binary, SKARBIEC_EXAMPLE_DIR
+# naming a directory that does not exist yet, SKARBIEC_EXAMPLE_TTL (seconds)
+# and SKARBIEC_EXAMPLE_USES (redemptions) for the capability, and openssl.
 #
 # Runs entirely inside its own demo directory and keyring — it never reads or
 # writes your real vault. The demo values are not secrets.
 set -eu
 
-SB=${SKARBIEC_BIN:-skarbiec}
-DEMO_DIR=${SKARBIEC_EXAMPLE_DIR:-${TMPDIR:-/tmp}/skarbiec-capability-example}
+SB=${SKARBIEC_BIN:?SKARBIEC_BIN must name the skarbiec binary this example runs}
+DEMO_DIR=${SKARBIEC_EXAMPLE_DIR:?SKARBIEC_EXAMPLE_DIR must name a directory that does not exist yet, for the demo vault and keyring}
+TTL=${SKARBIEC_EXAMPLE_TTL:?SKARBIEC_EXAMPLE_TTL must state how many seconds the capability lives}
+USES=${SKARBIEC_EXAMPLE_USES:?SKARBIEC_EXAMPLE_USES must state how many redemptions the capability allows}
 
 if [ -e "$DEMO_DIR" ]; then
   printf '%s\n' "refusing to overwrite $DEMO_DIR; remove it or set SKARBIEC_EXAMPLE_DIR"
@@ -41,10 +45,10 @@ chmod u=rwx,go= "$GNUPGHOME"
 #    Each declares the provider it belongs to, and that declaration is what a
 #    resource name resolves through: rename either item and the same name still
 #    reaches the same credential.
-"$SB" set demo-provider-good --type api-key \
-  --tags=brama:provider:demo-good api_key=not-a-secret
+printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":"not-a-secret"},"context":{}}' \
+  | "$SB" set demo-provider-good --type api-key --tags=brama:provider:demo-good
 printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":""},"context":{}}' \
-  | "$SB" set-json demo-provider-empty --type api-key
+  | "$SB" set demo-provider-empty --type api-key
 "$SB" retag demo-provider-empty --tags=brama:provider:demo-empty
 
 # 2. Nothing has to be mapped. A declaration is not an authorization either:
@@ -56,7 +60,7 @@ printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":""},"c
 #    capability id and its state.
 "$SB" grant capability \
   --agent demo-agent --purpose example --target demo \
-  --resource provider:demo-good --ttl 600 --max-uses 1
+  --resource provider:demo-good --ttl "$TTL" --max-uses "$USES"
 
 # 4. Issue against the emptied one. This refuses. Issuance resolves the name
 #    through the declaration, opens the item it reaches, and applies exactly the
@@ -71,14 +75,20 @@ printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":""},"c
 #    entirely, because their value is written later by the relay.
 if "$SB" grant capability \
      --agent demo-agent --purpose example --target demo \
-     --resource provider:demo-empty --ttl 600 --max-uses 1
+     --resource provider:demo-empty --ttl "$TTL" --max-uses "$USES"
 then
   printf '%s\n' 'expected grant capability to refuse the emptied credential'
   false
 fi
 
 # 5. The same question asked of everything this vault resolves.
-"$SB" route verify || true
+# route verify exits non-zero here, naming the emptied credential; that
+# answer is what this step shows, so its status is printed rather than fatal.
+if "$SB" route verify; then
+  printf '%s\n' 'route verify found every route serving'
+else
+  printf '%s\n' "route verify named the routes that cannot serve (exit $?)"
+fi
 
 printf '%s\n' "demo state: $DEMO_DIR"
 
@@ -120,7 +130,7 @@ printf '%s\n' "demo state: $DEMO_DIR"
 #   open: ...
 #     → this host cannot decrypt the item, which is a key or gpg fault rather
 #       than a credential fault. It will name every route at once; check
-#       `skarbiec key-doctor`.
+#       `skarbiec keys check`.
 #
 # Next: docs/examples/operations/diagnose-a-vault.sh to ask the same question
 # of every route at once, and docs/examples/acquire-one-field.sh for the

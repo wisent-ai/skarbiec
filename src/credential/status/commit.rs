@@ -195,7 +195,7 @@ pub(super) fn settle(
                         vault,
                         credential_id,
                         &[
-                            ("receipt", receipt.clone().unwrap_or(Value::Null)),
+                            ("receipt", json!(receipt.clone())),
                             (
                                 "lifecycle",
                                 json!({

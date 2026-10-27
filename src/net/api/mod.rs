@@ -5,3 +5,4 @@ pub(crate) mod donation;
 pub(crate) mod identity;
 pub(crate) mod items;
 pub(crate) mod lifecycle;
+pub(crate) mod offer;

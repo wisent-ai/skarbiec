@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
-use super::state::{acquire_state_lock, load_state, now_epoch, save_state};
+use super::state::{acquire_state_lock, load_state, now_epoch, save_entry};
 use crate::core::schema::exact_token;
 use crate::core::{crypto, vault::Vault, vault_path};
 
@@ -142,6 +142,6 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
         "remaining_uses": max_uses,
         "state": "issued",
     });
-    save_state(&state)?;
+    save_entry(&state, &capability_id, None)?;
     Ok(json!({"capability_id": capability_id, "status": "issued"}))
 }

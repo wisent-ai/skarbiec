@@ -36,7 +36,8 @@ pub use footprint::{
 };
 pub use maintenance::{recover_daemons, recycle_oversized_daemons};
 
-use limits::{crypto_program, CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
+pub(in crate::core::crypto) use limits::crypto_program;
+use limits::{CRYPTO_LIMIT, GPG_LIMIT, GPG_RECOVERY_GENERATION};
 use maintenance::next_generation;
 use recovery::{gpg_status, recover_gpg_daemons, recoverable_gpg_failure};
 
@@ -150,7 +151,7 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
     } else {
         Vec::new()
     };
-    let mut child = Command::new(crypto_program(program).as_ref())
+    let mut child = Command::new(crypto_program(program)?)
         .args(status_args)
         .args(args)
         .stdin(if input.is_some() {
@@ -210,15 +211,15 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
         "this host",
         || child.wait(),
     )?;
-    let written = input_writer
-        .join()
-        .map_err(|_| anyhow::anyhow!("{program} stdin writer panicked"))?;
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| anyhow::anyhow!("{program} stdout reader panicked"))??;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| anyhow::anyhow!("{program} stderr reader panicked"))??;
+    let written = input_writer.join().map_err(|panic| {
+        anyhow::anyhow!("{program} stdin writer panicked: {}", crate::core::panic_reason(&*panic))
+    })?;
+    let stdout = stdout_reader.join().map_err(|panic| {
+        anyhow::anyhow!("{program} stdout reader panicked: {}", crate::core::panic_reason(&*panic))
+    })??;
+    let stderr = stderr_reader.join().map_err(|panic| {
+        anyhow::anyhow!("{program} stderr reader panicked: {}", crate::core::panic_reason(&*panic))
+    })??;
     // A child that failed explains itself; the broken stdin pipe is only the
     // consequence of it having stopped reading. Reporting the write error
     // first replaced every such diagnosis with a bare `Broken pipe`.
@@ -244,7 +245,10 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
         .into());
     }
     written.with_context(|| format!("write {program} stdin"))?;
-    Ok(String::from_utf8_lossy(&stdout).into_owned())
+    // The tool's output is a value (a decrypted vault, a signature): bytes
+    // that are not UTF-8 are refused, never replaced, so nothing is read back
+    // other than as the tool wrote it.
+    String::from_utf8(stdout).with_context(|| format!("{program} wrote output that is not UTF-8"))
 }
 
 /// How many cryptographic children run now, all and GnuPG.

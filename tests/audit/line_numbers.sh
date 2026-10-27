@@ -62,7 +62,7 @@ git diff --cached --quiet || fail "source has staged uncommitted changes"
 : >"$ROOT/stdin"
 WANT=ok run init "audit-lines-owner-$RUN"
 printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"audit-lines-%s","password":"audit-lines-%s"},"context":{}}' "$RUN" "$RUN" >"$ROOT/stdin"
-WANT=ok run set-json "audit-lines-item-$RUN" --type login
+WANT=ok run set "audit-lines-item-$RUN" --type login
 : >"$ROOT/stdin"
 [ -s "$SKARBIEC_AUDIT_FILE" ] || fail "writing an item left no journal entry"
 

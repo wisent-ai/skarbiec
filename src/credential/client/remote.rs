@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 
+use stado_wait as wait;
+
 use super::super::common::{client_identity, exact_name, purpose, resume_handles};
 use super::super::directory::expectation_body;
 use super::super::CREDENTIAL_OPERATIONS_PATH;
@@ -31,26 +33,34 @@ pub(in crate::credential) fn canonical_call(
         "{method} {path} HTTP/1.1\r\nHost: {authority}\r\nX-Consumer: {consumer}\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
         payload.len()
     );
-    let mut stream = TcpStream::connect(&authority).with_context(|| {
-        // Name the declaration so the caller can distinguish an unreachable
-        // service from an endpoint file that selects the wrong address.
+    // The forward file named the address; a reply that never comes names it
+    // too, so the caller can tell an unreachable service from a wrong address.
+    let forward = forwards_dir()?.join(CANONICAL_FORWARD);
+    let what = "the canonical Skarbiec's reply";
+    let mut raw = wait::blocking(wait::Kind::Network, what, &authority, || {
+        let mut stream = TcpStream::connect(&authority)?;
+        stream.write_all(request.as_bytes())?;
+        let mut raw = Vec::new();
+        (&stream).read_to_end(&mut raw)?;
+        Ok::<_, std::io::Error>(raw)
+    })
+    .with_context(|| {
         format!(
-            "canonical Skarbiec is unreachable on {authority}, declared by {}; run `skarbiec credential declare-endpoint <url>` to correct it",
-            forwards_dir()
-                .map(|directory| directory.join(CANONICAL_FORWARD).display().to_string())
-                .unwrap_or_else(|_| CANONICAL_FORWARD.to_string())
+            "canonical Skarbiec did not answer on {authority}, declared by {}; run `skarbiec credential endpoint declare <url>` to correct it",
+            forward.display()
         )
     })?;
-    stream.write_all(request.as_bytes())?;
-    let mut raw = Vec::new();
-    (&stream).read_to_end(&mut raw)?;
-    let text = String::from_utf8_lossy(&raw).into_owned();
-    raw.fill(u8::MIN);
-    let status_line = text.lines().next().unwrap_or_default().to_string();
-    let body_text = text
-        .split("\r\n\r\n")
-        .nth(std::iter::once(()).count())
-        .unwrap_or_default();
+    // The reply carries credential values: bytes that are not UTF-8 are
+    // refused, never replaced, so no value is read other than as it was sent.
+    let decoded = std::str::from_utf8(&raw).map(str::to_owned);
+    raw.fill(b'\0');
+    let text = decoded.with_context(|| format!("canonical Skarbiec on {authority} replied with bytes that are not UTF-8"))?;
+    let Some((head, body_text)) = text.split_once("\r\n\r\n") else {
+        bail!("canonical Skarbiec on {authority} closed the connection before a complete reply");
+    };
+    let status_line = head.lines().next().with_context(|| {
+        format!("canonical Skarbiec on {authority} replied without a status line")
+    })?;
     let value: Value = serde_json::from_str(body_text)
         .with_context(|| format!("canonical Skarbiec returned a non-JSON reply: {status_line}"))?;
     if status_line.contains(" 409 ") && stale_service_directory(&value) {
@@ -59,11 +69,14 @@ pub(in crate::credential) fn canonical_call(
         );
     }
     if !status_line.contains(" 200 ") {
-        let detail = value
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("no detail");
-        bail!("canonical Skarbiec refused the credential operation ({status_line}): {detail}");
+        match value.get("error").and_then(Value::as_str) {
+            Some(detail) => bail!(
+                "canonical Skarbiec refused the credential operation ({status_line}): {detail}"
+            ),
+            None => bail!(
+                "canonical Skarbiec refused the credential operation ({status_line}) and named no error: {value}"
+            ),
+        }
     }
     Ok(value)
 }
@@ -97,11 +110,8 @@ pub(in crate::credential) fn remote_operation(
     body.insert("item".to_string(), json!(credential_id));
     body.insert("operation".to_string(), json!(operation));
     body.insert("consumer".to_string(), json!(consumer));
-    if flags.contains_key("purpose") {
-        body.insert(
-            "purpose".to_string(),
-            json!(purpose(flags.get("purpose"), consumer)?),
-        );
+    if let Some(value) = flags.get("purpose") {
+        body.insert("purpose".to_string(), json!(purpose(value)?));
     }
     // The signup origin is the caller's declaration of where the account this
     // acquisition registers is signed up; the canonical Skarbiec checks its

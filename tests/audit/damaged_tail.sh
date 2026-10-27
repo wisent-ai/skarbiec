@@ -57,13 +57,13 @@ git diff --cached --quiet || fail "source has staged uncommitted changes"
 : >"$ROOT/stdin"
 WANT=ok run init "audit-tail-owner-$RUN"
 login first
-WANT=ok run set-json "audit-tail-first-$RUN" --type login
+WANT=ok run set "audit-tail-first-$RUN" --type login
 [ -s "$SKARBIEC_AUDIT_FILE" ] || fail "writing an item left no journal entry"
 
 damaged="{\"at\": \"audit-tail-$RUN\", \"op\": "
 printf '%s\n' "$damaged" >>"$SKARBIEC_AUDIT_FILE"
 login second
-WANT=refused run set-json "audit-tail-second-$RUN" --type login
+WANT=refused run set "audit-tail-second-$RUN" --type login
 case "$out" in
   *"ends with a line that is not an entry"*) ;;
   *) fail "the refusal does not name the damaged last journal line" ;;
@@ -75,7 +75,7 @@ echo "ok: a damaged last line refuses the next entry and stays last" >>"$REPORT"
 kept=$(grep -v -F -x -- "$damaged" "$SKARBIEC_AUDIT_FILE")
 printf '%s\n{"at":"audit-tail-%s","op":"audit-tail-unhashed"}\n' "$kept" "$RUN" >"$SKARBIEC_AUDIT_FILE"
 login third
-WANT=refused run set-json "audit-tail-third-$RUN" --type login
+WANT=refused run set "audit-tail-third-$RUN" --type login
 case "$out" in
   *"last entry carries no hash"*) ;;
   *) fail "the refusal does not name the last entry's missing hash" ;;

@@ -43,6 +43,8 @@ impl<T, E: fmt::Display> OrUsage<T> for std::result::Result<T, E> {
 
 /// The documented exit status: 2 for a usage error, 1 for any other failure.
 pub(crate) fn exit_code(error: &anyhow::Error) -> ExitCode {
+    /// The status a usage error exits with, as clap's own usage errors do:
+    /// https://docs.rs/clap/latest/clap/error/struct.Error.html#method.exit
     const USAGE_STATUS: u8 = 2;
     if error.chain().any(|cause| cause.is::<Usage>()) {
         ExitCode::from(USAGE_STATUS)
@@ -60,8 +62,8 @@ pub(crate) fn parse_args(rest: &[String]) -> (HashMap<String, String>, Vec<Strin
         if let Some(name) = arg.strip_prefix("--") {
             if let Some((k, v)) = name.split_once('=') {
                 flags.insert(k.to_string(), v.to_string());
-            } else if iter.peek().map(|n| !n.starts_with("--")).unwrap_or(false) {
-                flags.insert(name.to_string(), iter.next().cloned().unwrap_or_default());
+            } else if let Some(value) = iter.next_if(|next| !next.starts_with("--")) {
+                flags.insert(name.to_string(), value.clone());
             } else {
                 flags.insert(name.to_string(), "true".to_string());
             }
@@ -73,7 +75,17 @@ pub(crate) fn parse_args(rest: &[String]) -> (HashMap<String, String>, Vec<Strin
 }
 
 pub(crate) fn flag_set(flags: &HashMap<String, String>, name: &str) -> bool {
-    flags.get(name).map(|v| v == "true").unwrap_or(false)
+    matches!(flags.get(name).map(String::as_str), Some("true"))
+}
+
+/// The arguments after `<noun> <verb>` when the invocation is that pair, so
+/// a module answering one verb of a noun several modules share says None to
+/// every other one and the next module is asked.
+pub(crate) fn verb<'a>(command: &str, positionals: &'a [String], noun: &str, verb: &str) -> Option<&'a [String]> {
+    match positionals.split_first() {
+        Some((first, rest)) if command == noun && first == verb => Some(rest),
+        _ => None,
+    }
 }
 
 /// Whether this invocation asked for text: `main` takes `--text` out of the
@@ -88,15 +100,15 @@ static TEXT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 pub(crate) fn take_text_switch(rest: &mut Vec<String>) {
     let asked = rest.iter().any(|word| word == "--text");
     rest.retain(|word| word != "--text" && word != "--json");
-    let _ = TEXT.set(asked);
+    TEXT.get_or_init(|| asked);
 }
 
 /// Print one result: JSON for machines by default, the same document as
 /// indented `key: value` lines for people with `--text`.
 pub(crate) fn emit(value: &Value) -> Result<()> {
-    if TEXT.get().copied().unwrap_or(false) {
+    if matches!(TEXT.get(), Some(true)) {
         let mut text = String::new();
-        render(value, 0, &mut text);
+        render(value, "", &mut text);
         print!("{text}");
     } else {
         println!("{}", serde_json::to_string_pretty(value)?);
@@ -104,42 +116,44 @@ pub(crate) fn emit(value: &Value) -> Result<()> {
     Ok(())
 }
 
-fn scalar(value: &Value) -> Option<String> {
+/// What a value is to the text form: one line, or labelled entries nested
+/// below the line that names it. Every value is exactly one of these, so the
+/// renderer has no case it cannot print.
+enum Shape<'a> {
+    Line(String),
+    Entries(Vec<(String, &'a Value)>),
+}
+
+fn shape(value: &Value) -> Shape<'_> {
     match value {
-        Value::Null => Some("none".to_string()),
-        Value::String(text) => Some(text.clone()),
-        Value::Bool(_) | Value::Number(_) => Some(value.to_string()),
-        Value::Array(items) if items.is_empty() => Some("(none)".to_string()),
-        Value::Object(fields) if fields.is_empty() => Some("(none)".to_string()),
-        Value::Array(_) | Value::Object(_) => None,
+        Value::Null => Shape::Line("none".to_string()),
+        Value::String(text) => Shape::Line(text.clone()),
+        Value::Bool(_) | Value::Number(_) => Shape::Line(value.to_string()),
+        Value::Array(items) if items.is_empty() => Shape::Line("(none)".to_string()),
+        Value::Object(fields) if fields.is_empty() => Shape::Line("(none)".to_string()),
+        Value::Object(fields) => {
+            Shape::Entries(fields.iter().map(|(key, field)| (format!("{key}:"), field)).collect())
+        }
+        Value::Array(items) => Shape::Entries(items.iter().map(|item| ("-".to_string(), item)).collect()),
     }
 }
 
-fn render(value: &Value, depth: usize, out: &mut String) {
-    let pad = "  ".repeat(depth);
-    match value {
-        Value::Object(fields) if !fields.is_empty() => {
-            for (key, field) in fields {
-                match scalar(field) {
-                    Some(text) => out.push_str(&format!("{pad}{key}: {text}\n")),
-                    None => {
-                        out.push_str(&format!("{pad}{key}:\n"));
-                        render(field, depth + 1, out);
+/// `value` as lines under the indentation `pad`; each nesting level adds two
+/// spaces to it.
+fn render(value: &Value, pad: &str, out: &mut String) {
+    match shape(value) {
+        Shape::Line(text) => out.push_str(&format!("{pad}{text}\n")),
+        Shape::Entries(entries) => {
+            let nested = format!("{pad}  ");
+            for (label, field) in entries {
+                match shape(field) {
+                    Shape::Line(text) => out.push_str(&format!("{pad}{label} {text}\n")),
+                    Shape::Entries(_) => {
+                        out.push_str(&format!("{pad}{label}\n"));
+                        render(field, &nested, out);
                     }
                 }
             }
         }
-        Value::Array(items) if !items.is_empty() => {
-            for item in items {
-                match scalar(item) {
-                    Some(text) => out.push_str(&format!("{pad}- {text}\n")),
-                    None => {
-                        out.push_str(&format!("{pad}-\n"));
-                        render(item, depth + 1, out);
-                    }
-                }
-            }
-        }
-        other => out.push_str(&format!("{pad}{}\n", scalar(other).unwrap_or_default())),
     }
 }

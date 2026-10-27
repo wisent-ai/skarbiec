@@ -51,7 +51,7 @@ impl Vault {
     /// the same bytes at the new key. Nothing is decrypted or re-encrypted:
     /// the id is a map key, not part of the sealed payload.
     ///
-    /// Improvising this with `get` + `set-json` under a new id + `delete` does
+    /// Improvising this with `get` + `set` under a new id + `delete` does
     /// not do the same thing. That is a copy: the new item starts at revision
     /// 1, its history is empty, `created_at` is now, tags are gone because
     /// there is no previous entry to preserve them from, and it needs the
@@ -94,7 +94,7 @@ impl Vault {
             }
         };
         entry["updated_at"] = json!(now());
-        let items = obj_mut(&mut self.doc, "items");
+        let items = obj_mut(&mut self.doc, "items")?;
         items.remove(from);
         items.insert(to.to_string(), entry);
         self.save()?;
@@ -113,30 +113,26 @@ impl Vault {
     /// The vault is saved once at the end rather than per item, and only when
     /// something actually changed.
     pub fn backfill_item_uids(&mut self) -> Result<(Vec<String>, usize)> {
-        let ids: Vec<String> = self
-            .doc
-            .get("items")
-            .and_then(Value::as_object)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter(|(_, entry)| entry_item_uid(entry).is_none())
-                    .map(|(id, _)| id.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let total = self
-            .doc
-            .get("items")
-            .and_then(Value::as_object)
-            .map(Map::len)
-            .unwrap_or_default();
+        // A vault with no items section yet holds no items; one whose section is not an
+        // object is damaged, and stamping it would hide that.
+        let none = Map::new();
+        let items = match self.doc.get("items") {
+            None => &none,
+            Some(Value::Object(items)) => items,
+            Some(other) => anyhow::bail!("the vault document's items section is {other}, not an object of items"),
+        };
+        let ids: Vec<String> = items
+            .iter()
+            .filter(|(_, entry)| entry_item_uid(entry).is_none())
+            .map(|(id, _)| id.clone())
+            .collect();
+        let total = items.len();
         if ids.is_empty() {
             return Ok((ids, total));
         }
         for id in &ids {
             let minted = mint_item_uid()?;
-            let entry = obj_mut(&mut self.doc, "items")
+            let entry = obj_mut(&mut self.doc, "items")?
                 .get_mut(id)
                 .and_then(Value::as_object_mut)
                 .with_context(|| format!("no item: {id}"))?;
@@ -154,25 +150,40 @@ impl Vault {
             .get("items")
             .and_then(|items| items.get(id))
             .with_context(|| format!("no item: {id}"))?;
+        // A trashed item restored to an old version would come back live with
+        // that value in one step, skipping the restore that says it is back.
+        if item.get("state").and_then(Value::as_str) == Some("trashed") {
+            bail!("item is in trash: {id}; `skarbiec restore {id}` brings it back first, then `skarbiec restore {id} --at {at}` picks the version");
+        }
         let envelope_kind = item
             .get("kind")
             .and_then(Value::as_str)
             .context("canonical item has no kind")?
             .to_string();
-        let chosen = item
-            .get("history")
-            .and_then(Value::as_array)
-            .and_then(|history| {
-                history
-                    .iter()
-                    .find(|version| version.get("created_at").and_then(Value::as_str) == Some(at))
-            })
-            .with_context(|| format!("no version at {at} for {id}"))?;
-        let kind = chosen
-            .get("kind")
-            .and_then(Value::as_str)
-            .unwrap_or(&envelope_kind)
-            .to_string();
+        let history = super::stored_history(id, item)?;
+        let Some(chosen) = history
+            .iter()
+            .find(|version| version.get("created_at").and_then(Value::as_str) == Some(at))
+        else {
+            // The stamps that do exist, so the caller can pick one instead of
+            // guessing the shape of the one that did not match.
+            let stamps: Vec<&str> = history
+                .iter()
+                .filter_map(|version| version.get("created_at").and_then(Value::as_str))
+                .collect();
+            if stamps.is_empty() {
+                bail!("no version at {at} for {id}: {id} keeps no earlier version, only its current value");
+            }
+            bail!(
+                "no version at {at} for {id}; its saved versions are at: {} (`skarbiec history {id}` lists them)",
+                stamps.join(", ")
+            );
+        };
+        // A revision recorded before revisions carried their own kind has the item's kind.
+        let kind = match chosen.get("kind").and_then(Value::as_str) {
+            Some(kind) => kind.to_string(),
+            None => envelope_kind,
+        };
         let cipher = chosen
             .get("ciphertext")
             .and_then(Value::as_str)
@@ -184,5 +195,101 @@ impl Vault {
         let recipients = self.item_recipient_uids(id)?;
         let tags = crate::core::vault::entry_texts(id, item, "tags")?;
         self.set_item(id, &kind, &payload, &recipients, &tags)
+    }
+
+    /// Every revision the item keeps, oldest first, then the current one, as
+    /// metadata: what `restore <id> --at <at>` can bring back.
+    ///
+    /// Each entry carries the stamp `--at` takes (`at`), its revision and
+    /// kind, who wrote it and under which lifecycle operation, and whether it
+    /// is the current value. A version written before revisions carried their
+    /// own number or kind reports null for it. Nothing is decrypted, so the
+    /// answer comes even from a host whose GnuPG cannot open the item.
+    pub fn versions(&self, id: &str) -> Result<Value> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        let describe = |version: &Value, current: bool| {
+            json!({
+                "at": version.get("created_at"),
+                "revision": version.get("revision"),
+                "kind": version.get("kind"),
+                "written_by": version.get("written_by"),
+                "operation_id": version.get("operation_id"),
+                "current": current,
+            })
+        };
+        let mut versions: Vec<Value> = super::stored_history(id, item)?
+            .iter()
+            .map(|version| describe(version, false))
+            .collect();
+        if let Some(current) = item.get("current") {
+            versions.push(describe(current, true));
+        }
+        Ok(json!({
+            "id": id,
+            "item_uid": item.get("item_uid"),
+            "state": item.get("state"),
+            "revision": item.get("revision"),
+            "versions": versions,
+        }))
+    }
+
+    /// `history <id> --changes`: for each saved version after the first,
+    /// which field names it added, removed or changed against the version
+    /// before it. Every version is decrypted to compare, and only names leave
+    /// this function: no value, length or digest. A version that will not
+    /// open is named with its error, and the comparison skips past it rather
+    /// than reporting a change that was never seen.
+    pub fn version_changes(&self, id: &str) -> Result<Value> {
+        let item = self
+            .doc
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
+        let mut ordered = super::stored_history(id, item)?;
+        if let Some(current) = item.get("current") {
+            ordered.push(current.clone());
+        }
+        let mut changes = Vec::new();
+        let mut previous: Option<serde_json::Map<String, Value>> = None;
+        for version in &ordered {
+            let at = version.get("created_at").cloned();
+            let opened = version
+                .get("ciphertext")
+                .and_then(Value::as_str)
+                .context("saved version has no ciphertext")
+                .and_then(crypto::decrypt)
+                .and_then(|plain| {
+                    serde_json::from_str::<Value>(&plain).context("saved version is not JSON")
+                });
+            let fields = match opened {
+                Ok(payload) => match payload.get("fields").and_then(Value::as_object) {
+                    Some(fields) => fields.clone(),
+                    None => {
+                        changes.push(json!({"at": at, "error": "the saved version holds no fields object"}));
+                        continue;
+                    }
+                },
+                Err(error) => {
+                    changes.push(json!({"at": at, "error": format!("{error:#}")}));
+                    continue;
+                }
+            };
+            if let Some(before) = &previous {
+                let added: Vec<&String> = fields.keys().filter(|name| !before.contains_key(*name)).collect();
+                let removed: Vec<&String> = before.keys().filter(|name| !fields.contains_key(*name)).collect();
+                let changed: Vec<&String> = fields
+                    .iter()
+                    .filter(|(name, value)| before.get(*name).is_some_and(|old| old != *value))
+                    .map(|(name, _)| name)
+                    .collect();
+                changes.push(json!({"at": at, "added": added, "removed": removed, "changed": changed}));
+            }
+            previous = Some(fields);
+        }
+        Ok(json!({"id": id, "changes": changes}))
     }
 }

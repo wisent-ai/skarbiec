@@ -97,6 +97,31 @@ pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
     run("gpg", &refs, Some(plaintext))
 }
 
+/// Seal plaintext with a passphrase instead of a key (armored, symmetric):
+/// for a person outside the vault, who opens it with `gpg --decrypt` and the
+/// phrase handed over another way. The phrase travels on stdin before the
+/// message, as the protected decrypt hands its phrase over, never in argv.
+pub fn seal_with_passphrase(phrase: &str, plaintext: &str) -> Result<String> {
+    if phrase.contains('\n') {
+        bail!("a sealing passphrase holds a line break; gpg reads a phrase only up to its first line break");
+    }
+    let stdin = libc::STDIN_FILENO.to_string();
+    run(
+        "gpg",
+        &[
+            "--batch",
+            "--yes",
+            "--armor",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase-fd",
+            &stdin,
+            "--symmetric",
+        ],
+        Some(&format!("{phrase}\n{plaintext}")),
+    )
+}
+
 /// Decrypt using whatever private key in the local keyring applies (gpg-agent).
 /// A protected vault can receive its unlock phrase through `SKARBIEC_UNLOCK`
 /// for a single invocation, an owner-only file named by

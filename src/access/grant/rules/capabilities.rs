@@ -223,9 +223,7 @@ pub(in crate::access::grant) fn redemption_contract(
 ) -> Vec<Value> {
     capabilities
         .iter()
-        .filter(|capability| {
-            capability.get("action").and_then(Value::as_str) == Some("acquire")
-        })
+        .filter(|capability| Action::of(capability) == Some(Action::Acquire))
         .filter_map(|capability| {
             let item = capability.get("item").and_then(Value::as_str)?;
             let field = capability.get("field").and_then(Value::as_str)?;

@@ -2,22 +2,36 @@
 //! line it wrote (`--status-fd`), so a run that has gone quiet can be named
 //! by where it stopped instead of being waited for in silence.
 //!
-//! A decrypt announces the key it needs (`[GNUPG:] ENC_TO …`) and then asks
-//! gpg-agent for it; when the agent, or the keyboxd behind it, does not
-//! answer, that is the last line the child ever writes, and the request
-//! thread holds its connection for as long as the daemons stay wedged.
-//! Nothing here is a clock: a run whose last status is `ENC_TO` is measured
-//! as waiting on the agent, whatever the time, and that measurement is what
-//! the readiness check, a new decrypt and the daemon recovery read. The runs
-//! of every other Skarbiec process of this account are read too
-//! (`published`): they wait on the same agent.
+//! gpg waits on something outside itself at two points. Before it writes
+//! any status it opens the keyring, and waits there while another process
+//! holds the keyring lock or keyboxd does not answer (`gpg: Note:
+//! database_open … waiting for lock (held by <pid>)`, and tens of minutes
+//! later `keydb_search failed: Operation timed out`). A decrypt then
+//! announces the key it needs (`[GNUPG:] ENC_TO …`) and asks gpg-agent for
+//! it, and waits there while the agent does not answer. A run stopped at
+//! either point holds its request's connection for as long as the cause
+//! stands. The runs of every other Skarbiec process of this account are
+//! read too (`published`): they wait on the same keyring and agent.
+//!
+//! Every healthy decrypt passes both points on its way to an answer, so one
+//! sighting cannot tell a wedge from progress about to arrive. A run counts
+//! as waiting only once the last maintenance pass saw it at the same point,
+//! the same child with the same last status (`stood`); the pass interval is
+//! the measurement, and the readiness check, a new decrypt and the daemon
+//! recovery read it. The recovery ends such runs with the daemons, so the
+//! read that waited answers or refuses with gpg's own words instead of
+//! standing until gpg gives up.
 
 mod published;
+mod refusal;
+mod stood;
 
 use std::collections::BTreeMap;
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use published::PublishedRun;
+pub use refusal::agent_refusal;
+use stood::Stood;
 
 /// The status keyword gpg writes once it has read the key a message is
 /// encrypted to and before it asks the agent to use it.
@@ -103,43 +117,113 @@ pub(super) fn noted(registered: &Registered, line: &str) {
     publish(&held);
 }
 
-/// Whether `run` has asked the agent for a key and heard nothing since.
-fn waits_on_agent(run: &Run) -> bool {
-    run.last_status.as_deref() == Some(ASKING_THE_AGENT)
+/// Whether a run with `last_status` stands at a point where gpg waits on
+/// something outside itself: opening the keyring before any status, or at
+/// `ENC_TO`, asking gpg-agent for its key.
+fn at_waiting_point(last_status: Option<&str>) -> bool {
+    match last_status {
+        None => true,
+        Some(status) => status == ASKING_THE_AGENT,
+    }
 }
 
-/// How many `gpg` children run now and have asked the agent for a key
-/// without an answer.
+/// How many of this process's `gpg` children stand at a waiting point and
+/// stood there, the same way, when the last maintenance pass looked. A pass
+/// record that cannot be read counts none as standing, so a recovery waits
+/// for them as for any progressing run, and says why on stderr.
 pub(super) fn waiting_on_agent() -> usize {
-    runs().values().filter(|run| waits_on_agent(run)).count()
+    let stood = match stood::last_pass() {
+        Ok(stood) => stood,
+        Err(why) => {
+            eprintln!("skarbiec: no gpg run is counted as waiting on the GnuPG daemons: {why}");
+            Vec::new()
+        }
+    };
+    runs()
+        .iter()
+        .filter(|(pid, run)| {
+            at_waiting_point(run.last_status.as_deref())
+                && stood.iter().any(|seen| seen.matches(**pid, &run.started, &run.last_status))
+        })
+        .count()
 }
 
-/// One sentence per `gpg` child waiting on the agent, this process's and
-/// every other Skarbiec process's of this account: its pid, whose it is,
-/// what it runs, since when and the status it stopped at. Empty when none
-/// waits; a published file that cannot be read is said as one more sentence.
+/// One sentence per `gpg` child that stood at a waiting point through the
+/// last pass interval, this process's and every other Skarbiec process's of
+/// this account: its pid, whose it is, what it runs, since when and where it
+/// stopped. Empty when none stood; a published file or a pass record that
+/// cannot be read is said as one more sentence.
 pub fn agent_waits() -> Vec<String> {
     let (all, unreadable) = everyone();
-    let mut waits = sentences(&all);
+    let mut waits = match stood::last_pass() {
+        Ok(stood) => sentences(&all, &stood),
+        Err(why) => vec![why],
+    };
     waits.extend(unreadable);
     waits
 }
 
-fn published_waits_on_agent(run: &PublishedRun) -> bool {
-    run.last_status.as_deref() == Some(ASKING_THE_AGENT)
+/// Whether a published run stands at a waiting point and the last pass saw
+/// it there the same way.
+fn stands_at_agent(run: &PublishedRun, stood: &[Stood]) -> bool {
+    at_waiting_point(run.last_status.as_deref()) && stood.iter().any(|seen| seen.is(run))
 }
 
-fn sentences(all: &[(String, PublishedRun)]) -> Vec<String> {
+/// Where a run at a waiting point stopped, and what it waits on there.
+fn waiting_on(run: &PublishedRun) -> (String, &'static str) {
+    match run.last_status.as_deref() {
+        Some(status) => (
+            format!("stopped at status {status}"),
+            "it asked gpg-agent for its key and the agent has not answered",
+        ),
+        None => (
+            "has written no status".to_owned(),
+            "it has not opened the keyring, whose lock another process holds or whose keyboxd \
+             does not answer",
+        ),
+    }
+}
+
+fn sentences(all: &[(String, PublishedRun)], stood: &[Stood]) -> Vec<String> {
     all.iter()
-        .filter(|(_, run)| published_waits_on_agent(run))
+        .filter(|(_, run)| stands_at_agent(run, stood))
         .map(|(owner, run)| {
+            let (at, what) = waiting_on(run);
             format!(
-                "gpg {} (pid {}, of {owner}) since {} stopped at status {ASKING_THE_AGENT}: it \
-                 asked gpg-agent for its key and the agent has not answered",
+                "gpg {} (pid {}, of {owner}) since {} {at} and was still there when the last \
+                 maintenance pass looked: {what}",
                 run.verb, run.pid, run.started
             )
         })
         .collect()
+}
+
+/// Record, for the next maintenance pass, every run of this account that
+/// stands at a waiting point now, and answer the ones the last pass had not
+/// seen there the same way, one sentence each: whether those wait on the
+/// GnuPG daemons only the next pass can tell. A pass record or a published
+/// file that could not be read is the error, the latter after the record is
+/// written.
+pub fn note_agent_waits() -> Result<Vec<String>, String> {
+    let (all, unreadable) = everyone();
+    let before = stood::last_pass()?;
+    let waiting: Vec<&(String, PublishedRun)> = all
+        .iter()
+        .filter(|(_, run)| at_waiting_point(run.last_status.as_deref()))
+        .collect();
+    let seen: Vec<Stood> = waiting.iter().map(|(_, run)| Stood::of(run)).collect();
+    stood::record(&seen)?;
+    if let Some(why) = unreadable {
+        return Err(why);
+    }
+    Ok(waiting
+        .iter()
+        .filter(|(_, run)| !before.iter().any(|seen| seen.is(run)))
+        .map(|(owner, run)| {
+            let (at, _) = waiting_on(run);
+            format!("gpg {} (pid {}, of {owner}) since {} {at}", run.verb, run.pid, run.started)
+        })
+        .collect())
 }
 
 /// Every `gpg` run of this account now, each with whose it is (`this
@@ -171,95 +255,4 @@ fn everyone() -> (Vec<(String, PublishedRun)>, Option<String>) {
         }
         Err(unreadable) => (all, Some(unreadable)),
     }
-}
-
-/// Why each run among `all` that has written no status cannot open the
-/// keyring, by pid: a keyring lock names a run that waits on the agent as
-/// its holder, or the keyboxd database lock is kept by a process that no
-/// longer serves the keyboxd socket (`lock_holder::orphaned_database_holder`).
-/// Such a run waits as surely as the holder does. Empty when neither holds;
-/// a lock that cannot be read is the error, since whether the runs wait
-/// cannot then be told.
-fn held_back(all: &[(String, PublishedRun)]) -> Result<Vec<(u32, String)>, String> {
-    let quiet: Vec<u32> = all
-        .iter()
-        .filter(|(_, run)| run.last_status.is_none())
-        .map(|(_, run)| run.pid)
-        .collect();
-    if quiet.is_empty() {
-        return Ok(Vec::new());
-    }
-    let holders: Vec<u32> = super::lock_holder::recorded_holder_pids()?
-        .into_iter()
-        .filter(|holder| {
-            all.iter()
-                .any(|(_, run)| run.pid == *holder && published_waits_on_agent(run))
-        })
-        .collect();
-    let why = match holders.is_empty() {
-        false => "the keyring lock it needs is held by a run that waits on gpg-agent".to_owned(),
-        true => match super::lock_holder::orphaned_database_holder()? {
-            Some(orphaned) => orphaned,
-            None => return Ok(Vec::new()),
-        },
-    };
-    Ok(quiet
-        .into_iter()
-        .filter(|pid| !holders.contains(pid))
-        .map(|pid| (pid, why.clone()))
-        .collect())
-}
-
-/// Why a `gpg` run would queue behind wedged daemons right now, when it
-/// would: every child in flight, in this process and in every other Skarbiec
-/// process of this account, is waiting on the agent, or has written no
-/// status while it is held back from the keyring ([`held_back`]). A child
-/// that is progressing (any other last status, or none while nothing holds
-/// it back) means the daemons answer, and a new run joins the queue as
-/// usual. A keyring lock that cannot be read while children are in flight
-/// is refused with its cause: a run now could not be told from one that
-/// waits.
-pub fn agent_refusal() -> Option<String> {
-    let (all, _) = everyone();
-    if all.is_empty() {
-        return None;
-    }
-    let blocked = match held_back(&all) {
-        Ok(blocked) => blocked,
-        Err(why) => {
-            return Some(format!(
-                "{} gpg run(s) of this account are in flight and whether they wait on the \
-                 keyring cannot be told: {why}",
-                all.len()
-            ))
-        }
-    };
-    let reason = |run: &PublishedRun| {
-        blocked
-            .iter()
-            .find(|(pid, _)| *pid == run.pid)
-            .map(|(_, why)| why)
-    };
-    if !all
-        .iter()
-        .all(|(_, run)| published_waits_on_agent(run) || reason(run).is_some())
-    {
-        return None;
-    }
-    let mut waits = sentences(&all);
-    waits.extend(all.iter().filter_map(|(owner, run)| {
-        reason(run).map(|why| {
-            format!(
-                "gpg {} (pid {}, of {owner}) since {} has written no status: {why}",
-                run.verb, run.pid, run.started
-            )
-        })
-    }));
-    Some(format!(
-        "{} gpg run(s) of this account are in flight and every one waits on the GnuPG daemons, \
-         on gpg-agent directly or behind a keyring lock it cannot take, so a run now would wait \
-         behind the same daemons: {}. Recover them with `skarbiec maintain`",
-        waits.len(),
-        waits.join("; ")
-    ))
 }

@@ -30,7 +30,7 @@ const ROUTE_PREFIX: &str = "/v1/operator/";
 /// with another writer. Credential calls are all here because a status read
 /// can commit or roll back a staged revision.
 pub(crate) fn is_mutation(path: &str) -> bool {
-    matches!(
+    copies::is_package_mutation(path) || copies::is_helper_mutation(path) || matches!(
         path,
         "/v1/operator/vaults/create"
             | "/v1/operator/items/import"
@@ -39,11 +39,71 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/items/retag"
             | "/v1/operator/items/reclaim"
             | "/v1/operator/items/restore"
+            | "/v1/operator/items/generate"
+            | "/v1/operator/items/rename"
+            | "/v1/operator/browser-host/install"
+            | "/v1/operator/browser-host/uninstall"
+            | "/v1/operator/browser-host/cover"
+            | "/v1/operator/review"
+            | "/v1/operator/upgrade/apply"
+            | "/v1/operator/agents/enrol"
+            | "/v1/operator/recover-daemons"
+            | "/v1/operator/items/recovery-codes/take"
+            | "/v1/operator/items/recovery-codes/replace"
+            | "/v1/operator/items/sites/set"
+            | "/v1/operator/items/sites/change"
+            | "/v1/operator/items/new-login"
+            | "/v1/operator/items/new-ssh-key"
+            | "/v1/operator/items/rotate"
+            | "/v1/operator/items/totp-set"
+            | "/v1/operator/items/totp-uri"
+            | "/v1/operator/items/notes/set"
+            | "/v1/operator/items/password-rules/change"
+            | "/v1/operator/items/attach"
+            | "/v1/operator/items/detach"
+            | "/v1/operator/items/ssh-import"
             | "/v1/operator/items/purge"
+            | "/v1/operator/items/purge-trash"
+            | "/v1/operator/items/purge-versions"
+            | "/v1/operator/items/merge"
+            | "/v1/operator/items/expiry/set"
+            | "/v1/operator/items/expiry/clear"
+            | "/v1/operator/items/pin/add"
+            | "/v1/operator/items/pin/remove"
+            | "/v1/operator/items/send"
+            | "/v1/operator/items/copy"
             | "/v1/operator/items/share"
             | "/v1/operator/items/revoke"
+            | "/v1/operator/shares/expire"
+            | "/v1/operator/items/ssh-add"
             | "/v1/operator/recipients/add"
             | "/v1/operator/recipients/remove"
+            | "/v1/operator/recipients/rekey"
+            | "/v1/operator/owner/rotate"
+            | "/v1/operator/owner/key/mint"
+            | "/v1/operator/migrate"
+            | "/v1/operator/backup"
+            | "/v1/operator/backup/check"
+            | "/v1/operator/backup/diff"
+            | "/v1/operator/ssh-sign"
+            | "/v1/operator/backup/restore"
+            | "/v1/operator/backup/schedule"
+            | "/v1/operator/backup/unschedule"
+            | "/v1/operator/alert/set"
+            | "/v1/operator/alert/test"
+            | "/v1/operator/alert/unset"
+            | "/v1/operator/doctor/alert"
+            | "/v1/operator/inject"
+            | "/v1/operator/env-import"
+            | "/v1/operator/git-hook/install"
+            | "/v1/operator/git-hook/uninstall"
+            | "/v1/operator/ci-secrets"
+            | "/v1/operator/ci-secrets/keep"
+            | "/v1/operator/ci-secrets/forget"
+            | "/v1/operator/git-sign/setup"
+            | "/v1/operator/git-sign/unset"
+            | "/v1/operator/items/donate"
+            | "/v1/operator/bonds/enroll"
             | "/v1/operator/rotation/set"
             | "/v1/operator/rotation/remove"
             | "/v1/operator/rotation/run"
@@ -52,13 +112,16 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/grants/ensure"
             | "/v1/operator/grants/narrow"
             | "/v1/operator/grants/keep"
+            | "/v1/operator/grants/retarget"
             | "/v1/operator/grants/revoke"
+            | "/v1/operator/lockdown"
             | "/v1/operator/donations/accept"
             | "/v1/operator/donations/reject"
             | "/v1/operator/credential"
             | "/v1/operator/emergency/grant"
             | "/v1/operator/emergency/cancel"
             | "/v1/operator/emergency/activate"
+            | "/v1/operator/emergency/revoke"
             | "/v1/operator/recovery/drill"
             | "/v1/operator/policy/set"
             | "/v1/operator/policy/unset"
@@ -69,6 +132,57 @@ pub(crate) fn is_mutation(path: &str) -> bool {
             | "/v1/operator/sync/unpublish"
             | "/v1/operator/route/declare"
             | "/v1/operator/route/withdraw"
+    )
+}
+
+/// Routes that act on this machine rather than on the vault's content alone:
+/// the browser's native-messaging files, the operator's own ssh-agent and an
+/// export file live where the app runs, so these are never forwarded to a
+/// remote vault owner.
+fn is_host_local(path: &str) -> bool {
+    copies::is_package_host_local(path) || copies::is_helper_host_local(path) || matches!(
+        path,
+        "/v1/operator/browser-host"
+            | "/v1/operator/browser-host/install"
+            | "/v1/operator/browser-host/uninstall"
+            | "/v1/operator/browser-host/cover"
+            | "/v1/operator/items/ssh-add"
+            | "/v1/operator/items/export"
+            | "/v1/operator/items/attach"
+            | "/v1/operator/items/detach"
+            | "/v1/operator/items/ssh-import"
+            | "/v1/operator/migrate"
+            | "/v1/operator/backup"
+            | "/v1/operator/backup/check"
+            | "/v1/operator/backup/diff"
+            | "/v1/operator/ssh-sign"
+            | "/v1/operator/backup/restore"
+            | "/v1/operator/backup/schedule"
+            | "/v1/operator/backup/unschedule"
+            | "/v1/operator/alert/set"
+            | "/v1/operator/alert/status"
+            | "/v1/operator/alert/test"
+            | "/v1/operator/alert/unset"
+            | "/v1/operator/doctor/alert"
+            | "/v1/operator/inject"
+            | "/v1/operator/env-import"
+            | "/v1/operator/scan"
+            | "/v1/operator/scan-history"
+            | "/v1/operator/ci-secrets"
+            | "/v1/operator/ci-secrets/keep"
+            | "/v1/operator/ci-secrets/kept"
+            | "/v1/operator/ci-secrets/forget"
+            | "/v1/operator/git-hook/install"
+            | "/v1/operator/git-hook/status"
+            | "/v1/operator/git-hook/uninstall"
+            | "/v1/operator/git-sign/setup"
+            | "/v1/operator/git-sign/unset"
+            | "/v1/operator/git-sign/status"
+            | "/v1/operator/items/donate"
+            | "/v1/operator/bonds/enroll"
+            // The owner key is made in, and read from, this machine's keyring.
+            | "/v1/operator/owner/key/mint"
+            | "/v1/operator/owner/key/show"
     )
 }
 
@@ -103,7 +217,7 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
             serve()
         }
     };
-    let result = if vault.is_none() {
+    let result = if vault.is_none() && !is_host_local(path) {
         crate::net::owner::selected().and_then(|route| match route {
             // A request another host forwarded here named this host as the
             // vault owner; forwarding it again would loop between hosts.
@@ -128,7 +242,12 @@ pub(crate) fn handle(stream: &mut TcpStream, method: &str, path: &str, body: &st
 }
 
 mod calls;
+mod copies;
 mod credential;
+mod items;
+mod owner;
+mod reads;
+mod replicas;
 mod routes;
 
 use routes::answer;

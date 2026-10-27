@@ -16,15 +16,33 @@ use crate::net::{detail_text, http};
 // capability action, `lifecycle`, which authorizes no read of a credential
 // value: these handlers never call a read path.
 
-/// One exact `lifecycle` capability on one exact item.
-fn lifecycle_authorized(headers: &HashMap<String, String>, item: &str) -> Result<bool> {
-    let (consumer, bearer) = http::presented_identity(headers);
-    if consumer.is_empty() {
-        return Ok(false);
-    }
+/// The consumer holding one exact `lifecycle` capability on one exact item,
+/// or `None` once the refusal is written: a request presenting no identity is
+/// answered naming what it lacks, before the vault is read, and one without
+/// the grant is answered naming the grant.
+fn lifecycle_consumer(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    item: &str,
+) -> Result<Option<String>> {
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => {
+            http::unidentified(stream, &reason)?;
+            return Ok(None);
+        }
+    };
     let vault = http::load()?;
     let lifecycle = crate::access::actions::Action::Lifecycle.as_str();
-    grant::token_allows_action(&vault, &consumer, &bearer, lifecycle, item)
+    if !grant::token_allows_action(&vault, &consumer, &bearer, lifecycle, item)? {
+        http::write_response(
+            stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": format!("lifecycle:{item} grant required")}),
+        )?;
+        return Ok(None);
+    }
+    Ok(Some(consumer))
 }
 
 /// `POST /v1/credential/operations` — submit or resume one credential
@@ -44,18 +62,13 @@ pub(crate) fn handle_credential_operations(
             return http::write_response(
                 stream,
                 "HTTP/1.1 400 Bad Request",
-                &json!({"error": detail_text(&error.to_string())}),
+                &json!({"error": detail_text(&format!("{error:#}"))}),
             );
         }
     };
-    if !lifecycle_authorized(headers, &item)? {
-        return http::write_response(
-            stream,
-            "HTTP/1.1 403 Forbidden",
-            &json!({"error": format!("lifecycle:{item} grant required")}),
-        );
-    }
-    let (consumer, _) = http::presented_identity(headers);
+    let Some(consumer) = lifecycle_consumer(stream, headers, &item)? else {
+        return Ok(());
+    };
     match crate::credential::submit_from_endpoint(&crate::core::vault_path(), &parsed) {
         Ok(value) => {
             crate::runtime::audit::append(
@@ -72,7 +85,7 @@ pub(crate) fn handle_credential_operations(
         Err(error) => http::write_response(
             stream,
             "HTTP/1.1 409 Conflict",
-            &json!({"ok": false, "error": detail_text(&error.to_string())}),
+            &json!({"ok": false, "error": detail_text(&format!("{error:#}"))}),
         ),
     }
 }
@@ -90,23 +103,19 @@ pub(crate) fn handle_credential_operation_status(
             return http::write_response(
                 stream,
                 "HTTP/1.1 400 Bad Request",
-                &json!({"error": detail_text(&error.to_string())}),
+                &json!({"error": detail_text(&format!("{error:#}"))}),
             );
         }
     };
-    if !lifecycle_authorized(headers, &item)? {
-        return http::write_response(
-            stream,
-            "HTTP/1.1 403 Forbidden",
-            &json!({"error": format!("lifecycle:{item} grant required")}),
-        );
+    if lifecycle_consumer(stream, headers, &item)?.is_none() {
+        return Ok(());
     }
     match crate::credential::status_from_endpoint(&crate::core::vault_path(), &item) {
         Ok(value) => http::write_response(stream, "HTTP/1.1 200 OK", &value),
         Err(error) => http::write_response(
             stream,
             "HTTP/1.1 409 Conflict",
-            &json!({"ok": false, "error": detail_text(&error.to_string())}),
+            &json!({"ok": false, "error": detail_text(&format!("{error:#}"))}),
         ),
     }
 }

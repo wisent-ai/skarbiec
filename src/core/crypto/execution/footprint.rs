@@ -13,9 +13,11 @@ use anyhow::{Context, Result};
 
 use super::run_once;
 
-/// Kilobytes and mebibytes as the sizes below are declared and reported.
+/// A kibibyte, the binary unit the sizes below are declared and reported in.
+/// <https://physics.nist.gov/cuu/Units/binary.html>
 const KIB: u64 = 1024;
-const MIB: u64 = 1024 * KIB;
+/// A mebibyte. <https://physics.nist.gov/cuu/Units/binary.html>
+const MIB: u64 = 1_048_576;
 
 /// The setting that names the ceiling, in MiB. Skarbiec holds no default:
 /// the operator states it in the service environment.
@@ -58,9 +60,7 @@ pub fn daemon_memory_limit_bytes() -> Result<u64> {
 
 pub fn human_size(bytes: u64) -> String {
     if bytes >= MIB {
-        let whole = bytes / MIB;
-        let tenths = (bytes % MIB) * 10 / MIB;
-        return format!("{whole}.{tenths} MiB");
+        return format!("{:.1} MiB", bytes as f64 / MIB as f64);
     }
     format!("{} KiB", bytes / KIB)
 }
@@ -83,7 +83,7 @@ pub fn daemon_footprints() -> Result<Vec<DaemonFootprint>> {
     ] {
         let answer = run_once("gpg-connect-agent", args, None)
             .with_context(|| format!("ask {daemon} for its pid"))?;
-        let Some(pid) = answered_pid(&answer) else {
+        let Some(pid) = answered_pid(&answer).with_context(|| format!("ask {daemon} for its pid"))? else {
             continue;
         };
         let bytes = physical_footprint(pid)
@@ -95,12 +95,18 @@ pub fn daemon_footprints() -> Result<Vec<DaemonFootprint>> {
 
 /// The `D <pid>` data line a running daemon answers `GETINFO pid` with. A
 /// daemon that is not running answers `OK` and nothing else, and says so on
-/// stderr.
-fn answered_pid(answer: &str) -> Option<u32> {
-    answer
-        .lines()
-        .filter_map(|line| line.strip_prefix("D "))
-        .find_map(|data| data.trim().parse().ok())
+/// stderr: that, and only that, is `None`. A data line that holds no pid is
+/// refused quoting it, because reading it as no daemon would leave a running
+/// one unmeasured and never recycled.
+fn answered_pid(answer: &str) -> Result<Option<u32>> {
+    let Some(data) = answer.lines().find_map(|line| line.strip_prefix("D ")) else {
+        return Ok(None);
+    };
+    let pid = data
+        .trim()
+        .parse()
+        .with_context(|| format!("GETINFO pid answered the data line {data:?}, which is not a pid"))?;
+    Ok(Some(pid))
 }
 
 #[cfg(target_os = "macos")]
@@ -116,7 +122,7 @@ fn physical_footprint(pid: u32) -> Result<u64> {
             usage.as_mut_ptr().cast::<libc::rusage_info_t>(),
         )
     };
-    if status != 0 {
+    if status.is_negative() {
         return Err(std::io::Error::last_os_error()).context("proc_pid_rusage");
     }
     // SAFETY: the call succeeded, so the struct is initialised.
@@ -127,20 +133,20 @@ fn physical_footprint(pid: u32) -> Result<u64> {
 fn physical_footprint(pid: u32) -> Result<u64> {
     let status = std::fs::read_to_string(format!("/proc/{pid}/status"))
         .with_context(|| format!("read /proc/{pid}/status"))?;
-    let kib = |field: &str| -> u64 {
-        status
+    // The kernel writes both lines for every process (proc(5)); one that is
+    // missing or unreadable is refused naming it, never measured as nothing.
+    let kib = |field: &str| -> Result<u64> {
+        let line = status
             .lines()
-            .filter_map(|line| line.strip_prefix(field))
-            .find_map(|rest| {
-                rest.trim()
-                    .trim_end_matches("kB")
-                    .trim()
-                    .parse::<u64>()
-                    .ok()
-            })
-            .unwrap_or_default()
+            .find_map(|line| line.strip_prefix(field))
+            .with_context(|| format!("/proc/{pid}/status has no {field} line"))?;
+        line.trim()
+            .trim_end_matches("kB")
+            .trim()
+            .parse::<u64>()
+            .with_context(|| format!("/proc/{pid}/status states {field}{line}, which is not a number of kB"))
     };
-    Ok((kib("VmRSS:") + kib("VmSwap:")).saturating_mul(KIB))
+    Ok((kib("VmRSS:")? + kib("VmSwap:")?).saturating_mul(KIB))
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]

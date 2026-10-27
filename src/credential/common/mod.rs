@@ -12,8 +12,8 @@ pub(crate) use operation::Operation;
 pub(super) const TOKEN_FILE_ENV: &str = "SKARBIEC_CREDENTIAL_TOKEN_FILE";
 
 pub(super) use checks::{
-    checked_bool, checked_code, checked_enum, checked_host, checked_timestamp, checked_uuid,
-    hex_digest, present, safe_string, timestamp_shaped, uuid_shaped, zulu_seconds,
+    bounded_host, checked_bool, checked_code, checked_enum, checked_host, checked_timestamp,
+    checked_uuid, hex_digest, present, safe_string, uuid_shaped, zulu_seconds, HOST_NAME_MAX,
 };
 pub(crate) use inputs::{bearer_from_file, read_secret_file};
 pub(super) use inputs::{

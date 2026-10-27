@@ -57,10 +57,15 @@ pub(super) fn locate(
         )?;
         return Ok(None);
     };
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => {
+            http::unidentified(stream, &reason)?;
+            return Ok(None);
+        }
+    };
     let vault = http::load()?;
-    if consumer.is_empty()
-        || !grant::token_allows_field_action(
+    if !grant::token_allows_field_action(
             &vault,
             &consumer,
             &bearer,
@@ -90,7 +95,7 @@ pub(super) fn locate(
             {
                 format!("no live item carries stado:{requested}")
             } else {
-                error.to_string()
+                format!("{error:#}")
             };
             http::write_response(
                 stream,

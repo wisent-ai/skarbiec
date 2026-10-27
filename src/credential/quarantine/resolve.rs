@@ -28,7 +28,7 @@ pub(in crate::credential) fn resolve_quarantine(
 ) -> Result<Value> {
     let allowed = ["confirm", "staged", "as", "token-file", "local"];
     let usage = format!(
-        "usage: credential resolve-quarantine <item-id> --confirm '{QUARANTINE_CONFIRMATION}' [--staged keep|activate|discard] --as <consumer> --token-file <path>"
+        "usage: credential quarantine resolve <item-id> --confirm '{QUARANTINE_CONFIRMATION}' [--staged keep|activate|discard] --as <consumer> --token-file <path>"
     );
     if flags.keys().any(|key| !allowed.contains(&key.as_str())) {
         bail!("{usage}");

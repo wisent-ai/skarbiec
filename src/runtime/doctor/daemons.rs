@@ -19,7 +19,7 @@ use super::{check, FAIL, PASS};
 ///
 /// A daemon over the ceiling is a failure with the daemon, its size and the
 /// setting that names the ceiling, because the repair is either the running
-/// service's next readiness pass or `recover-daemons`, and both are named.
+/// service's next readiness pass or `keyring recover`, and both are named.
 /// No daemon running is a pass: `gpg` starts them on the next read.
 pub(super) fn daemons_check() -> Value {
     let limit_bytes = match daemon_memory_limit_bytes() {
@@ -53,8 +53,8 @@ pub(super) fn daemons_check() -> Value {
                     FAIL,
                     format!(
                         "over the {limit} ceiling ({DAEMON_MEMORY_LIMIT_SETTING}): {}; the running \
-                         service replaces them on its next readiness pass, `skarbiec \
-                         recover-daemons` replaces them now",
+                         service replaces them on its next readiness pass, `skarbiec keyring \
+                         recover` replaces them now",
                         over.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
                     ),
                 )

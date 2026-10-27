@@ -10,15 +10,19 @@ use crate::core::vault_path;
 
 use super::args::{emit, flag_set, OrUsage};
 use super::items::ensure_owner_mutation_allowed;
+use super::rename::grants_naming;
 
-pub(crate) const GET_USAGE: &str = "usage: get <id|role:<role>> [--field <field> | --revision]";
+pub(crate) const GET_USAGE: &str = "usage: get <id|role:<role>> [--field <field> | --revision] [--at <stamp>]";
 
+/// `delete <id>`: to the trash. The answer names the consumers whose grant
+/// names the item, and the AWS profiles and kubeconfig users on this machine
+/// that read it, because a trashed item answers none of them.
 pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().or_usage("usage: delete <id>")?;
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
     vault.delete_item(id)?;
-    Ok(json!({"ok": true}))
+    Ok(json!({"ok": true, "grants_naming_it": grants_naming(&vault, id), "read_here_by": crate::runtime::wiring::naming(id)}))
 }
 
 pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
@@ -64,6 +68,9 @@ pub(crate) fn cmd_purge(positionals: &[String], confirmed: bool) -> Result<Value
         );
     }
     vault.purge_item(id)?;
+    if super::items::forget_purged(&mut vault, id)? {
+        vault.save()?;
+    }
     Ok(json!({"ok": true}))
 }
 
@@ -116,6 +123,9 @@ fn read_coordinate(
         if flags.contains_key("field") {
             bail!("get takes --field or --revision, not both: --revision names the item's version, which every field shares");
         }
+        if flags.contains_key("at") {
+            bail!("get takes --at or --revision, not both: --revision names the current version, and --at reads an earlier one");
+        }
         let item_uid = vault
             .doc()
             .get("items")
@@ -128,7 +138,12 @@ fn read_coordinate(
             "revision": vault.item_revision(id)?,
         }));
     }
-    let item = vault.get_item(id)?;
+    // `--at <stamp>` reads the saved version `history` lists at that stamp,
+    // without making it current as `restore --at` would.
+    let item = match flags.get("at") {
+        Some(at) => vault.version_payload(id, at)?,
+        None => vault.get_item(id)?,
+    };
     let Some(field) = flags.get("field") else {
         return Ok(item);
     };
@@ -166,18 +181,25 @@ fn read_coordinate(
     Ok(Value::String(value.to_string()))
 }
 
-pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
-    Ok(json!(
-        Vault::open(vault_path())?.list(flag_set(flags, "all"))
-    ))
-}
-
 /// `skarbiec readers <id>`: which keys the item's current ciphertext is
 /// encrypted to and whether this keyring holds each secret half. It decrypts
 /// nothing, so it answers for an item that will not open.
 pub(crate) fn cmd_readers(positionals: &[String]) -> Result<Value> {
     let id = positionals.first().or_usage("usage: readers <id>")?;
     Vault::open(vault_path())?.readers(id)
+}
+
+/// `skarbiec history <id> [--changes]`: every saved version of one item,
+/// oldest first, with the stamp `restore <id> --at <at>` takes; it decrypts
+/// nothing. With `--changes` it opens each version and names the fields each
+/// one added, removed or changed, never their values.
+pub(crate) fn cmd_history(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+    let id = positionals.first().or_usage("usage: history <id> [--changes]")?;
+    let vault = Vault::open(vault_path())?;
+    if flag_set(flags, "changes") {
+        return vault.version_changes(id);
+    }
+    vault.versions(id)
 }
 
 /// `skarbiec duplicates`: which active items hold exactly the same payload.

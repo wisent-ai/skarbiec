@@ -37,7 +37,7 @@ impl Vault {
 
     pub fn register_recipient(&mut self, uid: &str, fingerprint: &str, role: &str) -> Result<()> {
         let stamp = now();
-        obj_mut(&mut self.doc, "recipients").insert(
+        obj_mut(&mut self.doc, "recipients")?.insert(
             uid.to_string(),
             json!({"fingerprint": fingerprint, "role": role, "added_at": stamp}),
         );
@@ -97,7 +97,7 @@ impl Vault {
             bail!("{new_owner_uid} is already the owner");
         }
         let stamp = now();
-        let recipients = obj_mut(&mut self.doc, "recipients");
+        let recipients = obj_mut(&mut self.doc, "recipients")?;
         recipients.insert(
             new_owner_uid.to_string(),
             json!({"fingerprint": new_owner_fpr, "role": "owner", "added_at": stamp}),
@@ -110,6 +110,7 @@ impl Vault {
             .as_object_mut()
             .context("vault document is not an object")?
             .insert("owner".to_string(), json!(new_owner_uid));
+        self.owner = new_owner_uid.to_string();
         // The outgoing owner no longer writes as the owner, so whatever it
         // controlled has to move with the ownership or keep no writer at all.
         self.transfer_former_owner_control()?;
@@ -166,7 +167,7 @@ impl Vault {
             Some(other) => bail!("this vault's recipients are not an object: {other}"),
         };
         let mut moved = Vec::new();
-        for (id, entry) in obj_mut(&mut self.doc, "items").iter_mut() {
+        for (id, entry) in obj_mut(&mut self.doc, "items")?.iter_mut() {
             let Some(management) = entry.get("management").and_then(Value::as_object) else {
                 continue;
             };
@@ -247,7 +248,7 @@ impl Vault {
             rotated_history.push(Value::Object(version));
         }
         let versions = rotated_history.len();
-        let entry = obj_mut(&mut self.doc, "items")
+        let entry = obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .with_context(|| format!("no item: {id}"))?;
@@ -266,6 +267,20 @@ impl Vault {
         match self.doc.get("items").and_then(|items| items.get(id)) {
             Some(item) => crate::core::vault::entry_texts(id, item, "recipients"),
             None => Ok(Vec::new()),
+        }
+    }
+
+    /// One object section of the vault document (`items`, `recipients`).
+    /// A document without it, or with something else there, is damaged, not
+    /// empty: read as empty it reported a vault with nothing to recover, no
+    /// key that opens it, or an item as absent. `shape` names what it maps.
+    pub fn section(&self, name: &str, shape: &str) -> Result<&serde_json::Map<String, Value>> {
+        match self.doc.get(name) {
+            Some(Value::Object(entries)) => Ok(entries),
+            Some(other) => {
+                bail!("the vault document's {name} section is {other}, not an object of {shape}")
+            }
+            None => bail!("the vault document has no {name} section, an object of {shape}"),
         }
     }
 }

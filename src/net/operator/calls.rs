@@ -134,3 +134,11 @@ pub(super) fn flags(parsed: &Value, keys: &[&str]) -> HashMap<String, String> {
 pub(super) fn positionals(parsed: &Value, keys: &[&str]) -> Result<Vec<String>> {
     keys.iter().map(|key| text(parsed, key)).collect()
 }
+
+/// A command's verb followed by the body's members named `keys`, in order:
+/// what a route hands `<noun> <verb> <arguments>` as its positionals.
+pub(super) fn verbed(verb: &str, parsed: &Value, keys: &[&str]) -> Result<Vec<String>> {
+    let mut words = vec![verb.to_string()];
+    words.extend(positionals(parsed, keys)?);
+    Ok(words)
+}

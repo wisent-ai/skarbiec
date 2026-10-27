@@ -75,7 +75,7 @@ PUBLIC_KEY="$ROOT/workload-public.pem"
 WANT=ok run init "acquisition-test-owner-$RUN"
 jq -n --arg value "$VALUE" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "$ITEM" --type note
+  | WANT=ok run set "$ITEM" --type note
 "$OPENSSL" genpkey -algorithm ED25519 -out "$PRIVATE_KEY"
 "$OPENSSL" pkey -in "$PRIVATE_KEY" -pubout -out "$PUBLIC_KEY"
 WANT=ok run grant issue "$CONSUMER" --capabilities "acquire:$ITEM#$FIELD" \

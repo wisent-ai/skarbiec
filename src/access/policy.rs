@@ -12,7 +12,7 @@
 // Consumer capabilities are a different surface, enforced by the tokens module.
 // Vocabulary here is deliberately neutral to keep policy metadata clear.
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
@@ -23,13 +23,15 @@ fn load() -> Result<Vault> {
     Vault::open(vault_path())
 }
 
-fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> &'a mut serde_json::Map<String, Value> {
-    let object = doc.as_object_mut().expect("vault doc is object");
-    object.entry(key).or_insert_with(|| json!({}));
-    object
-        .get_mut(key)
-        .and_then(Value::as_object_mut)
-        .expect("section is object")
+/// The vault's `key` section, created empty when the vault has none. A vault
+/// document or section that is not a JSON object is refused naming it,
+/// never a panic of the process serving every consumer.
+fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> Result<&'a mut serde_json::Map<String, Value>> {
+    let object = doc.as_object_mut().context("the vault document is not a JSON object")?;
+    match object.entry(key).or_insert_with(|| json!({})) {
+        Value::Object(section) => Ok(section),
+        other => bail!("the vault's {key} section is not a JSON object: {other}"),
+    }
 }
 
 /// One supported policy key: its name, the value shape the reader can actually
@@ -69,15 +71,47 @@ fn at_least_length(stored: &Value, candidate: &str) -> Value {
     })
 }
 
+/// The character classes a candidate can draw from: lowercase, uppercase,
+/// digits, and everything else. The same four `generate` offers.
+const CHARACTER_CLASSES: &[fn(&char) -> bool] = &[
+    char::is_ascii_lowercase,
+    char::is_ascii_uppercase,
+    char::is_ascii_digit,
+    |character| !character.is_ascii_alphanumeric(),
+];
+
+/// A candidate clears `min_character_classes` when it draws from at least
+/// that many of the classes.
+fn at_least_classes(stored: &Value, candidate: &str) -> Value {
+    let actual = CHARACTER_CLASSES
+        .iter()
+        .filter(|test| candidate.chars().any(|character| test(&character)))
+        .count();
+    let required = stored.as_u64();
+    json!({
+        "required": required,
+        "actual": actual,
+        "ok": required.is_some_and(|minimum| actual as u64 >= minimum),
+    })
+}
+
 /// The registry. Adding a rule is adding a row here in the same commit that
 /// starts reading it; nothing else registers a policy key.
-const POLICY_KEYS: &[PolicyKey] = &[PolicyKey {
-    name: "min_generated_length",
-    shape: "a whole number",
-    // Decided on by `policy check` through `at_least_length`.
-    accepts: whole_number,
-    decide: at_least_length,
-}];
+const POLICY_KEYS: &[PolicyKey] = &[
+    PolicyKey {
+        name: "min_generated_length",
+        shape: "a whole number",
+        // Decided on by `policy check` through `at_least_length`.
+        accepts: whole_number,
+        decide: at_least_length,
+    },
+    PolicyKey {
+        name: "min_character_classes",
+        shape: "a whole number of the classes lowercase, uppercase, digits and other",
+        accepts: whole_number,
+        decide: at_least_classes,
+    },
+];
 
 /// Every supported key with the shape it demands, for a refusal to name.
 fn supported_shown() -> String {
@@ -172,7 +206,7 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
                 anyhow::bail!("{refusal}");
             }
             let mut vault = load()?;
-            ensure_section(vault.doc_mut(), "policy").insert(key.clone(), value);
+            ensure_section(vault.doc_mut(), "policy")?.insert(key.clone(), value);
             vault.save()?;
             crate::runtime::audit::append("policy-set", &json!({"key": key}))?;
             Ok(Some(json!({"ok": true, "key": key})))
@@ -182,7 +216,7 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
         "policy unset" => {
             let key = positionals.first().or_usage("usage: policy unset <key>")?;
             let mut vault = load()?;
-            let removed = ensure_section(vault.doc_mut(), "policy")
+            let removed = ensure_section(vault.doc_mut(), "policy")?
                 .remove(key.as_str())
                 .is_some();
             if removed {
@@ -193,13 +227,14 @@ fn leaf(command: &str, positionals: &[String]) -> Result<Option<Value>> {
         }
         "policy get" => {
             let vault = load()?;
-            Ok(Some(
-                vault
-                    .doc()
-                    .get("policy")
-                    .cloned()
-                    .unwrap_or_else(|| json!({})),
-            ))
+            // A vault that never declared a policy holds an empty one.
+            match vault.doc().get("policy") {
+                None => Ok(Some(json!({}))),
+                Some(policy @ Value::Object(_)) => Ok(Some(policy.clone())),
+                Some(other) => anyhow::bail!(
+                    "the vault document's policy section is {other}, not an object of rules"
+                ),
+            }
         }
         // Decide one candidate against every rule the policy declares. The
         // candidate is a secret, so it is read from standard input and never
@@ -238,21 +273,24 @@ pub fn check(candidate: &str) -> Result<Value> {
         );
     }
     let vault = load()?;
-    let stored = vault.doc().get("policy");
+    Ok(decide(vault.doc().get("policy"), candidate))
+}
+
+/// Every rule's verdict on one candidate against an already-read `policy`
+/// section, so a reader holding the vault (health) decides as check does.
+pub fn decide(stored: Option<&Value>, candidate: &str) -> Value {
     let rules: Vec<Value> = POLICY_KEYS
         .iter()
-        .map(
-            |rule| match stored.and_then(|policy| policy.get(rule.name)) {
-                Some(value) => {
-                    let mut verdict = (rule.decide)(value, candidate);
-                    verdict["key"] = json!(rule.name);
-                    verdict["configured"] = json!(true);
-                    verdict
-                }
-                None => json!({"key": rule.name, "configured": false, "ok": true}),
-            },
-        )
+        .map(|rule| match stored.and_then(|policy| policy.get(rule.name)) {
+            Some(value) => {
+                let mut verdict = (rule.decide)(value, candidate);
+                verdict["key"] = json!(rule.name);
+                verdict["configured"] = json!(true);
+                verdict
+            }
+            None => json!({"key": rule.name, "configured": false, "ok": true}),
+        })
         .collect();
     let ok = rules.iter().all(|rule| rule["ok"] == json!(true));
-    Ok(json!({"ok": ok, "rules": rules}))
+    json!({"ok": ok, "rules": rules})
 }

@@ -57,7 +57,7 @@ git diff --quiet || fail "source has uncommitted tracked changes"
 WANT=ok run init "silent-agent-owner-$RUN"
 jq -n --arg value "silent-agent-value-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-  | WANT=ok run set-json "silent-agent-note-$RUN" --type note
+  | WANT=ok run set "silent-agent-note-$RUN" --type note
 
 node tests/health/silent_agent.mjs
 echo "passed" >>"$REPORT"

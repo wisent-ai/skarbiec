@@ -25,9 +25,10 @@ fn expand_capability(
         bail!("unsupported legacy grant action: {raw_action}");
     };
     let action = kind.as_str();
-    let (item_pattern, requested_field) = target
-        .split_once('#')
-        .map_or((target, None), |(item, field)| (item, Some(field)));
+    let (item_pattern, requested_field) = match target.split_once('#') {
+        Some((item, field)) => (item, Some(field)),
+        None => (target, None),
+    };
     let wildcard = item_pattern.contains('*') || item_pattern.contains('?');
     let canonical_pattern = canonical_item_id(item_pattern);
     let matches: Vec<(&String, &Vec<String>)> = item_fields
@@ -95,7 +96,9 @@ pub(super) fn migrate_grants(
     tokens: &mut Map<String, Value>,
     item_fields: &BTreeMap<String, Vec<String>>,
 ) -> Result<usize> {
-    let mut migrated = usize::MIN;
+    // Every grant the loop reaches is migrated or the migration stops, so the
+    // count is the table's own size.
+    let migrated = tokens.len();
     for (consumer, entry) in tokens.iter_mut() {
         let object = entry
             .as_object_mut()
@@ -111,17 +114,22 @@ pub(super) fn migrate_grants(
                     .get("item")
                     .and_then(Value::as_str)
                     .context("capability has no item")?;
-                let target = capability
-                    .get("field")
-                    .and_then(Value::as_str)
-                    .map_or_else(|| item.to_string(), |field| format!("{item}#{field}"));
+                let target = match capability.get("field").and_then(Value::as_str) {
+                    Some(field) => format!("{item}#{field}"),
+                    None => item.to_string(),
+                };
                 expand_capability(action, &target, item_fields, &mut expanded)?;
             }
         }
         if let Some(scopes) = object.get("scopes").and_then(Value::as_array) {
             for scope in scopes {
                 let scope = scope.as_str().context("legacy scope is not a string")?;
-                let (action, target) = scope.split_once(':').unwrap_or(("read", scope));
+                // A legacy scope without an action prefix is a read scope: the
+                // pre-v2 grant format wrote only read scopes bare.
+                let (action, target) = match scope.split_once(':') {
+                    Some(pair) => pair,
+                    None => (Action::Read.as_str(), scope),
+                };
                 expand_capability(action, target, item_fields, &mut expanded)?;
             }
         }
@@ -139,7 +147,10 @@ pub(super) fn migrate_grants(
                     .get("field")
                     .and_then(Value::as_str)
                     .context("legacy acquisition scope has no field")?;
-                let action = if has_workload_key { "acquire" } else { "read" };
+                let action = match has_workload_key {
+                    true => Action::Acquire.as_str(),
+                    false => Action::Read.as_str(),
+                };
                 expand_capability(
                     action,
                     &format!("{item}#{field}"),
@@ -158,14 +169,9 @@ pub(super) fn migrate_grants(
                 Some(json!({"action": action, "item": item, "field": field}))
             })
             .collect();
-        let has_acquire = capabilities
-            .iter()
-            .any(|capability| capability.get("action").and_then(Value::as_str) == Some("acquire"));
-        if has_acquire
-            && capabilities.iter().any(|capability| {
-                capability.get("action").and_then(Value::as_str) != Some("acquire")
-            })
-        {
+        let is_acquire = |capability: &Value| Action::of(capability) == Some(Action::Acquire);
+        let has_acquire = capabilities.iter().any(is_acquire);
+        if has_acquire && !capabilities.iter().all(is_acquire) {
             bail!("{consumer} mixes acquisition and direct capabilities");
         }
         if has_acquire {
@@ -185,7 +191,6 @@ pub(super) fn migrate_grants(
         object
             .entry("workload_public_key".to_string())
             .or_insert(Value::Null);
-        migrated = migrated.saturating_add(std::iter::once(()).count());
     }
     Ok(migrated)
 }

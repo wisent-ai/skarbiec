@@ -102,21 +102,20 @@ pub(in crate::credential) fn resume(
         // zombie lease behind: the staged candidate goes back, the record
         // stops blocking, and a fresh submit is the only way forward.
         let mut vault = Vault::open(vault_path.to_path_buf())?;
-        let field = request
-            .get("field")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let writer = request
-            .get("consumer")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let request_id = request
-            .get("request_id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        // A request record missing the field, consumer or request id it was
+        // staged under cannot be matched to its staged candidate: matched
+        // against empty words it would leave the candidate behind while the
+        // record reads released, the zombie this branch prevents.
+        let stored = |name: &str| {
+            request.get(name).and_then(Value::as_str).map(str::to_string).with_context(|| {
+                format!(
+                    "the expired approval of {credential_id} cannot be released: its stored request names no {name}, so its staged candidate cannot be found to discard"
+                )
+            })
+        };
+        let field = stored("field")?;
+        let writer = stored("consumer")?;
+        let request_id = stored("request_id")?;
         if pending_matches_request(&vault, credential_id, &request_id, &field, &writer) {
             vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
         }
@@ -176,10 +175,15 @@ pub(in crate::credential) fn resume(
             return Err(error);
         }
     };
-    let response_status = response
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("failed");
+    let response_status = match response.get("status").and_then(Value::as_str) {
+        Some(status) => status,
+        None => {
+            update_request(vault_path, &request_item, &request, "operation_failed", None)?;
+            bail!(
+                "Weles answered the resumed {operation} of {credential_id} with no status, so whether it was queued is unknown; the operation is recorded as failed: {response}"
+            );
+        }
+    };
     let frozen = enforce_provider_effect(
         vault_path,
         credential_id,

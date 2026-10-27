@@ -28,11 +28,12 @@ pub(crate) fn handle_vault_pull(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
 ) -> Result<()> {
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return http::unidentified(stream, &reason),
+    };
     let vault = http::load()?;
-    if consumer.is_empty()
-        || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "sync", "pull")?
-    {
+    if !grant::token_allows_vault_action(&vault, &consumer, &bearer, "sync", "pull")? {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
@@ -97,11 +98,12 @@ pub(crate) fn handle_enroll(
             )
         }
     };
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return http::unidentified(stream, &reason),
+    };
     let mut vault = http::load()?;
-    if consumer.is_empty()
-        || !grant::token_allows_vault_action(&vault, &consumer, &bearer, "enroll", uid)?
-    {
+    if !grant::token_allows_vault_action(&vault, &consumer, &bearer, "enroll", uid)? {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

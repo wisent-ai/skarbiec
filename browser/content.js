@@ -1,46 +1,39 @@
 // Content script: finds login forms, offers Skarbiec fill on a badge next to
-// each password field, and writes the chosen credentials into the form.
-// All styling arrives as strings so the badge inherits nothing from the page.
+// each password field — or, on the account step of a sign-in that asks for
+// the password on a later page, next to the account field — and writes the
+// chosen credentials into the form. All styling arrives as strings so the
+// badge inherits nothing from the page.
 
 const BADGE_ATTR = "data-skarbiec-badge";
 const HOOKED_ATTR = "data-skarbiec-hooked";
+// The fields a sign-in shows alone on a page of their own: the account before
+// its password page, or the one-time code after it.
+const IDENTIFIER_FIELD = 'input[autocomplete="username"], input[autocomplete="email"], input[type="email"], input[autocomplete="one-time-code"]';
 
-function usernameCandidates(root) {
-  const selectors = [
-    'input[autocomplete="username"]',
-    'input[autocomplete="email"]',
-    'input[type="email"]',
-    'input[name*="user" i]',
-    'input[name*="email" i]',
-    'input[id*="user" i]',
-    'input[id*="email" i]',
-    'input[type="text"]',
-    'input[type="tel"]',
-  ];
+// The first field matching one of the selectors, in their order of trust.
+function firstMatch(root, selectors, usable) {
   for (const selector of selectors) {
     const field = root.querySelector(selector);
-    if (field && !field.disabled && !field.readOnly) {
+    if (field && usable(field)) {
       return field;
     }
   }
   return null;
 }
 
+function usernameCandidates(root) {
+  return firstMatch(root, [
+    'input[autocomplete="username"]', 'input[autocomplete="email"]', 'input[type="email"]',
+    'input[name*="user" i]', 'input[name*="email" i]', 'input[id*="user" i]', 'input[id*="email" i]',
+    'input[type="text"]', 'input[type="tel"]',
+  ], (field) => !field.disabled && !field.readOnly);
+}
+
 function totpCandidate(root) {
-  const selectors = [
-    'input[autocomplete="one-time-code"]',
-    'input[name*="otp" i]',
-    'input[name*="totp" i]',
-    'input[id*="otp" i]',
-    'input[id*="totp" i]',
-  ];
-  for (const selector of selectors) {
-    const field = root.querySelector(selector);
-    if (field) {
-      return field;
-    }
-  }
-  return null;
+  return firstMatch(root, [
+    'input[autocomplete="one-time-code"]', 'input[name*="otp" i]', 'input[name*="totp" i]',
+    'input[id*="otp" i]', 'input[id*="totp" i]',
+  ], () => true);
 }
 
 function setFieldValue(field, value) {
@@ -58,6 +51,13 @@ function formRootFor(passwordField) {
 }
 
 function fillInto(passwordField, credentials) {
+  // A step of its own takes only its value: the username on the account
+  // page, the one-time code on the code page.
+  if (passwordField.type !== "password") {
+    const code = passwordField.autocomplete === "one-time-code";
+    setFieldValue(passwordField, code ? credentials.totp : credentials.username);
+    return;
+  }
   const root = formRootFor(passwordField);
   setFieldValue(usernameCandidates(root), credentials.username);
   setFieldValue(passwordField, credentials.password);
@@ -177,8 +177,14 @@ function offerFill(passwordField) {
         showNote(passwordField, `Skarbiec unavailable: ${reply.error}`);
         return;
       }
+      // A login added since autofill was connected answers nothing until its
+      // grant covers it; name it rather than letting it look absent.
+      const uncovered = Array.isArray(reply.unreadable) ? reply.unreadable : [];
       if (!reply.logins.length) {
-        showNote(passwordField, `No logins in the vault for ${location.hostname}.`);
+        const hint = uncovered.length
+          ? ` ${uncovered.map((row) => row.id).join(", ")} cannot be offered yet: run skarbiec browser cover, or Cover them in Skarbiec.`
+          : "";
+        showNote(passwordField, `No logins in the vault for ${location.hostname}.${hint}`);
         return;
       }
       chooseAndFill(reply.logins, passwordField);
@@ -229,8 +235,15 @@ function attachBadge(passwordField) {
 }
 
 function scan() {
-  for (const field of document.querySelectorAll('input[type="password"]')) {
+  const passwords = document.querySelectorAll('input[type="password"]');
+  for (const field of passwords) {
     attachBadge(field);
+  }
+  // No password field yet: the account step of a two-step sign-in.
+  if (!passwords.length) {
+    for (const field of document.querySelectorAll(IDENTIFIER_FIELD)) {
+      attachBadge(field);
+    }
   }
 }
 
@@ -240,9 +253,26 @@ new MutationObserver(scan).observe(document.documentElement, {
   subtree: true,
 });
 
+// The sign-in field the person is in, or else the page's first password
+// field, or on the account step of a two-step sign-in its account field.
+function targetPasswordField() {
+  const focused = document.activeElement;
+  if (focused && focused.matches && focused.matches(`input[type="password"], ${IDENTIFIER_FIELD}`)) {
+    return focused;
+  }
+  const password = document.querySelector('input[type="password"]');
+  if (password) {
+    return password;
+  }
+  return document.querySelector(IDENTIFIER_FIELD);
+}
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message && message.type === "skarbiec-fill-credentials") {
-    const field = document.querySelector('input[type="password"]');
+  if (!message) {
+    return undefined;
+  }
+  if (message.type === "skarbiec-fill-credentials") {
+    const field = targetPasswordField();
     if (field) {
       fillInto(field, message.credentials);
       sendResponse({ ok: true });
@@ -251,4 +281,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
   }
   return undefined;
+});
+
+// Alt+Shift+L in a page offers this site's logins at the password field the
+// person is in, as the badge does, without reaching for the mouse. A page
+// without a password field ignores it and the keystroke goes on to the page.
+document.addEventListener("keydown", (event) => {
+  if (!event.altKey || !event.shiftKey || event.code !== "KeyL") {
+    return;
+  }
+  const field = targetPasswordField();
+  if (!field) {
+    return;
+  }
+  event.preventDefault();
+  offerFill(field);
 });

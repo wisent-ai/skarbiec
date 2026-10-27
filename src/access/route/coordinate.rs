@@ -87,7 +87,7 @@ pub(crate) fn coordinate(
     if item_present {
         let payload = opened
             .entry(item.to_string())
-            .or_insert_with(|| vault.get_item(item).map_err(|error| error.to_string()));
+            .or_insert_with(|| vault.get_item(item).map_err(|error| format!("{error:#}")));
         match payload {
             Err(detail) => {
                 item_present = false;

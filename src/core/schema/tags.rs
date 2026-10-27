@@ -196,3 +196,46 @@ pub fn ensure_registered_tags(carried: &[Value], written: &[Value]) -> Result<()
     }
     Ok(())
 }
+
+/// `skarbiec tags`: every registered namespace, and every tag the listed
+/// items carry with the items that carry it and whether a namespace covers
+/// it. A tag carried but not covered was written before its namespace was
+/// registered, or by hand; no write may add it again, so it is a migration
+/// to run, and naming its items is what makes that migration possible.
+pub fn inventory(items: &[Value]) -> Value {
+    let mut carried: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for item in items {
+        let Some(id) = item.get("id").and_then(Value::as_str) else {
+            continue;
+        };
+        for tag in item
+            .get("tags")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            carried.entry(tag.to_string()).or_default().push(id.to_string());
+        }
+    }
+    let tags: Vec<Value> = carried
+        .into_iter()
+        .map(|(tag, ids)| {
+            let (covered, reason) = match tag_refusal(&tag) {
+                Ok(()) => (true, None),
+                Err(reason) => (false, Some(reason)),
+            };
+            serde_json::json!({
+                "tag": tag,
+                "items": ids,
+                "covered": covered,
+                "reason": reason,
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "namespaces": TAG_NAMESPACES.iter().map(TagNamespace::shown).collect::<Vec<String>>(),
+        "tags": tags,
+    })
+}

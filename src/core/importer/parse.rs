@@ -1,7 +1,10 @@
 // Reading an export file into rows this vault can write: which format the
 // bytes are, and the canonical shape every provider is turned into.
 
+use std::num::NonZeroUsize;
+
 use anyhow::{bail, Context, Result};
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::core::schema;
@@ -9,93 +12,115 @@ use crate::core::schema;
 use super::providers::{bitwarden, csv, onepassword};
 use super::{ImportDocument, ImportRow};
 
+/// The byte-order mark some exporters put before UTF-8 text.
+const BYTE_ORDER_MARK: &str = "\u{feff}";
+
+/// How an armored OpenPGP message begins: what `export --encrypt-to` writes.
+const SEALED: &str = "-----BEGIN PGP MESSAGE-----";
+
+/// The format the caller asked for; every other name is a CSV provider's.
+enum Declared {
+    Auto,
+    Canonical,
+    OnePassword,
+    Bitwarden,
+    Csv,
+}
+
+fn declared(format: &str) -> Declared {
+    match format {
+        "auto" => Declared::Auto,
+        "canonical" => Declared::Canonical,
+        "1password" => Declared::OnePassword,
+        "bitwarden" => Declared::Bitwarden,
+        _ => Declared::Csv,
+    }
+}
+
 pub(super) fn parse(bytes: &[u8], format: &str) -> Result<ImportDocument> {
+    let requested = declared(format);
     if bytes.starts_with(b"PK\x03\x04") {
-        if !["auto", "1password"].contains(&format) {
+        if !matches!(requested, Declared::Auto | Declared::OnePassword) {
             bail!(
                 "only 1Password 1PUX archives are supported; export Bitwarden as unencrypted JSON"
             );
         }
         return onepassword::archive(bytes);
     }
-    let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(bytes);
+    let bytes = match bytes.strip_prefix(BYTE_ORDER_MARK.as_bytes()) {
+        Some(text) => text,
+        None => bytes,
+    };
+    // A sealed export opens with this keyring's secret key, then is read as
+    // the export it holds; a key this keyring lacks is gpg's refusal.
+    if bytes.starts_with(SEALED.as_bytes()) {
+        let armored = std::str::from_utf8(bytes).context("a sealed export is armored text, and this is not UTF-8")?;
+        let opened = crate::core::crypto::decrypt(armored)
+            .context("open the sealed export with this keyring's secret key")?;
+        return parse(opened.as_bytes(), format);
+    }
     let first = bytes
         .iter()
         .copied()
         .find(|byte| !byte.is_ascii_whitespace());
     if matches!(first, Some(b'{' | b'[')) {
         let value: Value = serde_json::from_slice(bytes).context("invalid import JSON")?;
-        return match format {
-            "canonical" => canonical(value),
-            "1password" => onepassword::document(value),
-            "bitwarden" => bitwarden::document(value),
-            "auto" if value.is_array() => canonical(value),
-            "auto" if value.get("accounts").is_some() => onepassword::document(value),
-            "auto" if value.get("items").is_some() || value.get("encrypted").is_some() => {
+        return match requested {
+            Declared::Canonical => canonical(value),
+            Declared::OnePassword => onepassword::document(value),
+            Declared::Bitwarden => bitwarden::document(value),
+            Declared::Auto if value.is_array() => canonical(value),
+            Declared::Auto if value.get("accounts").is_some() => onepassword::document(value),
+            Declared::Auto if value.get("items").is_some() || value.get("encrypted").is_some() => {
                 bitwarden::document(value)
             }
-            _ => bail!("JSON is not a supported canonical, 1Password, or Bitwarden export"),
+            Declared::Auto | Declared::Csv => {
+                bail!("JSON is not a supported canonical, 1Password, or Bitwarden export")
+            }
         };
     }
-    if format == "canonical" {
+    if matches!(requested, Declared::Canonical) {
         bail!("canonical import requires a JSON array");
     }
     csv::document(bytes, format)
 }
 
+/// One row of a canonical export, exactly: any other property is refused.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CanonicalRow {
+    id: String,
+    payload: Value,
+    #[serde(default)]
+    recipients: Vec<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
 pub(super) fn canonical(value: Value) -> Result<ImportDocument> {
-    let mut rows = Vec::new();
-    for (index, row) in value
+    let listed = value
         .as_array()
-        .context("canonical import requires a JSON array")?
-        .iter()
-        .enumerate()
-    {
-        let object = row
-            .as_object()
-            .with_context(|| format!("import row {} must be an object", index + 1))?;
-        if object
-            .keys()
-            .any(|key| !["id", "payload", "recipients", "tags"].contains(&key.as_str()))
-        {
-            bail!("import row {} contains an unsupported property", index + 1);
+        .context("canonical import requires a JSON array")?;
+    let mut rows = Vec::with_capacity(listed.len());
+    // Rows are numbered from the first, as the export lists them.
+    for (number, row) in (NonZeroUsize::MIN.get()..).zip(listed) {
+        let row = CanonicalRow::deserialize(row)
+            .with_context(|| format!("import row {number} is not a canonical row"))?;
+        if row.id.trim().is_empty() {
+            bail!("import row {number} requires a nonempty id");
         }
-        let id = row
-            .get("id")
-            .and_then(Value::as_str)
-            .filter(|id| !id.trim().is_empty())
-            .with_context(|| format!("import row {} requires a nonempty id", index + 1))?;
-        let payload = row
-            .get("payload")
-            .context("canonical import row requires payload")?
-            .clone();
-        let kind = payload
+        let kind = row
+            .payload
             .get("kind")
             .and_then(Value::as_str)
             .context("canonical import payload requires kind")?;
-        schema::validate_payload(&payload, kind)?;
-        let strings = |key: &str| -> Result<Vec<String>> {
-            let Some(value) = row.get(key) else {
-                return Ok(Vec::new());
-            };
-            value
-                .as_array()
-                .with_context(|| format!("canonical import {key} must be an array"))?
-                .iter()
-                .map(|value| {
-                    value
-                        .as_str()
-                        .map(str::to_string)
-                        .with_context(|| format!("canonical import {key} entries must be strings"))
-                })
-                .collect()
-        };
+        schema::validate_payload(&row.payload, kind)?;
         rows.push(ImportRow {
-            id: id.to_string(),
-            title: id.to_string(),
-            payload,
-            recipients: strings("recipients")?,
-            tags: strings("tags")?,
+            title: row.id.clone(),
+            id: row.id,
+            payload: row.payload,
+            recipients: row.recipients,
+            tags: row.tags,
             source_key: None,
         });
     }

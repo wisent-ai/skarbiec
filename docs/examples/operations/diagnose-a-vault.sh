@@ -4,17 +4,26 @@
 #
 # Goal: read every fact the Overview renders, from the command line, on a
 # machine you have just installed skarbiec on.
-# Requires: skarbiec on PATH (or SKARBIEC_BIN), and a vault this user owns.
+# Usage: SKARBIEC_BIN=<skarbiec binary> sh diagnose-a-vault.sh <canonical-url> <digest-window> <journal-entries>
+#   <canonical-url>    the address the canonical Skarbiec answers on from this
+#                      machine, as `skarbiec serve --port` listens or Stado's
+#                      service directory publishes it
+#   <digest-window>    how many of the newest journal entries step 2 recomputes
+#                      the digest of
+#   <journal-entries>  how many of the newest journal entries step 4 prints
 #
 # Runs read-only against your real vault except for step 3, which writes one
-# owner-only file naming the loopback endpoint. Nothing here prints a secret
+# owner-only file naming the canonical endpoint. Nothing here prints a secret
 # value. The `credentials` check does decrypt: it opens each item a capability
 # route names, because whether the routed field is empty is not a question the
 # cleartext envelope can answer. It reports only the coordinate and what is
 # wrong with it, never the value, and it costs one gpg per distinct item.
 set -eu
 
-SB=${SKARBIEC_BIN:-skarbiec}
+SB=${SKARBIEC_BIN:?SKARBIEC_BIN must name the skarbiec binary this example runs}
+CANONICAL_URL=$1
+DIGEST_WINDOW=$2
+JOURNAL_ENTRIES=$3
 
 # 1. The whole operator picture in one call. Reads the vault file, the audit
 #    journal and the forward marker directly — never through the HTTP API it
@@ -24,40 +33,41 @@ SB=${SKARBIEC_BIN:-skarbiec}
 # 2. The chain on its own, with the split that makes it affordable.
 #    Linkage covers every entry because it is two string comparisons; digests
 #    cost one shasum process each, so --tail bounds them to the newest window.
-"$SB" audit verify --tail 200
+"$SB" audit verify --tail "$DIGEST_WINDOW"
 
 # 3. Declare where the canonical Skarbiec answers. A fresh installation has no
 #    forward file at all, and every `credential` call refuses until it does.
-#    With no argument this names the port `serve` binds by default.
-"$SB" credential declare-endpoint
+#    The address is always stated: the command never guesses the port `serve`
+#    binds, because on a machine whose Skarbiec runs elsewhere that guess would
+#    name an unrelated local process the canonical one.
+"$SB" credential endpoint declare "$CANONICAL_URL"
 
 # 4. The newest journal entries, read from the file's tail rather than by
 #    parsing the whole journal.
-"$SB" audit --limit 10
+"$SB" audit list --limit "$JOURNAL_ENTRIES"
 
 # Verify: step 1 prints one object per check with a status of pass, fail or
-# not_configured, and a tally. On the machine this example was written on:
+# not_configured, and a tally, for example:
 #
-#   {"check":"vault","detail":"539 items, 157 grants, at ~/.stado/skarbiec.vault.json","status":"pass"}
-#   {"check":"audit","detail":"74981 of 74982 entries linked, newest 200 digests intact; 1 fault(s), first at line 2311 (2026-07-30T23:16:21Z)","status":"fail"}
-#   {"check":"endpoint","detail":"http://127.0.0.1:8787, declared by ~/.stado/forwards/skarbiec.local","status":"pass"}
+#   {"check":"vault","detail":"<n> items, <n> grants, at <vault path>","status":"pass"}
+#   {"check":"audit","detail":"<n> of <n> entries linked, newest <window> digests intact; 1 fault(s), first at line <line> (<moment>)","status":"fail"}
+#   {"check":"endpoint","detail":"<canonical-url>, declared by <forward file>","status":"pass"}
 #   {"check":"worm","detail":"set SKARBIEC_WORM_RECEIPT_DIR and SKARBIEC_WORM_CHECKPOINT ...","status":"not_configured"}
-#   {"check":"grants","detail":"157 grants resolve","status":"pass"}
-#   {"check":"credentials","detail":"20 routes hold a usable credential","status":"pass"}
+#   {"check":"grants","detail":"<n> grants resolve","status":"pass"}
+#   {"check":"credentials","detail":"<n> routes hold a usable credential","status":"pass"}
 #
 # Read "not_configured" as "nobody switched this on", not as an outage. Only
 # "fail" is an incident.
 #
 # If it fails:
 #
-#   SKARBIEC_ENDPOINT_UNRESOLVED: no canonical forward at
-#   ~/.stado/forwards/skarbiec.local; declare it with
-#   `skarbiec credential declare-endpoint <url>`
+#   SKARBIEC_ENDPOINT_UNRESOLVED: no canonical forward at <forward file>;
+#   declare it with `skarbiec credential endpoint declare <url>`
 #     → the state of every fresh install. Run step 3.
 #
 #   {"check":"endpoint","status":"fail","detail":"nothing answers
-#   http://127.0.0.1:8785 (Connection refused (os error 61)), declared by
-#   ~/.stado/forwards/skarbiec.local"}
+#   <canonical-url> (Connection refused (os error ...)), declared by
+#   <forward file>"}
 #     → the parenthesis is the operating system's answer to the connect.
 #       "Connection refused": the file names an address no Skarbiec serves;
 #       re-run step 3 with the URL `skarbiec serve --port` listens on.
@@ -65,18 +75,16 @@ SB=${SKARBIEC_BIN:-skarbiec}
 #       machine blocks the connection itself, and the address may be right.
 #
 #   {"check":"audit","status":"fail","detail":"... 1 fault(s), first at line
-#   2311 ..."}
+#   <line> ..."}
 #     → a linkage fault is a second writer that appended against a stale tail,
-#       not a forged entry. Read the line and its predecessor:
-#         sed -n '2310,2311p' "$HOME/.stado/skarbiec.audit.jsonl"
-#       A digest fault is the other case, and means the line's own fields no
-#       longer hash to the hash it carries.
+#       not a forged entry. Read that line and the one before it in the
+#       journal file. A digest fault is the other case, and means the line's
+#       own fields no longer hash to the hash it carries.
 #
-#   {"check":"credentials","status":"fail","detail":"1 of 20 routes cannot
-#   serve a credential","problems":[{"resource":"provider:claude-code",
-#   "item":"provider:claude-code:brama-sub-...","field":"value",
-#   "problem":"vault item provider:claude-code:brama-sub-... field value is
-#   present but empty"}]}
+#   {"check":"credentials","status":"fail","detail":"1 of <n> routes cannot
+#   serve a credential","problems":[{"resource":"<resource>","item":"<item>",
+#   "field":"value","problem":"vault item <item> field value is present but
+#   empty"}]}
 #     → the route is fine and the credential behind it is not, so every
 #       workload asking for that resource is refused while the table still
 #       looks correct. Write the value back with `skarbiec set`, then re-run.

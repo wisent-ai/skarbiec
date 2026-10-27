@@ -14,13 +14,15 @@
 #   donor:     encrypts one item value to that key, hands over the armor
 #   recipient: decrypts and stores the item in their own vault
 #
-# Usage:  sh share-credential-with-user.sh <donor-vault> <item> <recipient-vault>
+# Usage:  SKARBIEC_BIN=<skarbiec binary> SKARBIEC_ARMOR_DIR=<owner-only directory> \
+#         sh share-credential-with-user.sh <donor-vault> <item> <recipient-vault>
 set -eu
 
 DONOR_VAULT=$1
 ITEM=$2
 REC_VAULT=$3
-SB=${SKARBIEC_BIN:-skarbiec}
+SB=${SKARBIEC_BIN:?SKARBIEC_BIN must name the skarbiec binary this example runs}
+ARMOR_DIR=${SKARBIEC_ARMOR_DIR:?SKARBIEC_ARMOR_DIR must name the directory the encrypted armor is written to}
 die() { echo "ERROR: $1" > /dev/stderr; false; exit; }
 
 [ -f "$DONOR_VAULT" ] || die "no donor vault: $DONOR_VAULT"
@@ -43,7 +45,7 @@ REC_FPR=$(gpg --batch --list-keys --with-colons "$REC_UID" | awk -F: '/^fpr/ {pr
 
 VALUE=$(SKARBIEC_VAULT_FILE="$DONOR_VAULT" "$SB" get "$ITEM" | jq -r '.value') \
   || die "cannot read $ITEM from donor vault"
-ARMOR_FILE="${TMPDIR:-$HOME}/share-$ITEM.asc"
+ARMOR_FILE="$ARMOR_DIR/share-$ITEM.asc"
 printf '%s' "$VALUE" | gpg --batch --yes --encrypt --armor --recipient "$REC_FPR" > "$ARMOR_FILE"
 unset VALUE
 chmod u=rw,go= "$ARMOR_FILE"

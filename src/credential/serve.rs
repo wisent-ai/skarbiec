@@ -67,13 +67,13 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
     }
     let operation = safe_string(body, "operation")
         .context("credential operation request needs an operation")?;
-    match Operation::parse(&operation) {
-        Some(known) if known.remote() => {}
+    let declared = match Operation::parse(&operation) {
+        Some(known) if known.remote() => known,
         Some(_) => bail!(
             "{operation} is not available through the canonical endpoint; credential adopt reads the current password from operator stdin and runs with --local"
         ),
         None => bail!("{operation} is not a credential operation"),
-    }
+    };
     let consumer =
         safe_string(body, "consumer").context("credential operation request needs a consumer")?;
     let (provider, account) = {
@@ -113,7 +113,7 @@ pub(crate) fn submit_from_endpoint(vault_path: &Path, body: &Value) -> Result<Va
             // still item contract, read from the item's own name, never from
             // the request body.
             .or_else(|| {
-                (operation == "acquire" && generic_provider_slug(&credential_id))
+                (declared == Operation::Acquire && generic_provider_slug(&credential_id))
                     .then(|| credential_id.clone())
             })
             .with_context(|| {

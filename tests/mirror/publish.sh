@@ -63,7 +63,7 @@ mirror_verdict() {
 note() {
   jq -n --arg value "$1" \
     '{schema:"skarbiec.item.v2",kind:"note",fields:{value:$value},context:{}}' \
-    | WANT=ok run set-json "$ITEM" --type note
+    | WANT=ok run set "$ITEM" --type note
 }
 
 REMOTE="$ROOT/remote.git"

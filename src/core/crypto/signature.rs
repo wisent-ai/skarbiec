@@ -20,18 +20,17 @@ use std::process::Command;
 const VERIFICATION_FAILURE: &str = "Signature Verification Failure";
 
 /// The `openssl` workload keys are validated and proofs verified with:
-/// SKARBIEC_OPENSSL when it names one, otherwise Homebrew's linked OpenSSL
-/// when it is installed, otherwise `openssl` on PATH.
-pub(crate) fn openssl_bin() -> PathBuf {
+/// SKARBIEC_OPENSSL when it names one, otherwise the `openssl` the process's
+/// PATH resolves first, through the same resolver every cryptographic tool
+/// runs from. No install directory is guessed: a PATH whose first `openssl`
+/// cannot do Ed25519 (Apple's LibreSSL) answers with that OpenSSL's own words
+/// when it is asked, and the service unit's PATH or SKARBIEC_OPENSSL names
+/// the one to use.
+pub(crate) fn openssl_bin() -> Result<PathBuf> {
     if let Some(configured) = crate::core::env::path("SKARBIEC_OPENSSL") {
-        return configured;
+        return Ok(configured);
     }
-    for candidate in ["/opt/homebrew/bin/openssl", "/usr/local/bin/openssl"] {
-        if Path::new(candidate).is_file() {
-            return candidate.into();
-        }
-    }
-    "openssl".into()
+    super::execution::crypto_program("openssl")
 }
 
 fn write_owner_only(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -67,7 +66,7 @@ pub fn verify(
     let key_path = scratch.join(format!(".skarbiec-proof-key-{stem}"));
     let signature_path = scratch.join(format!(".skarbiec-proof-signature-{stem}"));
     let payload_path = scratch.join(format!(".skarbiec-proof-payload-{stem}"));
-    let openssl = openssl_bin();
+    let openssl = openssl_bin()?;
     let result = (|| -> Result<bool> {
         write_owner_only(&key_path, public_key.as_bytes())?;
         write_owner_only(&signature_path, signature)?;

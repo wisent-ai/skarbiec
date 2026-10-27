@@ -23,6 +23,23 @@ pub fn now_iso() -> String {
         .expect("the system clock is past the year 9999, which no Skarbiec record can carry")
 }
 
+/// Whether `text` has the shape [`now_iso`] writes: the same length, a digit
+/// wherever that stamp has one and the same separator everywhere else.
+/// Stored stamps are compared as text, which orders them in time only when
+/// both carry this shape; a value of any other shape (`tomorrow`, a local
+/// offset, a date without a time) would compare as a time it does not name.
+pub fn is_iso(text: &str) -> bool {
+    let template = now_iso();
+    text.len() == template.len()
+        && text.chars().zip(template.chars()).all(|(given, shape)| {
+            if shape.is_ascii_digit() {
+                given.is_ascii_digit()
+            } else {
+                given == shape
+            }
+        })
+}
+
 /// UTC now, as `20260920T031415Z` — the shape a file name carries; it fails
 /// only as [`now_iso`] does.
 pub fn now_stamp() -> String {

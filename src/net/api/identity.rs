@@ -32,10 +32,12 @@ pub(crate) fn handle_tokens_introspect(
             &json!({"error": "token required"}),
         );
     };
-    let (consumer, bearer) = http::presented_identity(headers);
+    let (consumer, bearer) = match http::presented_identity(headers) {
+        Ok(identity) => identity,
+        Err(reason) => return http::unidentified(stream, &reason),
+    };
     let vault = http::load()?;
-    if consumer.is_empty()
-        || !grant::token_allows_action(
+    if !grant::token_allows_action(
             &vault,
             &consumer,
             &bearer,
@@ -54,8 +56,8 @@ pub(crate) fn handle_tokens_introspect(
         "http-token-introspected",
         &json!({
             "consumer": consumer,
-            "subject": answer.get("consumer").cloned().unwrap_or(Value::Null),
-            "active": answer.get("active").cloned().unwrap_or(Value::Null),
+            "subject": answer.get("consumer"),
+            "active": answer.get("active"),
         }),
     )?;
     http::write_response(stream, "HTTP/1.1 200 OK", &answer)

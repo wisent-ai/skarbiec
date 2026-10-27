@@ -27,7 +27,9 @@ pub(super) enum Preflight {
 pub(super) struct Proceed {
     pub(super) resumable_request: Option<Value>,
     pub(super) adopt_shape: Option<AdoptShape>,
-    pub(super) baseline_revision: u64,
+    /// The revision of the item the operation starts from; `None` when no
+    /// live item exists yet, as for an acquisition, or a dry run read none.
+    pub(super) baseline_revision: Option<u64>,
 }
 
 pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Result<Preflight> {
@@ -36,12 +38,11 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
     let request_item = request_item_id(credential_id);
     let mut resumable_request: Option<Value> = None;
     let mut adopt_shape: Option<AdoptShape> = None;
-    let mut baseline_revision = u64::MIN;
     if submission.dry_run {
         return Ok(Preflight::Proceed(Proceed {
             resumable_request,
             adopt_shape,
-            baseline_revision,
+            baseline_revision: None,
         }));
     }
 
@@ -141,8 +142,7 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
             let identity_matches = existing.get("provider").and_then(Value::as_str)
                 == Some(submission.provider)
                 && existing.get("consumer").and_then(Value::as_str) == Some(submission.consumer)
-                && existing.get("purpose").and_then(Value::as_str)
-                    == Some(submission.purpose.as_str())
+                && existing.get("purpose").and_then(Value::as_str) == submission.purpose.as_deref()
                 && existing.get("account_email").and_then(Value::as_str)
                     == submission.account.as_deref()
                 && existing.get("directory").filter(|value| !value.is_null())
@@ -177,11 +177,19 @@ pub(super) fn preflight(vault_path: &Path, submission: &Submission<'_>) -> Resul
     if let Some(existing) = resumable_request.as_ref().filter(|_| operation == "adopt") {
         adopt_shape = Some(adopt_shape_of(existing)?);
     }
-    baseline_revision = resumable_request
-        .as_ref()
-        .and_then(|request| request.get("baseline_revision"))
-        .and_then(Value::as_u64)
-        .unwrap_or_else(|| item_revision(&vault, credential_id).unwrap_or_default());
+    // A resumed request keeps the baseline it recorded; a new one starts from
+    // the item as it stands.
+    let baseline_revision = match resumable_request.as_ref() {
+        None => item_revision(&vault, credential_id),
+        Some(request) => match &request["baseline_revision"] {
+            Value::Null => None,
+            recorded => Some(recorded.as_u64().with_context(|| {
+                format!(
+                    "the pending request of {credential_id} records baseline_revision {recorded}, which is not a revision; resolve it before {operation}"
+                )
+            })?),
+        },
+    };
 
     Ok(Preflight::Proceed(Proceed {
         resumable_request,

@@ -54,7 +54,7 @@ WANT=ok run init "readers-test-owner-$RUN"
 ITEM="readers-test-login-$RUN"
 printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"readers-test-user-%s","password":"readers-test-secret-%s"},"context":{}}' \
   "$RUN" "$RUN" >"$ROOT/stdin"
-WANT=ok run set-json "$ITEM" --type login
+WANT=ok run set "$ITEM" --type login
 : >"$ROOT/stdin"
 
 WANT=ok run readers "$ITEM"

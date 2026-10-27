@@ -13,7 +13,7 @@ use crate::core::{schema, vault_path};
 use super::args::{emit, flag_set, OrUsage};
 
 pub(crate) const SET_JSON_USAGE: &str =
-    "usage: set-json <id> [--type <canonical-kind>] [--if-absent | --if-unchanged]";
+    "usage: set <id> [--type <canonical-kind>] [--if-absent | --if-unchanged]  (the canonical JSON payload on stdin)";
 
 pub(crate) fn ensure_owner_mutation_allowed(
     vault: &Vault,
@@ -58,18 +58,13 @@ pub(crate) fn ensure_not_replica(vault: &Vault, operation: &str) -> Result<()> {
 
 fn ensure_owner_set_allowed(vault: &Vault, id: &str) -> Result<()> {
     ensure_not_replica(vault, "set")?;
-    let item_exists = vault
-        .doc()
-        .get("items")
-        .and_then(Value::as_object)
-        .is_some_and(|items| items.contains_key(id));
-    if !item_exists {
+    if !vault.section("items", "id -> item")?.contains_key(id) {
         return Ok(());
     }
     ensure_owner_mutation_allowed(vault, id, "rotate")
 }
 
-fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
+pub(crate) fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
     if tags.iter().any(|tag| tag == "managed:weles") {
         bail!("managed:weles is reserved for authenticated Weles writes");
     }
@@ -80,7 +75,7 @@ fn ensure_no_reserved_tags(tags: &[String]) -> Result<()> {
 /// already carries when the caller said nothing about it.
 ///
 /// An absent flag used to become an empty list, and the vault wrote that empty
-/// list over whatever was there. Brama's credential refresh calls `set-json`
+/// list over whatever was there. Brama's credential refresh calls `set`
 /// with neither `--tags` nor `--recipients`, so every OAuth rotation stripped a
 /// subscription's `brama:subscription` and `brama:agent:` tags and narrowed its
 /// recipients to the owner alone. The item kept serving traffic while vanishing
@@ -102,12 +97,7 @@ fn requested_or_existing(
             .map(str::to_string)
             .collect());
     }
-    match vault
-        .doc()
-        .get("items")
-        .and_then(Value::as_object)
-        .and_then(|items| items.get(id))
-    {
+    match vault.section("items", "id -> item")?.get(id) {
         Some(item) => crate::core::vault::entry_texts(id, item, key),
         None => Ok(Vec::new()),
     }
@@ -135,7 +125,7 @@ pub(crate) fn set_json_value(
 ) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     if flag_set(flags, "if-absent") && flag_set(flags, "if-unchanged") {
-        bail!("set-json accepts only one of --if-absent or --if-unchanged");
+        bail!("set accepts only one of --if-absent or --if-unchanged");
     }
     if flag_set(flags, "if-absent")
         && vault
@@ -151,22 +141,22 @@ pub(crate) fn set_json_value(
     if flag_set(flags, "if-unchanged") {
         let expected = payload
             .get("expected")
-            .context("set-json --if-unchanged requires expected and payload on stdin")?;
+            .context("set --if-unchanged requires expected and payload on stdin")?;
         let current = vault
             .get_item(id)
-            .with_context(|| format!("set-json --if-unchanged cannot read existing item {id}"))?;
+            .with_context(|| format!("set --if-unchanged cannot read existing item {id}"))?;
         if &current != expected {
-            bail!("item_payload_changed: set-json {id} refused because its payload changed since the caller read it; nothing was written");
+            bail!("item_payload_changed: set {id} refused because its payload changed since the caller read it; nothing was written");
         }
         payload = payload
             .get_mut("payload")
-            .context("set-json --if-unchanged requires expected and payload on stdin")?
+            .context("set --if-unchanged requires expected and payload on stdin")?
             .take();
     }
     let payload_kind = payload
         .get("kind")
         .and_then(Value::as_str)
-        .context("set-json payload requires kind")?;
+        .context("set payload requires kind")?;
     // `--type` names the item kind when it differs from the kind the payload
     // states; without it the payload's own kind is the item's.
     let item_kind = match flags.get("type") {
@@ -182,13 +172,39 @@ pub(crate) fn set_json_value(
     Ok(json!({"ok": true, "id": id, "kind": item_kind, "created": true}))
 }
 
+/// Create `id` from `encoded` with `flags`, as `set --if-absent` does,
+/// refusing when an item with that id exists — one written between a
+/// caller's own check and this write too — so a command that makes an item
+/// never reports, journals or binds one it did not make. `by` names the
+/// command in the refusal.
+pub(crate) fn create_value(flags: &HashMap<String, String>, id: &str, encoded: &str, by: &str) -> Result<Value> {
+    let mut write = flags.clone();
+    write.insert("if-absent".to_string(), "true".to_string());
+    let written = set_json_value(&write, id, encoded)?;
+    if written["created"] != json!(true) {
+        bail!("{id} already exists; {by} creates an item and never replaces one, and nothing was written");
+    }
+    Ok(written)
+}
+
+/// Forget what other vault sections kept about a purged item — its recorded
+/// expiry, its pin and its rotation policy — none of which anything could
+/// act on again; the caller saves. True when any was kept. Every purge path
+/// goes through here, so a section added later is forgotten everywhere.
+pub(crate) fn forget_purged(vault: &mut Vault, id: &str) -> Result<bool> {
+    let expiry = crate::runtime::expiry::forget(vault, id);
+    let pin = crate::runtime::pins::forget(vault, id)?;
+    let rotation = crate::credential::forget_rotation(vault, id);
+    Ok(expiry || pin || rotation)
+}
+
 /// Replace one item's tags, leaving its payload untouched.
 ///
 /// Consumers enumerate by tag: Brama's gateway and its desktop console both
 /// treat an item as a subscription only when it carries `brama:subscription`
 /// and `brama:agent:<agent>`, so an item that lost those tags is invisible to
 /// every reader while still serving traffic. Until now the only way to restore
-/// them was `set-json`, which rewrites the payload and re-encrypts it to the
+/// them was `set`, which rewrites the payload and re-encrypts it to the
 /// current recipient list — a write that can narrow access to a live
 /// credential, and one that needs the secret in hand to perform at all.
 pub(crate) fn cmd_retag(flags: &HashMap<String, String>, positionals: &[String]) -> Result<()> {
@@ -201,9 +217,20 @@ pub(crate) fn retag_value(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Value> {
+    // `retag --rename <old> --to <new>` renames a tag on every item at once.
+    if flags.contains_key("rename") {
+        return super::retag::rename_tag(flags);
+    }
+    // `retag --add|--remove <tag> <id>...` puts one tag on or off several items.
+    if let Some(tag) = flags.get("add") {
+        return super::retag::members::change_tag(super::retag::members::Change::Add, tag, positionals);
+    }
+    if let Some(tag) = flags.get("remove") {
+        return super::retag::members::change_tag(super::retag::members::Change::Remove, tag, positionals);
+    }
     let id = positionals
         .first()
-        .or_usage("usage: retag <id> --tags tag[,tag...]")?;
+        .or_usage("usage: retag <id> --tags tag[,tag...] | retag --rename <tag> --to <tag> | retag --add|--remove <tag> <id>...")?;
     // The list replaces every tag the item carries, so it must be stated:
     // `--tags ""` clears them, and a call that leaves the flag out is refused
     // rather than read as that.
@@ -220,39 +247,4 @@ pub(crate) fn retag_value(
     ensure_owner_mutation_allowed(&vault, id, "retag")?;
     vault.set_item_tags(id, &tags)?;
     Ok(json!({"ok": true, "id": id, "tags": tags}))
-}
-
-/// Change one item's id, keeping everything that is not the id.
-///
-/// There was no way to do this. The improvisation -- `get`, `set-json` under
-/// the new id, `delete` the old -- is a copy wearing a rename's clothes: the
-/// result starts at revision 1 with an empty history and a fresh `created_at`,
-/// its tags are gone because a new id has no previous entry to preserve them
-/// from, and it needs the plaintext in hand. Measured on a scratch vault, an
-/// item at revision 3 with two historical versions came out at revision 1 with
-/// none.
-///
-/// Owner-controlled items only, the same bar `retag` and `delete` apply. An
-/// item the credential lifecycle or Weles controls is refused, because its
-/// controller holds references keyed by the id and this command cannot update
-/// them.
-///
-/// The references this does break -- capability routes, consumer grants,
-/// acquisition bearers in flight -- break loudly, which is the accepted
-/// tradeoff. What changes is that they are now traceable: the uid travels with
-/// the item, so `route verify` reports a renamed item as renamed and names
-/// where it went, instead of reporting it as missing and leaving an operator
-/// unable to tell a rename from a purge.
-pub(crate) fn cmd_rename(positionals: &[String]) -> Result<()> {
-    let [from, to, ..] = positionals else {
-        return Err(super::args::Usage("usage: rename <id> <new-id>".to_string()).into());
-    };
-    let mut vault = Vault::open(vault_path())?;
-    ensure_owner_mutation_allowed(&vault, from, "rename")?;
-    let item_uid = vault.rename_item(from, to)?;
-    crate::runtime::audit::append_sync(
-        "item-renamed",
-        &json!({"from": from, "to": to, "item_uid": item_uid}),
-    )?;
-    emit(&json!({"ok": true, "from": from, "to": to, "item_uid": item_uid}))
 }

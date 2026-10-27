@@ -66,7 +66,7 @@ REQUEST="operation:credential/$PROVIDER"
 WANT=ok run init "unreadable-request-owner-$RUN"
 jq -n --arg user "request-user-$RUN" --arg password "request-password-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"login",fields:{username:$user,password:$password},context:{}}' \
-  | WANT=ok run set-json "$REQUEST" --type login
+  | WANT=ok run set "$REQUEST" --type login
 BEFORE=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 [ "$BEFORE" != "null" ] || fail "the pending request item was not written"
 
@@ -89,7 +89,7 @@ ITEMS_AFTER=$(jq -cS '.items' "$SKARBIEC_VAULT_FILE")
 # an object. Reading the field succeeds, but lifecycle submission must refuse.
 jq -n --arg user "request-user-$RUN" --arg password "request-password-$RUN" \
   '{schema:"skarbiec.item.v2",kind:"login",fields:{username:$user,password:$password,value:[]},context:{}}' \
-  | WANT=ok run set-json "$REQUEST" --type login
+  | WANT=ok run set "$REQUEST" --type login
 WANT=ok run get "$REQUEST" --field value
 BEFORE=$(jq -cS --arg id "$REQUEST" '.items[$id]' "$SKARBIEC_VAULT_FILE")
 WANT=refused run credential acquire --local --provider "$PROVIDER" --consumer "unreadable-request-consumer"

@@ -17,14 +17,33 @@ use crate::core::{schema, vault::Vault, vault_path};
 const CONSUMER: &str = "skarbiec-browser-host";
 const HOST_NAME: &str = "ai.wisent.skarbiec";
 const CHROME_EXTENSION_ID: &str = include_str!("../deploy/chrome-extension-id");
-const FIREFOX_EXTENSION_ID: &str = "skarbiec-autofill@wisent.ai";
+/// The extension's own manifest declares the Firefox id it signs as; the
+/// host's manifest names the same id, read from there rather than restated.
+const EXTENSION_MANIFEST: &str = include_str!("../browser/manifest.json");
 
-fn private_file_mode() -> Result<u32> {
-    Ok(0o600)
+fn firefox_extension_id() -> Result<String> {
+    let manifest: Value = serde_json::from_str(EXTENSION_MANIFEST)
+        .context("browser/manifest.json, which this binary was built with, is not JSON")?;
+    manifest
+        .pointer("/browser_specific_settings/gecko/id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .context("browser/manifest.json declares no browser_specific_settings.gecko.id, the Firefox extension id the host must allow")
 }
 
+/// Owner read and write, the mode every private file the vault writes.
+fn private_file_mode() -> Result<u32> {
+    crate::core::vault::private_file_mode()
+}
+
+/// Owner read, write and search: the directory form of the same rule.
 fn private_dir_mode() -> Result<u32> {
-    Ok(0o700)
+    Ok(u32::from(libc::S_IRWXU))
+}
+
+/// The origin Chrome names the extension by, and starts its host with.
+fn chrome_origin() -> String {
+    format!("chrome-extension://{CHROME_EXTENSION_ID}/")
 }
 
 fn home_dir() -> Result<PathBuf> {
@@ -105,6 +124,9 @@ fn mint_browser_token() -> Result<String> {
     if capabilities.is_empty() {
         bail!("no canonical login items are available for browser access");
     }
+    // The extension may offer a new login, which waits sealed in the
+    // donation inbox until the owner accepts it; it reads nothing.
+    capabilities.push(format!("offer:{}", crate::net::api::offer::OFFERED));
     // Each install mints a fresh bearer, which retires the previous one; the
     // grant itself lives until `grant revoke`, because no lifetime was ever
     // stated for it and grant issue refuses to invent one.
@@ -124,7 +146,7 @@ fn mint_browser_token() -> Result<String> {
 
 pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {
     if !cfg!(target_os = "macos") {
-        bail!("browser-host-install currently supports macOS only");
+        bail!("browser install currently supports macOS only");
     }
 
     let binary = match flags.get("binary") {
@@ -137,46 +159,139 @@ pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {
         bail!("browser host binary must be a regular file");
     }
 
-    let home = home_dir()?;
-    let token_path = home.join(".local/state/skarbiec/browser-host-token");
+    let paths = HostPaths::of(&home_dir()?);
     let token = mint_browser_token()?;
-    atomic_write(&token_path, token.as_bytes())?;
+    atomic_write(&paths.token, token.as_bytes())?;
 
     let chrome_manifest = json!({
         "name": HOST_NAME,
         "description": "Skarbiec vault bridge for the autofill extension",
         "path": binary,
         "type": "stdio",
-        "allowed_origins": [format!("chrome-extension://{CHROME_EXTENSION_ID}/")],
+        "allowed_origins": [chrome_origin()],
     });
+    let firefox_id = firefox_extension_id()?;
     let firefox_manifest = json!({
         "name": HOST_NAME,
         "description": "Skarbiec vault bridge for the autofill extension",
         "path": binary,
         "type": "stdio",
-        "allowed_extensions": [FIREFOX_EXTENSION_ID],
+        "allowed_extensions": [firefox_id],
     });
 
-    let chrome_path = home
-        .join("Library/Application Support/Google/Chrome/NativeMessagingHosts")
-        .join(format!("{HOST_NAME}.json"));
-    let firefox_path = home
-        .join("Library/Application Support/Mozilla/NativeMessagingHosts")
-        .join(format!("{HOST_NAME}.json"));
-    write_manifest(&chrome_path, &chrome_manifest)?;
-    write_manifest(&firefox_path, &firefox_manifest)?;
+    write_manifest(&paths.chrome, &chrome_manifest)?;
+    write_manifest(&paths.firefox, &firefox_manifest)?;
 
     Ok(json!({
         "ok": true,
         "consumer": CONSUMER,
         "capability_mode": "exact-login-fields",
         "binary": binary,
-        "token_file": token_path,
+        "token_file": paths.token,
         "native_messaging_manifests": {
-            "chrome": chrome_path,
-            "firefox": firefox_path,
+            "chrome": paths.chrome,
+            "firefox": paths.firefox,
         },
         "chrome_extension_id": CHROME_EXTENSION_ID,
-        "firefox_extension_id": FIREFOX_EXTENSION_ID,
+        "firefox_extension_id": firefox_id,
+    }))
+}
+
+/// Where `browser install` puts the bearer and the two native-messaging
+/// manifests; install, uninstall and status read the same three paths.
+struct HostPaths {
+    token: PathBuf,
+    chrome: PathBuf,
+    firefox: PathBuf,
+}
+
+/// The file name both browsers read the host's manifest under.
+fn manifest_name() -> String {
+    format!("{HOST_NAME}.json")
+}
+
+impl HostPaths {
+    fn of(home: &Path) -> Self {
+        let manifest = manifest_name();
+        Self {
+            token: home.join(".local/state/skarbiec/browser-host-token"),
+            chrome: home
+                .join("Library/Application Support/Google/Chrome/NativeMessagingHosts")
+                .join(&manifest),
+            firefox: home
+                .join("Library/Application Support/Mozilla/NativeMessagingHosts")
+                .join(&manifest),
+        }
+    }
+}
+
+/// Whether a path is there: absent is an answer, any other failure to look
+/// is an error naming the path.
+fn present(path: &Path) -> Result<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error).with_context(|| format!("examine {}", path.display())),
+    }
+}
+
+mod command;
+mod coverage;
+pub use command::{command, launched};
+pub use coverage::{cover_all, cover_login, maintain_pass as autofill_maintain_pass, reach as autofill_reach};
+
+/// `browser status`: whether the autofill extension is connected here —
+/// both manifests, the token file and the grant — what is missing when it is
+/// half connected, and the logins the grant does not reach; running
+/// `browser install` again repairs both.
+pub fn host_status() -> Result<Value> {
+    let paths = HostPaths::of(&home_dir()?);
+    let chrome = present(&paths.chrome)?;
+    let firefox = present(&paths.firefox)?;
+    let token = present(&paths.token)?;
+    let (grant, not_covered) = coverage::of(CONSUMER)?;
+    Ok(json!({
+        "ok": true,
+        "consumer": CONSUMER,
+        "connected": chrome && firefox && token && grant,
+        "grant": grant,
+        "logins_not_covered": not_covered,
+        "token_file": {"path": paths.token, "present": token},
+        "native_messaging_manifests": {
+            "chrome": {"path": paths.chrome, "present": chrome},
+            "firefox": {"path": paths.firefox, "present": firefox},
+        },
+    }))
+}
+
+/// `browser uninstall`: undo `browser install`. The two
+/// native-messaging manifests and the token file go, and the browser host's
+/// grant is revoked so the bearer that file held answers nothing even if a
+/// copy survives. Each piece is reported as removed or already absent, so a
+/// second run is harmless and says so.
+pub fn uninstall_host() -> Result<Value> {
+    let paths = HostPaths::of(&home_dir()?);
+    let remove = |path: &Path| -> Result<bool> {
+        match fs::remove_file(path) {
+            Ok(()) => Ok(true),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(error).with_context(|| format!("remove {}", path.display())),
+        }
+    };
+    let chrome_removed = remove(&paths.chrome)?;
+    let firefox_removed = remove(&paths.firefox)?;
+    let token_removed = remove(&paths.token)?;
+    let positionals = vec!["revoke".to_string(), CONSUMER.to_string()];
+    let revoked = grant::dispatch("grant", &HashMap::new(), &positionals)?
+        .context("grant revoke did not return a result")?;
+    Ok(json!({
+        "ok": true,
+        "consumer": CONSUMER,
+        "grant_revoked": revoked.get("revoked"),
+        "token_file": {"path": paths.token, "removed": token_removed},
+        "native_messaging_manifests": {
+            "chrome": {"path": paths.chrome, "removed": chrome_removed},
+            "firefox": {"path": paths.firefox, "removed": firefox_removed},
+        },
     }))
 }

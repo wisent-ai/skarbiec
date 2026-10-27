@@ -26,7 +26,7 @@ pub(super) struct PublishedRun {
     pub(super) last_status: Option<String>,
 }
 
-fn directory() -> PathBuf {
+pub(super) fn directory() -> PathBuf {
     crate::core::home_dir().join(".local/state/skarbiec/gpg-in-flight")
 }
 

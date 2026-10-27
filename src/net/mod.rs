@@ -20,6 +20,7 @@ pub(crate) use api::donation::handle_donation;
 pub(crate) use api::identity::{handle_owner_pubkey, handle_tokens_introspect};
 pub(crate) use api::items::{handle_items_put, handle_items_read, handle_items_revision};
 pub(crate) use api::lifecycle::{handle_credential_operation_status, handle_credential_operations};
+pub(crate) use api::offer::handle_offer;
 
 // Shared request helpers, re-exported by net::http so handler call sites read
 // the same in every module. A failure's detail reaches the caller whole: only
@@ -82,19 +83,61 @@ pub fn dispatch(
 
 /// `skarbiec maintain`: the pass `net::http` owns (GnuPG daemons, readiness
 /// proof, one pull of every pulled bond), then one push of the Git mirror on
-/// the host that publishes it (`mirror publish`). Both run; either failing
-/// fails the pass with every reason, so a mirror that stopped publishing is a
+/// the host that publishes it (`mirror publish`), then revoking every timed
+/// share whose end has passed on a vault that is not a replica, then letting
+/// browser autofill offer every login added since it was connected, then the
+/// rolling copy `backup schedule` asked for on this host, then setting again
+/// every kept CI or cluster secret whose items changed (`ci keep`).
+/// Every step runs; any failing fails the pass with every reason, so a
+/// mirror that stopped publishing, a share that outlived its end, a login
+/// autofill cannot offer, a backup disk gone or a CI secret left stale is a
 /// failed scheduled run, not a silent one.
 fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let pass = http::dispatch("maintain", flags, positionals);
     let mirror = sync::push_if_published();
-    match (pass, mirror) {
-        (Ok(Some(mut report)), Ok(mirror)) => {
+    // A host that keeps no vault has no shares to end, and a replica's shares
+    // are its source's to end; its own pull replaces them.
+    let path = crate::core::vault_path();
+    let kept = crate::core::is_present(&path, "vault");
+    let shares = match &kept {
+        Ok(false) => Ok(serde_json::json!({"skipped": "this host keeps no vault"})),
+        Ok(true) => match crate::core::vault::Vault::open(path) {
+            Ok(vault) if crate::cli::items::ensure_not_replica(&vault, "shares expire").is_err() => {
+                Ok(serde_json::json!({"skipped": "this vault is a replica; its source ends its shares"}))
+            }
+            Ok(_) => crate::access::recipients::expire_timed_shares(),
+            Err(error) => Err(error),
+        },
+        Err(error) => Err(anyhow::anyhow!("{error:#}")),
+    };
+    let autofill = match &kept {
+        Ok(true) => crate::browser::autofill_maintain_pass(),
+        _ => Ok(serde_json::json!({"skipped": "this host keeps no vault"})),
+    };
+    let backup = match &kept {
+        Ok(true) => crate::runtime::backup::scheduled_pass(),
+        _ => Ok(None),
+    };
+    let ci = match &kept {
+        Ok(true) => crate::runtime::cisecrets::kept_pass(),
+        _ => Ok(None),
+    };
+    let shares_failed = shares.as_ref().is_ok_and(|report| report["ok"] == serde_json::json!(false));
+    let autofill_failed = autofill.as_ref().is_ok_and(|report| report["ok"] == serde_json::json!(false));
+    let ci_failed = ci.as_ref().is_ok_and(|report| report.as_ref().is_some_and(|report| report["ok"] == serde_json::json!(false)));
+    match (pass, mirror, shares, autofill, backup, ci) {
+        (Ok(Some(mut report)), Ok(mirror), Ok(shares), Ok(autofill), Ok(backup), Ok(ci))
+            if !shares_failed && !autofill_failed && !ci_failed =>
+        {
             report["mirror"] = serde_json::json!(mirror);
+            report["shares"] = shares;
+            report["autofill"] = autofill;
+            report["backup"] = serde_json::json!(backup);
+            report["ci_secrets"] = serde_json::json!(ci);
             Ok(report)
         }
-        (Ok(None), _) => anyhow::bail!("skarbiec maintain: net::http answered nothing"),
-        (pass, mirror) => {
+        (Ok(None), _, _, _, _, _) => anyhow::bail!("skarbiec maintain: net::http answered nothing"),
+        (pass, mirror, shares, autofill, backup, ci) => {
             let mut reasons = Vec::new();
             if let Err(error) = pass {
                 reasons.push(format!("{error:#}"));
@@ -102,7 +145,38 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
             if let Err(error) = mirror {
                 reasons.push(format!("skarbiec maintain: mirror push: {error:#}"));
             }
-            anyhow::bail!("{}", reasons.join("; "))
+            match shares {
+                Err(error) => reasons.push(format!("skarbiec maintain: shares expire: {error:#}")),
+                Ok(report) if shares_failed => {
+                    reasons.push(format!("skarbiec maintain: shares expire left shares in force: {}", report["failed"]))
+                }
+                Ok(_) => {}
+            }
+            match autofill {
+                Err(error) => reasons.push(format!("skarbiec maintain: browser autofill cover: {error:#}")),
+                Ok(report) if autofill_failed => {
+                    reasons.push(format!("skarbiec maintain: browser autofill could not cover: {}", report["logins"]))
+                }
+                Ok(_) => {}
+            }
+            if let Err(error) = backup {
+                reasons.push(format!("skarbiec maintain: scheduled backup: {error:#}"));
+            }
+            match ci {
+                Err(error) => reasons.push(format!("skarbiec maintain: kept CI secrets: {error:#}")),
+                Ok(Some(report)) if ci_failed => {
+                    reasons.push(format!("skarbiec maintain: kept CI secrets were not set again: {}", report["failed"]))
+                }
+                Ok(_) => {}
+            }
+            // A scheduled pass that fails is seen by nobody reading its log;
+            // the alert this host set says so where people look.
+            let failed = reasons.join("; ");
+            match crate::runtime::alert::send(&format!("skarbiec maintain failed: {failed}")) {
+                Ok(Some(_)) => anyhow::bail!("{failed} (the alert was posted)"),
+                Ok(None) => anyhow::bail!("{failed}"),
+                Err(error) => anyhow::bail!("{failed}; the alert could not be posted either: {error:#}"),
+            }
         }
     }
 }

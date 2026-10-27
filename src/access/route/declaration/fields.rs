@@ -12,7 +12,10 @@ pub(in crate::access::route) fn credential_field(
     vault: &Vault,
     item: &str,
 ) -> Result<String, String> {
-    let payload = vault.get_item(item).map_err(|error| error.to_string())?;
+    // `{:#}` prints the whole anyhow chain; to_string() kept only its top line.
+    let payload = vault
+        .get_item(item)
+        .map_err(|error| format!("vault item {item} cannot be read: {error:#}"))?;
     let fields = payload
         .get("fields")
         .and_then(Value::as_object)
@@ -53,7 +56,9 @@ pub(in crate::access::route) fn login_targets(
             "vault item {item} declares kind {kind}, not {LOGIN_KIND}: only a {LOGIN_KIND} declares the fields a sign-in exports"
         ));
     }
-    let payload = vault.get_item(item).map_err(|error| error.to_string())?;
+    let payload = vault
+        .get_item(item)
+        .map_err(|error| format!("vault item {item} cannot be read: {error:#}"))?;
     let fields = payload
         .get("fields")
         .and_then(Value::as_object)

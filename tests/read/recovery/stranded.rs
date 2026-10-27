@@ -4,7 +4,7 @@
 //! accepted and never answered, so its gpg waits as one waits on a wedged
 //! agent; every other connection (the recovery's own `gpgconf --kill` and
 //! daemon queries) is answered `OK` to each line and closed on `KILLAGENT` or
-//! `BYE`. `skarbiec recover-daemons`, run beside it, has to end that gpg
+//! `BYE`. `skarbiec keyring recover`, run beside it, has to end that gpg
 //! child, and the waiting read has to fail instead of standing on. With the
 //! stand-in gone, the real agent starts again and the value reads back.
 use super::{fs, Journey};
@@ -120,7 +120,7 @@ impl Journey {
         let (child, _connection) = stranded.recv().expect("the read's gpg reaches the agent");
         fs::write(self.root.join("stranded-child.pid"), child.to_string()).unwrap();
 
-        let recovery = self.skarbiec("recover-stranded", &["recover-daemons"]);
+        let recovery = self.skarbiec("recover-stranded", &["keyring", "recover"]);
         let said = format!(
             "{}{}",
             String::from_utf8_lossy(&recovery.stdout),

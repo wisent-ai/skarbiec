@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 pub(super) fn create_and_read_demo(item_id: &str) -> Result<()> {
@@ -42,26 +42,30 @@ pub(super) fn audit_evidence(item_id: &str) -> Result<bool> {
     flags.insert("item".to_string(), item_id.to_string());
     let result = crate::runtime::audit::dispatch("audit list", &flags, &[])?
         .context("audit query is unavailable")?;
-    Ok(result
-        .get("matched")
-        .and_then(Value::as_u64)
-        .unwrap_or_default()
-        > 0)
+    let entries = result
+        .get("entries")
+        .and_then(Value::as_array)
+        .context("the audit query answered without its entries")?;
+    Ok(!entries.is_empty())
 }
 
-pub(super) fn render(screen: &Value) {
+/// One onboarding screen as the definition presents it: its title and body. A screen
+/// the definition declares without them is refused naming it, never shown blank.
+pub(super) fn render(screen: &Value) -> Result<()> {
     let presentation = screen
         .get("presentation")
         .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    let ordered = presentation.into_iter().collect::<BTreeMap<_, _>>();
-    let title = ordered
+        .with_context(|| format!("onboarding screen {screen} declares no presentation"))?;
+    let title = presentation
         .get("title")
         .and_then(Value::as_str)
-        .unwrap_or("Skarbiec onboarding");
-    let body = ordered.get("body").and_then(Value::as_str).unwrap_or("");
+        .with_context(|| format!("onboarding screen {screen} declares no title"))?;
+    let body = presentation
+        .get("body")
+        .and_then(Value::as_str)
+        .with_context(|| format!("onboarding screen {screen} declares no body"))?;
     println!("\n== {title} ==\n{body}");
+    Ok(())
 }
 
 pub(super) fn confirmed(flags: &HashMap<String, String>, prompt: &str) -> Result<bool> {

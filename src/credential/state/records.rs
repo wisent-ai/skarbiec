@@ -7,7 +7,7 @@ use std::path::Path;
 
 use crate::core::vault::{ManagedWrite, ManagementMode, Vault};
 
-use super::super::common::now_iso;
+use super::super::common::{now_iso, Operation};
 use super::super::wire::{record_envelope, request_payload};
 use super::super::{REQUEST_KIND, REQUEST_WRITER, SEAL_KIND};
 
@@ -94,7 +94,7 @@ pub(crate) fn credential_for_role(vault: &Vault, role: &str, operation: &str) ->
             several.len()
         ),
     }
-    if operation != "acquire" {
+    if Operation::parse(operation) != Some(Operation::Acquire) {
         anyhow::bail!(
             "no live item plays role {role}: tag the item {tag}, or create it with credential acquire role:{role}"
         );
@@ -121,7 +121,11 @@ pub(crate) fn pending_role_acquisition(vault: &Vault, role: &str) -> Result<Opti
         }
         if let Some(request) = recorded_request(vault, credential_id)? {
             if request.get("role").and_then(Value::as_str) == Some(role)
-                && request.get("operation").and_then(Value::as_str) == Some("acquire")
+                && request
+                    .get("operation")
+                    .and_then(Value::as_str)
+                    .and_then(super::super::common::Operation::parse)
+                    == Some(super::super::common::Operation::Acquire)
             {
                 return Ok(Some(credential_id.to_string()));
             }

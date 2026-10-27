@@ -13,15 +13,16 @@ mod keys;
 mod messages;
 pub mod signature;
 
-pub use execution::in_flight::{agent_refusal, agent_waits};
+pub use execution::in_flight::{agent_refusal, agent_waits, note_agent_waits};
 pub use execution::{
     daemon_footprints, daemon_memory_limit_bytes, executor_status, human_size,
     keyring_lock_holders, recover_daemons, recycle_oversized_daemons, DAEMON_MEMORY_LIMIT_SETTING,
 };
 pub use keys::{
-    encrypted_to, export_public_key, fingerprint_for, generate_key, import_key, keygrips_for,
-    secret_key_present,
+    encrypted_to, export_public_key, fingerprint_for, fingerprint_of_armored, generate_key, import_key,
+    key_validity, keygrips_for, secret_key_present, KeyValidity,
 };
 pub use messages::{
-    clearsign, decrypt, encrypt_to, random_token, sha1_hex_upper, sha256_hex, verify_clearsigned,
+    clearsign, decrypt, encrypt_to, random_token, seal_with_passphrase, sha1_hex_upper, sha256_hex,
+    verify_clearsigned,
 };

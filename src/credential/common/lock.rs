@@ -48,8 +48,9 @@ pub(in crate::credential) fn exact_name(name: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-pub(in crate::credential) fn purpose(value: Option<&String>, consumer: &str) -> Result<String> {
-    let value = value.map(String::as_str).unwrap_or(consumer);
+/// A purpose the caller stated, checked. A caller that states none sends no
+/// purpose: Weles then names the job by its own declared definition.
+pub(in crate::credential) fn purpose(value: &str) -> Result<String> {
     if value.is_empty() || value.chars().any(char::is_control) {
         bail!("purpose must be non-empty printable UTF-8");
     }

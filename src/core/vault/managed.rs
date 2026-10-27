@@ -51,7 +51,7 @@ impl Vault {
         if entry_item_uid(&entry).is_none() {
             entry["item_uid"] = json!(mint_item_uid()?);
         }
-        obj_mut(&mut self.doc, "items").insert(id.to_string(), entry);
+        obj_mut(&mut self.doc, "items")?.insert(id.to_string(), entry);
         self.save()
     }
 
@@ -127,7 +127,7 @@ impl Vault {
             &serde_json::to_string(&payload)?,
         )?;
         let stamp = now();
-        obj_mut(&mut self.doc, "items")
+        obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .context("canonical item is not an object")?
@@ -171,7 +171,7 @@ impl Vault {
         if item.get("pending").is_some() {
             bail!("{id} has a staged revision; resolve it before removal");
         }
-        let entry = obj_mut(&mut self.doc, "items")
+        let entry = obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .context("canonical item is not an object")?;
@@ -213,7 +213,7 @@ impl Vault {
                 .context("canonical item has no current revision")?,
         );
         let stamp = now();
-        let entry = obj_mut(&mut self.doc, "items")
+        let entry = obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .context("canonical item is not an object")?;
@@ -245,7 +245,7 @@ impl Vault {
         {
             bail!("staged revision does not belong to this operation and writer");
         }
-        obj_mut(&mut self.doc, "items")
+        obj_mut(&mut self.doc, "items")?
             .get_mut(id)
             .and_then(Value::as_object_mut)
             .context("canonical item is not an object")?

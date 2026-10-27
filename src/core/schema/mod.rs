@@ -6,11 +6,12 @@ mod legacy;
 mod payload;
 mod tags;
 
+pub use kinds::supported_kind;
 pub use legacy::migrate_legacy;
 pub use payload::{
     allows_field, field, fields, kind_allows_field, kind_declares_field, payload, validate_payload,
 };
-pub use tags::ensure_registered_tags;
+pub use tags::{ensure_registered_tags, inventory as tag_inventory};
 
 pub const ITEM_SCHEMA: &str = "skarbiec.item.v2";
 

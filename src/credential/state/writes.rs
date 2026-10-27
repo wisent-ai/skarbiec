@@ -56,10 +56,10 @@ pub(in crate::credential) fn store_context(
     }
     let tags = crate::core::vault::entry_texts(id, &entry, "tags")?;
     let recipients = vault.item_recipient_uids(id)?;
-    let management = entry.get("management").cloned().unwrap_or_default();
     if ManagementMode::of(&entry) == Some(ManagementMode::Managed) {
-        let controller = management
-            .get("controller")
+        let controller = entry
+            .get("management")
+            .and_then(|management| management.get("controller"))
             .and_then(Value::as_str)
             .context("managed item has no controller")?;
         let writer = entry
@@ -99,20 +99,25 @@ pub(in crate::credential) fn item_matches_request(
     let payload = vault.get_item(credential_id).with_context(|| {
         format!("{credential_id} cannot be read, so whether it holds this operation's value cannot be checked")
     })?;
-    Ok(schema::field(&payload, "context")
-        .ok()
-        .and_then(Value::as_object)
-        .is_some_and(|context| {
-            context.get("request_id").and_then(Value::as_str) == Some(request_id)
-                && context.get("operation").and_then(Value::as_str) == Some(operation)
-                && account_email.is_none_or(|email| {
-                    context.get("account_ref").and_then(Value::as_str) == Some(email)
-                        && schema::field(&payload, "username")
-                            .ok()
-                            .and_then(Value::as_str)
-                            == Some(email)
-                })
-        }))
+    let unreadable = || {
+        format!("{credential_id} is not a canonical item, so whether it holds this operation's value cannot be checked")
+    };
+    let context = schema::field(&payload, "context")
+        .with_context(unreadable)?
+        .as_object()
+        .with_context(unreadable)?;
+    let username = schema::fields(&payload)
+        .with_context(unreadable)?
+        .get("username")
+        .and_then(Value::as_str);
+    Ok(
+        context.get("request_id").and_then(Value::as_str) == Some(request_id)
+            && context.get("operation").and_then(Value::as_str) == Some(operation)
+            && account_email.is_none_or(|email| {
+                context.get("account_ref").and_then(Value::as_str) == Some(email)
+                    && username == Some(email)
+            }),
+    )
 }
 
 pub(in crate::credential) fn pending_matches_request(
@@ -151,7 +156,7 @@ pub(crate) fn authorize_managed_write(
     writer: &str,
     operation_id: &str,
     admits: impl Fn(Operation) -> bool,
-    expected_revision: u64,
+    expected_revision: Option<u64>,
     capture_origin: Option<&str>,
 ) -> Result<()> {
     let request_item = request_item_id(credential_id);
@@ -170,7 +175,7 @@ pub(crate) fn authorize_managed_write(
         || request.get("credential_id").and_then(Value::as_str) != Some(credential_id)
         || request.get("field").and_then(Value::as_str) != Some(field)
         || request.get("consumer").and_then(Value::as_str) != Some(writer)
-        || request.get("baseline_revision").and_then(Value::as_u64) != Some(expected_revision)
+        || request.get("baseline_revision").and_then(Value::as_u64) != expected_revision
         || !matches!(
             request.get("status").and_then(Value::as_str),
             Some("submitting" | "pending")
@@ -192,8 +197,8 @@ pub(crate) fn authorize_managed_write(
     }
     match declared {
         Some(Operation::Acquire) => {
-            if expected_revision != u64::MIN || live_item_exists(vault, credential_id) {
-                bail!("credential acquisition requires an absent item at baseline revision zero");
+            if expected_revision.is_some() || live_item_exists(vault, credential_id) {
+                bail!("credential acquisition requires an absent item and records no baseline revision");
             }
         }
         // adopt never authorizes a remote write: Skarbiec itself stages the
@@ -205,7 +210,8 @@ pub(crate) fn authorize_managed_write(
         // remove trashes one. reset differs from rotate only in whether the
         // current provider password was known, never in local authority.
         Some(known) if known.on_managed_item() => {
-            if item_revision(vault, credential_id) != Some(expected_revision)
+            if expected_revision.is_none()
+                || item_revision(vault, credential_id) != expected_revision
                 || !inbox::managed_by_weles(vault, credential_id)
             {
                 bail!("credential mutation baseline is no longer current and managed");
