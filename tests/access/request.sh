@@ -182,6 +182,32 @@ WANT=refused run request file --kind device --resource tama:hooks --action insta
   --agent request-test-agent --reason "x" --for-consumer request-test-reader
 has "names no vault grant"
 
+# A kind no request has is refused naming every kind.
+WANT=refused run request file --kind shell --resource tama:hooks --action install \
+  --agent request-test-agent --reason "x"
+has "is no request kind"
+has "secret, device, membership"
+
+# A capability resource nothing declares, or two items declare, is refused at
+# filing with the resolution's own sentence, never filed for one approval.
+WANT=refused run request file --kind secret --resource provider:request-test-nobody --action read \
+  --purpose test.read --target test --ttl-seconds "$WIDE_SECONDS" --max-uses "$WIDE_USES" \
+  --agent request-test-agent --reason "undeclared"
+has "cannot be requested"
+printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":"request-test-twice-a-%s"},"context":{}}' "$RUN" \
+  | "$BIN" set request-test-twice-a --type api-key --tags "brama:provider:request-twice" >/dev/null
+printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":"request-test-twice-b-%s"},"context":{}}' "$RUN" \
+  | "$BIN" set request-test-twice-b --type api-key --tags "brama:provider:request-twice,dual-control" >/dev/null
+WANT=refused run request file --kind secret --resource provider:request-twice --action read \
+  --purpose test.read --target test --ttl-seconds "$WIDE_SECONDS" --max-uses "$WIDE_USES" \
+  --agent request-test-agent --reason "ambiguous"
+has "cannot be requested"
+has "request-test-twice-a"
+has "request-test-twice-b"
+WANT=ok run request list
+case "$out" in *"request-twice"*) fail "an unresolved capability request was filed: $out" ;; esac
+echo "ok: unresolved capability requests were refused and nothing was filed" >>"$REPORT"
+
 # Every step is journaled.
 for op in access-requested access-approved access-denied access-withdrawn; do
   WANT=ok run audit list --op "$op"

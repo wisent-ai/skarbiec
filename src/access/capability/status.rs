@@ -94,7 +94,8 @@ fn redeemable(record: &Value, now: u64) -> bool {
         && record
             .get("remaining_uses")
             .and_then(Value::as_u64)
-            .is_some_and(|uses| uses > u64::MIN)
+            .and_then(std::num::NonZeroU64::new)
+            .is_some()
 }
 
 /// How many capabilities could be redeemed right now.
@@ -102,11 +103,18 @@ pub(crate) fn active_count() -> Result<usize> {
     let _lock = acquire_state_lock()?;
     let state = load_state()?;
     let now = now_epoch()?;
-    Ok(state["capabilities"].as_object().map_or(usize::MIN, |all| {
-        all.values()
+    // A state that has never issued a capability holds no map yet; a map that
+    // is something else is a damaged state, said rather than counted as none.
+    match state.get("capabilities") {
+        None => Ok(Default::default()),
+        Some(Value::Object(all)) => Ok(all
+            .values()
             .filter(|record| redeemable(record, now))
-            .count()
-    }))
+            .count()),
+        Some(other) => anyhow::bail!(
+            "the capability state holds {other} where the capabilities map belongs"
+        ),
+    }
 }
 
 /// Whether this capability could be redeemed right now.

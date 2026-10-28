@@ -1,6 +1,6 @@
 # Access requests: an agent asks, a person decides, Skarbiec grants
 
-Status: accepted by Zuzanna (2026-10-22). Implemented in Skarbiec (delivery step 1) and Las (step 2); steps 3–5 belong to Oko, Tama and Most. Decisions below are settled.
+Status: accepted. Implemented in Skarbiec (delivery step 1) and Las (step 2); steps 3–5 belong to Oko, Tama and Most. Decisions below are settled.
 
 ## Problem
 
@@ -89,6 +89,8 @@ Skarbiec records every decision even when another product issues the grant, so t
 
 - Register `<vault>.requests.json` (mode 0600, flock beside it): `src/access/request/register.rs`. Records carry `{id (UUID v4), requested_at, requester {agent, harness, host, person}, kind, resource, action, reason, decider, dual_control, grant, via, state, decisions [{by, at, answer, lifetime, uses}], issued}`. `grant` is `{form: capability, purpose, target, ttl_seconds, max_uses}` (asked bounds), `{form: consumer, consumer}` or `{form: record}`.
 - CLI `skarbiec request file|list|show|approve|deny|withdraw|watch` (`src/access/request/`). `--decider` is `owner`, `admin` (any owner or admin, the default) or one recipient uid. A request is dual-control when filed with `--dual-control` or when its secret resolves to an item tagged `dual-control`.
+- Filing refuses what could never be issued. A `--kind` other than `secret`, `device` or `membership` is refused with `"<kind>" is no request kind (…); a kind is one of secret, device, membership`; the cross-host route answers the same sentence with HTTP 400, and a `request:<kind>` grant naming another kind is refused when it is minted. A bounded capability whose `--resource` resolves to no item, or to several, is refused with `--resource <resource> cannot be requested:` followed by the resolution's own sentence (`nothing declares <resource> and no capability route names it`, or `<n> vault items declare <resource>: <items>`), and nothing is written to the register. It is never filed for one approval while one of its candidate items carries the `dual-control` tag. `--ttl-seconds` and `--max-uses` must be whole numbers of at least one.
+- A register record that lacks a field a decision or the watcher reads (its `id`, `state`, `decider`, `resource`, `action`, `kind`, a grant's `form`, `purpose`, `target` or `consumer`, a requester's `agent`) is refused with `access request record holds no text <field>: <record>` or `access request <id> names no readable grant form: <grant>`, never decided as if the field were empty. Request ids are version 4 UUIDs built from sixteen random octets as RFC 9562 lays them out, and a dialog button the watcher did not offer is refused instead of being taken as a denial.
 - Approval issues `grant capability … --authorization-id <request id>` or `grant issue <consumer> --capabilities <action>:<resource> --token-file <owner-only file>`; a consumer that already holds a grant is refused rather than having its bearer replaced. Two approvals of a dual-control request take the narrower lifetime and fewer uses.
 - `skarbiec request watch --local --by <uid>`: osascript dialogs; between requests it blocks on the FIFO `<vault>.requests.wake`, which every register write pokes.
 - Journal ops `access-requested`, `access-approved` (with `granted`), `access-denied`, `access-withdrawn`, and `access-request-sent` on the filing host.

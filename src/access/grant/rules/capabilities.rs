@@ -83,12 +83,12 @@ pub(in crate::access::grant) fn parse_capabilities(
         }
         // A `request` capability names a kind of access request, not an item.
         if action.files_request() {
-            if field.is_some() || !crate::access::request::KINDS.contains(&item) {
-                bail!(
-                    "request capability names one request kind without a field: request:{}",
-                    crate::access::request::KINDS.join("|request:")
-                );
+            let kinds = crate::access::request::Kind::listed("|request:");
+            if field.is_some() {
+                bail!("request capability names one request kind without a field: request:{kinds}");
             }
+            crate::access::request::Kind::named(item)
+                .with_context(|| format!("request capability names one request kind: request:{kinds}"))?;
             capabilities.push(capability);
             continue;
         }

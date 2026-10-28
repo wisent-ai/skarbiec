@@ -8,18 +8,58 @@
 // issue`). Device and membership requests are recorded for the product that
 // owns that authority (Tama, the organization) to act on once approved.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::num::NonZeroU64;
 
-use super::register::{self, text};
+use super::register;
 use crate::cli::args::OrUsage;
 use crate::core::schema::{exact_component, exact_token};
 use crate::core::{vault::Vault, vault_path};
 
 /// What a request asks for: a vault secret, a permission on a device, or a
-/// membership (an organization or another person's vault).
-pub(crate) const KINDS: &[&str] = &["secret", "device", "membership"];
+/// membership (an organization or another person's vault). The names are the
+/// wire form `--kind`, the `kind` body field and `request:<kind>` grants carry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum Kind {
+    Secret,
+    Device,
+    Membership,
+}
+
+impl Kind {
+    const ALL: &'static [Kind] = &[Kind::Secret, Kind::Device, Kind::Membership];
+
+    /// The kind a wire name means, or a refusal naming every kind.
+    pub(crate) fn named(word: &str) -> Result<Self> {
+        serde_json::from_value(json!(word))
+            .map_err(|cause| anyhow!("{word:?} is no request kind ({cause}); a kind is one of {}", Self::listed(", ")))
+    }
+
+    /// The wire name of this kind.
+    pub(crate) fn name(self) -> Result<String> {
+        match serde_json::to_value(self)? {
+            Value::String(name) => Ok(name),
+            other => bail!("request kind {self:?} serialized as {other}, not as a name"),
+        }
+    }
+
+    /// Every kind's wire name joined by `separator`, or why one could not be named.
+    pub(crate) fn listed(separator: &str) -> String {
+        let named: Result<Vec<String>> = Self::ALL.iter().map(|kind| kind.name()).collect();
+        match named {
+            Ok(names) => names.join(separator),
+            Err(cause) => format!("(the request kinds could not be named: {cause})"),
+        }
+    }
+}
+
+/// Who decides a request whose filing names no `--decider`: any owner or
+/// admin, as docs/design/access-requests.md ("Implemented in Skarbiec") states.
+const DEFAULT_DECIDER: &str = "admin";
 
 /// The item tag by which a vault owner marks an item as needing two
 /// different deciders (docs/design/access-requests.md, decision 3).
@@ -32,12 +72,15 @@ const SECRET_FORMS: &str = "a secret request names either a bounded capability \
 /// One request as filed, before it is recorded.
 pub(crate) struct Filing {
     requester: Value,
-    kind: String,
+    kind: Kind,
     resource: String,
     action: String,
     reason: String,
     decider: String,
     dual_control: bool,
+    /// The vault item a secret request reaches, whose tags can require two
+    /// deciders; none for a request that is no vault grant.
+    item: Option<String>,
     grant: Value,
     via: String,
 }
@@ -61,38 +104,41 @@ fn optional(flags: &HashMap<String, String>, name: &str) -> Result<Value> {
     }
 }
 
-fn positive(flags: &HashMap<String, String>, name: &str) -> Result<u64> {
-    let value: u64 = required(flags, name)?
+fn positive(flags: &HashMap<String, String>, name: &str) -> Result<NonZeroU64> {
+    required(flags, name)?
         .parse()
-        .with_context(|| format!("--{name} must be a whole number"))?;
-    if value == u64::MIN {
-        bail!("--{name} must be at least one");
+        .with_context(|| format!("--{name} must be a whole number of at least one"))
+}
+
+/// The one vault item a capability resource resolves to. A resource nothing
+/// declares, or two items declare, is refused with the resolution's own
+/// sentence: a request for it could never be issued, and filing it would
+/// skip the dual-control tag one of its candidates may carry.
+fn resolved_item(resource: &str) -> Result<String> {
+    match crate::access::route::resolution::coordinate_for(resource)? {
+        Ok((item, _)) => Ok(item),
+        Err(sentence) => bail!("--resource {resource} cannot be requested: {sentence}"),
     }
-    Ok(value)
 }
 
 impl Filing {
     /// A filing from command-line flags; `via` names the surface it came in on.
     pub(crate) fn from_flags(flags: &HashMap<String, String>, via: &str) -> Result<Self> {
-        let kind = required(flags, "kind")?.to_string();
-        if !KINDS.contains(&kind.as_str()) {
-            bail!("--kind must be one of {}", KINDS.join(", "));
-        }
-        let decider = flags
-            .get("decider")
-            .map(String::as_str)
-            .unwrap_or("admin")
-            .to_string();
+        let kind = Kind::named(required(flags, "kind")?)?;
+        let decider = match flags.get("decider") {
+            Some(named) => named.clone(),
+            None => DEFAULT_DECIDER.to_string(),
+        };
         if !exact_token(&decider) || decider == "true" {
             bail!("--decider names a recipient uid, or the role owner or admin");
         }
-        let bounded = ["purpose", "target", "ttl-seconds", "max-uses"]
-            .iter()
-            .any(|name| flags.contains_key(*name));
+        let asked = [flags.get("purpose"), flags.get("target"), flags.get("ttl-seconds"), flags.get("max-uses")];
+        let bounded = asked.iter().any(Option::is_some);
         let standing = flags.contains_key("for-consumer");
         let action = required(flags, "action")?.to_string();
-        let grant = match (kind.as_str(), bounded, standing) {
-            ("secret", true, false) => {
+        let resource = required(flags, "resource")?.to_string();
+        let (grant, item) = match (kind, bounded, standing) {
+            (Kind::Secret, true, false) => {
                 if action != "read" {
                     bail!("a bounded capability redeems one value: --action must be read");
                 }
@@ -109,20 +155,25 @@ impl Filing {
                         .context("--delegation-depth must be a whole number")?;
                     grant["delegation_depth"] = json!(depth);
                 }
-                grant
+                (grant, Some(resolved_item(&resource)?))
             }
-            ("secret", false, true) => {
+            (Kind::Secret, false, true) => {
                 let consumer = required(flags, "for-consumer")?;
                 if !exact_component(consumer) {
                     bail!("--for-consumer must be one exact consumer name");
                 }
-                json!({"form": "consumer", "consumer": consumer})
+                let item = match resource.split_once('#') {
+                    Some((item, _field)) => item.to_string(),
+                    None => resource.clone(),
+                };
+                (json!({"form": "consumer", "consumer": consumer}), Some(item))
             }
-            ("secret", _, _) => bail!("{SECRET_FORMS}"),
-            (_, false, false) => json!({"form": "record"}),
+            (Kind::Secret, _, _) => bail!("{SECRET_FORMS}"),
+            (_, false, false) => (json!({"form": "record"}), None),
             (other, _, _) => bail!(
-                "a {other} request is recorded for its owning product and names no vault grant: \
-                 drop --purpose, --target, --ttl-seconds, --max-uses and --for-consumer"
+                "a {} request is recorded for its owning product and names no vault grant: \
+                 drop --purpose, --target, --ttl-seconds, --max-uses and --for-consumer",
+                other.name()?
             ),
         };
         Ok(Self {
@@ -132,12 +183,13 @@ impl Filing {
                 "host": optional(flags, "host")?,
                 "person": optional(flags, "person")?,
             }),
-            resource: required(flags, "resource")?.to_string(),
+            resource,
             reason: required(flags, "reason")?.to_string(),
             dual_control: crate::cli::args::flag_set(flags, "dual-control"),
             kind,
             action,
             decider,
+            item,
             grant,
             via: via.to_string(),
         })
@@ -159,19 +211,11 @@ impl Filing {
     }
 }
 
-/// Whether the item a secret request resolves to carries the owner's
+/// Whether the vault item a secret request reaches carries the owner's
 /// dual-control tag. Device and membership resources are not vault items.
-fn marked_dual_control(resource: &str, grant: &Value) -> Result<bool> {
-    let item = match text(grant, "form") {
-        "capability" => match crate::access::route::resolution::coordinate_for(resource)? {
-            Ok((item, _)) => item,
-            Err(_) => return Ok(false),
-        },
-        "consumer" => resource
-            .split_once('#')
-            .map_or(resource, |(item, _)| item)
-            .to_string(),
-        _ => return Ok(false),
+fn marked_dual_control(item: Option<&str>) -> Result<bool> {
+    let Some(item) = item else {
+        return Ok(false);
     };
     let vault = Vault::open(vault_path())?;
     Ok(vault
@@ -183,13 +227,14 @@ fn marked_dual_control(resource: &str, grant: &Value) -> Result<bool> {
         .is_some_and(|tags| tags.iter().any(|tag| tag == DUAL_CONTROL_TAG)))
 }
 
-/// The same question asked twice while the first is still open.
+/// The same question asked twice while the first is still open. Fields are
+/// compared as stored, so a record missing one never matches a filing.
 fn same_question(record: &Value, filing: &Filing) -> bool {
-    text(record, "state") == "pending"
+    record["state"] == "pending"
         && record["requester"]["agent"] == filing.requester["agent"]
-        && text(record, "kind") == filing.kind
-        && text(record, "resource") == filing.resource
-        && text(record, "action") == filing.action
+        && record["kind"] == json!(filing.kind)
+        && record["resource"] == json!(filing.resource)
+        && record["action"] == json!(filing.action)
         && record["grant"]["form"] == filing.grant["form"]
         && record["grant"]["purpose"] == filing.grant["purpose"]
         && record["grant"]["target"] == filing.grant["target"]
@@ -200,7 +245,7 @@ fn same_question(record: &Value, filing: &Filing) -> bool {
 /// that is still pending is answered instead of filing a second one: an agent
 /// asking again must not queue the same question for a person twice.
 pub(crate) fn file(filing: Filing, reuse_open: bool) -> Result<Value> {
-    let dual_control = filing.dual_control || marked_dual_control(&filing.resource, &filing.grant)?;
+    let dual_control = filing.dual_control || marked_dual_control(filing.item.as_deref())?;
     let held = register::lock()?;
     let mut doc = register::load()?;
     if reuse_open {

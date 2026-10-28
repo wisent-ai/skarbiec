@@ -15,10 +15,9 @@ mod file;
 mod register;
 mod watch;
 
-pub(crate) use file::{Filing, KINDS};
+pub(crate) use file::{Filing, Kind};
 
 use crate::cli::args::{OrUsage, Usage};
-use register::text;
 
 const COMMANDS: &[&str] = &[
     "request file --kind secret|device|membership --resource <resource> --action <action> --reason <text> --agent <name> [--harness <name>] [--host <name>] [--person <name>] [--decider owner|admin|<uid>] [--dual-control] [--purpose <p> --target <t> --ttl-seconds <N> --max-uses <N> | --for-consumer <name>] [--to <base-url> --consumer <name> --token-file <path>]",
@@ -150,7 +149,7 @@ fn leaf(
             let doc = register::load()?;
             let state = flags.get("state").map(String::as_str);
             let listing: Vec<Value> = register::requests(&doc)
-                .filter(|record| state.is_none_or(|state| text(record, "state") == state))
+                .filter(|record| state.is_none_or(|state| record["state"] == state))
                 .map(|record| {
                     json!({
                         "id": record["id"],
@@ -190,7 +189,7 @@ fn leaf(
                 "usage: request deny <request-id> --by <uid>",
             )?;
             let reason = flags.get("reason").map(String::as_str);
-            decide::close(id, by, "deny", reason).map(Some)
+            decide::close(id, by, decide::Closing::Deny, reason).map(Some)
         }
         "request withdraw" => {
             let (id, by) = id_and_by(
@@ -198,7 +197,7 @@ fn leaf(
                 positionals,
                 "usage: request withdraw <request-id> --by <agent-or-uid>",
             )?;
-            decide::close(id, by, "withdraw", None).map(Some)
+            decide::close(id, by, decide::Closing::Withdraw, None).map(Some)
         }
         "request watch" => {
             if !crate::cli::args::flag_set(flags, "local") {

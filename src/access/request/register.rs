@@ -11,15 +11,35 @@ use anyhow::{bail, Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Value};
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{ErrorKind, Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
 use crate::core::vault_path;
 
-/// Owner read and write, nothing for group or other (POSIX mode 0600): the
-/// same mode the donation inbox and the capability state are kept at.
-const OWNER_ONLY: u32 = 0o600;
+/// Owner read and write, nothing for group or other: the same mode the
+/// donation inbox and the capability state are kept at.
+fn owner_only() -> u32 {
+    u32::from(libc::S_IRUSR | libc::S_IWUSR)
+}
+
+/// The octets of a UUID and the layout of version 4 (random) ones:
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-5.4>.
+const UUID_OCTETS: usize = 16;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-5.4>: octet holding the version.
+const VERSION_OCTET: usize = 6;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-5.4>: version 4 in the high nibble.
+const VERSION_BITS: u8 = 0x40;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-5.4>: the random low nibble kept.
+const VERSION_KEPT: u8 = 0x0f;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-5.4>: octet holding the variant.
+const VARIANT_OCTET: usize = 8;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-4.1>: variant bits `10`.
+const VARIANT_BITS: u8 = 0x80;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-4.1>: the random bits kept.
+const VARIANT_KEPT: u8 = 0x3f;
+/// <https://www.rfc-editor.org/rfc/rfc9562#section-4>: octets per hyphenated group.
+const GROUP_OCTETS: &[usize] = &[4, 2, 2, 2, 6];
 
 pub(super) fn register_path() -> PathBuf {
     vault_path().with_extension("requests.json")
@@ -42,7 +62,11 @@ pub(super) struct RegisterLock(File);
 
 impl Drop for RegisterLock {
     fn drop(&mut self) {
-        let _ = self.0.unlock();
+        // The kernel releases the lock when the file closes right after;
+        // an unlock that fails is still said.
+        if let Err(error) = self.0.unlock() {
+            eprintln!("request register lock could not be released before closing: {error}");
+        }
     }
 }
 
@@ -53,10 +77,12 @@ pub(super) fn lock() -> Result<RegisterLock> {
         .write(true)
         .create(true)
         .truncate(false)
-        .mode(OWNER_ONLY)
+        .mode(owner_only())
         .open(&path)
         .with_context(|| format!("open request register lock {}", path.display()))?;
-    file.lock_exclusive().context("lock request register")?;
+    let place = path.display().to_string();
+    stado_wait::blocking(stado_wait::Kind::Lock, "the request register lock", place, || file.lock_exclusive())
+        .context("lock request register")?;
     Ok(RegisterLock(file))
 }
 
@@ -91,10 +117,10 @@ pub(super) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .mode(OWNER_ONLY)
+        .mode(owner_only())
         .open(path)
         .with_context(|| format!("open {}", path.display()))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(OWNER_ONLY))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(owner_only()))?;
     file.write_all(bytes)
         .with_context(|| format!("write {}", path.display()))?;
     Ok(())
@@ -102,14 +128,22 @@ pub(super) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 
 /// Tell a running watcher the register changed. Nobody watching is the
 /// ordinary case and not a failure: the FIFO is absent, or present with no
-/// reader (ENXIO), or already holds an unread wake (EAGAIN).
+/// reader (ENXIO), or already holds an unread wake (EAGAIN). Any other
+/// failure is said, since a watcher would then sit on a stale register.
 fn wake() {
-    if let Ok(mut fifo) = OpenOptions::new()
-        .write(true)
-        .custom_flags(libc::O_NONBLOCK)
-        .open(wake_path())
-    {
-        let _ = fifo.write_all(b"\n");
+    let fifo = OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(wake_path());
+    let mut fifo = match fifo {
+        Ok(fifo) => fifo,
+        Err(error) if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ENXIO) => return,
+        Err(error) => {
+            eprintln!("request watcher could not be woken: {}: {error}", wake_path().display());
+            return;
+        }
+    };
+    match fifo.write_all(b"\n") {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::WouldBlock => {}
+        Err(error) => eprintln!("request watcher could not be woken: {}: {error}", wake_path().display()),
     }
 }
 
@@ -136,31 +170,35 @@ pub(super) fn get(doc: &Value, id: &str) -> Result<Value> {
         .with_context(|| format!("no access request {id}"))
 }
 
-pub(super) fn text<'a>(record: &'a Value, key: &str) -> &'a str {
-    record.get(key).and_then(Value::as_str).unwrap_or_default()
+/// The text `key` holds in a register record, or the refusal naming the
+/// record and the key it lacks: a record missing one is damaged, and is
+/// never read as an empty answer.
+pub(super) fn text<'a>(record: &'a Value, key: &str) -> Result<&'a str> {
+    record.get(key).and_then(Value::as_str).with_context(|| {
+        format!("access request record holds no text {key}: {record}")
+    })
 }
 
-/// A request id: a version 4 UUID in lowercase (RFC 9562 section 5.4), the
-/// shape Las accepts as `request_id` and redemption accepts as an
-/// authorization id.
+/// A request id: a version 4 UUID in lowercase, the shape Las accepts as
+/// `request_id` and redemption accepts as an authorization id.
 pub(super) fn new_id() -> Result<String> {
-    let hex = crate::core::crypto::random_token()?;
-    let digits: Vec<char> = hex.chars().collect();
-    // RFC 9562 section 4: 8-4-4-4-12 hex digits; the 13th digit is the
-    // version (4) and the top two bits of the 17th are the variant (10).
-    let group = |from: usize, to: usize| digits[from..to].iter().collect::<String>();
-    let variant = digits[16]
-        .to_digit(16)
-        .map(|value| (value & 0x3) | 0x8)
-        .and_then(|value| char::from_digit(value, 16))
-        .context("random token is not hex")?;
-    Ok(format!(
-        "{}-{}-4{}-{}{}-{}",
-        group(0, 8),
-        group(8, 12),
-        group(13, 16),
-        variant,
-        group(17, 20),
-        group(20, 32)
-    ))
+    let mut octets = Vec::with_capacity(UUID_OCTETS);
+    File::open("/dev/urandom")
+        .context("open /dev/urandom")?
+        .take(u64::try_from(UUID_OCTETS).context("a UUID's length does not fit a read length")?)
+        .read_to_end(&mut octets)
+        .context("read /dev/urandom")?;
+    if octets.len() != UUID_OCTETS {
+        bail!("/dev/urandom gave {} of the {UUID_OCTETS} octets a request id needs", octets.len());
+    }
+    octets[VERSION_OCTET] = (octets[VERSION_OCTET] & VERSION_KEPT) | VERSION_BITS;
+    octets[VARIANT_OCTET] = (octets[VARIANT_OCTET] & VARIANT_KEPT) | VARIANT_BITS;
+    let mut groups = Vec::new();
+    let mut rest = octets.as_slice();
+    for width in GROUP_OCTETS {
+        let (group, after) = rest.split_at(*width);
+        groups.push(group.iter().map(|octet| format!("{octet:02x}")).collect::<String>());
+        rest = after;
+    }
+    Ok(groups.join("-"))
 }

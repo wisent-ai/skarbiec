@@ -22,17 +22,17 @@ pub(crate) fn handle_access_request(
     let Some(parsed) = http::request_json(stream, body)? else {
         return Ok(());
     };
-    let Some(kind) = parsed
-        .get("kind")
-        .and_then(Value::as_str)
-        .filter(|kind| crate::access::request::KINDS.contains(kind))
-    else {
+    let Some(kind) = parsed.get("kind").and_then(Value::as_str) else {
         let e = &json!({"error": format!(
             "kind required: one of {}",
-            crate::access::request::KINDS.join(", ")
+            crate::access::request::Kind::listed(", ")
         )});
         return http::write_response(stream, "HTTP/1.1 400 Bad Request", e);
     };
+    if let Err(cause) = crate::access::request::Kind::named(kind) {
+        let e = &json!({"error": format!("{cause:#}")});
+        return http::write_response(stream, "HTTP/1.1 400 Bad Request", e);
+    }
     let (consumer, bearer) = match http::presented_identity(headers) {
         Ok(identity) => identity,
         Err(reason) => return http::unidentified(stream, &reason),
