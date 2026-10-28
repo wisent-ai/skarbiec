@@ -147,12 +147,27 @@ pub fn introspect(vault: &Vault, presented: &str) -> Result<Value> {
         if !active(entry) {
             return Ok(inactive);
         }
+        // Every grant this vault version holds carries an audience and a
+        // capabilities list (the migration writes both and its validation
+        // refuses a vault without them), so a grant without one is a
+        // malformed vault, said by name rather than answered as a grant that
+        // may do nothing. `active` has read `expires_at` as a number.
+        let (Some(audience), Some(capabilities)) = (
+            entry.get("audience"),
+            entry.get("capabilities").and_then(Value::as_array),
+        ) else {
+            anyhow::bail!(
+                "the vault's grant for {consumer} matches the presented bearer but holds no \
+                 audience or no capabilities list, which every grant of this vault version \
+                 carries; the vault is malformed"
+            );
+        };
         return Ok(json!({
             "active": true,
             "consumer": consumer,
-            "audience": entry.get("audience").cloned().unwrap_or(Value::Null),
-            "capabilities": entry.get("capabilities").cloned().unwrap_or(json!([])),
-            "expires_at": entry.get("expires_at").cloned().unwrap_or(Value::Null),
+            "audience": audience,
+            "capabilities": capabilities,
+            "expires_at": entry["expires_at"],
         }));
     }
     Ok(inactive)
