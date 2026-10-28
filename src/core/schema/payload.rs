@@ -4,41 +4,57 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 
-use super::kinds::{allowed_fields, supported_kind};
+use super::kinds::{declared, Declared, Field, Shape};
 use super::IDENTITY_REFERENCE;
 use super::{exact_component, ITEM_SCHEMA};
 
-fn required(fields: &Map<String, Value>, names: &[&str], kind: &str) -> Result<()> {
-    for name in names {
-        if !fields.contains_key(*name) {
-            bail!("{kind} payload requires fields.{name}");
+/// Whether `value` is the value `shape` declares.
+fn holds(shape: Shape, value: &Value) -> bool {
+    match shape {
+        Shape::Text => value.is_string(),
+        Shape::TextOrList => value.is_string() || value.is_array(),
+        Shape::TextOrObject => value.is_string() || value.is_object(),
+        Shape::Any => true,
+    }
+}
+
+/// The fields of a kind that takes exactly `declared`: no other name, each
+/// value the shape it declares, every required one present, and at least
+/// one of each set the kind needs one of.
+fn check_declared(kind: &str, declared: &[Field], fields: &Map<String, Value>) -> Result<()> {
+    for (name, value) in fields {
+        let Some(field) = declared.iter().find(|field| field.name == name.as_str()) else {
+            bail!("field {name} is not allowed for {kind}");
+        };
+        if !holds(field.shape, value) {
+            bail!("{kind} field {name} has an invalid value type");
+        }
+    }
+    for field in declared {
+        if field.required && !fields.contains_key(field.name) {
+            bail!("{kind} payload requires fields.{}", field.name);
+        }
+        let Some(set) = field.one_of else {
+            continue;
+        };
+        let members = declared.iter().filter(|member| member.one_of == Some(set));
+        if !members.clone().any(|member| fields.contains_key(member.name)) {
+            let named = members
+                .map(|member| format!("fields.{}", member.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            bail!("{kind} payload requires at least one {set}: {named}");
         }
     }
     Ok(())
 }
 
-fn valid_field_value(kind: &str, name: &str, value: &Value) -> bool {
-    if matches!(
-        kind,
-        "stado-secret"
-            | "internal-authority"
-            | "credential-operation"
-            | "credential-directory-seal"
-            | "bundle"
-    ) {
-        return true;
-    }
-    match name {
-        "ports" | "recovery_codes" | "chain" => value.is_array() || value.is_string(),
-        "credential_json" => value.is_object() || value.is_string(),
-        _ => value.is_string(),
-    }
-}
-
 pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
-    if !supported_kind(expected_kind) {
-        bail!("unsupported canonical item kind: {expected_kind}");
-    }
+    let declared_fields = match declared(expected_kind) {
+        Declared::Unknown => bail!("unsupported canonical item kind: {expected_kind}"),
+        Declared::Open => None,
+        Declared::Fields(fields) => Some(fields),
+    };
     let object = payload
         .as_object()
         .context("canonical item payload must be an object")?;
@@ -63,66 +79,15 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
     if fields.is_empty() {
         bail!("canonical item fields cannot be empty");
     }
-    if let Some(allowed) = allowed_fields(expected_kind) {
-        for (name, value) in fields {
-            if !allowed.contains(&name.as_str()) {
-                bail!("field {name} is not allowed for {expected_kind}");
-            }
-            if !valid_field_value(expected_kind, name, value) {
-                bail!("{expected_kind} field {name} has an invalid value type");
-            }
-        }
-    } else {
-        for name in fields.keys() {
-            if !exact_component(name) {
-                bail!("invalid logical field name: {name}");
+    match declared_fields {
+        Some(declared) => check_declared(expected_kind, declared, fields)?,
+        None => {
+            for name in fields.keys() {
+                if !exact_component(name) {
+                    bail!("invalid logical field name: {name}");
+                }
             }
         }
-    }
-    match expected_kind {
-        "note" => required(fields, &["value"], expected_kind)?,
-        "login" => {
-            required(fields, &["username"], expected_kind)?;
-            if !["password", "totp_secret", "recovery_codes"]
-                .iter()
-                .any(|name| fields.contains_key(*name))
-            {
-                bail!("login payload requires at least one authentication factor");
-            }
-        }
-        // An identity is who an account belongs to, so it has to be nameable:
-        // an address, a phone number, or both. Its authentication factors are
-        // optional, because an identity is worth recording before its
-        // authenticator is enrolled — that gap is exactly what nothing could
-        // express while `totp_secret` lived only on platform rows.
-        "identity" => {
-            if !["email", "phone"]
-                .iter()
-                .any(|name| fields.contains_key(*name))
-            {
-                bail!("identity payload requires email or phone");
-            }
-        }
-        // Both fields are required because a host account with only a username is
-        // not a credential, and one with only a password cannot say who it is.
-        "host-account" => required(fields, &["username", "password"], expected_kind)?,
-        "api-key" => required(fields, &["api_key"], expected_kind)?,
-        "access-key" => required(
-            fields,
-            &["access_key_id", "secret_access_key"],
-            expected_kind,
-        )?,
-        "token" => required(fields, &["token"], expected_kind)?,
-        "oauth-client" => required(fields, &["client_id", "client_secret"], expected_kind)?,
-        "proxy" => required(fields, &["username", "password"], expected_kind)?,
-        "key-pair" => required(fields, &["private_key"], expected_kind)?,
-        "certificate" => required(fields, &["certificate", "private_key"], expected_kind)?,
-        "service-account" => required(fields, &["credential_json"], expected_kind)?,
-        "credential-operation" | "credential-directory-seal" => {
-            required(fields, &["value"], expected_kind)?;
-        }
-        "stado-secret" | "internal-authority" | "bundle" => {}
-        _ => unreachable!(),
     }
     if object.get("context").and_then(Value::as_object).is_none() {
         bail!("canonical item context must be an object");
@@ -200,9 +165,10 @@ pub fn kind_allows_field(kind: &str, name: &str) -> bool {
     if name == "context" {
         return true;
     }
-    allowed_fields(kind)
-        .map(|allowed| allowed.contains(&name))
-        .unwrap_or_else(|| exact_component(name))
+    match declared(kind) {
+        Declared::Fields(fields) => fields.iter().any(|field| field.name == name),
+        Declared::Open | Declared::Unknown => exact_component(name),
+    }
 }
 
 /// Whether a kind's own field list NAMES this field.
@@ -214,7 +180,7 @@ pub fn kind_allows_field(kind: &str, name: &str) -> bool {
 /// needs the declaration, not the absence of a prohibition; treating the two
 /// as the same reported a bundle as a login row missing its seed.
 pub fn kind_declares_field(kind: &str, name: &str) -> bool {
-    allowed_fields(kind).is_some_and(|allowed| allowed.contains(&name))
+    matches!(declared(kind), Declared::Fields(fields) if fields.iter().any(|field| field.name == name))
 }
 
 pub fn allows_field(payload: &Value, name: &str) -> bool {

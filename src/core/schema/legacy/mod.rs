@@ -1,297 +1,187 @@
 // Reading an item written before this schema existed, and saying which
-// canonical kind and payload it becomes.
+// canonical kind and payload it becomes. The legacy kind an item was written
+// under is read through the declared `LegacyKind`, and an item whose legacy
+// shape cannot become its kind as written is kept whole, its context's
+// `import_warning` saying what was kept and why.
 
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use super::kinds::{CERTIFICATE_FIELDS, OAUTH_CLIENT_FIELDS, PROXY_FIELDS};
+use super::kinds::names;
 use super::payload::{payload, validate_payload};
 use super::ITEM_SCHEMA;
 
-fn take_alias(source: &mut Map<String, Value>, aliases: &[&str]) -> Option<Value> {
-    let value = aliases.iter().find_map(|name| source.get(*name).cloned());
-    for name in aliases {
-        source.remove(*name);
-    }
-    value.filter(|value| !value.is_null())
+mod context;
+mod fields;
+use context::{legacy_context, warn};
+
+/// A legacy service account's credential document, under either name its
+/// writers gave it; both at once is a record that cannot be read as one.
+#[derive(Deserialize)]
+struct LegacyServiceAccount {
+    #[serde(alias = "service_account_json")]
+    credential_json: Option<Value>,
 }
 
-fn text_alias(source: &mut Map<String, Value>, aliases: &[&str]) -> Option<Value> {
-    take_alias(source, aliases).filter(Value::is_string)
+/// Every kind a legacy item was written under, as its writers spelled it
+/// (case-insensitive, `_` read as `-`). A kind no writer used is `Unknown`.
+#[derive(Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "kebab-case")]
+enum LegacyKind {
+    Login,
+    PlatformAdmin,
+    Credential,
+    AiCli,
+    GoogleSso,
+    Auth,
+    Api,
+    ApiKey,
+    AwsCredentials,
+    Proxy,
+    Key,
+    SshKey,
+    Token,
+    Secret,
+    OauthClient,
+    Certificate,
+    ServiceAccount,
+    StadoSecret,
+    #[serde(alias = "credential-request")]
+    CredentialOperation,
+    InternalAuthority,
+    Env,
+    Config,
+    #[serde(other)]
+    Unknown,
 }
 
-fn legacy_context(source: &mut Map<String, Value>, legacy_kind: &str) -> Map<String, Value> {
-    let metadata = source
-        .remove("metadata")
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default();
-    let mut context = metadata.clone();
-    context.insert("source_kind".to_string(), json!(legacy_kind));
-    for (target, aliases) in [
-        ("provider", &["provider"][..]),
-        (
-            "account_ref",
-            &["account_ref", "account_identifier", "account_email"][..],
-        ),
-        ("tenant_ref", &["tenant_ref", "tenant_id"][..]),
-        ("request_id", &["_weles_request_id", "request_id"][..]),
-        ("operation", &["_weles_operation", "operation"][..]),
-        ("session_label", &["session_label"][..]),
-        ("login_method", &["login_method"][..]),
-        ("name", &["name"][..]),
-        ("login_url", &["login_url", "dashboard_url"][..]),
-    ] {
-        let value = take_alias(source, aliases)
-            .or_else(|| aliases.iter().find_map(|name| metadata.get(*name).cloned()));
-        for alias in aliases {
-            context.remove(*alias);
-        }
-        if let Some(value) = value {
-            context.insert(target.to_string(), value);
-        }
+impl LegacyKind {
+    /// The kind as spelled in the declaration above, for the bundle profile.
+    fn spelled(written: &str) -> String {
+        written.trim().to_ascii_lowercase().replace('_', "-")
     }
-    for name in ["domains", "domain"] {
-        if let Some(value) = take_alias(source, &[name]).or_else(|| metadata.get(name).cloned()) {
-            context.insert(name.to_string(), value);
-        }
+
+    /// The declared kind `written` names; a kind no writer used is `Unknown`
+    /// through `other`, and a spelling serde cannot read as a kind is refused
+    /// naming it rather than taken for an unknown one.
+    fn read(written: &str) -> Result<Self> {
+        serde_json::from_value(json!(Self::spelled(written)))
+            .with_context(|| format!("legacy kind {written:?} cannot be read as a declared kind"))
     }
-    context
 }
 
 fn fallback_payload(fallback: Value, context: Map<String, Value>) -> Result<(String, Value)> {
     let mut fields = Map::new();
     fields.insert("value".to_string(), fallback);
-    Ok((
-        "stado-secret".to_string(),
-        payload("stado-secret", fields, context)?,
-    ))
+    Ok(("stado-secret".to_string(), payload("stado-secret", fields, context)?))
 }
 
 pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value)> {
     if legacy.get("schema").and_then(Value::as_str) == Some(ITEM_SCHEMA) {
-        let kind = legacy
-            .get("kind")
-            .and_then(Value::as_str)
-            .context("canonical payload has no kind")?
-            .to_string();
+        let kind = legacy.get("kind").and_then(Value::as_str).context("canonical payload has no kind")?.to_string();
         validate_payload(&legacy, &kind)?;
         return Ok((kind, legacy));
     }
     let fallback = legacy.clone();
-    let mut source = legacy.as_object().cloned().unwrap_or_else(|| {
-        let mut object = Map::new();
-        object.insert("value".to_string(), legacy);
-        object
-    });
+    let wrapped = !legacy.is_object();
+    let mut source = match legacy {
+        Value::Object(object) => object,
+        other => Map::from_iter([("value".to_string(), other)]),
+    };
     source.remove("type");
     source.remove("category");
     source.remove("display_name");
     if let Some(metadata) = source.get("metadata").and_then(Value::as_object).cloned() {
-        for name in ["totp_secret", "google_totp_secret", "recovery_codes"] {
-            if !source.contains_key(name) {
-                if let Some(value) = metadata.get(name) {
-                    source.insert(name.to_string(), value.clone());
-                }
-            }
-        }
+        fields::lift_metadata_secrets(&mut source, &metadata);
     }
     let mut context = legacy_context(&mut source, legacy_kind);
-    let normalized = match legacy_kind.trim().to_ascii_lowercase().replace('_', "-") {
-        kind if kind == "credential-request" => "credential-operation".to_string(),
-        kind => kind,
-    };
-    let has_login_field = source.keys().any(|name| {
-        matches!(
-            name.as_str(),
-            "username"
-                | "email"
-                | "login-email"
-                | "login_email"
-                | "password"
-                | "login-password"
-                | "login_password"
-        )
-    });
+    if wrapped {
+        warn(&mut context, "the legacy item was not an object; its whole value is kept as value".to_string());
+    }
+    let written = LegacyKind::read(legacy_kind)?;
+    let has = |source: &Map<String, Value>, name: &str| source.contains_key(name);
+    let login_like = matches!(
+        written,
+        LegacyKind::Login
+            | LegacyKind::PlatformAdmin
+            | LegacyKind::Credential
+            | LegacyKind::AiCli
+            | LegacyKind::GoogleSso
+            | LegacyKind::Auth
+    );
     let mut fields = Map::new();
-    let kind = if matches!(
-        normalized.as_str(),
-        "login" | "platform-admin" | "credential" | "ai-cli" | "google-sso" | "auth"
-    ) && has_login_field
-        && !source.contains_key("api_key")
-        && !source.contains_key("NAMECHEAP_API_KEY")
+    let kind = if login_like
+        && fields::has_login_field(&source)
+        && !has(&source, "api_key")
+        && !has(&source, "NAMECHEAP_API_KEY")
     {
-        if let Some(value) = text_alias(
-            &mut source,
-            &["username", "email", "login_email", "login-email"],
-        ) {
-            context
-                .entry("account_ref".to_string())
-                .or_insert_with(|| value.clone());
-            fields.insert("username".to_string(), value);
-        }
-        if let Some(value) = text_alias(
-            &mut source,
-            &["password", "login_password", "login-password"],
-        ) {
-            fields.insert("password".to_string(), value);
-        }
-        if let Some(value) = text_alias(
-            &mut source,
-            &["totp_secret", "google_totp_secret", "totp-secret"],
-        ) {
-            fields.insert("totp_secret".to_string(), value);
-        }
-        if let Some(value) = take_alias(&mut source, &["recovery_codes", "recovery-codes"]) {
-            fields.insert("recovery_codes".to_string(), value);
-        }
+        fields::login(&mut source, &mut fields, &mut context);
         "login"
-    } else if matches!(normalized.as_str(), "api" | "api-key" | "ai-cli")
-        || (normalized == "credential" && source.contains_key("api_key"))
-        || (normalized == "platform-admin" && source.contains_key("NAMECHEAP_API_KEY"))
+    } else if matches!(written, LegacyKind::Api | LegacyKind::ApiKey | LegacyKind::AiCli)
+        || (written == LegacyKind::Credential && has(&source, "api_key"))
+        || (written == LegacyKind::PlatformAdmin && has(&source, "NAMECHEAP_API_KEY"))
     {
-        if let Some(value) = text_alias(
-            &mut source,
-            &["api_key", "api-key", "api_token", "NAMECHEAP_API_KEY"],
-        ) {
-            fields.insert("api_key".to_string(), value);
-        }
-        if let Some(value) =
-            text_alias(&mut source, &["api_user", "api-user", "NAMECHEAP_API_USER"])
-        {
-            fields.insert("api_user".to_string(), value);
-        }
-        if let Some(value) = text_alias(&mut source, &["username", "NAMECHEAP_USERNAME"]) {
-            fields.insert("username".to_string(), value);
-        }
-        if let Some(value) = text_alias(
-            &mut source,
-            &["client_ip", "client-ip", "NAMECHEAP_CLIENT_IP"],
-        ) {
-            fields.insert("client_ip".to_string(), value);
-        }
+        fields::api_key(&mut source, &mut fields);
         "api-key"
-    } else if normalized == "aws-credentials"
-        || (normalized == "auth" && source.contains_key("access_key_id"))
-    {
-        if let Some(value) = text_alias(
-            &mut source,
-            &["access_key_id", "aws_access_key_id", "AWS_ACCESS_KEY_ID"],
-        ) {
-            fields.insert("access_key_id".to_string(), value);
-        }
-        if let Some(value) = text_alias(
-            &mut source,
-            &[
-                "secret_access_key",
-                "aws_secret_access_key",
-                "AWS_SECRET_ACCESS_KEY",
-            ],
-        ) {
-            fields.insert("secret_access_key".to_string(), value);
-        }
-        if let Some(value) = text_alias(
-            &mut source,
-            &["session_token", "aws_session_token", "AWS_SESSION_TOKEN"],
-        ) {
-            fields.insert("session_token".to_string(), value);
-        }
+    } else if written == LegacyKind::AwsCredentials || (written == LegacyKind::Auth && has(&source, "access_key_id")) {
+        fields::access_key(&mut source, &mut fields);
         "access-key"
-    } else if normalized == "proxy" {
-        for name in PROXY_FIELDS {
-            if let Some(value) = take_alias(&mut source, &[*name]) {
-                fields.insert((*name).to_string(), value);
-            }
-        }
+    } else if written == LegacyKind::Proxy {
+        fields::named(&mut source, &mut fields, &names("proxy"), false);
         "proxy"
-    } else if matches!(normalized.as_str(), "key" | "ssh-key")
-        || (normalized == "credential" && source.contains_key("p8"))
+    } else if matches!(written, LegacyKind::Key | LegacyKind::SshKey)
+        || (written == LegacyKind::Credential && has(&source, "p8"))
     {
-        if let Some(value) = text_alias(
-            &mut source,
-            &["private_key", "private_key_pem", "key", "p8"],
-        ) {
-            fields.insert("private_key".to_string(), value);
-        }
-        if let Some(value) = text_alias(&mut source, &["public_key"]) {
-            fields.insert("public_key".to_string(), value);
-        }
-        if let Some(value) = text_alias(&mut source, &["passphrase"]) {
-            fields.insert("passphrase".to_string(), value);
-        }
-        for name in ["key_id", "issuer_id", "team_id"] {
-            if let Some(value) = take_alias(&mut source, &[name]) {
-                fields.insert(name.to_string(), value);
-            }
-        }
-        for name in ["fingerprint", "key_type"] {
-            if let Some(value) = take_alias(&mut source, &[name]) {
-                context.insert(name.to_string(), value);
-            }
-        }
+        fields::key_pair(&mut source, &mut fields, &mut context);
         "key-pair"
-    } else if normalized == "token" || (normalized == "secret" && source.contains_key("token")) {
-        if let Some(value) = text_alias(&mut source, &["token"]) {
-            fields.insert("token".to_string(), value);
-        }
+    } else if written == LegacyKind::Token || (written == LegacyKind::Secret && has(&source, "token")) {
+        fields::token(&mut source, &mut fields);
         "token"
-    } else if normalized == "oauth-client" {
-        for name in OAUTH_CLIENT_FIELDS {
-            if let Some(value) = text_alias(&mut source, &[*name]) {
-                fields.insert((*name).to_string(), value);
-            }
-        }
+    } else if written == LegacyKind::OauthClient {
+        fields::named(&mut source, &mut fields, &names("oauth-client"), true);
         "oauth-client"
-    } else if normalized == "certificate" {
-        for name in CERTIFICATE_FIELDS {
-            if let Some(value) = take_alias(&mut source, &[*name]) {
-                fields.insert((*name).to_string(), value);
-            }
-        }
+    } else if written == LegacyKind::Certificate {
+        fields::named(&mut source, &mut fields, &names("certificate"), false);
         "certificate"
-    } else if normalized == "service-account" {
-        let credential = take_alias(&mut source, &["credential_json", "service_account_json"])
-            .unwrap_or_else(|| Value::Object(source.clone()));
+    } else if written == LegacyKind::ServiceAccount {
+        let read = serde_json::from_value::<LegacyServiceAccount>(Value::Object(source.clone()));
+        let whole = |context: &mut Map<String, Value>, why: String| {
+            warn(context, format!("{why}; its whole record is kept as credential_json"));
+            Value::Object(source.clone())
+        };
+        let credential = match read {
+            Ok(LegacyServiceAccount { credential_json: Some(credential) }) => credential,
+            Ok(LegacyServiceAccount { credential_json: None }) => {
+                whole(&mut context, "the legacy service account named no credential_json".to_string())
+            }
+            Err(error) => whole(&mut context, format!("the legacy service account's credential cannot be read ({error})")),
+        };
         fields.insert("credential_json".to_string(), credential);
         "service-account"
-    } else if normalized == "stado-secret" {
+    } else if written == LegacyKind::StadoSecret {
         fields = source.clone();
         "stado-secret"
-    } else if normalized == "credential-operation" {
+    } else if written == LegacyKind::CredentialOperation {
         fields.insert("value".to_string(), fallback.clone());
         "credential-operation"
-    } else if normalized == "internal-authority" {
-        for (field, aliases) in [
-            ("url", &["url", "base_url"][..]),
-            (
-                "token",
-                &["token", "api_token", "access_token", "worker_token"][..],
-            ),
-            ("service_role_key", &["service_role_key", "service_key"][..]),
-            ("signing_secret", &["signing_secret", "signing_key"][..]),
-            (
-                "agent_auth_secret",
-                &["agent_auth_secret", "auth_secret"][..],
-            ),
-            ("id", &["id", "agent_id"][..]),
-            ("hmac_secret", &["hmac_secret"][..]),
-        ] {
-            if let Some(value) =
-                take_alias(&mut source, aliases).or_else(|| take_alias(&mut context, aliases))
-            {
-                fields.insert(field.to_string(), value);
-            }
-        }
+    } else if written == LegacyKind::InternalAuthority {
+        fields::internal_authority(&mut source, &mut fields, &mut context);
         fields.extend(source.clone());
         "internal-authority"
-    } else if matches!(normalized.as_str(), "env" | "config" | "credential") {
+    } else if matches!(written, LegacyKind::Env | LegacyKind::Config | LegacyKind::Credential) {
         fields = source.clone();
-        context.insert("profile".to_string(), json!(normalized));
+        context.insert("profile".to_string(), json!(LegacyKind::spelled(legacy_kind)));
         "bundle"
     } else {
+        warn(&mut context, format!("legacy kind {legacy_kind:?} has no canonical kind; the item is kept whole"));
         return fallback_payload(fallback, context);
     };
     match payload(kind, fields, context.clone()) {
         Ok(value) => Ok((kind.to_string(), value)),
-        Err(_) => fallback_payload(fallback, context),
+        Err(refusal) => {
+            warn(&mut context, format!("the {kind} fields were refused ({refusal:#}); the item is kept whole"));
+            fallback_payload(fallback, context)
+        }
     }
 }
