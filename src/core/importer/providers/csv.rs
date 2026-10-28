@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashSet;
 
-use super::super::{login_fields, source_row, ImportDocument};
+use super::super::{login_fields, source_row, ImportDocument, NOT_STATED};
 
 pub(in crate::core::importer) fn document(bytes: &[u8], requested: &str) -> Result<ImportDocument> {
     let mut reader = ::csv::ReaderBuilder::new().from_reader(bytes);
@@ -44,21 +44,30 @@ pub(in crate::core::importer) fn document(bytes: &[u8], requested: &str) -> Resu
     }
     let provider = format.provider();
     let mut rows = Vec::new();
-    for (index, record) in reader.records().enumerate() {
-        let record = record.with_context(|| format!("invalid CSV record {}", index + 2))?;
+    for record in reader.records() {
+        // The reader's error names the record and line it could not read.
+        let record = record.context("invalid CSV record")?;
         if record.iter().all(str::is_empty) {
             continue;
         }
+        let line = match record.position() {
+            Some(position) => format!("on line {}", position.line()),
+            None => "at a position the CSV reader did not record".to_string(),
+        };
+        // A column this export format does not carry reads as not stated,
+        // as an exporter's absent field does: saved source identities hash
+        // the empty text for it, so a re-import still finds their items.
         let get = |names: &[&str]| -> &str {
-            names
-                .iter()
-                .find_map(|name| {
-                    headers
-                        .iter()
-                        .position(|header| header == name)
-                        .and_then(|index| record.get(index))
-                })
-                .unwrap_or_default()
+            let cell = names.iter().find_map(|name| {
+                headers
+                    .iter()
+                    .position(|header| header == name)
+                    .and_then(|index| record.get(index))
+            });
+            match cell {
+                Some(cell) => cell,
+                None => NOT_STATED,
+            }
         };
         let title = get(&["title", "name"]);
         let url = get(&["website", "url", "login_uri"]);
@@ -80,7 +89,7 @@ pub(in crate::core::importer) fn document(bytes: &[u8], requested: &str) -> Resu
         {
             "" | "0" | "false" | "no" => false,
             "1" | "true" | "yes" => true,
-            _ => bail!("CSV record {} has an unsupported archived value", index + 2),
+            _ => bail!("CSV record {line} has an unsupported archived value"),
         };
         let source_type = get(&["type"]);
         let mut context = Map::from_iter([
