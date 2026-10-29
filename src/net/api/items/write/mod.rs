@@ -13,6 +13,36 @@ use crate::core::inbox;
 use crate::credential::Operation;
 use crate::net::http;
 
+/// The managed write a caller asks for, declared once: the refusal of an
+/// unknown mode, the dispatch and the answer all read it, so a mode nobody
+/// handles is refused as such before any item is looked at.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Acquire,
+    Stage,
+    Rotate,
+}
+
+const MODES: &[Mode] = &[Mode::Acquire, Mode::Stage, Mode::Rotate];
+
+impl Mode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Mode::Acquire => "acquire",
+            Mode::Stage => "stage",
+            Mode::Rotate => "rotate",
+        }
+    }
+
+    fn parse(name: &str) -> Option<Mode> {
+        MODES.iter().copied().find(|mode| mode.as_str() == name)
+    }
+
+    fn names() -> String {
+        MODES.iter().map(|mode| mode.as_str()).collect::<Vec<_>>().join(", ")
+    }
+}
+
 pub(crate) fn handle_items_put(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
@@ -42,11 +72,18 @@ pub(crate) fn handle_items_put(
             &json!({"error": "operation_id required"}),
         );
     };
-    let Some(mode) = parsed.get("mode").and_then(Value::as_str) else {
+    let Some(asked) = parsed.get("mode").and_then(Value::as_str) else {
         return http::write_response(
             stream,
             "HTTP/1.1 400 Bad Request",
-            &json!({"error": "mode required: acquire, stage or rotate"}),
+            &json!({"error": format!("mode required: one of {}", Mode::names())}),
+        );
+    };
+    let Some(mode) = Mode::parse(asked) else {
+        return http::write_response(
+            stream,
+            "HTTP/1.1 400 Bad Request",
+            &json!({"error": format!("mode {asked} is not a managed write; send one of {}", Mode::names())}),
         );
     };
     let (consumer, bearer) = match http::presented_identity(headers) {
@@ -62,9 +99,9 @@ pub(crate) fn handle_items_put(
         None => requested,
         Some(role) => {
             let item = match mode {
-                "acquire" => crate::credential::pending_role_acquisition(&vault, role),
-                "stage" => crate::access::acquisition::role::item_for(&vault, requested).map(Some),
-                _ => Ok(None),
+                Mode::Acquire => crate::credential::pending_role_acquisition(&vault, role),
+                Mode::Stage => crate::access::acquisition::role::item_for(&vault, requested).map(Some),
+                Mode::Rotate => Ok(None),
             };
             let item = match item {
                 Ok(Some(item)) => item,
@@ -73,7 +110,7 @@ pub(crate) fn handle_items_put(
                         stream,
                         "HTTP/1.1 409 Conflict",
                         &json!({"error": format!(
-                            "role {role} resolves to no item for {mode}: stage needs the one live item tagged stado:role:{role}, acquire needs an acquisition started with credential acquire role:{role}, and rotate names an item"
+                            "role {role} resolves to no item for {mode}: stage needs the one live item tagged stado:role:{role}, acquire needs an acquisition started with credential acquire role:{role}, and rotate names an item", mode = mode.as_str()
                         )}),
                     );
                 }
@@ -81,7 +118,7 @@ pub(crate) fn handle_items_put(
                     return http::write_response(
                         stream,
                         "HTTP/1.1 409 Conflict",
-                        &json!({"error": format!("resolve {requested} for {mode}: {error:#}")}),
+                        &json!({"error": format!("resolve {requested} for {mode}: {error:#}", mode = mode.as_str())}),
                     );
                 }
             };
@@ -96,21 +133,7 @@ pub(crate) fn handle_items_put(
             &json!({"error": "credential operation records and sealed directory contracts cannot be changed through item APIs"}),
         );
     }
-    if mode == "rotate" {
-        return super::rotate::handle(
-            stream,
-            vault,
-            super::rotate::Rotation {
-                id,
-                field,
-                operation_id,
-                consumer: &consumer,
-                bearer: &bearer,
-                value: parsed.get("value"),
-            },
-        );
-    }
-    if mode != "acquire"
+    if mode == Mode::Stage
         && (!inbox::managed_by_weles(&vault, id)
             || inbox::written_by(&vault, id).as_deref() != Some(consumer.as_str()))
     {
@@ -121,7 +144,21 @@ pub(crate) fn handle_items_put(
         );
     }
     let revision = match mode {
-        "acquire" => {
+        Mode::Rotate => {
+            return super::rotate::handle(
+                stream,
+                vault,
+                super::rotate::Rotation {
+                    id,
+                    field,
+                    operation_id,
+                    consumer: &consumer,
+                    bearer: &bearer,
+                    value: parsed.get("value"),
+                },
+            );
+        }
+        Mode::Acquire => {
             let acquisition = acquire::Acquisition {
                 requested,
                 id,
@@ -136,7 +173,7 @@ pub(crate) fn handle_items_put(
                 None => return Ok(()),
             }
         }
-        "stage" => {
+        Mode::Stage => {
             if !grant::token_allows_field_action(
                     &vault,
                     &consumer,
@@ -209,13 +246,6 @@ pub(crate) fn handle_items_put(
                 },
             )?
         }
-        _ => {
-            return http::write_response(
-                stream,
-                "HTTP/1.1 400 Bad Request",
-                &json!({"error": "mode must be acquire, stage or rotate"}),
-            );
-        }
     };
     crate::runtime::audit::append(
         "http-item-field-write",
@@ -223,7 +253,7 @@ pub(crate) fn handle_items_put(
             "item": id,
             "requested": requested,
             "field": field,
-            "mode": mode,
+            "mode": mode.as_str(),
             "operation_id": operation_id,
             "revision": revision,
             "consumer": consumer,
@@ -237,7 +267,7 @@ pub(crate) fn handle_items_put(
             "id": requested,
             "item": id,
             "field": field,
-            "mode": mode,
+            "mode": mode.as_str(),
             "operation_id": operation_id,
             "revision": revision,
         }),
