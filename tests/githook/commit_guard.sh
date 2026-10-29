@@ -37,20 +37,22 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $out; stderr: $said" ;;
   esac
 }
 commit() {
-  if out=$(git -C "$REPO" -c user.name=skarbiec-test -c user.email=test@example.com commit -m "$1" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ git commit -m %s\nresult: %s\noutput: %s\n\n' "$1" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "git commit $1 was $got, expected $WANT: $out"
+  if out=$(git -C "$REPO" -c user.name=skarbiec-test -c user.email=test@example.com commit -m "$1" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ git commit -m %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$1" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "git commit $1 was $got, expected $WANT: $out; stderr: $said"
 }
 
 : >"$ROOT/stdin"
@@ -74,8 +76,9 @@ printf '%s' "$out" | jq -e '.present and .installed' >/dev/null || fail "status 
 printf 'API_TOKEN=%s\n' "$TOKEN" >"$REPO/app.env"
 git -C "$REPO" add app.env
 WANT=refused commit "leak"
-case "$out" in *app.env*"$ITEM"*) ;; *) fail "the refused commit does not name app.env and $ITEM: $out" ;; esac
-case "$out" in *"$TOKEN"*) fail "the refusal printed the token" ;; esac
+# git hands everything a pre-commit hook prints to its own standard error.
+case "$said" in *app.env*"$ITEM"*) ;; *) fail "the refused commit does not name app.env and $ITEM: $out; stderr: $said" ;; esac
+case "$out$said" in *"$TOKEN"*) fail "the refusal printed the token" ;; esac
 if git -C "$REPO" rev-parse -q --verify HEAD >/dev/null; then fail "the refused commit was made"; fi
 echo "ok: the hook refuses a commit holding a vault value, naming the file and item" >>"$REPORT"
 
@@ -98,7 +101,7 @@ echo "ok: after uninstall the hook no longer stops commits" >>"$REPORT"
 LEAKED="$(git -C "$REPO" rev-parse HEAD)"
 CLEAN="$(git -C "$REPO" rev-parse HEAD~)"
 WANT=ok run scan "$REPO" --history --fields token
-case "$out" in *"$TOKEN"*) fail "scan --history printed the token" ;; esac
+case "$out$said" in *"$TOKEN"*) fail "scan --history printed the token" ;; esac
 printf '%s' "$out" | jq -e --arg commit "$LEAKED" --arg id "$ITEM" \
   '.ok == false and (.found | any(.commit == $commit and .file == "app.env" and .item == $id and .field == "token"))' >/dev/null \
   || fail "scan --history did not name the commit that added the token"

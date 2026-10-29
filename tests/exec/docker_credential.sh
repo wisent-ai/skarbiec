@@ -41,9 +41,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 
 REGISTRY="registry-$RUN.example"
@@ -76,21 +77,22 @@ IMPORTED="imported-$RUN.example.com"
 jq --arg r "$IMPORTED" --arg a "$(printf 'ci-%s:pushed-%s' "$RUN" "$RUN" | base64)" '.auths[$r] = {auth: $a}' "$DOCKER_CONFIG/config.json" >"$ROOT/config.next"
 mv "$ROOT/config.next" "$DOCKER_CONFIG/config.json"
 WANT=refused run helper import docker "nothing-$RUN" "absent-$RUN.example.com" --link "$ROOT/bin"
-case "$out" in *"keeps no sign-in for absent-$RUN.example.com"*) ;; *) fail "a registry with no sign-in was not refused naming it: $out" ;; esac
+case "$said" in *"keeps no sign-in for absent-$RUN.example.com"*) ;; *) fail "a registry with no sign-in was not refused naming it: $out; stderr: $said" ;; esac
 WANT=ok run helper import docker "imported-$RUN" "$IMPORTED" --link "$ROOT/bin"
 jq -e --arg r "$IMPORTED" '(.auths | has($r) | not) and .credHelpers[$r] == "skarbiec" and (.auths | has("kept.example"))' "$DOCKER_CONFIG/config.json" >/dev/null \
   || fail "import did not move the sign-in out of auths and name the helper, keeping the rest: $(cat "$DOCKER_CONFIG/config.json")"
 printf '%s' "$IMPORTED" | "$HELPER" get >"$ROOT/imported.json"
 jq -e --arg u "ci-$RUN" --arg t "pushed-$RUN" '.Username == $u and .Secret == $t' "$ROOT/imported.json" >/dev/null \
   || fail "the imported sign-in is not answered from the vault"
-case "$out" in *"pushed-$RUN"*) fail "import printed the password" ;; esac
+# The password must be in neither stream, so both are searched.
+case "$out$said" in *"pushed-$RUN"*) fail "import printed the password" ;; esac
 echo "ok: import moves docker login's sign-in into the vault and Docker reads it from there" >>"$REPORT"
 WANT=refused run helper unset docker "$REGISTRY" --link "$ROOT/bin"
-case "$out" in *"helper unset docker takes no --link"*) ;; *) fail "a flag unset does not take was not refused naming it: $out" ;; esac
+case "$said" in *"helper unset docker takes no --link"*) ;; *) fail "a flag unset does not take was not refused naming it: $out; stderr: $said" ;; esac
 WANT=ok run helper unset docker "$REGISTRY"
 jq -e --arg r "$REGISTRY" '.credHelpers | has($r) | not' "$DOCKER_CONFIG/config.json" >/dev/null || fail "unset left the registry's entry"
 WANT=refused run helper unset podman "$REGISTRY"
-case "$out" in *"podman is not a tool skarbiec answers for"*) ;; *) fail "an unknown tool was not refused naming the tools: $out" ;; esac
+case "$said" in *"podman is not a tool skarbiec answers for"*) ;; *) fail "an unknown tool was not refused naming the tools: $out; stderr: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

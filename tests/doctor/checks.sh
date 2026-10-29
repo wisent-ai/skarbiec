@@ -36,11 +36,13 @@ fail() {
   echo "FAIL: $*" | tee -a "$REPORT" >/dev/stderr
   false
 }
-# Runs doctor and keeps its answer in $doctor with its exit status in the report.
+# Runs doctor and keeps its answer in $doctor and its standard error in $said,
+# with its exit status in the report.
 diagnose() {
-  if doctor=$("$BIN" doctor 2>&1); then status=ok; else status=failed; fi
-  printf '$ skarbiec doctor\nexit: %s\n%s\n\n' "$status" "$doctor" >>"$REPORT"
-  printf '%s' "$doctor" | jq -e .checks >/dev/null || fail "doctor answered no checks: $doctor"
+  if doctor=$("$BIN" doctor 2>"$ROOT/said"); then status=ok; else status=failed; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec doctor\nexit: %s\noutput: %s\nstderr: %s\n\n' "$status" "$doctor" "$said" >>"$REPORT"
+  printf '%s' "$doctor" | jq -e .checks >/dev/null || fail "doctor answered no checks: $doctor; stderr: $said"
 }
 # The status and detail one check reported in the last doctor run.
 check() {
@@ -63,7 +65,7 @@ case "$(check backup)" in
   *) fail "the backup check was not not_configured before any backup: $(check backup)" ;;
 esac
 mkdir -p "$ROOT/copies"
-copy=$("$BIN" backup "$ROOT/copies" 2>&1) || fail "backup was refused: $copy"
+copy=$("$BIN" backup "$ROOT/copies" 2>"$ROOT/said") || fail "backup was refused: $copy; stderr: $(cat "$ROOT/said")"
 made=$(printf '%s' "$copy" | jq -r .backup)
 diagnose
 case "$(check backup)" in

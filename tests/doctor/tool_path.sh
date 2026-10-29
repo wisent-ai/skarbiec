@@ -34,18 +34,19 @@ fail() {
 }
 
 OWNER="tool-path-owner-$RUN"
-if out=$(PATH="$ROOT/empty-path" "$BIN" init "$OWNER" </dev/null &>/dev/stdout); then
-  fail "init ran with a PATH that holds no gpg: $out"
+if out=$(PATH="$ROOT/empty-path" "$BIN" init "$OWNER" </dev/null 2>"$ROOT/said"); then
+  fail "init ran with a PATH that holds no gpg: $out; stderr: $(cat "$ROOT/said")"
 fi
-printf '$ PATH=%s skarbiec init %s\nrefused: %s\n\n' "$ROOT/empty-path" "$OWNER" "$out" >>"$REPORT"
-case "$out" in
+said=$(cat "$ROOT/said")
+printf '$ PATH=%s skarbiec init %s\nrefused: %s\nstderr: %s\n\n' "$ROOT/empty-path" "$OWNER" "$out" "$said" >>"$REPORT"
+case "$said" in
   *"gpg"*"is in no directory of PATH"*"$ROOT/empty-path"*) echo "ok: refused naming gpg and the PATH searched" >>"$REPORT" ;;
-  *) fail "the refusal does not name gpg and the PATH it searched: $out" ;;
+  *) fail "the refusal does not name gpg and the PATH it searched: $out; stderr: $said" ;;
 esac
 [ -e "$SKARBIEC_VAULT_FILE" ] && fail "the refused init wrote $SKARBIEC_VAULT_FILE"
 echo "ok: the refused init wrote no vault" >>"$REPORT"
 
-out=$("$BIN" init "$OWNER" </dev/null &>/dev/stdout) || fail "init with the caller's PATH was refused: $out"
+out=$("$BIN" init "$OWNER" </dev/null 2>"$ROOT/said") || fail "init with the caller's PATH was refused: $out; stderr: $(cat "$ROOT/said")"
 printf '$ skarbiec init %s\nresult: ok\n\n' "$OWNER" >>"$REPORT"
 [ -e "$SKARBIEC_VAULT_FILE" ] || fail "init with the caller's PATH wrote no vault"
 echo "ok: with gpg on PATH the same init succeeds" >>"$REPORT"

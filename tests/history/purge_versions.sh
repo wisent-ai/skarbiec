@@ -36,14 +36,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $out; stderr: $said" ;;
   esac
 }
 write_note() {
@@ -85,7 +86,7 @@ WANT=ok run purge "$NOTE" --versions-before "$BETWEEN" --yes
 printf '%s' "$(saved)" | jq -e --arg cut "$BETWEEN" 'all(.[]; . >= $cut) and (length > ([] | length))' >/dev/null \
   || fail "--yes left an older version, or took the later one too"
 WANT=ok run get "$NOTE" --field value
-case "$out" in *"third-$RUN"*) ;; *) fail "the current value no longer reads back: $out" ;; esac
+case "$out" in *"third-$RUN"*) ;; *) fail "the current value no longer reads back: $out; stderr: $said" ;; esac
 echo "ok: --yes removes only the older versions and the current value stays" >>"$REPORT"
 
 WANT=ok run purge "$NOTE" --versions-before "$BETWEEN" --yes
@@ -100,7 +101,7 @@ WANT=ok run purge --all --versions-before "$LATEST"
 WANT=ok run purge --all --versions-before "$LATEST" --yes
 [ "$(saved)" = "[]" ] || fail "--all --yes left a saved version older than the moment"
 WANT=ok run get "$NOTE" --field value
-case "$out" in *"third-$RUN"*) ;; *) fail "--all took the current value: $out" ;; esac
+case "$out" in *"third-$RUN"*) ;; *) fail "--all took the current value: $out; stderr: $said" ;; esac
 echo "ok: --all lists every item's older versions first and --yes removes them, keeping current values" >>"$REPORT"
 WANT=refused run purge "$NOTE" --all --versions-before "$LATEST"
 names "usage: purge <id> --versions-before"

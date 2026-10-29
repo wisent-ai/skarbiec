@@ -44,14 +44,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $out; stderr: $said" ;;
   esac
 }
 
@@ -90,7 +91,8 @@ printf 'https://ci-%s:first%%40%s@%s\nhttps://bot-%s:second-%s@%s\nhttps://other
 WANT=refused run helper import git "stored-$RUN" "$STORED"
 names "name one with --username"
 WANT=ok run helper import git "stored-$RUN" "$STORED" --username "ci-$RUN"
-case "$out" in *"first@$RUN"*) fail "import printed the password" ;; esac
+# The password must be in neither stream, so both are searched.
+case "$out$said" in *"first@$RUN"*) fail "import printed the password" ;; esac
 if grep -q "ci-$RUN" "$HOME/.git-credentials"; then fail "import left the imported line in the store"; fi
 grep -q "bot-$RUN" "$HOME/.git-credentials" || fail "import removed another user's line"
 grep -q "other-$RUN.example.com" "$HOME/.git-credentials" || fail "import removed another host's line"

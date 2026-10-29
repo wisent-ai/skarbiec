@@ -34,14 +34,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $out; stderr: $said" ;;
   esac
 }
 
@@ -60,7 +61,8 @@ WANT=ok run inject "$TEMPLATE" "$FILLED"
 printf 'USER=app-%s\nPASSWORD=%s\nKEPT={{ other }}\n' "$RUN" "$SECRET" >"$ROOT/expected"
 cmp -s "$ROOT/expected" "$FILLED" || fail "the filled file is not the template with both values: $(cat "$FILLED")"
 [ "$(stat -f %Lp "$FILLED")" = "$(stat -f %Lp "$SKARBIEC_VAULT_FILE")" ] || fail "the filled file is not owner-only as the vault is"
-case "$out" in *"$SECRET"*) fail "inject printed a value" ;; esac
+# A value must be in neither stream, so both are searched.
+case "$out$said" in *"$SECRET"*) fail "inject printed a value" ;; esac
 if grep -q "$SECRET" "$SKARBIEC_AUDIT_FILE"; then fail "the journal holds a value"; fi
 printf '%s' "$out" | jq -e '.references | map(.field) | index("password") != null' >/dev/null || fail "the answer does not name the references"
 echo "ok: both references filled, other braces kept, owner-only, no value printed or journalled" >>"$REPORT"

@@ -36,9 +36,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 
 : >"$ROOT/stdin"
@@ -56,7 +57,8 @@ WANT=ok run set "$LOGIN" --type login
 : >"$ROOT/stdin"
 
 WANT=ok run health
-case "$out" in *"$PASSWORD"*) fail "health printed the password" ;; esac
+# The password must be in neither stream, so both are searched.
+case "$out$said" in *"$PASSWORD"*) fail "health printed the password" ;; esac
 printf '%s' "$out" >"$ROOT/health.json"
 jq -e '.ok == false' "$ROOT/health.json" >/dev/null || fail "health was ok with a login breaking its site's rules"
 jq -e --arg id "$LOGIN" --arg cap "maxlength: $CAP" \
