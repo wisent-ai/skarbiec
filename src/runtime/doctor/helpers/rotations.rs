@@ -1,7 +1,8 @@
 // Whether the rotation policies this vault keeps are being run. Declaring a
-// policy installs no trigger: `rotation run` runs only when a Stado schedule,
-// cron or launchd calls it. A policy still waiting a whole interval after it
-// fell due means nothing calls it; one whose last attempt failed means the
+// policy installs no trigger: due policies run in every `skarbiec maintain`
+// pass (and in `rotation run`), so they run only when a Stado schedule, cron
+// or launchd calls one of those. A policy still waiting a whole interval after
+// it fell due means nothing calls it; one whose last attempt failed means the
 // rotation refuses, in the words recorded on it. Both are named here, so a
 // credential that should have changed and did not is seen before it leaks.
 
@@ -46,7 +47,7 @@ pub(in crate::runtime::doctor) fn rotations_check() -> Value {
         if let (Some(next), Some(since)) = (policy["next_due_at"].as_str(), overdue_since) {
             if runs_here && next < since.as_str() {
                 problems.push(format!(
-                    "{item} fell due at {next}, more than its interval ago, and has not rotated: nothing runs `skarbiec rotation run` on this host — a Stado schedule, cron or launchd entry must"
+                    "{item} fell due at {next}, more than its interval ago, and has not rotated: nothing runs `skarbiec maintain` or `skarbiec rotation run` on this host — a Stado schedule, cron or launchd entry must"
                 ));
             }
         }

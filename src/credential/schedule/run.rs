@@ -158,6 +158,52 @@ fn record(item: &str, outcome: &Result<Value>, now: i64) -> Result<Value> {
 /// scheduler that watches exit codes sees it. `at_once` runs `only`'s policy
 /// before it falls due — after a leak, or to try a policy just set.
 pub(super) fn run_due(only: Option<&str>, at_once: bool) -> Result<Value> {
+    let report = pass(only, at_once)?;
+    if report["ok"] != json!(true) {
+        let refused = &report["failed"];
+        // A credential that should have changed and did not is told where
+        // people look, when this host set an alert.
+        let alerted = match crate::runtime::alert::send(&format!(
+            "skarbiec rotation run: {refused} scheduled rotation(s) failed: {}; `skarbiec rotation list` names why",
+            refused_items(&report)
+        )) {
+            Ok(Some(_)) => "the alert was posted".to_string(),
+            Ok(None) => "no alert is set".to_string(),
+            Err(error) => format!("the alert could not be posted: {error:#}"),
+        };
+        anyhow::bail!("{refused} scheduled rotation(s) were not accepted ({alerted}): {report}");
+    }
+    Ok(report)
+}
+
+/// Every due rotation of this vault, for `skarbiec maintain`: the same pass
+/// `rotation run` makes, so a vault whose maintenance is scheduled rotates
+/// its due credentials without a second trigger. A host that keeps no vault,
+/// or keeps a replica, has nothing to rotate and says so. The report carries
+/// `ok: false` for a refused rotation and maintain alerts once for the pass.
+pub(crate) fn maintain_pass() -> Result<Value> {
+    if !runs_here()? {
+        return Ok(
+            json!({"skipped": "this host keeps no vault, or keeps a replica whose source rotates"}),
+        );
+    }
+    pass(None, false)
+}
+
+/// The items whose due rotation was not accepted, comma-separated.
+pub(crate) fn refused_items(report: &Value) -> String {
+    let items: Vec<String> = report["ran"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|line| line.get("accepted").and_then(Value::as_bool) != Some(true))
+        .map(|line| line["item"].to_string())
+        .collect();
+    items.join(", ")
+}
+
+/// Run the due policies and report each outcome; nothing is alerted here.
+fn pass(only: Option<&str>, at_once: bool) -> Result<Value> {
     let path = crate::core::vault_path();
     let now = now_epoch();
     let mut ran = Vec::new();
@@ -174,27 +220,5 @@ pub(super) fn run_due(only: Option<&str>, at_once: bool) -> Result<Value> {
         .iter()
         .filter(|line| line.get("accepted").and_then(Value::as_bool) != Some(true))
         .count();
-    let all_accepted = ran
-        .iter()
-        .all(|line| line.get("accepted").and_then(Value::as_bool) == Some(true));
-    let report = json!({"ok": all_accepted, "ran": ran, "failed": refused});
-    if !all_accepted {
-        let items: Vec<String> = ran
-            .iter()
-            .filter(|line| line.get("accepted").and_then(Value::as_bool) != Some(true))
-            .map(|line| line["item"].to_string())
-            .collect();
-        // A credential that should have changed and did not is told where
-        // people look, when this host set an alert.
-        let alerted = match crate::runtime::alert::send(&format!(
-            "skarbiec rotation run: {refused} scheduled rotation(s) failed: {}; `skarbiec rotation list` names why",
-            items.join(", ")
-        )) {
-            Ok(Some(_)) => "the alert was posted".to_string(),
-            Ok(None) => "no alert is set".to_string(),
-            Err(error) => format!("the alert could not be posted: {error:#}"),
-        };
-        anyhow::bail!("{refused} scheduled rotation(s) were not accepted ({alerted}): {report}");
-    }
-    Ok(report)
+    Ok(json!({"ok": refused == 0, "ran": ran, "failed": refused}))
 }

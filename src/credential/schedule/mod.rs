@@ -3,8 +3,10 @@
 // credential goes through the same `credential rotate` lifecycle an operator
 // would start by hand; an owner-controlled item goes through the provider
 // its policy names with --with, as `skarbiec rotate <id> --with <provider>`.
-// A recurring trigger calls `rotation run`: on the Wisent fleet a Stado
-// schedule pinned to the vault owner, on a standalone host cron or launchd.
+// Every `skarbiec maintain` pass makes the same pass over the due policies,
+// so a vault whose maintenance is scheduled (on the Wisent fleet a Stado
+// schedule pinned to the vault owner, on a standalone host cron or launchd)
+// rotates on its own; `rotation run` is the same pass on demand.
 //
 // Policies live in the vault document under `rotation`, keyed by item id, so
 // they travel with the vault. A replica never runs them: its document is
@@ -22,6 +24,7 @@ use std::collections::HashMap;
 use crate::core::vault::Vault;
 
 use run::runs_here;
+pub(crate) use run::{maintain_pass, refused_items};
 
 /// The vault document section holding every policy.
 const SECTION: &str = "rotation";

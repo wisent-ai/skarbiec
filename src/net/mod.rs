@@ -88,11 +88,13 @@ pub fn dispatch(
 /// share whose end has passed on a vault that is not a replica, then letting
 /// browser autofill offer every login added since it was connected, then the
 /// rolling copy `backup schedule` asked for on this host, then setting again
-/// every kept CI or cluster secret whose items changed (`ci keep`).
+/// every kept CI or cluster secret whose items changed (`ci keep`), then
+/// every rotation policy that has fallen due (`rotation run`'s pass), so a
+/// scheduled maintenance rotates keys on its own with no second trigger.
 /// Every step runs; any failing fails the pass with every reason, so a
 /// mirror that stopped publishing, a share that outlived its end, a login
-/// autofill cannot offer, a backup disk gone or a CI secret left stale is a
-/// failed scheduled run, not a silent one.
+/// autofill cannot offer, a backup disk gone, a CI secret left stale or a
+/// credential that did not rotate is a failed scheduled run, not a silent one.
 fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let pass = http::dispatch("maintain", flags, positionals);
     let mirror = sync::push_if_published();
@@ -127,6 +129,9 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
         Ok(true) => crate::runtime::cisecrets::kept_pass(),
         _ => Ok(None),
     };
+    // A replica's policies are its source's to run, and a host with no vault
+    // has none; the pass says which instead of rotating.
+    let rotations = crate::credential::rotation_maintain_pass();
     let shares_failed = shares
         .as_ref()
         .is_ok_and(|report| report["ok"] == serde_json::json!(false));
@@ -138,19 +143,31 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
             .as_ref()
             .is_some_and(|report| report["ok"] == serde_json::json!(false))
     });
-    match (pass, mirror, shares, autofill, backup, ci) {
-        (Ok(Some(mut report)), Ok(mirror), Ok(shares), Ok(autofill), Ok(backup), Ok(ci))
-            if !shares_failed && !autofill_failed && !ci_failed =>
-        {
+    let rotations_failed = rotations
+        .as_ref()
+        .is_ok_and(|report| report["ok"] == serde_json::json!(false));
+    match (pass, mirror, shares, autofill, backup, ci, rotations) {
+        (
+            Ok(Some(mut report)),
+            Ok(mirror),
+            Ok(shares),
+            Ok(autofill),
+            Ok(backup),
+            Ok(ci),
+            Ok(rotations),
+        ) if !shares_failed && !autofill_failed && !ci_failed && !rotations_failed => {
             report["mirror"] = serde_json::json!(mirror);
             report["shares"] = shares;
             report["autofill"] = autofill;
             report["backup"] = serde_json::json!(backup);
             report["ci_secrets"] = serde_json::json!(ci);
+            report["rotations"] = rotations;
             Ok(report)
         }
-        (Ok(None), _, _, _, _, _) => anyhow::bail!("skarbiec maintain: net::http answered nothing"),
-        (pass, mirror, shares, autofill, backup, ci) => {
+        (Ok(None), _, _, _, _, _, _) => {
+            anyhow::bail!("skarbiec maintain: net::http answered nothing")
+        }
+        (pass, mirror, shares, autofill, backup, ci, rotations) => {
             let mut reasons = Vec::new();
             if let Err(error) = pass {
                 reasons.push(format!("{error:#}"));
@@ -186,6 +203,15 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
                 Ok(Some(report)) if ci_failed => reasons.push(format!(
                     "skarbiec maintain: kept CI secrets were not set again: {}",
                     report["failed"]
+                )),
+                Ok(_) => {}
+            }
+            match rotations {
+                Err(error) => reasons.push(format!("skarbiec maintain: scheduled rotations: {error:#}")),
+                Ok(report) if rotations_failed => reasons.push(format!(
+                    "skarbiec maintain: {} scheduled rotation(s) were not accepted: {}; `skarbiec rotation list` names why",
+                    report["failed"],
+                    crate::credential::refused_rotations(&report)
                 )),
                 Ok(_) => {}
             }

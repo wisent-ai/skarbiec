@@ -22,7 +22,8 @@ mod quarantine;
 mod receipt;
 mod schedule;
 pub(crate) use schedule::{
-    follow_rename as follow_rotation_rename, forget as forget_rotation, mark_due,
+    follow_rename as follow_rotation_rename, forget as forget_rotation,
+    maintain_pass as rotation_maintain_pass, mark_due, refused_items as refused_rotations,
 };
 mod serve;
 mod state;
