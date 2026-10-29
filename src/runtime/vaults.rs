@@ -138,9 +138,35 @@ pub fn inventory() -> Result<Value> {
             .iter()
             .map(|path| path.display().to_string())
             .collect::<Vec<String>>(),
+        "shared_owners": shared_owners(&found),
         "vaults": found,
         "unreadable": unreadable,
     }))
+}
+
+/// Every owner more than one vault file here claims, with those files and
+/// the command that joins a copy into the one Stado declares. Two files of
+/// one owner leave owner resolution with no single answer, and native
+/// signing refuses until they are reconciled.
+fn shared_owners(found: &[Value]) -> Vec<Value> {
+    let mut by_owner: std::collections::BTreeMap<&str, Vec<&str>> =
+        std::collections::BTreeMap::new();
+    for vault in found {
+        if let (Some(owner), Some(path)) = (vault["owner"].as_str(), vault["path"].as_str()) {
+            by_owner.entry(owner).or_default().push(path);
+        }
+    }
+    by_owner
+        .into_iter()
+        .filter(|(_, paths)| paths.len() > 1)
+        .map(|(owner, paths)| {
+            json!({
+                "owner": owner,
+                "paths": paths,
+                "join": "skarbiec migrate --from <the copy> --to <the vault Stado declares> --reconcile",
+            })
+        })
+        .collect()
 }
 
 /// The machine's own name, so a fleet-wide collection can say where each
