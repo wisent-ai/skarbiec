@@ -83,6 +83,15 @@ or `... is a leftover copy and is not used` when a file lies at the default
 path, which it leaves untouched. A Stado config that cannot be read fails the
 check naming the file. Whether the route answers is the `endpoint` check's.
 
+On a machine Stado makes a client of the vault owner (`secrets.skarbiec.url`
+declared, or the canonical forward published, and no
+`secrets.skarbiec.vault_file`), `skarbiec doctor`'s `vault` check does not
+report a missing vault: it passes with `this host holds no vault: Stado reads
+the fleet vault through <declaration> (<route>); <default path> is not used`,
+or `... is a leftover copy and is not used` when a file lies at the default
+path, which it leaves untouched. A Stado config that cannot be read fails the
+check naming the file. Whether the route answers is the `endpoint` check's.
+
 Cryptographic children run without a concurrency cap. Each running `gpg`
 holds a shared permit; daemon recovery takes an exclusive permit after the
 children that are still progressing finish, so it cannot replace their
