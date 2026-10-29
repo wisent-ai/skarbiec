@@ -64,9 +64,9 @@ broker() {
 # 2. Two credentials the agent may ask for. The second is marked dual-control
 #    by its owner, so no single person can hand it out.
 printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":"demo-key-not-a-secret"},"context":{}}' \
-  | "$SB" set-json demo-provider --type api-key --tags brama:provider:demo
+  | "$SB" set demo-provider --type api-key --tags brama:provider:demo
 printf '{"schema":"skarbiec.item.v2","kind":"api-key","fields":{"api_key":"demo-root-not-a-secret"},"context":{}}' \
-  | "$SB" set-json demo-root --type api-key --tags brama:provider:demo-root,dual-control
+  | "$SB" set demo-root --type api-key --tags brama:provider:demo-root,dual-control
 
 # 3. The workload behind the agent registers its Ed25519 key, as every
 #    capability redemption requires. Registering lets it prove who it is; it
