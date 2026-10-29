@@ -104,13 +104,11 @@ impl Drop for VaultWriteLock {
 fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
     let lock_path = vault_path.with_extension("write.lock");
     let parent = lock_path.parent().context("vault path has no parent")?;
-    if !parent.exists() {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(u32::from(libc::S_IRWXU))
-            .create(parent)
-            .with_context(|| format!("create vault directory {}", parent.display()))?;
-    }
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(u32::from(libc::S_IRWXU))
+        .create(parent)
+        .with_context(|| format!("create vault directory {}", parent.display()))?;
     let mut file = match OpenOptions::new()
         .write(true)
         .create_new(true)

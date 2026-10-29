@@ -22,6 +22,18 @@ pub(in crate::runtime::doctor) use ci::ci_secrets_check;
 pub(in crate::runtime::doctor) use plain::developer_tokens_check;
 pub(in crate::runtime::doctor) use rotations::rotations_check;
 
+/// Whether a helper program is gone; one that cannot be examined is named
+/// as a problem of its own, with its cause, instead of reading as absent.
+fn gone(program: &std::path::Path, problems: &mut Vec<String>) -> bool {
+    match crate::core::is_present(program, "a credential helper program") {
+        Ok(present) => !present,
+        Err(error) => {
+            problems.push(format!("{error:#}"));
+            false
+        }
+    }
+}
+
 pub(in crate::runtime::doctor) fn helpers_check() -> Value {
     let forges = match crate::runtime::gitcred::configured() {
         Ok(forges) => forges,
@@ -36,12 +48,16 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         Err(error) => return check(NAME, FAIL, format!("{error:#}")),
     };
     // Without kubectl no kubeconfig user can run the plugin.
-    let kube_users = match crate::runtime::kubecred::kubectl_on_path() {
-        true => match crate::runtime::kubecred::users() {
-            Ok(found) => found,
-            Err(error) => return check(NAME, FAIL, format!("{error:#}")),
-        },
-        false => Vec::new(),
+    let listed = crate::runtime::kubecred::kubectl_on_path().and_then(|on_path| {
+        if on_path {
+            crate::runtime::kubecred::users()
+        } else {
+            Ok(Vec::new())
+        }
+    });
+    let kube_users = match listed {
+        Ok(found) => found,
+        Err(error) => return check(NAME, FAIL, format!("{error:#}")),
     };
     let terraform = match crate::runtime::tfcred::status() {
         Ok(state) => state,
@@ -87,7 +103,7 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         ));
     }
     if let Some(program) = cargo["program"].as_str().filter(|_| cargo_asks) {
-        if !std::path::Path::new(program).exists() {
+        if gone(std::path::Path::new(program), &mut problems) {
             problems.push(format!(
                 "Cargo's {} runs {program}, which no longer exists; skarbiec helper unset cargo, then helper setup cargo, points it at this binary",
                 cargo["config"]
@@ -95,7 +111,7 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         }
     }
     for profile in &profiles {
-        if !profile.program.exists() {
+        if gone(&profile.program, &mut problems) {
             problems.push(format!(
                 "AWS profile {} in {} runs {}, which no longer exists; skarbiec helper setup aws {} --profile {} points it at this binary",
                 profile.name,
@@ -107,7 +123,7 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         }
     }
     for user in &kube_users {
-        if !user.program.exists() {
+        if gone(&user.program, &mut problems) {
             problems.push(format!(
                 "kubeconfig user {} runs {}, which no longer exists; skarbiec helper setup kube {} --user {} points it at this binary",
                 user.name,
@@ -118,7 +134,7 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         }
     }
     for (host, program) in &forges {
-        if !program.exists() {
+        if gone(program, &mut problems) {
             problems.push(format!(
                 "git asks {} for {host}, which no longer exists; skarbiec helper setup git {host} points it at this binary",
                 program.display()
@@ -148,7 +164,7 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
                 crate::runtime::dockercred::PROGRAM
             )),
             // A link whose binary has moved exists as a link but leads nowhere.
-            Ok(Some(program)) if !program.exists() => problems.push(format!(
+            Ok(Some(program)) if gone(&program, &mut problems) => problems.push(format!(
                 "{} leads to a binary that no longer exists; remove it, then skarbiec helper setup docker <registry> --link <its directory> links it again",
                 program.display()
             )),
@@ -184,18 +200,9 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
                 registries.len(),
                 profiles.len(),
                 kube_users.len(),
-                match terraform_asks {
-                    true => ", Terraform for its tokens",
-                    false => "",
-                },
-                match cargo_asks {
-                    true => ", Cargo for registry tokens",
-                    false => "",
-                },
-                match npm_asks {
-                    true => ", npm through exec",
-                    false => "",
-                }
+                if terraform_asks { ", Terraform for its tokens" } else { "" },
+                if cargo_asks { ", Cargo for registry tokens" } else { "" },
+                if npm_asks { ", npm through exec" } else { "" }
             ),
         );
     }

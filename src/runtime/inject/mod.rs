@@ -86,7 +86,7 @@ fn inject(template: &Path, out: &Path, replace: bool) -> Result<Value> {
     if template == out {
         return Err(Usage(format!("{} is the template itself; name another file to write", out.display())).into());
     }
-    if out.exists() && !replace {
+    if crate::core::is_present(out, "the output file")? && !replace {
         bail!("{} exists; --replace overwrites it, else name a new file", out.display());
     }
     let text = std::fs::read_to_string(template).with_context(|| format!("read the template {}", template.display()))?;

@@ -74,10 +74,13 @@ pub(crate) fn answer(_flags: &HashMap<String, String>, arguments: &[String]) -> 
 /// and whether the program its credential_process runs is still there.
 pub(crate) fn status() -> Result<Value> {
     let (config, found) = profiles()?;
-    let listed: Vec<Value> = found
+    let listed = found
         .iter()
-        .map(|profile| json!({"profile": profile.name, "item": profile.item, "program": profile.program, "program_exists": profile.program.exists()}))
-        .collect();
+        .map(|profile| {
+            let present = crate::core::is_present(&profile.program, "the AWS profile's credential_process program")?;
+            Ok(json!({"profile": profile.name, "item": profile.item, "program": profile.program, "program_exists": present}))
+        })
+        .collect::<Result<Vec<Value>>>()?;
     Ok(json!({"config": config, "profiles": listed}))
 }
 

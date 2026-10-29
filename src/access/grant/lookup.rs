@@ -16,8 +16,9 @@ pub fn presented_hash(presented: &str) -> Result<String> {
 
 /// Whether a grant entry still authorizes: it carries an expiry and that
 /// moment is still ahead. A clock that cannot say what now is authorizes
-/// nothing, and says so on stderr rather than denying without a cause.
-pub(in crate::access::grant) fn active(entry: &Value) -> bool {
+/// nothing, and says so on stderr rather than denying without a cause. The
+/// one liveness reader: capability redemption asks it for the workload grant.
+pub(crate) fn active(entry: &Value) -> bool {
     let Some(expires_at) = entry.get("expires_at").and_then(Value::as_u64) else {
         return false;
     };

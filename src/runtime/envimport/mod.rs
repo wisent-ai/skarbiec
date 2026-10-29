@@ -67,7 +67,7 @@ fn import(source: &PathBuf, prefix: &str, bindings: Option<PathBuf>, flags: &Has
         bail!("{} already exist; env import never replaces an item. Choose another --prefix; nothing was stored", taken.join(", "));
     }
     if let Some(path) = &bindings {
-        if path.exists() && !flag_set(flags, "replace") {
+        if crate::core::is_present(path, "the bindings file")? && !flag_set(flags, "replace") {
             bail!("{} already exists; add --replace to write the bindings over it; nothing was stored", path.display());
         }
     }

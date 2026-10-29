@@ -40,7 +40,7 @@ pub(super) fn schedule(directory: &Path) -> Result<Value> {
         ))
         .into());
     }
-    if !directory.is_dir() {
+    if !crate::core::file_type(directory, "the backup directory")?.is_some_and(|kind| kind.is_dir()) {
         bail!("{} is not a directory here; nothing was scheduled", directory.display());
     }
     let vault = vault_path();
@@ -108,7 +108,7 @@ pub fn scheduled_pass() -> Result<Option<Value>> {
     let Some(directory) = scheduled_directory(&vault)? else {
         return Ok(None);
     };
-    if !directory.is_dir() {
+    if !crate::core::file_type(&directory, "the scheduled backup directory")?.is_some_and(|kind| kind.is_dir()) {
         bail!(
             "the scheduled backup directory {} is not there — a disk unplugged, a folder moved; \
              reconnect it, or `skarbiec backup schedule <directory>` names another",

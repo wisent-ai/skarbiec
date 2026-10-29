@@ -9,6 +9,7 @@ pub mod importer;
 pub mod inbox;
 pub mod items;
 pub mod migrate;
+pub mod presence;
 pub mod schema;
 pub mod staging;
 pub mod totp;
@@ -143,44 +144,67 @@ pub fn stado_declared_vault() -> Result<Option<PathBuf>, String> {
     }))
 }
 
+/// Where a machine Stado makes a client of the vault owner reads the fleet
+/// vault, and the declaration that says so.
+pub struct OwnerRoute {
+    /// The address of the owner's Skarbiec.
+    pub route: String,
+    /// What declares it: `secrets.skarbiec.url`, or the forward file.
+    pub declared_by: String,
+}
+
 /// The route this machine reads the fleet vault through, when Stado says it
-/// holds none itself: `secrets.skarbiec.url` is declared and
-/// `secrets.skarbiec.vault_file` is not. Such a machine is a client of the
-/// vault owner, and any vault file on it is a copy: the fleet keeps one
-/// vault, and a write into a copy is a credential the owner never sees (a
-/// subscription signed in on a laptop was stored in the laptop's leftover
-/// file while the gateway kept reading the owner's). `None` when Stado names
-/// no route or names a vault file here; the cause when the config cannot be
-/// read.
-pub fn remote_owner_route() -> Result<Option<String>, String> {
-    let Some(document) = stado_document()? else {
-        return Ok(None);
-    };
+/// holds none itself: `secrets.skarbiec.vault_file` is not declared, and
+/// either `secrets.skarbiec.url` is, or this host publishes the canonical
+/// forward (`~/.stado/forwards/skarbiec.local`) Stado reads the vault through
+/// when its config names no URL. Such a machine is a client of the vault
+/// owner, and any vault file on it is a copy: the fleet keeps one vault, and
+/// a write into a copy is a credential the owner never sees (a subscription
+/// signed in on a laptop was stored in the laptop's leftover file while the
+/// gateway kept reading the owner's). `None` when Stado names no route or
+/// names a vault file here; the cause when the config or the forward cannot
+/// be read.
+pub fn remote_owner_route() -> Result<Option<OwnerRoute>, String> {
     if stado_declared_vault()?.is_some() {
         return Ok(None);
     }
-    Ok(document
-        .pointer("/secrets/skarbiec/url")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|url| !url.is_empty())
-        .map(str::to_string))
+    let configured = stado_document()?.and_then(|document| {
+        document
+            .pointer("/secrets/skarbiec/url")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|url| !url.is_empty())
+            .map(str::to_string)
+    });
+    if let Some(route) = configured {
+        return Ok(Some(OwnerRoute { route, declared_by: "secrets.skarbiec.url".to_string() }));
+    }
+    let forward = crate::credential::published_canonical_forward().map_err(|error| format!("{error:#}"))?;
+    Ok(forward.map(|(file, route)| OwnerRoute { route, declared_by: file.display().to_string() }))
 }
 
-/// Why `path` may not be opened, when nothing chose it: no request override
-/// and no `SKARBIEC_VAULT_FILE` named it, Stado declares no vault file here,
-/// and Stado routes this machine to the vault owner. A bare `skarbiec` (or a
-/// product that runs it, as Brama does when it stores a subscription) then
-/// lands on the leftover default file, which is a copy of the fleet vault the
-/// owner never reads. A vault someone names explicitly is theirs to open.
-pub fn unchosen_copy_refusal(path: &std::path::Path) -> Option<String> {
+/// The owner route that makes `path` a copy this machine does not open, when
+/// nothing chose it: no request override and no `SKARBIEC_VAULT_FILE` named
+/// it, Stado declares no vault file here, and Stado routes this machine to
+/// the vault owner. `None` when `path` was chosen or no route stands; the
+/// cause when the config or forward cannot be read.
+pub fn unchosen_copy_route(path: &std::path::Path) -> Result<Option<OwnerRoute>, String> {
     let chosen = REQUEST_VAULT.with(|cell| cell.borrow().is_some())
         || std::env::var_os("SKARBIEC_VAULT_FILE").is_some();
     if chosen || path != default_vault_path() {
-        return None;
+        return Ok(None);
     }
-    let route = match remote_owner_route() {
-        Ok(Some(route)) => route,
+    remote_owner_route()
+}
+
+/// Why `path` may not be opened, when `unchosen_copy_route` names a route. A
+/// bare `skarbiec` (or a product that runs it, as Brama does when it stores a
+/// subscription) then lands on the leftover default file, which is a copy of
+/// the fleet vault the owner never reads. A vault someone names explicitly is
+/// theirs to open.
+pub fn unchosen_copy_refusal(path: &std::path::Path) -> Option<String> {
+    let OwnerRoute { route, declared_by } = match unchosen_copy_route(path) {
+        Ok(Some(owner)) => owner,
         Ok(None) => return None,
         Err(cause) => {
             return Some(format!(
@@ -192,7 +216,7 @@ pub fn unchosen_copy_refusal(path: &std::path::Path) -> Option<String> {
     };
     Some(format!(
         "this machine holds no Skarbiec vault: Stado reads the fleet vault through \
-         secrets.skarbiec.url ({route}), so {} is a copy and is neither read nor written; \
+         {declared_by} ({route}), so {} is a copy and is neither read nor written; \
          work on the vault owner (stado credentials vault names it), or name a vault of \
          your own with SKARBIEC_VAULT_FILE",
         path.display()
@@ -229,9 +253,17 @@ pub fn read_present(path: &std::path::Path, what: &str) -> anyhow::Result<Option
 /// `exists()` answers false for a file that cannot be stat'ed too, and an
 /// unreadable vault read as no vault would make a rotation do nothing silently.
 pub fn is_present(path: &std::path::Path, what: &str) -> anyhow::Result<bool> {
+    Ok(file_type(path, what)?.is_some())
+}
+
+/// What kind of file a path names, following links, or None when nothing is
+/// there; as with `is_present`, only NotFound is absence. `is_dir()` and
+/// `is_file()` answer false for a path that cannot be stat'ed, which reads a
+/// directory this process may not examine as one that is not a directory.
+pub fn file_type(path: &std::path::Path, what: &str) -> anyhow::Result<Option<std::fs::FileType>> {
     match std::fs::metadata(path) {
-        Ok(_) => Ok(true),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Ok(metadata) => Ok(Some(metadata.file_type())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(error) => {
             Err(anyhow::Error::new(error).context(format!("examine {what} {}", path.display())))
         }

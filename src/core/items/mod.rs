@@ -40,21 +40,22 @@ pub fn build_item(item_kind: &str, fields: &[String]) -> Result<Value> {
 /// composed from the same reads the individual status commands do.
 ///
 /// A host Stado declares as a client of the vault owner (it names
-/// `secrets.skarbiec.url` and no vault file) holds no vault, so its status is
-/// where it reads the fleet vault, not a missing file: `holds_vault: false`
-/// with the route. A vault file that is absent on any other host is still
-/// the error `Vault::open` gives.
+/// `secrets.skarbiec.url`, or publishes the canonical forward, and no vault
+/// file) holds no vault, so its status is where it reads the fleet vault, not
+/// a missing file or the leftover copy: `holds_vault: false` with the route,
+/// what declares it, and whether a copy lies at the default path. A vault
+/// file that is absent on any other host is still the error `Vault::open`
+/// gives.
 pub fn status_json() -> Result<Value> {
     let path = vault_path();
-    if !crate::core::is_present(&path, "vault")? {
-        let route = crate::core::remote_owner_route().map_err(anyhow::Error::msg)?;
-        if let Some(route) = route {
-            return Ok(json!({
-                "vault": path.display().to_string(),
-                "holds_vault": false,
-                "owner_route": route,
-            }));
-        }
+    if let Some(owner) = crate::core::unchosen_copy_route(&path).map_err(anyhow::Error::msg)? {
+        return Ok(json!({
+            "vault": path.display().to_string(),
+            "holds_vault": false,
+            "copy_present": crate::core::is_present(&path, "vault copy")?,
+            "owner_route": owner.route,
+            "owner_route_declared_by": owner.declared_by,
+        }));
     }
     let vault = Vault::open(path)?;
     let doc = vault.doc();

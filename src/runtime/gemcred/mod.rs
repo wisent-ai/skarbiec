@@ -23,7 +23,7 @@ const SEPARATOR: &str = ": ";
 fn credentials_file() -> Result<PathBuf> {
     let home = crate::core::env::path("HOME").context("HOME names no directory where gem keeps its credentials")?;
     let legacy = home.join(".gem");
-    if legacy.is_dir() {
+    if crate::core::file_type(&legacy, "gem's ~/.gem directory")?.is_some_and(|kind| kind.is_dir()) {
         return Ok(legacy.join("credentials"));
     }
     let data = match crate::core::env::path("XDG_DATA_HOME") {
@@ -73,9 +73,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let (file, text, found) = kept()?;
     let Some(entry) = found.iter().find(|entry| entry.key == key) else {
         let known: Vec<&str> = found.iter().map(|entry| entry.key.as_str()).collect();
-        bail!("{} keeps no {key}; it keeps {}. Nothing was changed", file.display(), match known.is_empty() {
-            true => "no key at all".to_string(),
-            false => known.join(", "),
+        bail!("{} keeps no {key}; it keeps {}. Nothing was changed", file.display(), if known.is_empty() {
+            "no key at all".to_string()
+        } else {
+            known.join(", ")
         });
     };
     let binding = format!("{id}:{FIELD}");

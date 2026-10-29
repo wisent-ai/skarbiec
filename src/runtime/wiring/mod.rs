@@ -15,12 +15,16 @@ pub(crate) fn naming(id: &str) -> Value {
         Ok((_, found)) => (found.iter().filter(|profile| profile.item == id).map(|profile| profile.name.clone()).collect(), None),
         Err(error) => (Vec::new(), Some(format!("{error:#}"))),
     };
-    let (kube, kube_error) = match crate::runtime::kubecred::kubectl_on_path() {
-        false => (Vec::new(), None),
-        true => match crate::runtime::kubecred::users() {
-            Ok(found) => (found.iter().filter(|user| user.item == id).map(|user| user.name.clone()).collect(), None),
-            Err(error) => (Vec::new(), Some(format!("{error:#}"))),
-        },
+    let listed = crate::runtime::kubecred::kubectl_on_path().and_then(|on_path| {
+        if on_path {
+            crate::runtime::kubecred::users()
+        } else {
+            Ok(Vec::new())
+        }
+    });
+    let (kube, kube_error) = match listed {
+        Ok(found) => (found.iter().filter(|user| user.item == id).map(|user| user.name.clone()).collect(), None),
+        Err(error) => (Vec::new(), Some(format!("{error:#}"))),
     };
     let aws: Vec<String> = aws;
     let kube: Vec<String> = kube;

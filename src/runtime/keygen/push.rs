@@ -110,9 +110,10 @@ pub(super) fn add_everywhere(
 /// refuses is named, the others still lose it.
 pub(super) fn retire_everywhere(dir: &Path, hosts: &[String], new_private: &str, old_public: &str) -> Result<Vec<Value>> {
     let new_key = dir.join("new");
-    let new_key = match new_key.exists() {
-        true => new_key,
-        false => key_file(dir, "new", new_private)?,
+    let new_key = if crate::core::is_present(&new_key, "the staged new key")? {
+        new_key
+    } else {
+        key_file(dir, "new", new_private)?
     };
     Ok(hosts
         .iter()

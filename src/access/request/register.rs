@@ -88,11 +88,11 @@ pub(super) fn lock() -> Result<RegisterLock> {
 
 pub(super) fn load() -> Result<Value> {
     let path = register_path();
-    if !path.exists() {
-        return Ok(json!({"requests": []}));
-    }
-    let body = fs::read_to_string(&path)
-        .with_context(|| format!("read request register {}", path.display()))?;
+    let body = match fs::read_to_string(&path) {
+        Ok(body) => body,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!({"requests": []})),
+        Err(error) => return Err(error).with_context(|| format!("read request register {}", path.display())),
+    };
     let doc: Value = serde_json::from_str(&body)
         .with_context(|| format!("parse request register {}", path.display()))?;
     if doc.get("requests").and_then(Value::as_array).is_none() {

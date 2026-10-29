@@ -91,8 +91,11 @@ fn link(program: &Path) -> Result<()> {
     match std::fs::read_link(program) {
         Ok(target) if target == binary => return Ok(()),
         Ok(target) => bail!("{} already links to {}; remove it first", program.display(), target.display()),
-        Err(error) if program.exists() => bail!("{} exists and is not a link ({error}); remove it first", program.display()),
-        Err(_absent) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+            bail!("{} exists and is not a link; remove it first", program.display())
+        }
+        Err(error) => return Err(error).with_context(|| format!("read the link {}", program.display())),
     }
     let dir = program.parent().context("the plugin path has no directory")?;
     std::fs::create_dir_all(dir).with_context(|| format!("create Terraform's plugin directory {}", dir.display()))?;
@@ -184,7 +187,11 @@ pub(super) fn status() -> Result<Value> {
     let text = read_text(&file)?;
     let lines: Vec<&str> = text.lines().collect();
     let program = plugin()?;
-    let linked = std::fs::read_link(&program).is_ok_and(|target| target.exists());
+    let linked = match std::fs::read_link(&program) {
+        Ok(target) => crate::core::is_present(&target, "the helper program's link target")?,
+        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput) => false,
+        Err(error) => return Err(error).with_context(|| format!("read the link {}", program.display())),
+    };
     let (tokens, members) = stored_tokens()?;
     Ok(json!({
         "ok": true,

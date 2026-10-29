@@ -84,7 +84,7 @@ fn make(directory: &Path) -> Result<Value> {
         ))
         .into());
     }
-    if !directory.is_dir() {
+    if !crate::core::file_type(directory, "the backup directory")?.is_some_and(|kind| kind.is_dir()) {
         bail!("{} is not a directory here; nothing was copied", directory.display());
     }
     let source = vault_path();

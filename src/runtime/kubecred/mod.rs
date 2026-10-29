@@ -62,13 +62,16 @@ pub(crate) fn answer(_flags: &HashMap<String, String>, arguments: &[String]) -> 
 /// reads and whether its program is still there; without kubectl no user can
 /// run it, and that is said.
 pub(crate) fn status() -> Result<Value> {
-    if !kubectl_on_path() {
+    if !kubectl_on_path()? {
         return Ok(json!({"kubectl": false, "users": []}));
     }
-    let listed: Vec<Value> = users()?
+    let listed = users()?
         .iter()
-        .map(|user| json!({"user": user.name, "item": user.item, "program": user.program, "program_exists": user.program.exists()}))
-        .collect();
+        .map(|user| {
+            let present = crate::core::is_present(&user.program, "the kubeconfig user's plugin program")?;
+            Ok(json!({"user": user.name, "item": user.item, "program": user.program, "program_exists": present}))
+        })
+        .collect::<Result<Vec<Value>>>()?;
     Ok(json!({"kubectl": true, "users": listed}))
 }
 
@@ -147,11 +150,12 @@ pub(crate) struct KubeUser {
 }
 
 /// Whether kubectl is on PATH: where it is not, no kubeconfig user can run
-/// this vault's plugin, and doctor has nothing of kubectl's to check.
-pub(crate) fn kubectl_on_path() -> bool {
+/// this vault's plugin, and doctor has nothing of kubectl's to check. A PATH
+/// candidate that cannot be examined is the error naming it, not "absent".
+pub(crate) fn kubectl_on_path() -> Result<bool> {
     match std::env::var_os("PATH") {
-        Some(path) => std::env::split_paths(&path).any(|dir| dir.join("kubectl").is_file()),
-        None => false,
+        Some(path) => Ok(crate::core::presence::on_path("kubectl", &path)?.is_some()),
+        None => Ok(false),
     }
 }
 
@@ -159,7 +163,7 @@ pub(crate) fn kubectl_on_path() -> bool {
 /// `to` after a rename, as setup would; each user moved or not is named.
 /// Without kubectl no user can run the plugin, so there is none to move.
 pub(crate) fn follow_rename(from: &str, to: &str) -> Result<Value> {
-    if !kubectl_on_path() {
+    if !kubectl_on_path()? {
         return Ok(json!({"moved": [], "not_moved": []}));
     }
     let mut moved = Vec::new();

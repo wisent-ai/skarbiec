@@ -55,7 +55,7 @@ pub(super) fn sign(flags: &HashMap<String, String>, positionals: &[String]) -> R
         .open(&ca_file)
         .and_then(|mut file| file.write_all(ca_text.as_bytes()))
         .context("hand the authority key to ssh-keygen")?;
-    std::fs::write(&user_file, public_key).context("hand the public key to ssh-keygen")?;
+    crate::core::vault::atomic_write(&user_file, public_key.as_bytes()).context("hand the public key to ssh-keygen")?;
     // `--host` signs a server's host key, which clients that trust the
     // authority then accept without a known_hosts entry.
     let mut command = Command::new("ssh-keygen");

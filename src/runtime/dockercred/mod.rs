@@ -64,11 +64,15 @@ pub(crate) fn answer(_flags: &HashMap<String, String>, arguments: &[String]) -> 
 pub(crate) fn status() -> Result<serde_json::Value> {
     let (config, sent) = registries()?;
     let program = program_on_path()?;
+    let present = match &program {
+        Some(program) => crate::core::is_present(program, "Docker's credential helper program")?,
+        None => false,
+    };
     Ok(json!({
         "config": config,
         "registries": sent,
         "program": program,
-        "program_exists": program.as_ref().is_some_and(|program| program.exists()),
+        "program_exists": present,
         "plain_sign_ins": plain_auths()?,
     }))
 }

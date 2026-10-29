@@ -54,13 +54,11 @@ fn home_dir() -> Result<PathBuf> {
 }
 
 fn ensure_private_dir(path: &Path) -> Result<()> {
-    if !path.exists() {
-        fs::DirBuilder::new()
-            .recursive(true)
-            .mode(private_dir_mode()?)
-            .create(path)
-            .with_context(|| format!("create {}", path.display()))?;
-    }
+    fs::DirBuilder::new()
+        .recursive(true)
+        .mode(private_dir_mode()?)
+        .create(path)
+        .with_context(|| format!("create {}", path.display()))?;
     fs::set_permissions(path, fs::Permissions::from_mode(private_dir_mode()?))?;
     Ok(())
 }
@@ -155,8 +153,8 @@ pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {
     };
     let binary = fs::canonicalize(&binary)
         .with_context(|| format!("resolve browser host binary {}", binary.display()))?;
-    if !binary.is_file() {
-        bail!("browser host binary must be a regular file");
+    if !crate::core::file_type(&binary, "the browser host binary")?.is_some_and(|kind| kind.is_file()) {
+        bail!("browser host binary {} must be a regular file", binary.display());
     }
 
     let paths = HostPaths::of(&home_dir()?);

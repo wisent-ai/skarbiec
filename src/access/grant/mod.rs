@@ -32,7 +32,7 @@ mod leaves;
 mod lookup;
 mod rules;
 
-pub(crate) use lookup::live_grants;
+pub(crate) use lookup::{active, live_grants};
 pub use lookup::{
     introspect, presented_hash, token_allows_action, token_allows_any_item_hash,
     token_allows_field_action, token_allows_vault_action, token_valid_hash,

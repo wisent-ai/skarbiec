@@ -5,8 +5,8 @@
 mod endpoint;
 mod remote;
 
-pub(crate) use endpoint::canonical_endpoint_report;
 pub(super) use endpoint::declare_canonical_endpoint;
+pub(crate) use endpoint::{canonical_endpoint_report, published_canonical_forward};
 pub(super) use remote::{remote_operation, remote_resume, remote_status};
 
 pub(crate) fn canonical_authority() -> anyhow::Result<String> {

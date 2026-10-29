@@ -6,8 +6,19 @@ use anyhow::{bail, Result};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard, Weak};
 
-/// The cryptographic tools Skarbiec runs, and no other program.
-const CRYPTO_PROGRAMS: &[&str] = &["gpg", "gpgconf", "gpg-connect-agent", "openssl", "shasum"];
+/// The tools Skarbiec's cryptographic path runs, and no other program: the
+/// cryptographic tools themselves, and `ps` and `uname`, which the GnuPG
+/// recovery reads the process table (published runs, stranded children, a
+/// lock holder's command) and the host name a lock file records with.
+const CRYPTO_PROGRAMS: &[&str] = &[
+    "gpg",
+    "gpgconf",
+    "gpg-connect-agent",
+    "openssl",
+    "shasum",
+    "ps",
+    "uname",
+];
 
 /// The runs holding a permit, and whether a recovery holds the whole set.
 /// Each permit holds a weak reference to `permits`, so the number of runs is
@@ -130,17 +141,14 @@ pub(super) static GPG_RECOVERY_GENERATION: LazyLock<Mutex<u64>> = LazyLock::new(
 pub(in crate::core::crypto) fn crypto_program(program: &str) -> Result<PathBuf> {
     if !CRYPTO_PROGRAMS.contains(&program) {
         bail!(
-            "{program} is not one of the cryptographic tools Skarbiec runs ({})",
+            "{program} is not one of the tools Skarbiec's cryptographic path runs ({})",
             CRYPTO_PROGRAMS.join(", ")
         );
     }
     let Some(path) = std::env::var_os("PATH") else {
         bail!("{program} cannot be found: PATH is not set, and the service unit states the directories its tools run from");
     };
-    match std::env::split_paths(&path)
-        .map(|directory| directory.join(program))
-        .find(|candidate| candidate.is_file())
-    {
+    match crate::core::presence::on_path(program, &path)? {
         Some(binary) => Ok(binary),
         None => bail!(
             "{program} is in no directory of PATH ({}); install it there or name its directory in the service unit's PATH",

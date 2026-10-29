@@ -87,10 +87,13 @@ pub(crate) fn answer(_flags: &HashMap<String, String>, arguments: &[String]) -> 
 /// whether it is still there, and the hosts ~/.git-credentials still keeps a
 /// plain-text sign-in for.
 pub(crate) fn status() -> Result<serde_json::Value> {
-    let forges: Vec<serde_json::Value> = configured()?
+    let forges = configured()?
         .iter()
-        .map(|(host, program)| json!({"host": host, "program": program, "program_exists": program.exists()}))
-        .collect();
+        .map(|(host, program)| {
+            let present = crate::core::is_present(program, "git's credential helper program")?;
+            Ok(json!({"host": host, "program": program, "program_exists": present}))
+        })
+        .collect::<Result<Vec<serde_json::Value>>>()?;
     let stored: Vec<serde_json::Value> = stored_hosts()?.iter().map(|(file, host)| json!({"file": file, "host": host})).collect();
     Ok(json!({"forges": forges, "plain_sign_ins": stored}))
 }

@@ -5,7 +5,6 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{Read, Write};
-use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -21,11 +20,7 @@ use super::{BRIDGE_ENV, WIRE_VERSION};
 use crate::core::effective_uid;
 
 pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
-    let configured = match std::env::var(BRIDGE_ENV) {
-        Ok(value) => Some(value),
-        Err(std::env::VarError::NotPresent) => None,
-        Err(error) => return Err(error).context(format!("{BRIDGE_ENV} must be valid UTF-8")),
-    };
+    let configured = crate::core::env::text(BRIDGE_ENV)?;
     let path = match configured.as_deref() {
         Some(value) => Path::new(value.trim()).to_path_buf(),
         None => fs::canonicalize(
@@ -53,8 +48,8 @@ pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
-        || NonZeroU32::new(mode & unsafe_bits).is_some()
-        || NonZeroU32::new(mode & owner_execute).is_none()
+        || (mode & unsafe_bits) != 0
+        || (mode & owner_execute) == 0
     {
         bail!("{source} must be an owner-controlled executable regular file");
     }

@@ -15,7 +15,7 @@
 // Every argument is checked against the schema the tool declares, so the
 // schema Las pins and the check this broker makes cannot drift apart.
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -113,9 +113,9 @@ fn answer(payload: Value) -> Value {
 }
 
 fn agent() -> Result<String> {
-    let agent = std::env::var("SKARBIEC_MCP_AGENT_ID").map_err(|error| {
-        anyhow!("the broker surface is disabled: the operator must set SKARBIEC_MCP_AGENT_ID to this agent's exact name ({error})")
-    })?;
+    let agent = crate::core::env::text("SKARBIEC_MCP_AGENT_ID")?.context(
+        "the broker surface is disabled: the operator must set SKARBIEC_MCP_AGENT_ID to this agent's exact name",
+    )?;
     if !crate::core::schema::exact_component(&agent) {
         bail!("SKARBIEC_MCP_AGENT_ID {agent:?} is not one exact name");
     }
@@ -190,16 +190,12 @@ fn same_capability(record: &Value, agent: &str, flags: &HashMap<String, String>)
 }
 
 /// An optional statement of the operator's, set as `flag` when present; a
-/// variable that is set but unreadable is refused rather than skipped.
+/// variable that is set but not text is refused rather than skipped.
 fn stated(flags: &mut HashMap<String, String>, flag: &str, variable: &str) -> Result<()> {
-    match std::env::var(variable) {
-        Ok(value) => {
-            flags.insert(flag.into(), value);
-            Ok(())
-        }
-        Err(std::env::VarError::NotPresent) => Ok(()),
-        Err(error) => bail!("{variable} cannot be read: {error}"),
+    if let Some(value) = crate::core::env::text(variable)? {
+        flags.insert(flag.into(), value);
     }
+    Ok(())
 }
 
 fn request(args: &Value) -> Result<Value> {

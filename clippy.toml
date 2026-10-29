@@ -1,0 +1,22 @@
+# A file this product writes is owner-only from its first byte.
+# std::fs::write and File::create open it under the process umask, so it is
+# readable by every user until a later chmod.
+#
+# Only a path that is not there is absent. Path::exists, is_file and is_dir
+# answer false for a path this process may not examine, so an unreadable
+# state file reads as no file and the next save writes an empty one over it.
+#
+# A value that is missing or of the wrong shape is refused naming it, never
+# read as empty: a writer that read tags as [] seals that empty list back.
+#
+# The release clippy gate (-D warnings) refuses every listed method.
+disallowed-methods = [
+  { path = "std::fs::write", reason = "write through crate::core::vault::atomic_write, which creates the file owner-only, syncs it and renames it into place" },
+  { path = "std::fs::File::create", reason = "open with OpenOptions and .mode(crate::core::vault::private_file_mode()?) so the file is never on disk under the umask mode" },
+  { path = "std::path::Path::exists", reason = "read presence through crate::core::is_present or read_present, where only NotFound is absence" },
+  { path = "std::path::Path::is_file", reason = "read the kind through crate::core::file_type, or a PATH search through crate::core::presence::on_path" },
+  { path = "std::path::Path::is_dir", reason = "read the kind through crate::core::file_type, which refuses a path it cannot examine" },
+  { path = "core::option::Option::unwrap_or_default", reason = "name what is missing: refuse it with context, or match None where absence is a stated answer" },
+  { path = "core::result::Result::unwrap_or_default", reason = "a failed read is not an empty value: propagate the error with its cause" },
+  { path = "std::env::var", reason = "read through crate::core::env::text (a set non-UTF-8 value is refused by name, not read as unset) or crate::core::env::path" },
+]

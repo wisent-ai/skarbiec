@@ -46,7 +46,7 @@ impl DaemonFootprint {
 
 /// The ceiling in bytes, from the setting; refused by name when it is unset.
 pub fn daemon_memory_limit_bytes() -> Result<u64> {
-    let raw = std::env::var(DAEMON_MEMORY_LIMIT_SETTING).with_context(|| {
+    let raw = crate::core::env::text(DAEMON_MEMORY_LIMIT_SETTING)?.with_context(|| {
         format!(
             "{DAEMON_MEMORY_LIMIT_SETTING} is not set: the memory, in MiB, above which a GnuPG \
              daemon is replaced is the operator's to state in the Skarbiec service environment"

@@ -194,11 +194,13 @@ fn next_poke(fifo: &std::fs::File) -> std::io::Result<()> {
 
 pub(super) fn watch(by: &str) -> Result<()> {
     let wake = register::wake_path();
-    if !wake.exists() {
-        let path = CString::new(wake.as_os_str().as_bytes())?;
-        // POSIX mkfifo(3), owner read and write only; it answers -1 on failure.
-        if unsafe { libc::mkfifo(path.as_ptr(), libc::S_IRUSR | libc::S_IWUSR) }.is_negative() {
-            return Err(std::io::Error::last_os_error()).context("create the request wake FIFO");
+    let path = CString::new(wake.as_os_str().as_bytes())?;
+    // POSIX mkfifo(3), owner read and write only; it answers -1 on failure,
+    // and EEXIST says a FIFO a previous watcher made is already there.
+    if unsafe { libc::mkfifo(path.as_ptr(), libc::S_IRUSR | libc::S_IWUSR) }.is_negative() {
+        let error = std::io::Error::last_os_error();
+        if error.kind() != ErrorKind::AlreadyExists {
+            return Err(error).with_context(|| format!("create the request wake FIFO {}", wake.display()));
         }
     }
     // Read and write, so the FIFO always has a reader while this watcher

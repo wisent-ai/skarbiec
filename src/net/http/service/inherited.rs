@@ -49,11 +49,13 @@ pub(super) fn remembered() -> Result<(BTreeSet<u16>, bool)> {
     }
 }
 
-/// Keep `ports` for the next start, replacing the record in one rename.
+/// Keep `ports` for the next start, replacing the record in one rename
+/// through the vault's owner-only atomic write, which names a staged file it
+/// could not remove beside the failure.
 pub(super) fn remember(ports: &BTreeSet<u16>) -> Result<()> {
     let path = record()?;
-    let staged = path.with_extension("json.staged");
-    std::fs::write(&staged, serde_json::to_vec(ports)?)
-        .with_context(|| format!("write {}", staged.display()))?;
-    std::fs::rename(&staged, &path).with_context(|| format!("replace {}", path.display()))
+    let bytes = serde_json::to_vec(ports)
+        .with_context(|| format!("encode the ports for {}", path.display()))?;
+    crate::core::vault::atomic_write(&path, &bytes)
+        .with_context(|| format!("replace {}", path.display()))
 }

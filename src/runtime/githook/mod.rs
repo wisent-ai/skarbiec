@@ -80,7 +80,7 @@ fn install(path: &Path, flags: &HashMap<String, String>) -> Result<Value> {
         }
         None => String::new(),
     };
-    if path.exists() && !flag_set(flags, "replace") {
+    if crate::core::is_present(path, "the pre-commit hook")? && !flag_set(flags, "replace") {
         bail!("{} already holds a pre-commit hook; add --replace to write this one over it", path.display());
     }
     let binary = std::env::current_exe().context("find this binary, which the hook runs")?;
@@ -93,7 +93,7 @@ fn install(path: &Path, flags: &HashMap<String, String>) -> Result<Value> {
     );
     let directory = path.parent().context("the hook path has no directory")?;
     std::fs::create_dir_all(directory).with_context(|| format!("create {}", directory.display()))?;
-    std::fs::write(path, script).with_context(|| format!("write {}", path.display()))?;
+    crate::core::vault::atomic_write(path, script.as_bytes()).with_context(|| format!("write {}", path.display()))?;
     // Executable as this binary is, so git runs it.
     let permissions = std::fs::metadata(&binary).with_context(|| format!("read {shown}'s permissions"))?.permissions();
     std::fs::set_permissions(path, permissions).with_context(|| format!("make {} executable", path.display()))?;
@@ -102,13 +102,13 @@ fn install(path: &Path, flags: &HashMap<String, String>) -> Result<Value> {
 }
 
 fn status(path: &Path) -> Result<Value> {
-    let present = path.exists();
+    let present = crate::core::is_present(path, "the pre-commit hook")?;
     let written_here = present && ours(path)?;
     Ok(json!({"ok": true, "hook": path.display().to_string(), "present": present, "installed": written_here}))
 }
 
 fn uninstall(path: &Path) -> Result<Value> {
-    if !path.exists() {
+    if !crate::core::is_present(path, "the pre-commit hook")? {
         bail!("{} holds no pre-commit hook; there is nothing to remove", path.display());
     }
     if !ours(path)? {

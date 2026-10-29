@@ -1,6 +1,10 @@
 //! Real recovery and ownership refusals. Run on an isolated OS account only.
 //! Requires SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION; reports and isolated
 //! keyrings stay in target until cleanup.
+#![allow(
+    clippy::disallowed_methods,
+    reason = "a journey writes its own fixtures and reports under target; the owner-only rule binds the product's writers"
+)]
 use serde_json::{json, Value};
 use std::os::unix::fs::DirBuilderExt;
 use std::{

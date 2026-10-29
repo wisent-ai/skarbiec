@@ -34,7 +34,7 @@ pub(crate) const PREDECESSORS: &[&str] = &[
 /// Whether launchd started this process as the fleet's declared unit; a serve
 /// run by hand or by a test is not.
 pub(super) fn declared() -> bool {
-    std::env::var("XPC_SERVICE_NAME").is_ok_and(|label| label == DECLARED_UNIT)
+    std::env::var_os("XPC_SERVICE_NAME").is_some_and(|label| label == DECLARED_UNIT)
 }
 
 /// Retire every predecessor present on this host when this process is the

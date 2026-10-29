@@ -20,6 +20,10 @@ pub fn path(name: &str) -> Option<PathBuf> {
 
 /// The text `name` holds; `None` when it is unset or blank, and an error
 /// naming the variable when it is set but not UTF-8.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "the one reader every other override goes through"
+)]
 pub fn text(name: &str) -> Result<Option<String>> {
     match std::env::var(name) {
         Ok(value) if value.trim().is_empty() => Ok(None),

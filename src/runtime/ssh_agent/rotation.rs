@@ -42,8 +42,8 @@ pub(in crate::runtime) fn follow_rotation(id: &str, retired: &str) -> Value {
         Err(error) => return json!({"swapped": false, "added_new": true, "error": format!("{error:#}"), "remove_with": "ssh-add -d <the retired public key file>"}),
     };
     let file = work.0.join("retired.pub");
-    if let Err(error) = std::fs::write(&file, format!("{old}\n")) {
-        return json!({"swapped": false, "added_new": true, "error": format!("write the retired public key to {}: {error}", file.display())});
+    if let Err(error) = crate::core::vault::atomic_write(&file, format!("{old}\n").as_bytes()) {
+        return json!({"swapped": false, "added_new": true, "error": format!("write the retired public key to {}: {error:#}", file.display())});
     }
     match stado_wait::output(Command::new("ssh-add").arg("-d").arg(&file).env("SSH_AUTH_SOCK", &socket)) {
         Ok(output) if output.status.success() => json!({"swapped": true, "agent": socket}),

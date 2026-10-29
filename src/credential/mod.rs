@@ -44,7 +44,7 @@ pub(crate) use state::{
 use client::{declare_canonical_endpoint, remote_operation, remote_resume, remote_status};
 
 pub(crate) use client::canonical_authority;
-pub(crate) use client::canonical_endpoint_report;
+pub(crate) use client::{canonical_endpoint_report, published_canonical_forward};
 use directory::seal_directory;
 use lifecycle::{resume, start_operation};
 use quarantine::resolve_quarantine;

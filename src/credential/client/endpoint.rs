@@ -5,7 +5,6 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::net::TcpStream;
-use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::PathBuf;
 
@@ -48,7 +47,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
-        || NonZeroU32::new(metadata.permissions().mode() & group_world_write).is_some()
+        || (metadata.permissions().mode() & group_world_write) != 0
     {
         bail!(
             "{ENDPOINT_UNRESOLVED}: {} must be an owner-owned regular file without group or world write; {ENDPOINT_REMEDY}",
@@ -65,6 +64,23 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
         );
     }
     Ok(endpoint)
+}
+
+/// The forward this host publishes for the canonical Skarbiec and the URL it
+/// holds; `None` only when no forward file is there. A forward that is there
+/// but is not the owner-only one-URL file is the error `canonical_endpoint`
+/// names. Stado reads the fleet vault through this same file when its config
+/// names no `secrets.skarbiec.url`, so the vault selection asks it too.
+pub(crate) fn published_canonical_forward() -> Result<Option<(PathBuf, String)>> {
+    let path = forwards_dir()?.join(CANONICAL_FORWARD);
+    match fs::symlink_metadata(&path) {
+        Ok(_) => Ok(Some((path, canonical_endpoint()?))),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(anyhow::Error::new(error).context(format!(
+            "{ENDPOINT_UNRESOLVED}: examine the canonical forward {}",
+            path.display()
+        ))),
+    }
 }
 
 /// The canonical endpoint as it stands, without writing anything.
@@ -115,18 +131,15 @@ pub(in crate::credential) fn declare_canonical_endpoint(endpoint: &str) -> Resul
     let endpoint = endpoint.trim();
     let directory = forwards_dir()?;
     let owner_only_directory = u32::from(libc::S_IRWXU);
-    let owner_only_file = crate::core::vault::private_file_mode()?;
     fs::create_dir_all(&directory)
         .with_context(|| format!("create forwards directory {}", directory.display()))?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(owner_only_directory))
         .with_context(|| format!("protect forwards directory {}", directory.display()))?;
     let path = directory.join(CANONICAL_FORWARD);
-    let staging = path.with_extension("local.staging");
-    fs::write(&staging, format!("{endpoint}\n"))
-        .with_context(|| format!("write {}", staging.display()))?;
-    fs::set_permissions(&staging, fs::Permissions::from_mode(owner_only_file))
-        .with_context(|| format!("protect {}", staging.display()))?;
-    fs::rename(&staging, &path).with_context(|| format!("publish {}", path.display()))?;
+    // Owner-only from its first byte, synced and renamed over the forward,
+    // as every private file this product writes.
+    crate::core::vault::atomic_write(&path, format!("{endpoint}\n").as_bytes())
+        .with_context(|| format!("publish {}", path.display()))?;
     let declared = canonical_endpoint()?;
     let authority = endpoint_authority(&declared)?;
     // Whether anything answers is a separate question from whether the

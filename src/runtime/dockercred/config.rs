@@ -28,10 +28,9 @@ pub(super) fn config_file() -> Result<PathBuf> {
 }
 
 pub(super) fn read_config(file: &Path) -> Result<Map<String, Value>> {
-    if !file.exists() {
+    let Some(text) = crate::core::read_present(file, "Docker's config.json")? else {
         return Ok(Map::new());
-    }
-    let text = std::fs::read_to_string(file).with_context(|| format!("read Docker's {}", file.display()))?;
+    };
     match serde_json::from_str(&text).with_context(|| format!("Docker's {} is not JSON", file.display()))? {
         Value::Object(members) => Ok(members),
         _ => bail!("Docker's {} is not a JSON object; nothing was changed", file.display()),
@@ -50,7 +49,7 @@ pub(super) fn write_config(file: &Path, members: Map<String, Value>) -> Result<(
 /// anything else.
 fn link(dir: &str) -> Result<PathBuf> {
     let dir = Path::new(dir);
-    if !dir.is_absolute() || !dir.is_dir() {
+    if !dir.is_absolute() || !crate::core::file_type(dir, "the --link directory")?.is_some_and(|kind| kind.is_dir()) {
         return Err(Usage(format!("--link {} must be an existing directory named by an absolute path, one on PATH", dir.display())).into());
     }
     let binary = std::env::current_exe().context("find this skarbiec binary's path for Docker to run")?;
@@ -58,10 +57,11 @@ fn link(dir: &str) -> Result<PathBuf> {
     match std::fs::read_link(&program) {
         Ok(target) if target == binary => return Ok(program),
         Ok(target) => bail!("{} already links to {}; remove it or name another directory", program.display(), target.display()),
-        Err(error) if program.exists() => {
-            bail!("{} exists and is not a link ({error}); remove it or name another directory", program.display())
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+            bail!("{} exists and is not a link; remove it or name another directory", program.display())
         }
-        Err(_absent) => {}
+        Err(error) => return Err(error).with_context(|| format!("read the link {}", program.display())),
     }
     std::os::unix::fs::symlink(&binary, &program)
         .with_context(|| format!("link {} to {}", program.display(), binary.display()))?;
