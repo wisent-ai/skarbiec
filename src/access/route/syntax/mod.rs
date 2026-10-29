@@ -8,7 +8,7 @@ use crate::core::schema::exact_token;
 pub(super) fn help() -> Value {
     json!({
         "commands": [
-            "route resolve [<name>...] [--consumer <c> --token <t>] [--emit --out <dir>] [--template <file> --out <file>]",
+            "route resolve [<name>...] [--consumer <c> --token-file <path>] [--emit --out <dir>] [--template <file> --out <file>]",
             "route declare --resource <resource> --item <item> --field <field> --reason <text>",
             "route withdraw --resource <resource> --reason <text>",
             "route verify [<consumer>]",

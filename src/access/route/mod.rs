@@ -26,7 +26,7 @@ use syntax::{exact_names, help};
 pub mod table;
 pub mod values;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use serde_json::Value;
 
 pub fn dispatch(
@@ -43,7 +43,10 @@ pub fn dispatch(
         None => ("help", positionals),
     };
     let value = match subcommand {
-        "resolve" => resolve(flags, rest)?,
+        "resolve" => {
+            let bearer = presented_bearer(flags)?;
+            resolve(flags, rest, bearer.as_deref())?
+        }
         "declare" => declare(flags)?,
         "withdraw" => withdraw(flags)?,
         "verify" => verify(flags, rest)?,
@@ -58,28 +61,38 @@ pub fn dispatch(
     Ok(Some(value))
 }
 
+/// The bearer `route resolve --consumer` presents when it materializes
+/// values: read from the owner-only file `--token-file` names, never from
+/// argv, where every process on the host can read it. A listing presents
+/// none.
+fn presented_bearer(flags: &HashMap<String, String>) -> Result<Option<String>> {
+    let materializes =
+        flags.get("emit").map(String::as_str) == Some("true") || flags.contains_key("template");
+    if flags.contains_key("consumer") && materializes {
+        return crate::credential::bearer_from_file(flags, "route resolve --consumer").map(Some);
+    }
+    Ok(None)
+}
+
+/// `route resolve <name> --consumer <c> --emit --out <dir>` for a caller in
+/// this process that already holds the consumer's bearer (the MCP server),
+/// so the bearer never passes through a flag.
+pub fn resolve_as(flags: &HashMap<String, String>, name: &str, bearer: &str) -> Result<Value> {
+    resolve(flags, &[name.to_string()], Some(bearer))
+}
+
 /// What a name reaches, and -- when asked -- the values behind it.
 ///
 /// The report is the same document in every mode, so a console rendering rows
 /// and a provisioning sequence reading a file see one answer. A
 /// materialization carries its own status beside it rather than replacing it.
-fn resolve(flags: &HashMap<String, String>, asked: &[String]) -> Result<Value> {
+fn resolve(
+    flags: &HashMap<String, String>,
+    asked: &[String],
+    presented: Option<&str>,
+) -> Result<Value> {
     let names = exact_names(asked)?;
     let consumer = flags.get("consumer").map(String::as_str);
-    let presented = match consumer {
-        Some(_)
-            if flags.get("emit").map(String::as_str) == Some("true")
-                || flags.contains_key("template") =>
-        {
-            Some(
-                flags
-                    .get("token")
-                    .map(String::as_str)
-                    .ok_or_else(|| anyhow!("--token required with --consumer"))?,
-            )
-        }
-        _ => None,
-    };
     if let Some(template) = flags.get("template") {
         let out = route_values::require_out(flags, "template")?;
         return route_values::expand(template, &out);
@@ -158,9 +171,10 @@ fn declare(flags: &HashMap<String, String>) -> Result<Value> {
     // is the error, with its cause, rather than a row written as if it were
     // absent.
     let path = vault_path();
-    let mut vault = match crate::core::is_present(&path, "vault")? {
-        true => Some(Vault::open(path)?),
-        false => None,
+    let mut vault = if crate::core::is_present(&path, "vault")? {
+        Some(Vault::open(path)?)
+    } else {
+        None
     };
     if key == "tag" {
         if let Some(open) = vault.as_mut() {

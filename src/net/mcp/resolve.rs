@@ -23,9 +23,13 @@ fn configured_token() -> Result<Option<String>> {
             )
         })?;
         let value = body.trim().to_string();
-        if !value.is_empty() {
-            return Ok(Some(value));
+        if value.is_empty() {
+            anyhow::bail!(
+                "SKARBIEC_MCP_TOKEN_FILE names {}, which holds no grant; write the grant into it or unset the variable",
+                path.display()
+            );
         }
+        return Ok(Some(value));
     }
     Ok(None)
 }
@@ -64,12 +68,12 @@ pub(super) fn resolve_tool(args: &Value) -> Result<Value> {
     let bearer = configured_token()?
         .context("skarbiec_route_resolve is disabled: configure SKARBIEC_MCP_TOKEN or SKARBIEC_MCP_TOKEN_FILE on the MCP server")?;
     let out_dir = configured_out_dir()?;
-    // Same path as `route resolve <name> --consumer c --token t --emit --out dir`.
+    // Same path as `route resolve <name> --consumer c --token-file f --emit
+    // --out dir`, with the bearer this server already read handed over in
+    // process rather than through a flag.
     let mut flags: HashMap<String, String> = HashMap::new();
     flags.insert("consumer".to_string(), consumer);
-    flags.insert("token".to_string(), bearer);
     flags.insert("emit".to_string(), "true".to_string());
     flags.insert("out".to_string(), out_dir);
-    crate::access::route::dispatch("route", &flags, &["resolve".to_string(), name.to_string()])?
-        .context("route resolve produced no result")
+    crate::access::route::resolve_as(&flags, name, &bearer)
 }
