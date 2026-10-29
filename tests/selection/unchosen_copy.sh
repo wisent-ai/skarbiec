@@ -4,11 +4,14 @@
 # secrets.skarbiec.vault_file, the default file
 # ~/.local/share/skarbiec/skarbiec.vault.json is a leftover copy the owner
 # never reads: `init` must not create it, and a command that opens the vault
-# here rather than asking the owner (`duplicates`, `delete`) must neither read
-# nor write it. A vault named with SKARBIEC_VAULT_FILE is still opened, a vault
-# Stado declares here is still opened, a machine Stado says nothing about
-# still falls back to the default file, and a Stado config that is not JSON is
-# refused naming it instead of choosing a vault.
+# here rather than asking the owner (`duplicates`, and `init` over a leftover
+# copy; `delete` is forwarded to the owner) must neither read
+# nor write it. A machine whose config names no URL but which publishes the
+# canonical forward ~/.stado/forwards/skarbiec.local is routed the same way,
+# and its refusal names the forward. A vault named with SKARBIEC_VAULT_FILE is
+# still opened, a vault Stado declares here is still opened, a machine Stado
+# says nothing about still falls back to the default file, and a Stado config
+# that is not JSON is refused naming it instead of choosing a vault.
 #
 # Everything runs through the built binary in an isolated HOME, keyring,
 # vault and audit journal under this checkout's target directory, so the
@@ -36,7 +39,7 @@ echo "binary-git-blob: $(git hash-object "$BIN")" >>"$REPORT"
 export HOME="$ROOT/home"
 export GNUPGHOME="$KEYRING"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
-unset STADO_CONFIG SKARBIEC_VAULT_FILE
+unset STADO_CONFIG SKARBIEC_VAULT_FILE STADO_FORWARDS_DIR
 CONFIG="$HOME/.config/stado/config.json"
 COPY="$HOME/.local/share/skarbiec/skarbiec.vault.json"
 OWN="$ROOT/own.vault.json"
@@ -49,25 +52,28 @@ fail() {
   false
 }
 
-# Runs one command with $ROOT/stdin on its standard input, standard output and
-# standard error together in $out; WANT says whether it had to succeed (ok) or
-# be refused (refused). VAULT, when nonempty, is passed as SKARBIEC_VAULT_FILE.
+# Runs one command with $ROOT/stdin on its standard input; its standard
+# output lands in $out and its standard error (the refusal, and the waits
+# Skarbiec announces there) in $said. WANT says whether it had to succeed
+# (ok) or be refused (refused). VAULT, when nonempty, is passed as
+# SKARBIEC_VAULT_FILE.
 run() {
-  if env ${VAULT:+SKARBIEC_VAULT_FILE="$VAULT"} "$BIN" "$@" <"$ROOT/stdin" &>"$ROOT/out"; then
+  if env ${VAULT:+SKARBIEC_VAULT_FILE="$VAULT"} "$BIN" "$@" <"$ROOT/stdin" >"$ROOT/out" 2>"$ROOT/said"; then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
   out=$(cat "$ROOT/out")
+  said=$(cat "$ROOT/said")
   printf '$ %sskarbiec %s\nexit: %s\nresult: %s\n' "${VAULT:+SKARBIEC_VAULT_FILE=$VAULT }" "$*" "$status" "$got" >>"$REPORT"
-  if [ "$got" = refused ]; then printf 'output: %s\n' "$out" >>"$REPORT"; fi
+  if [ "$got" = refused ]; then printf 'output: %s\n%s\n' "$out" "$said" >>"$REPORT"; fi
   printf '\n' >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said" ;;
   esac
 }
 config() {
@@ -95,6 +101,8 @@ names "$ROUTE"
 names "$COPY"
 [ ! -e "$COPY" ] || fail "a refused init still created $COPY"
 echo "ok: the refused init created no file at $COPY" >>"$REPORT"
+gpg --homedir "$GNUPGHOME" --list-keys "vault-test-owner-$RUN" >/dev/null 2>&1 && fail "the refused init made a key for vault-test-owner-$RUN"
+echo "ok: the refused init made no key" >>"$REPORT"
 
 # A vault named explicitly is the caller's own and is opened.
 VAULT="$OWN" WANT=ok run init "vault-test-owner-$RUN"
@@ -113,7 +121,8 @@ cp "$COPY" "$ROOT/copy.before"
 VAULT= WANT=refused run duplicates
 names "this machine holds no Skarbiec vault"
 names "is neither read nor written"
-VAULT= WANT=refused run delete "$ITEM"
+: >"$ROOT/stdin"
+VAULT= WANT=refused run init "vault-test-owner-$RUN"
 names "is neither read nor written"
 cmp -s "$COPY" "$ROOT/copy.before" || fail "a refused command changed $COPY"
 echo "ok: the refused read and write left $COPY byte-for-byte unchanged" >>"$REPORT"
@@ -129,8 +138,31 @@ config '{'
 VAULT= WANT=refused run duplicates
 names "$CONFIG"
 names "is the default vault"
+names "repair the config"
 cmp -s "$COPY" "$ROOT/copy.before" || fail "a refused command changed $COPY"
 echo "ok: an unreadable Stado config refuses the default vault naming the config" >>"$REPORT"
+
+# A machine whose Stado config names no URL but which publishes the canonical
+# forward: Stado reads the fleet vault through that forward, so `list` is
+# refused naming it rather than answered from the copy.
+FORWARD="$HOME/.stado/forwards/skarbiec.local"
+FORWARD_URL="http://vault-owner.example/"
+config '{}'
+mkdir -p "$(dirname "$FORWARD")"
+printf '%s\n' "$FORWARD_URL" >"$FORWARD"
+chmod go-rwx "$FORWARD"
+VAULT= WANT=refused run list
+names "this machine holds no Skarbiec vault"
+names "$FORWARD"
+names "$FORWARD_URL"
+names "$COPY"
+cmp -s "$COPY" "$ROOT/copy.before" || fail "a refused command changed $COPY"
+VAULT= WANT=ok run status
+case "$out" in *'"holds_vault": false'*) ;; *) fail "status on a forward-only host did not say it holds no vault: $out" ;; esac
+case "$out" in *"$FORWARD_URL"*) ;; *) fail "status on a forward-only host did not name the route: $out" ;; esac
+echo "ok: status on a forward-only host answers holds_vault false with the route" >>"$REPORT"
+rm "$FORWARD"
+echo "ok: a machine publishing only the canonical forward refuses the copy naming the forward" >>"$REPORT"
 
 # The vault owner: Stado declares the vault file here, so a bare skarbiec opens it.
 config "{\"secrets\":{\"skarbiec\":{\"url\":\"$ROUTE\",\"vault_file\":\"$DECLARED\"}}}"
@@ -147,6 +179,17 @@ config '{}'
 VAULT= WANT=ok run get "$ITEM" --field password
 [ "$out" = "$SECRET" ] || fail "the fallback vault did not return the stored value"
 echo "ok: with no Stado route the fallback vault is opened" >>"$REPORT"
+
+# A vault file that is gone is answered with the newest copy kept beside it
+# that reads as a vault, not only with init.
+KEPT="$COPY.pre-pull-vault-test-$RUN"
+mv "$COPY" "$KEPT"
+VAULT= WANT=refused run list
+names "the file is gone"
+names "$KEPT"
+names "skarbiec backup restore"
+mv "$KEPT" "$COPY"
+echo "ok: a vault that is gone is refused naming the copy kept beside it" >>"$REPORT"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

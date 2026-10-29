@@ -78,11 +78,6 @@ pub(in crate::access) fn routes_path() -> PathBuf {
     state_path().with_file_name("capability-routes.json")
 }
 
-/// Now, by the one unsigned clock reader capabilities and grants share.
-pub(in crate::access::capability) fn now_epoch() -> Result<u64> {
-    crate::core::clock::epoch_seconds()
-}
-
 /// Write `bytes` to a file only its owner can read. The file is created
 /// owner-only, so the bytes are never readable by others between the write
 /// and a permission change, and a file that already existed is narrowed
@@ -150,7 +145,7 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
             backup.display()
         );
     }
-    forget_stale(&mut state, now_epoch()?)?;
+    forget_stale(&mut state, crate::core::clock::epoch_seconds()?)?;
     Ok(state)
 }
 

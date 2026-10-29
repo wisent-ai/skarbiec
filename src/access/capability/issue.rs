@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::num::NonZeroU64;
 
-use super::state::{acquire_state_lock, load_state, now_epoch, save_entry};
+use super::state::{acquire_state_lock, load_state, save_entry};
+use crate::core::clock::epoch_seconds;
 use crate::core::schema::exact_token;
 use crate::core::{crypto, vault::Vault, vault_path};
 
@@ -125,7 +126,7 @@ pub(in crate::access) fn issue(flags: &HashMap<String, String>) -> Result<Value>
     }
 
     let capability_id = crypto::sha256_hex(&crypto::random_token()?)?;
-    let now = now_epoch()?;
+    let now = epoch_seconds()?;
     let expires_at = now
         .checked_add(ttl)
         .context("--ttl exceeds the representable capability expiry timestamp")?;

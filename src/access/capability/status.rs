@@ -9,7 +9,8 @@ use std::path::absolute;
 use anyhow::{ensure, Context, Result};
 use serde_json::{json, Value};
 
-use super::state::{acquire_state_lock, load_state, now_epoch, routes_path, state_path};
+use super::state::{acquire_state_lock, load_state, routes_path, state_path};
+use crate::core::clock::epoch_seconds;
 use crate::core::vault_path;
 
 pub(super) const VERSION: &str = "skarbiec.capability-status.v1";
@@ -102,7 +103,7 @@ fn redeemable(record: &Value, now: u64) -> bool {
 pub(crate) fn active_count() -> Result<usize> {
     let _lock = acquire_state_lock()?;
     let state = load_state()?;
-    let now = now_epoch()?;
+    let now = epoch_seconds()?;
     // A state that has never issued a capability holds no map yet; a map that
     // is something else is a damaged state, said rather than counted as none.
     match state.get("capabilities") {
@@ -121,7 +122,7 @@ pub(crate) fn active_count() -> Result<usize> {
 pub(crate) fn live(capability_id: &str) -> Result<bool> {
     let _lock = acquire_state_lock()?;
     let state = load_state()?;
-    let now = now_epoch()?;
+    let now = epoch_seconds()?;
     Ok(state["capabilities"]
         .get(capability_id)
         .is_some_and(|record| redeemable(record, now)))

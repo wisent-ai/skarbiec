@@ -242,7 +242,13 @@ fn leaf(
                 }
                 backup = Some(path);
             }
-            std::fs::copy(&mirror, &live).context("copy synced vault into place")?;
+            // Written beside the live vault and renamed over it, so a pull
+            // that fails part way leaves the vault it found, never an empty
+            // or half-written file at the primary path.
+            let synced = std::fs::read(&mirror)
+                .with_context(|| format!("read synced vault {}", mirror.display()))?;
+            crate::core::vault::atomic_write(&live, &synced)
+                .context("put synced vault into place")?;
             let backup = backup.map(|path| path.display().to_string());
             crate::runtime::audit::append(
                 "sync-pull",

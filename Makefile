@@ -6,10 +6,12 @@
 
 .PHONY: check build release
 
-# Does the working copy compile? The cheap question, and the one to ask after
-# an edit: a build is rationed, a check is not.
+# Does the working copy compile, and does every journey keep a program's
+# standard error out of the answer it compares? The cheap question, and the
+# one to ask after an edit: a build is rationed, a check is not.
 check:
 	cargo check --locked
+	bash tools/check-journey-streams.sh tests
 
 build:
 	cargo build --locked
