@@ -11,7 +11,7 @@ Deploy an exact release tag and checksum; do not infer readiness from
 
 | Boundary | Current contract |
 | --- | --- |
-| Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the fleet-level Hosted Hub is planned commercial work and is not part of this repository |
+| Maturity | Early public `0.2.x`. The local broker, acquisition flow, sharing, recovery, audit, sync, MCP boundary, and managed browser extension are shipped; the paid fleet audit service is the separate Rust product [skarbiec-web](https://github.com/wisent-ai/skarbiec-web), which the local core does not depend on |
 | Latest complete release | [`v0.2.37`](https://github.com/wisent-ai/skarbiec/releases/tag/v0.2.37) |
 | Supported release targets | `darwin-arm64` and `linux-amd64` |
 | Runtime dependencies | `gpg` and `openssl`; `shasum` only for breach checking. TOTP is computed in process. Commands that change another system run that system's own client only when used: `ssh` and `ssh-keygen` for SSH keys, `gh` and `glab` for deploy keys and `gh` for Actions secrets, `psql` or `mysql` for database rotation, `aws`, `gcloud`, `az` and `kubectl` for cloud credentials, `curl` for GitLab, Cloudflare, Twilio, SendGrid and Vercel tokens and alert webhooks. Terraform and Cargo run this binary themselves as their credentials helper and provider; npm, twine, gh, gem, the Hugging Face libraries and flyctl read their tokens through `exec` |
@@ -37,10 +37,10 @@ Not supported or promised:
   identity guarantee.
 
 The local core, acquisition flow, sharing, recovery, audit, sync, MCP boundary,
-and managed browser extension exist today. The fleet-level **Hosted Hub**
-described in [the product contract](https://skarbiec.wisent.com/docs/product-contract#monetization-assessment)
-is planned commercial control-plane work, not a dependency or capability of the
-current core.
+and managed browser extension exist today. The paid fleet audit service is the
+separate Rust product skarbiec-web (one place the audit journals of many
+Skarbiec hosts are kept, proved intact, searched and exported); it is not a
+dependency or capability of the current core.
 
 ### Compatibility, releases, and support
 
@@ -60,8 +60,8 @@ it is not a compatibility promise for every `0.2.x` release. Retain the exact
 listed in `runtime.rollback_compatible_with`.
 
 - Resolve downloadable assets from the canonical Stado release receipt.
-- Commercial or account support is not applicable to the local core; Hosted Hub
-  is planned and has no published paid contract.
+- Commercial or account support is not applicable to the local core; the paid
+  service is skarbiec-web, documented in its own repository.
 - Ask design and usage questions in
   [GitHub Discussions](https://github.com/wisent-ai/skarbiec/discussions).
 - Report reproducible bugs and request features in

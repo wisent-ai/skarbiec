@@ -75,7 +75,7 @@ Skarbiec records every decision even when another product issues the grant, so t
 - Every request names a decider: a person (Wisent user) or a role in the organization (`owner`, `admin`).
 - A person decides only for resources they own: their vault items, their device, organizations where they hold the role. Skarbiec refuses `approve` from anyone else.
 - A colleague's agent files into the decider's register through `POST /v1/access-requests`; it never receives the decider's secrets, only the grant the decider issues.
-- The register and the audit chain stay on the decider's vault host. The planned Hosted Hub can later mirror them for the organization; nothing here depends on it.
+- The register and the audit chain stay on the decider's vault host. skarbiec-web, the separate fleet audit service, can keep the organization's audit journals; nothing here depends on it.
 
 ## Delivery plan (each step lands through a PR in its repo)
 
