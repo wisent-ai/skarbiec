@@ -57,7 +57,7 @@ pub(super) fn options(
             .into())
         }
     };
-    if flags.get("length").is_none() {
+    if !flags.contains_key("length") {
         flags.insert("length".to_string(), length.to_string());
     }
     if !symbols.is_empty() {

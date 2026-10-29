@@ -51,9 +51,12 @@ mod emergency;
 /// implemented.
 struct Group {
     object: &'static str,
-    leaves: fn(&str, &HashMap<String, String>, &[String]) -> Result<Option<Value>>,
+    leaves: Leaves,
     help: fn() -> Value,
 }
+
+/// One module's leaf dispatch: the leaf, its flags and positionals.
+type Leaves = fn(&str, &HashMap<String, String>, &[String]) -> Result<Option<Value>>;
 
 const GROUPS: &[Group] = &[
     Group {

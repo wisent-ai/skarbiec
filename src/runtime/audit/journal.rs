@@ -58,11 +58,14 @@ pub(super) fn lines() -> Result<Vec<Value>> {
     Ok(entries.into_iter().map(|(_, entry)| entry).collect())
 }
 
+/// The parsed lines, each with its line number, and the faults.
+type LinesAndFaults = (Vec<(usize, Value)>, Vec<Value>);
+
 /// Every parseable line with the number of the line it was read from, plus
 /// the ones that are not. The chain report does not stop at the first fault,
 /// so the reader it is built on cannot either, and every fault it reports
 /// names the line an editor shows for it.
-pub(super) fn lines_with_faults() -> Result<(Vec<(usize, Value)>, Vec<Value>)> {
+pub(super) fn lines_with_faults() -> Result<LinesAndFaults> {
     let path = audit_path();
     let Some(body) = crate::core::read_present(&path, "audit journal")? else {
         return Ok((Vec::new(), Vec::new()));

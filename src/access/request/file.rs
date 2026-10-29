@@ -233,7 +233,7 @@ fn marked_dual_control(item: Option<&str>) -> Result<bool> {
     Ok(vault
         .doc()
         .get("items")
-        .and_then(|items| items.get(&item))
+        .and_then(|items| items.get(item))
         .and_then(|record| record.get("tags"))
         .and_then(Value::as_array)
         .is_some_and(|tags| tags.iter().any(|tag| tag == DUAL_CONTROL_TAG)))

@@ -109,7 +109,7 @@ pub fn list() -> Result<Value> {
     let rows: Vec<Value> = pinned(&vault)
         .into_iter()
         .map(|id| {
-            let is_live = live.iter().any(|known| *known == id);
+            let is_live = live.contains(&id);
             json!({"item": id, "live": is_live})
         })
         .collect();

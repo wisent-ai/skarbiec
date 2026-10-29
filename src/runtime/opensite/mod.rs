@@ -30,7 +30,7 @@ pub fn dispatch(
     let [id] = positionals else {
         return Err(Usage(USAGE.to_string()).into());
     };
-    let read = crate::runtime::dispatch("sites", &HashMap::new(), &[id.clone()])?
+    let read = crate::runtime::dispatch("sites", &HashMap::new(), std::slice::from_ref(id))?
         .context("sites answered nothing")?;
     let sites: Vec<&str> = read["domains"]
         .as_array()

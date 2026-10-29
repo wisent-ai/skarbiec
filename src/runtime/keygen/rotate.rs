@@ -149,10 +149,10 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
             let old_private = old_private
                 .as_deref()
                 .with_context(|| format!("{id} holds no private_key to reach the hosts with"))
-                .map_err(&take_back)?;
-            let work = super::workspace(&vault_path()).map_err(&take_back)?;
+                .map_err(take_back)?;
+            let work = super::workspace(&vault_path()).map_err(take_back)?;
             super::push::add_everywhere(&work.0, &hosts, old_private, &private_key, &public_key)
-                .map_err(&take_back)?;
+                .map_err(take_back)?;
             Some(work)
         }
     };

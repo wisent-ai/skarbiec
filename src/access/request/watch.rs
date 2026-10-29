@@ -214,13 +214,13 @@ fn ask(record: &Value, by: &str) -> Result<()> {
 
 /// Block until one register writer pokes the wake FIFO.
 fn next_poke(fifo: &std::fs::File) -> std::io::Result<()> {
-    match fifo.bytes().next() {
-        Some(Ok(_)) => Ok(()),
-        Some(Err(error)) => Err(error),
-        None => Err(std::io::Error::new(
+    let mut reader = fifo;
+    match reader.read_exact(&mut [0u8; 1]) {
+        Err(error) if error.kind() == ErrorKind::UnexpectedEof => Err(std::io::Error::new(
             ErrorKind::UnexpectedEof,
             "the request wake FIFO closed",
         )),
+        poked => poked,
     }
 }
 

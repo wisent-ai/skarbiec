@@ -183,9 +183,13 @@ fn table_registry(header: &str) -> Option<String> {
     }
 }
 
+/// The credentials file, its lines, and each registry with its token's line
+/// and token.
+pub(super) type StoredTokens = (PathBuf, Vec<String>, Vec<(String, usize, String)>);
+
 /// Every registry credentials.toml keeps a token for, with the line it is on
 /// and the token.
-pub(super) fn stored_tokens() -> Result<(PathBuf, Vec<String>, Vec<(String, usize, String)>)> {
+pub(super) fn stored_tokens() -> Result<StoredTokens> {
     let file = credentials_file()?;
     let text = read(&file, "Cargo's credentials.toml")?;
     let lines: Vec<String> = text.lines().map(str::to_string).collect();

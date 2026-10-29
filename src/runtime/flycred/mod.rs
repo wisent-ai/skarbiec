@@ -30,8 +30,11 @@ fn config_file() -> Result<PathBuf> {
     Ok(directory.join("config.yml"))
 }
 
+/// What [`kept`] answers.
+type Kept = (PathBuf, String, Option<(usize, String)>);
+
 /// The file, its text, and the access_token line's position and token.
-fn kept() -> Result<(PathBuf, String, Option<(usize, String)>)> {
+fn kept() -> Result<Kept> {
     let file = config_file()?;
     let Some(text) = crate::core::read_present(&file, "flyctl's config.yml")? else {
         return Ok((file, String::new(), None));

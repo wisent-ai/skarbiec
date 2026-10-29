@@ -61,10 +61,7 @@ enum Piece<'t> {
 fn pieces(text: &str) -> Result<Vec<Piece<'_>>> {
     let mut found = Vec::new();
     let mut rest = text;
-    loop {
-        let Some((head, after_open)) = rest.split_once(OPEN) else {
-            break;
-        };
+    while let Some((head, after_open)) = rest.split_once(OPEN) {
         let Some((inner, after_close)) = after_open.split_once(CLOSE) else {
             break;
         };

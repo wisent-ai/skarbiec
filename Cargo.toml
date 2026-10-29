@@ -71,3 +71,7 @@ rustix = { version = "1", features = ["process"] }
 # audit append disappeared without a word.
 let_underscore_must_use = "deny"
 unused_result_ok = "deny"
+# clippy.toml bans unwrap_or_default: a missing value is matched where its
+# absence is a stated answer. This lint asks for the banned method in exactly
+# those matches, so the two cannot both hold.
+manual_unwrap_or_default = "allow"
