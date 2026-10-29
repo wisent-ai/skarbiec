@@ -32,9 +32,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 note() {
   printf '{"schema":"skarbiec.item.v2","kind":"note","fields":{"value":"%s"},"context":{}}' "$1-value" >"$ROOT/stdin"
@@ -67,13 +68,14 @@ WANT=ok run bindings check "$BINDINGS"
 row TRASHED | jq -e '.ok == false and (.problem | contains("in the trash"))' >/dev/null || fail "the trashed note was not named as in the trash: $out"
 row MISSING | jq -e '.ok == false and (.problem | contains("no item"))' >/dev/null || fail "the missing id was not named: $out"
 row WRONG | jq -e '.ok == false and (.problem | contains("no text field password"))' >/dev/null || fail "the missing field was not named: $out"
-case "$out" in *"$LIVE-value"*|*"$GONE-value"*) fail "the check printed a value" ;; esac
+# A value must appear on neither stream.
+case "$out$said" in *"$LIVE-value"*|*"$GONE-value"*) fail "the check printed a value" ;; esac
 grep -q '"bindings-checked"' "$SKARBIEC_AUDIT_FILE" || fail "no bindings-checked journal entry was appended"
 echo "ok: each line is marked, the failing ones with their problem, and no value is printed" >>"$REPORT"
 
 WANT=refused run bindings check "$BINDINGS" --refuse
 for variable in TRASHED MISSING WRONG; do
-  case "$out" in *"$variable"*) ;; *) fail "--refuse did not name $variable: $out" ;; esac
+  case "$said" in *"$variable"*) ;; *) fail "--refuse did not name $variable: $said" ;; esac
 done
 echo "ok: --refuse fails naming every failing variable" >>"$REPORT"
 
@@ -83,7 +85,7 @@ WANT=ok run bindings check "$BINDINGS" --refuse
 echo "ok: a file whose every line gives a value passes, also with --refuse" >>"$REPORT"
 
 WANT=refused run bindings check
-case "$out" in *"usage: bindings check"*) ;; *) fail "check without a file was not refused with the usage: $out" ;; esac
+case "$said" in *"usage: bindings check"*) ;; *) fail "check without a file was not refused with the usage: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

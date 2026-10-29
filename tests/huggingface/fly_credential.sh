@@ -37,9 +37,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 tokens_check() {
   if doctor=$("$BIN" doctor </dev/null); then echo "doctor: ok" >>"$REPORT"; else echo "doctor: a check failed" >>"$REPORT"; fi
@@ -58,7 +59,8 @@ BINDINGS="$ROOT/bindings"
 
 WANT=ok run tool status fly
 printf '%s' "$out" | jq -e '.entries | any(.entry == "access_token" and .kept == "plain text")' >/dev/null || fail "status did not name the token as plain text: $out"
-case "$out" in *"$TOKEN"*) fail "status printed the token" ;; esac
+# The token must appear on neither stream.
+case "$out$said" in *"$TOKEN"*) fail "status printed the token" ;; esac
 case "$(tokens_check)" in
   fail*"tool import fly"*) ;;
   *) fail "doctor's developer_tokens check does not name flyctl's token: $(tokens_check)" ;;
@@ -67,7 +69,7 @@ echo "ok: status and doctor name the plain-text token, never the token" >>"$REPO
 
 ITEM="fly-$RUN"
 WANT=ok run tool import fly "$ITEM" --bindings "$BINDINGS"
-case "$out" in *"$TOKEN"*) fail "import printed the token" ;; esac
+case "$out$said" in *"$TOKEN"*) fail "import printed the token" ;; esac
 if grep -q "$TOKEN" "$CONFIG"; then fail "config.yml still holds the token"; fi
 grep -qxF "auto_update: true" "$CONFIG" || fail "import dropped another setting"
 grep -qxF "FLY_ACCESS_TOKEN=$ITEM:token" "$BINDINGS" || fail "the bindings file does not bind FLY_ACCESS_TOKEN"
@@ -84,11 +86,11 @@ esac
 
 cp "$CONFIG" "$ROOT/config-before-refusals"
 WANT=refused run tool import fly "again-$RUN" --bindings "$BINDINGS"
-case "$out" in *"keeps no access_token"*) ;; *) fail "a file keeping no token was not refused: $out" ;; esac
+case "$said" in *"keeps no access_token"*) ;; *) fail "a file keeping no token was not refused: $said" ;; esac
 printf 'access_token: other_%s\n' "$RUN" >>"$CONFIG"
 cp "$CONFIG" "$ROOT/config-before-refusals"
 WANT=refused run tool import fly "clash-$RUN" --bindings "$BINDINGS"
-case "$out" in *"already binds FLY_ACCESS_TOKEN"*) ;; *) fail "a variable bound elsewhere was not refused: $out" ;; esac
+case "$said" in *"already binds FLY_ACCESS_TOKEN"*) ;; *) fail "a variable bound elsewhere was not refused: $said" ;; esac
 cmp -s "$CONFIG" "$ROOT/config-before-refusals" || fail "a refused import changed config.yml"
 echo "ok: no token and a clashing binding are refused, config.yml unchanged" >>"$REPORT"
 
