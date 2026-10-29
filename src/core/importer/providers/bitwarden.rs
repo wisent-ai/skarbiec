@@ -2,7 +2,9 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 
-use super::super::{login_fields, source_row, text, ImportDocument, NOT_STATED};
+use super::super::{
+    card_fields, login_fields, source_row, text, ImportDocument, StatedCard, NOT_STATED,
+};
 
 /// The `type` Bitwarden's JSON export gives a login item.
 /// <https://bitwarden.com/help/condition-bitwarden-import/>
@@ -10,6 +12,10 @@ const LOGIN_TYPE: u64 = 1;
 /// The `type` Bitwarden's JSON export gives a secure note.
 /// <https://bitwarden.com/help/condition-bitwarden-import/>
 const SECURE_NOTE_TYPE: u64 = 2;
+/// The `type` Bitwarden's JSON export gives a payment card, and its `card`
+/// members (cardholderName, brand, number, expMonth, expYear, code).
+/// <https://bitwarden.com/help/condition-bitwarden-import/>
+const CARD_TYPE: u64 = 3;
 
 pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocument> {
     if value
@@ -100,6 +106,26 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                 ),
             ),
             SECURE_NOTE_TYPE => ("note", Map::from_iter([("value".into(), json!(notes))])),
+            CARD_TYPE
+                if !text(&item["card"], "number")
+                    .with_context(|| at.clone())?
+                    .is_empty() =>
+            {
+                let card = &item["card"];
+                let stated = |key: &str| text(card, key).with_context(|| at.clone());
+                let fields = card_fields(
+                    &StatedCard {
+                        number: stated("number")?,
+                        cardholder: stated("cardholderName")?,
+                        month: stated("expMonth")?,
+                        year: stated("expYear")?,
+                        security_code: stated("code")?,
+                        brand: stated("brand")?,
+                    },
+                    &mut context,
+                );
+                ("payment-card", fields)
+            }
             _ => (
                 "bundle",
                 Map::from_iter([("source_record".into(), item.clone())]),

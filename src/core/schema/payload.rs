@@ -107,6 +107,16 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
     {
         bail!("host-account payload requires context.account_ref naming <user>@<host>");
     }
+    // A card's expiry is read by `expiry` and by checkout forms as a year and
+    // a month; any other spelling (04/31, April 2031) would be read
+    // differently by each of them, so one form is accepted at write time.
+    if expected_kind == "payment-card" {
+        if let Some(expiry) = fields.get("expiry").and_then(Value::as_str) {
+            if !year_month(expiry) {
+                bail!("payment-card fields.expiry must be the year and month the card stops working, written YYYY-MM (for example 2031-04); the value given is not in that form, so nothing was written");
+            }
+        }
+    }
     // `context.identity` is how a platform login says whose account it signs
     // in as. It names an `identity` item id, so it is checked here for shape
     // and in the vault write for existence: a reference to nothing would send
@@ -132,6 +142,20 @@ pub fn validate_payload(payload: &Value, expected_kind: &str) -> Result<()> {
         bail!("canonical item extensions must be an object");
     }
     Ok(())
+}
+
+/// Whether `text` is a year and a month written YYYY-MM, the month 01 to 12.
+pub fn year_month(text: &str) -> bool {
+    let Some((year, month)) = text.split_once('-') else {
+        return false;
+    };
+    year.len() == 4
+        && month.len() == 2
+        && year
+            .bytes()
+            .chain(month.bytes())
+            .all(|byte| byte.is_ascii_digit())
+        && matches!(month.parse::<u8>(), Ok(1..=12))
 }
 
 pub fn payload(

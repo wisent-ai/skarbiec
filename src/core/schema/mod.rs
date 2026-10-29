@@ -10,6 +10,7 @@ pub use kinds::supported_kind;
 pub use legacy::migrate_legacy;
 pub use payload::{
     allows_field, field, fields, kind_allows_field, kind_declares_field, payload, validate_payload,
+    year_month,
 };
 pub use tags::{ensure_registered_tags, inventory as tag_inventory};
 

@@ -193,3 +193,45 @@ pub(super) fn login_fields(
     }
     fields
 }
+
+/// What an export states about one payment card, each part as the export
+/// spells it; a part the export leaves out is empty.
+pub(super) struct StatedCard<'a> {
+    pub(super) number: &'a str,
+    pub(super) cardholder: &'a str,
+    pub(super) month: &'a str,
+    pub(super) year: &'a str,
+    pub(super) security_code: &'a str,
+    pub(super) brand: &'a str,
+}
+
+/// A payment card's fields: the number and every other part the export
+/// fills. A month and year are written YYYY-MM; an expiry that does not read
+/// as a month of a four-digit year is left out of the fields, kept in
+/// `extensions.import.source`, and named in the import warning.
+pub(super) fn card_fields(
+    card: &StatedCard,
+    context: &mut Map<String, Value>,
+) -> Map<String, Value> {
+    let mut fields = Map::from_iter([("number".into(), json!(card.number))]);
+    for (name, value) in [
+        ("cardholder", card.cardholder),
+        ("security_code", card.security_code),
+        ("brand", card.brand),
+    ] {
+        if !value.is_empty() {
+            fields.insert(name.into(), json!(value));
+        }
+    }
+    if !card.month.is_empty() || !card.year.is_empty() {
+        let expiry = format!("{}-{:0>2}", card.year, card.month);
+        if schema::year_month(&expiry) {
+            fields.insert("expiry".into(), json!(expiry));
+        } else {
+            context.insert("import_warning".into(), json!(
+                "The card's expiry month and year do not read as a month of a four-digit year; the original was retained in extensions.import.source and no expiry was written"
+            ));
+        }
+    }
+    fields
+}

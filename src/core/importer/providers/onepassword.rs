@@ -4,7 +4,9 @@ use serde_json::{json, Map, Value};
 use std::io::{Cursor, Read};
 use zip::ZipArchive;
 
-use super::super::{login_fields, source_row, text, ImportDocument, NOT_STATED};
+use super::super::{
+    card_fields, login_fields, source_row, text, ImportDocument, StatedCard, NOT_STATED,
+};
 
 /// The 1PUX export version this reader understands.
 /// <https://support.1password.com/1pux-format/>
@@ -116,9 +118,11 @@ fn designated<'a>(login: Option<&'a Vec<Value>>, designation: &str) -> Result<&'
     Ok(NOT_STATED)
 }
 
-/// The first one-time-password seed any of the item's sections states, or
-/// nothing when none does.
-fn first_totp(details: &Value) -> Result<&str> {
+/// The first value of type `value_type` (`totp`, `creditCardNumber`, the
+/// section field types the 1PUX format names) any of the item's sections
+/// states, or nothing when none does.
+/// <https://support.1password.com/1pux-format/>
+fn first_stated<'a>(details: &'a Value, value_type: &str) -> Result<&'a str> {
     let fields = details
         .get("sections")
         .and_then(Value::as_array)
@@ -133,9 +137,9 @@ fn first_totp(details: &Value) -> Result<&str> {
         });
     for field in fields {
         if let Some(value) = field.get("value") {
-            let totp = text(value, "totp")?;
-            if !totp.is_empty() {
-                return Ok(totp);
+            let stated = text(value, value_type)?;
+            if !stated.is_empty() {
+                return Ok(stated);
             }
         }
     }
@@ -202,6 +206,8 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                 }
                 let login = details.get("loginFields").and_then(Value::as_array);
                 let category = text(&item, "categoryUuid").with_context(|| at.clone())?;
+                let card_number =
+                    first_stated(details, "creditCardNumber").with_context(|| at.clone())?;
                 let (kind, fields) = if state == "archived" {
                     context.insert("import_warning".into(), json!("Archived source item retained as a bundle; its credentials were not activated."));
                     (
@@ -214,12 +220,25 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                         login_fields(
                             designated(login, "username").with_context(|| at.clone())?,
                             designated(login, "password").with_context(|| at.clone())?,
-                            first_totp(details).with_context(|| at.clone())?,
+                            first_stated(details, "totp").with_context(|| at.clone())?,
                             &mut context,
                         ),
                     )
                 } else if category == SECURE_NOTE_CATEGORY {
                     ("note", Map::from_iter([("value".into(), json!(notes))]))
+                } else if !card_number.is_empty() {
+                    // The format names a credit card number's field type but
+                    // not the template ids of a card's other fields, so the
+                    // number is what is read; the rest stays in the source.
+                    let card = StatedCard {
+                        number: card_number,
+                        cardholder: NOT_STATED,
+                        month: NOT_STATED,
+                        year: NOT_STATED,
+                        security_code: NOT_STATED,
+                        brand: NOT_STATED,
+                    };
+                    ("payment-card", card_fields(&card, &mut context))
                 } else {
                     (
                         "bundle",

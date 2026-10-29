@@ -128,6 +128,19 @@ const CERTIFICATE: &[Field] = &[
     optional("passphrase", Shape::Text),
 ];
 const SERVICE_ACCOUNT: &[Field] = &[required("credential_json", Shape::TextOrObject)];
+// A payment card: the number it is charged by, and what a checkout form asks
+// for beside it. `expiry` is the year and month it stops working, as YYYY-MM;
+// `security_code` is the code printed on the card and `pin` the one its owner
+// types at a terminal. A card is not a login: no trajectory types it into a
+// sign-in form, and a checkout reads it as one item.
+const PAYMENT_CARD: &[Field] = &[
+    required("number", Shape::Text),
+    optional("cardholder", Shape::Text),
+    optional("expiry", Shape::Text),
+    optional("security_code", Shape::Text),
+    optional("pin", Shape::Text),
+    optional("brand", Shape::Text),
+];
 const RECORD: &[Field] = &[required("value", Shape::Any)];
 
 /// What a kind declares about its fields.
@@ -156,6 +169,7 @@ pub(super) fn declared(kind: &str) -> Declared {
         "key-pair" => Declared::Fields(KEY_PAIR),
         "certificate" => Declared::Fields(CERTIFICATE),
         "service-account" => Declared::Fields(SERVICE_ACCOUNT),
+        "payment-card" => Declared::Fields(PAYMENT_CARD),
         // An operation record is one request and its outcome; a directory
         // seal is the standing statement of which principal an item speaks
         // for. They are separate kinds because they are separate families,
