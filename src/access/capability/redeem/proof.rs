@@ -7,12 +7,11 @@ use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
 use serde_json::Value;
 
-use crate::access::capability::state::{now_epoch, state_path};
+use crate::access::capability::state::state_path;
 use crate::core::{crypto, vault::Vault};
 
-// Liveness matches grant::active: a consumer entry carries no state field, only an
-// expiry. Checking for a "state" the vault never writes would deny every redemption
-// while looking like a working guard.
+// Liveness is grant::active's: a consumer entry carries no state field, only an
+// expiry, and a clock that cannot say what now is denies with its cause said.
 pub(in crate::access::capability) fn workload_public_key(
     vault: &Vault,
     agent: &str,
@@ -21,11 +20,7 @@ pub(in crate::access::capability) fn workload_public_key(
         .doc()
         .get("tokens")
         .and_then(|tokens| tokens.get(agent))?;
-    let live = entry
-        .get("expires_at")
-        .and_then(Value::as_u64)
-        .is_some_and(|expires_at| now_epoch().is_ok_and(|now| now < expires_at));
-    if !live {
+    if !crate::access::grant::active(entry) {
         return None;
     }
     entry
@@ -48,11 +43,9 @@ pub(in crate::access::capability) fn workload_public_key(
 /// item, because "no value" or a challenge left pending would hide a cause
 /// that sits in the keyring.
 pub(super) fn item_field(vault: &Vault, item: &str, field: &str) -> Result<Option<String>> {
-    let present = vault
-        .doc()
-        .get("items")
-        .and_then(|items| items.get(item))
-        .is_some();
+    // A document without its items section is damage, refused by name, not
+    // a vault that holds no such item.
+    let present = vault.section("items", "id -> item")?.contains_key(item);
     if !present {
         return Ok(None);
     }

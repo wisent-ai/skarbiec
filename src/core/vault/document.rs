@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
 use std::num::NonZeroU64;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{acquire_write_lock, atomic_write, document_generation, now, Vault};
 
@@ -41,15 +41,26 @@ impl std::fmt::Display for VaultChangedConcurrently {
 impl std::error::Error for VaultChangedConcurrently {}
 
 impl Vault {
+    /// Whether a vault may be created at `path`: not a copy Stado's route says
+    /// this machine must not hold, and no vault there yet. `init` asks before
+    /// it makes any key, so a refused `init` leaves the keyring as it found it.
+    pub fn creatable(path: &Path) -> Result<()> {
+        if let Some(refusal) = crate::core::unchosen_copy_refusal(path) {
+            bail!(refusal);
+        }
+        if crate::core::is_present(path, "vault")? {
+            bail!("vault already exists at {}", path.display());
+        }
+        Ok(())
+    }
+
     pub fn create(
         path: PathBuf,
         owner_uid: &str,
         owner_fpr: &str,
         recovery_fpr: &str,
     ) -> Result<Self> {
-        if crate::core::is_present(&path, "vault")? {
-            bail!("vault already exists at {}", path.display());
-        }
+        Self::creatable(&path)?;
         // No generation yet: the first save below writes the first one.
         let doc = json!({
             "version": "v1",
@@ -77,9 +88,16 @@ impl Vault {
         }
         let text = match fs::read_to_string(&path) {
             Ok(text) => text,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                bail!("vault not initialized at {} (run: init)", path.display());
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => match newest_kept_copy(&path)? {
+                Some(copy) => bail!(
+                    "vault not initialized at {path}: the file is gone, and {copy} is the newest copy \
+                     kept beside it that reads as a vault; `skarbiec backup restore {copy}` says what \
+                     it holds and with --yes puts it back (init would start an empty vault)",
+                    path = path.display(),
+                    copy = copy.display()
+                ),
+                None => bail!("vault not initialized at {} (run: init)", path.display()),
+            },
             Err(error) => {
                 return Err(error).with_context(|| format!("read vault file {}", path.display()));
             }
@@ -109,6 +127,19 @@ impl Vault {
                 path.display()
             ),
         };
+        // init writes both sections, so a document without either as an
+        // object is damaged. It is refused here once, so every reader of
+        // items or recipients meets a whole section instead of reading the
+        // damage as an empty vault.
+        for (name, shape) in [("items", "id -> item"), ("recipients", "uid -> recipient")] {
+            if !doc.get(name).is_some_and(Value::is_object) {
+                bail!(
+                    "vault file {} holds its {name} section as {:?}, not an object of {shape}, so the vault is damaged; `skarbiec backup restore <copy>` says what a kept copy holds and puts it back",
+                    path.display(),
+                    doc.get(name)
+                );
+            }
+        }
         Ok(Self {
             path,
             doc,
@@ -182,4 +213,42 @@ impl Vault {
     pub fn recovery_fpr(&self) -> &str {
         &self.recovery
     }
+}
+
+/// The newest copy of the vault file kept beside it (`<file>.pre-pull-…`,
+/// `<file>.pre-restore.…` or any other `<file>.<suffix>`) that reads as a
+/// vault, newest by modification time. A sibling that does not read as a
+/// vault (the capability state, a lock) is not a copy and is passed over, so
+/// a vault that vanished is answered with the copy that brings it back.
+fn newest_kept_copy(path: &Path) -> Result<Option<PathBuf>> {
+    let (Some(directory), Some(name)) = (path.parent(), path.file_name().and_then(|name| name.to_str())) else {
+        return Ok(None);
+    };
+    let prefix = format!("{name}.");
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("list {}", directory.display())),
+    };
+    let mut copies = Vec::new();
+    for entry in entries {
+        let entry = entry.with_context(|| format!("list {}", directory.display()))?;
+        let kept = entry.file_name().to_str().is_some_and(|file| file.starts_with(&prefix));
+        if !kept {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|metadata| metadata.modified())
+            .with_context(|| format!("examine {}", entry.path().display()))?;
+        copies.push((modified, entry.path()));
+    }
+    copies.sort();
+    for (_modified, copy) in copies.into_iter().rev() {
+        match Vault::open(copy.clone()) {
+            Ok(_vault) => return Ok(Some(copy)),
+            Err(_not_a_vault) => continue,
+        }
+    }
+    Ok(None)
 }
