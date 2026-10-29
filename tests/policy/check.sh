@@ -39,22 +39,26 @@ fail() {
   false
 }
 
-# Runs one command with $ROOT/stdin on its standard input, standard output and
-# standard error together in $out; WANT says whether it had to succeed (ok) or
+# Runs one command with $ROOT/stdin on its standard input, standard output in
+# $out and standard error in $said; WANT says whether it had to succeed (ok) or
 # be refused (refused). Outputs of refusals go to the report; a refusal never
 # repeats the candidate, which never reaches argv.
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then status=$?; got=ok; else status=$?; got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then status=$?; got=ok; else status=$?; got=refused; fi
+  said=$(cat "$ROOT/said")
   if [ "$got" = ok ]; then
     printf '$ skarbiec %s\nresult: ok\n\n' "$*" >>"$REPORT"
   else
-    printf '$ skarbiec %s\nresult: refused\noutput: %s\n\n' "$*" "$out" >>"$REPORT"
+    printf '$ skarbiec %s\nresult: refused\noutput: %s\nstderr: %s\n\n' "$*" "$out" "$said" >>"$REPORT"
   fi
   printf 'exit: %s\n' "$status" >>"$REPORT"
   [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT"
 }
 says() {
-  case "$out" in
+  # An answer is on standard output; a refusal's sentence is on standard error.
+  local answer=$out
+  [ "$got" = ok ] || answer=$said
+  case "$answer" in
     *"$1"*) echo "ok: $2" >>"$REPORT" ;;
     *) fail "$2: expected '$1' in the answer" ;;
   esac
@@ -98,7 +102,7 @@ says "unknown policy command" "an unknown policy subcommand is refused"
 printf '%s\n' "$SHORT" >"$ROOT/stdin"
 WANT=ok run policy check
 verdict false "a candidate shorter than min_generated_length fails"
-case "$out" in *"$SHORT"*) fail "policy check repeated the candidate" ;; esac
+case "$out$said" in *"$SHORT"*) fail "policy check repeated the candidate" ;; esac
 
 printf '%s\n' "$LONG" >"$ROOT/stdin"
 WANT=ok run policy check
@@ -115,7 +119,7 @@ candidate="$LONG "
 printf '%s\r\n' "$candidate" >"$ROOT/stdin"
 WANT=ok run policy check
 actual_length "${#candidate}"
-case "$out" in *"$LONG"*) fail "policy check repeated the candidate" ;; esac
+case "$out$said" in *"$LONG"*) fail "policy check repeated the candidate" ;; esac
 
 : >"$ROOT/stdin"
 WANT=refused run policy check "argument-candidate-$RUN"

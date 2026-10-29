@@ -36,13 +36,14 @@ fail() {
   false
 }
 
-# Runs one command with $ROOT/stdin on its standard input, standard output and
-# standard error together in $out; WANT says whether it had to succeed (ok) or
+# Runs one command with $ROOT/stdin on its standard input, standard output in
+# $out and standard error in $said; WANT says whether it had to succeed (ok) or
 # be refused (refused).
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 field() {
   printf '%s' "$out" | jq -e "$1" >/dev/null || fail "readers answer does not satisfy $1: $out"
@@ -75,9 +76,9 @@ field '.openable_here == false'
 WANT=refused run get "$ITEM" --field password
 
 WANT=refused run readers "missing-item-$RUN"
-case "$out" in
+case "$said" in
   *"missing-item-$RUN"*) echo "ok: refused naming missing-item-$RUN" >>"$REPORT" ;;
-  *) fail "expected a refusal naming missing-item-$RUN, got: $out" ;;
+  *) fail "expected a refusal naming missing-item-$RUN, got: $said" ;;
 esac
 
 touch "$ROOT/passed"

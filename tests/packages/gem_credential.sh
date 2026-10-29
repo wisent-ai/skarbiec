@@ -35,9 +35,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 
 : >"$ROOT/stdin"
@@ -55,7 +56,8 @@ BINDINGS="$ROOT/bindings"
 WANT=ok run tool status gem
 printf '%s' "$out" | jq -e '[.entries[] | select(.kept == "plain text") | .entry] | (index("rubygems_api_key") != null) and (index("https://gems.example.com") != null)' >/dev/null \
   || fail "status did not name both keys as plain text: $out"
-case "$out" in *"$PUBLIC"*|*"$SERVER"*) fail "status printed a key" ;; esac
+# A key must appear on neither stream.
+case "$out$said" in *"$PUBLIC"*|*"$SERVER"*) fail "status printed a key" ;; esac
 echo "ok: status names both keys, never a value" >>"$REPORT"
 
 # doctor exits non-zero while any check fails; its status goes to the report
@@ -75,7 +77,7 @@ echo "ok: doctor names each plain-text gem key with its import, never a value" >
 ITEM="gem-$RUN"
 WANT=ok run tool import gem "$ITEM" --select rubygems_api_key --bindings "$BINDINGS"
 [ "$(printf '%s' "$out" | jq -r '.variables[]')" = GEM_HOST_API_KEY ] || fail "the key was not bound as GEM_HOST_API_KEY: $out"
-case "$out" in *"$PUBLIC"*) fail "import printed the key" ;; esac
+case "$out$said" in *"$PUBLIC"*) fail "import printed the key" ;; esac
 if grep -q "$PUBLIC" "$CREDENTIALS"; then fail "the credentials file still holds rubygems.org's key"; fi
 grep -qF "https://gems.example.com: $SERVER" "$CREDENTIALS" || fail "import removed the other key"
 grep -qxF -- "---" "$CREDENTIALS" || fail "import dropped the document marker"
@@ -96,9 +98,9 @@ echo "ok: exec --env-from gives gem push its key" >>"$REPORT"
 
 cp "$CREDENTIALS" "$ROOT/credentials-before-refusals"
 WANT=refused run tool import gem "none-$RUN" --select rubygems_api_key --bindings "$BINDINGS"
-case "$out" in *"keeps no rubygems_api_key"*"https://gems.example.com"*) ;; *) fail "a key the file does not hold was not refused naming those it does: $out" ;; esac
+case "$said" in *"keeps no rubygems_api_key"*"https://gems.example.com"*) ;; *) fail "a key the file does not hold was not refused naming those it does: $said" ;; esac
 WANT=refused run tool import gem "clash-$RUN" --select https://gems.example.com --bindings "$BINDINGS"
-case "$out" in *"already binds GEM_HOST_API_KEY"*) ;; *) fail "a variable bound elsewhere was not refused: $out" ;; esac
+case "$said" in *"already binds GEM_HOST_API_KEY"*) ;; *) fail "a variable bound elsewhere was not refused: $said" ;; esac
 WANT=refused run tool import gem "bare-$RUN" --select rubygems_api_key
 cmp -s "$CREDENTIALS" "$ROOT/credentials-before-refusals" || fail "a refused import changed the credentials file"
 echo "ok: an unknown key, a clashing binding and a missing --bindings are refused, the file unchanged" >>"$REPORT"

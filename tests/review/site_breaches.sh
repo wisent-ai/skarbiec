@@ -34,9 +34,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 login() {
   printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"%s-user","password":"%s"},"context":{"domains":["%s"]}}' \
@@ -67,11 +68,12 @@ printf '%s' "$out" | jq -e --arg item "$BREACHED" --arg other "$ELSEWHERE" \
   || fail "a login made after the breach was exposed, or the .invalid login was listed"
 printf '%s' "$out" | jq -e '(.source | startswith("https://haveibeenpwned.com/")) and (.attribution | contains("CC BY"))' >/dev/null \
   || fail "the answer does not name the list and its attribution"
-case "$out" in *"breach-secret-$RUN"*) fail "breach sites printed a password" ;; esac
+# A password must appear on neither stream.
+case "$out$said" in *"breach-secret-$RUN"*) fail "breach sites printed a password" ;; esac
 echo "ok: a login made after its site's breach is listed as changed since, with the list's attribution" >>"$REPORT"
 
 WANT=refused run breach sites "$SITE"
-case "$out" in *"usage: breach sites"*) echo "ok: an argument is refused with the usage" >>"$REPORT" ;; *) fail "an argument was not refused with the usage: $out" ;; esac
+case "$said" in *"usage: breach sites"*) echo "ok: an argument is refused with the usage" >>"$REPORT" ;; *) fail "an argument was not refused with the usage: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

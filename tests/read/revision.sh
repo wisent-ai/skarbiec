@@ -65,18 +65,19 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" &>/dev/stdout); then
+  if out=$("$BIN" "$@" 2>"$ROOT/said"); then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nexit: %s\nresult: %s\n\n' "$*" "$status" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 says() {
-  case "$out" in
+  case "$said" in
     *"$1"*) echo "ok: $2" >>"$REPORT" ;;
-    *) fail "$2: expected '$1' in: $out" ;;
+    *) fail "$2: expected '$1' in: $said" ;;
   esac
 }
 # One JSON string or number member of $out.
@@ -113,7 +114,7 @@ WANT=ok run get "$ITEM" --revision
 CLI_UID=$(member item_uid)
 CLI_REVISION=$(member revision)
 [ -n "$CLI_UID" ] && [ -n "$CLI_REVISION" ] || fail "get --revision named no item_uid or revision: $out"
-case "$out" in *"first-$RUN"*) fail "get --revision printed the value" ;; esac
+case "$out$said" in *"first-$RUN"*) fail "get --revision printed the value" ;; esac
 echo "ok: get --revision names the item_uid and revision and no value" >>"$REPORT"
 
 # Any free loopback port: serve prints the address it bound.

@@ -37,22 +37,23 @@ fail() {
   false
 }
 
-# Runs one command with $ROOT/stdin on its standard input, standard output and
-# standard error together in $out; WANT says whether it had to succeed (ok) or
+# Runs one command with $ROOT/stdin on its standard input, standard output in
+# $out and standard error in $said; WANT says whether it had to succeed (ok) or
 # be refused (refused).
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   if [ "$got" = ok ]; then
     printf '$ skarbiec %s\nresult: ok\n\n' "$*" >>"$REPORT"
   else
-    printf '$ skarbiec %s\nresult: refused\noutput: %s\n\n' "$*" "$out" >>"$REPORT"
+    printf '$ skarbiec %s\nresult: refused\noutput: %s\nstderr: %s\n\n' "$*" "$out" "$said" >>"$REPORT"
   fi
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said" ;;
   esac
 }
 

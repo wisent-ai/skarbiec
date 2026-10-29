@@ -32,9 +32,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 login() {
   printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"%s-user","password":"%s"%s},"context":{"domains":["%s"]}}' \
@@ -55,9 +56,10 @@ login "$ELSEWHERE" "codes-$RUN.invalid" ""
 
 # A login that names no code is a finding, so the command reports ok false
 # and still exits as an answer.
-if out=$("$BIN" totp missing </dev/null 2>&1); then got=ok; else got=refused; fi
-printf '$ skarbiec totp missing\nresult: %s\noutput: %s\n\n' "$got" "$out" >>"$REPORT"
-printf '%s' "$out" | jq -e . >/dev/null || fail "totp missing did not answer JSON ($got): $out"
+if out=$("$BIN" totp missing </dev/null 2>"$ROOT/said"); then got=ok; else got=refused; fi
+said=$(cat "$ROOT/said")
+printf '$ skarbiec totp missing\nresult: %s\noutput: %s\nstderr: %s\n\n' "$got" "$out" "$said" >>"$REPORT"
+printf '%s' "$out" | jq -e . >/dev/null || fail "totp missing did not answer JSON ($got): output: $out stderr: $said"
 printf '%s' "$out" | jq -e --arg bare "$BARE" \
   '[.logins[] | select(.item == $bare) | .sites[].site] | index("github.com") != null' >/dev/null \
   || fail "the login on github.com without a seed was not named under github.com"
@@ -66,7 +68,8 @@ printf '%s' "$out" | jq -e --arg seeded "$SEEDED" --arg elsewhere "$ELSEWHERE" \
   || fail "a login with a seed, or on a site no directory lists, was named"
 printf '%s' "$out" | jq -e '(.source | startswith("https://api.2fa.directory/")) and (.attribution | contains("2FA Directory"))' >/dev/null \
   || fail "the answer does not name the directory and its attribution"
-case "$out" in
+# A password or seed must appear on neither stream.
+case "$out$said" in
   *"codes-secret-$RUN"* | *"$SEED"*) fail "totp missing printed a password or a seed" ;;
 esac
 echo "ok: only the github.com login without a seed is named, with the directory's attribution" >>"$REPORT"

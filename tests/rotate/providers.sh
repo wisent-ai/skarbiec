@@ -35,14 +35,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" </dev/null &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said" ;;
   esac
 }
 
@@ -69,7 +70,7 @@ names "--with <provider>"
 WANT=refused run rotate "$KEY" --with nowhere
 names "--with nowhere is not a provider this vault rotates through"
 for provider in $(printf '%s' "$PROVIDERS" | jq -r '.providers[].provider'); do
-  case "$out" in *"$provider"*) ;; *) fail "the refusal does not name the provider $provider: $out" ;; esac
+  case "$said" in *"$provider"*) ;; *) fail "the refusal does not name the provider $provider: $said" ;; esac
 done
 WANT=refused run rotate "$KEY" --with ssh --url postgresql://db.example.com/app
 names "--with ssh takes no --url"
@@ -80,7 +81,8 @@ echo "ok: no provider, an unknown provider, a stray flag and the old command nam
 
 WANT=ok run rotate "$KEY" --with ssh
 [ "$(printf '%s' "$out" | jq -r .provider)" = "ssh" ] || fail "the answer does not name the ssh provider: $out"
-case "$out" in *"PRIVATE KEY"*) fail "rotate printed a private key" ;; esac
+# A private key must appear on neither stream.
+case "$out$said" in *"PRIVATE KEY"*) fail "rotate printed a private key" ;; esac
 NEW="$(printf '%s' "$out" | jq -r .public_key)"
 WANT=ok run get "$KEY" --field public_key
 [ "$out" = "$NEW" ] && [ "$out" != "$BEFORE" ] || fail "the item does not hold the new key rotate named: $out"
