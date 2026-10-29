@@ -1,4 +1,5 @@
-//! One process owns the HTTP API, capability socket and every replication bond.
+//! One process owns the HTTP API and the capability socket; replication is
+//! one pull per bond in `skarbiec maintain`, which a Stado schedule runs.
 
 use anyhow::{anyhow, Context, Result};
 use serde_json::Value;

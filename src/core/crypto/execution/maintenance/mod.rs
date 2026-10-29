@@ -51,7 +51,7 @@ pub struct DaemonRecycle {
 
 /// Replace the GnuPG daemons when one of them holds more than the ceiling.
 ///
-/// This is the pass the readiness monitor runs between its checks. A daemon
+/// This is the ceiling pass of `skarbiec maintain`, which Stado's schedule runs. A daemon
 /// under the ceiling is left alone: killing daemons costs every reader the
 /// next `gpg` start, and the point is to stop a keyboxd from growing, not to
 /// churn a healthy one. Above the ceiling the repair is the same serialized
