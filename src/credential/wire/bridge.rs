@@ -40,10 +40,9 @@ pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
     }
     let metadata = fs::symlink_metadata(&path)
         .with_context(|| format!("inspect {source} executable {}; install a complete Skarbiec release or configure {BRIDGE_ENV}", path.display()))?;
-    // Group or other may not write it, and its owner must be able to run it:
-    // the platform's own permission bits, not spelled masks.
-    let unsafe_bits = u32::from(libc::S_IWGRP | libc::S_IWOTH);
-    let owner_execute = u32::from(libc::S_IXUSR);
+    // Group or other may not write it, and its owner must be able to run it.
+    let unsafe_bits = crate::core::mode::GROUP_AND_OTHER_WRITE;
+    let owner_execute = crate::core::mode::OWNER_EXECUTE;
     let mode = metadata.permissions().mode();
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()

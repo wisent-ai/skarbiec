@@ -61,7 +61,7 @@ fn write(own: &std::path::Path, runs: &[PublishedRun]) -> anyhow::Result<()> {
     let mode = crate::core::vault::private_file_mode()?;
     std::fs::DirBuilder::new()
         .recursive(true)
-        .mode(mode | libc::S_IXUSR as u32)
+        .mode(mode | crate::core::mode::OWNER_EXECUTE)
         .create(directory())?;
     let staged = own.with_extension("json.staged");
     let mut file = std::fs::OpenOptions::new()

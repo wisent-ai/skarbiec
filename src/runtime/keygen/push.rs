@@ -31,7 +31,7 @@ fn key_file(dir: &Path, name: &str, private_key: &str) -> Result<std::path::Path
     let mut file = std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .mode(u32::from(libc::S_IRUSR | libc::S_IWUSR))
+        .mode(crate::core::mode::OWNER_READ_WRITE)
         .open(&path)
         .with_context(|| format!("write the key file {}", path.display()))?;
     let mut text = private_key.to_string();

@@ -38,7 +38,7 @@ fn private_file_mode() -> Result<u32> {
 
 /// Owner read, write and search: the directory form of the same rule.
 fn private_dir_mode() -> Result<u32> {
-    Ok(u32::from(libc::S_IRWXU))
+    Ok(crate::core::mode::OWNER_ALL)
 }
 
 /// The origin Chrome names the extension by, and starts its host with.

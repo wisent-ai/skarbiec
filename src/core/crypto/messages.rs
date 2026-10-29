@@ -162,10 +162,9 @@ fn unlock_phrase() -> Result<Option<String>> {
             );
         }
         // Only the owner may read or write it: any permission bit outside
-        // S_IRUSR | S_IWUSR refuses the file.
-        let owner = u32::from(libc::S_IRUSR | libc::S_IWUSR);
-        let access = metadata.permissions().mode()
-            & u32::from(libc::S_IRWXU | libc::S_IRWXG | libc::S_IRWXO);
+        // owner read and write refuses the file.
+        let owner = crate::core::mode::OWNER_READ_WRITE;
+        let access = metadata.permissions().mode() & crate::core::mode::ALL;
         if access | owner != owner {
             anyhow::bail!("Skarbiec unlock file {} must be mode 0600", path.display());
         }

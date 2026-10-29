@@ -79,7 +79,7 @@ pub(in crate::runtime) fn workspace(vault: &Path) -> Result<Workspace> {
         std::process::id()
     ));
     std::fs::DirBuilder::new()
-        .mode(u32::from(libc::S_IRWXU))
+        .mode(crate::core::mode::OWNER_ALL)
         .create(&path)
         .with_context(|| format!("create the owner-only key workspace {}", path.display()))?;
     Ok(Workspace(path))

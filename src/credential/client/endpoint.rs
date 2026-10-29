@@ -43,7 +43,7 @@ pub(in crate::credential) fn canonical_endpoint() -> Result<String> {
             path.display()
         )
     })?;
-    let group_world_write = u32::from(libc::S_IWGRP | libc::S_IWOTH);
+    let group_world_write = crate::core::mode::GROUP_AND_OTHER_WRITE;
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
@@ -130,7 +130,7 @@ fn connect_probe(authority: &str) -> (bool, Value) {
 pub(in crate::credential) fn declare_canonical_endpoint(endpoint: &str) -> Result<Value> {
     let endpoint = endpoint.trim();
     let directory = forwards_dir()?;
-    let owner_only_directory = u32::from(libc::S_IRWXU);
+    let owner_only_directory = crate::core::mode::OWNER_ALL;
     fs::create_dir_all(&directory)
         .with_context(|| format!("create forwards directory {}", directory.display()))?;
     fs::set_permissions(&directory, fs::Permissions::from_mode(owner_only_directory))

@@ -31,20 +31,16 @@ pub(super) fn now_iso() -> String {
         .expect("the system clock is past the year 9999, which no audit line can carry")
 }
 
-/// Read and write for the owner alone (`S_IRUSR | S_IWUSR`), the mode every
-/// journal file is created with.
-// mode_t is u16 on macOS and u32 on Linux: the conversion is real on one and
-// the identity on the other.
-#[allow(clippy::useless_conversion)]
+/// Read and write for the owner alone, the mode every journal file is
+/// created with.
 fn owner_only_file() -> u32 {
-    u32::from(libc::S_IRUSR | libc::S_IWUSR)
+    crate::core::mode::OWNER_READ_WRITE
 }
 
-/// Read, write and search for the owner alone (`S_IRWXU`), the mode of the
-/// journal's directory.
-#[allow(clippy::useless_conversion)]
+/// Read, write and search for the owner alone, the mode of the journal's
+/// directory.
 fn owner_only_directory() -> u32 {
-    u32::from(libc::S_IRWXU)
+    crate::core::mode::OWNER_ALL
 }
 
 pub(super) fn lines() -> Result<Vec<Value>> {

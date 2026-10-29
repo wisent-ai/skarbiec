@@ -106,7 +106,7 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
     let parent = lock_path.parent().context("vault path has no parent")?;
     fs::DirBuilder::new()
         .recursive(true)
-        .mode(u32::from(libc::S_IRWXU))
+        .mode(crate::core::mode::OWNER_ALL)
         .create(parent)
         .with_context(|| format!("create vault directory {}", parent.display()))?;
     let mut file = match OpenOptions::new()
@@ -136,7 +136,7 @@ fn acquire_write_lock(vault_path: &Path) -> Result<VaultWriteLock> {
 /// The owner-only mode every private file the vault and its companions
 /// write is given.
 pub(crate) fn private_file_mode() -> Result<u32> {
-    Ok(u32::from(libc::S_IRUSR | libc::S_IWUSR))
+    Ok(crate::core::mode::OWNER_READ_WRITE)
 }
 
 /// The item envelope revisions this product has written, oldest first; an

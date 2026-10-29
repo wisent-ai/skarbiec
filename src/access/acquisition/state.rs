@@ -21,10 +21,9 @@ pub(super) struct StateLock {
     _file: File,
 }
 
-/// Group and other permission bits, as the C library names them; an owner-only
-/// file has none of them.
+/// Group and other permission bits; an owner-only file has none of them.
 fn unsafe_mode_bits() -> u32 {
-    u32::from(libc::S_IRWXG | libc::S_IRWXO)
+    crate::core::mode::GROUP_AND_OTHER
 }
 
 /// `path` with `suffix` appended to its last component.

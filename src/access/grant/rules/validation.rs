@@ -10,10 +10,10 @@ use std::process::Command;
 
 use crate::core::effective_uid;
 
-/// Whether a group or another user holds any permission on a file, read
-/// against the bits the C library names: an owner-controlled file holds none.
+/// Whether a group or another user holds any permission on a file: an
+/// owner-controlled file holds none.
 fn shared_beyond_owner(metadata: &fs::Metadata) -> bool {
-    NonZeroU32::new(metadata.mode() & u32::from(libc::S_IRWXG | libc::S_IRWXO)).is_some()
+    NonZeroU32::new(metadata.mode() & crate::core::mode::GROUP_AND_OTHER).is_some()
 }
 
 pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<String> {

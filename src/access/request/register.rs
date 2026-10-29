@@ -20,7 +20,7 @@ use crate::core::vault_path;
 /// Owner read and write, nothing for group or other: the same mode the
 /// donation inbox and the capability state are kept at.
 fn owner_only() -> u32 {
-    u32::from(libc::S_IRUSR | libc::S_IWUSR)
+    crate::core::mode::OWNER_READ_WRITE
 }
 
 /// The octets of a UUID and the layout of version 4 (random) ones:

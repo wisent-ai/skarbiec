@@ -9,6 +9,7 @@ pub mod importer;
 pub mod inbox;
 pub mod items;
 pub mod migrate;
+pub mod mode;
 pub mod presence;
 pub mod schema;
 pub mod staging;
