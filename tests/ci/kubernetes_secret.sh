@@ -46,14 +46,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: output: $out stderr: $said" ;;
   esac
 }
 held() {
@@ -77,7 +78,8 @@ if kube get secret "$SECRET" &>>"$REPORT"; then fail "the preview made the Secre
 echo "ok: without --yes no Secret is made" >>"$REPORT"
 
 WANT=ok run ci set kubernetes "$NAMESPACE/$SECRET" --env-from "$ROOT/bindings" --context "$CONTEXT" --yes
-case "$out" in *"$TOKEN"*|*"$PASSWORD"*) fail "the answer carried a value" ;; esac
+# A value must be in neither stream, so both are searched.
+case "$out$said" in *"$TOKEN"*|*"$PASSWORD"*) fail "the answer carried a value" ;; esac
 [ "$(held API_TOKEN)" = "$TOKEN" ] || fail "the Secret does not hold API_TOKEN as the vault does"
 [ "$(held DB_PASSWORD)" = "$PASSWORD" ] || fail "the Secret does not hold DB_PASSWORD as the vault does"
 if kube get secret "$SECRET" -o json | jq -e '.metadata.annotations["kubectl.kubernetes.io/last-applied-configuration"]' >/dev/null; then

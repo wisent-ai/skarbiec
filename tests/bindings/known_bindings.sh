@@ -35,9 +35,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 bindings_check() {
   if doctor=$("$BIN" doctor </dev/null); then echo "doctor: ok" >>"$REPORT"; else echo "doctor: a check failed" >>"$REPORT"; fi
@@ -65,7 +66,8 @@ WANT=ok run bindings list
 printf '%s' "$out" | jq -e --arg app "$ROOT/app.bindings" --arg deploy "$ROOT/deploy.bindings" \
   '.ok and ([.files[].file] | (index($app) != null) and (index($deploy) != null))' >/dev/null \
   || fail "list does not name the env import file and the remembered one as giving every value: $out"
-case "$out" in *"$VALUE"*) fail "list printed a value" ;; esac
+# The value must be in neither stream, so both are searched.
+case "$out$said" in *"$VALUE"*) fail "list printed a value" ;; esac
 echo "ok: env import and remember make both files known, and list finds every line giving a value" >>"$REPORT"
 
 RENAMED="api-renamed-$RUN"
@@ -96,7 +98,7 @@ WANT=ok run bindings list
 printf '%s' "$out" | jq -e --arg deploy "$ROOT/deploy.bindings" '[.files[].file] | index($deploy) == null' >/dev/null \
   || fail "forget left the file known: $out"
 WANT=refused run bindings forget "$ROOT/deploy.bindings"
-case "$out" in *"not a bindings file this host knows of"*) ;; *) fail "forgetting an unknown file was not refused: $out" ;; esac
+case "$said" in *"not a bindings file this host knows of"*) ;; *) fail "forgetting an unknown file was not refused: output: $out stderr: $said" ;; esac
 echo "ok: a file binding nothing and an unknown file to forget are refused; forget drops a file" >>"$REPORT"
 
 touch "$ROOT/passed"

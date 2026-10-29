@@ -33,9 +33,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 note() {
   printf '{"schema":"skarbiec.item.v2","kind":"note","fields":{"value":"%s"},"context":{}}' "$2" >"$ROOT/stdin"
@@ -72,7 +73,7 @@ echo "ok: diff names changed, only-in-copy and only-in-vault items without chang
 
 printf 'not a vault' >"$ROOT/plain.txt"
 WANT=refused run backup diff "$ROOT/plain.txt"
-case "$out" in *"does not read as a Skarbiec vault"*) echo "ok: a file that is not a vault is refused" >>"$REPORT" ;; *) fail "a file that is not a vault was not refused naming it: $out" ;; esac
+case "$said" in *"does not read as a Skarbiec vault"*) echo "ok: a file that is not a vault is refused" >>"$REPORT" ;; *) fail "a file that is not a vault was not refused naming it: output: $out stderr: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

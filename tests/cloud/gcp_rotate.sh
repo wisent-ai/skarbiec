@@ -54,9 +54,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 # enabled, disabled, or nothing when Google no longer lists the key.
 state_of() {
@@ -77,7 +78,8 @@ WANT=ok run set "$ITEM" --type service-account
 : >"$ROOT/stdin"
 
 WANT=ok run rotate "$ITEM" --with gcp
-case "$out" in *"$FIRST_KEY"*) fail "rotate printed the old key" ;; esac
+# The old key must be in neither stream, so both are searched.
+case "$out$said" in *"$FIRST_KEY"*) fail "rotate printed the old key" ;; esac
 SECOND_ID="$(printf '%s' "$out" | jq -r .key)"
 echo "$SECOND_ID" >>"$MADE"
 WANT=ok run get "$ITEM" --field credential_json
@@ -104,12 +106,12 @@ jq -n '{schema:"skarbiec.item.v2",kind:"note",fields:{text:"not a key"},context:
 WANT=ok run set "note-$RUN" --type note
 : >"$ROOT/stdin"
 WANT=refused run rotate "note-$RUN" --with gcp
-case "$out" in *"rotate --with gcp replaces a service-account item"*) ;; *) fail "a note was not refused naming its kind: $out" ;; esac
+case "$said" in *"rotate --with gcp replaces a service-account item"*) ;; *) fail "a note was not refused naming its kind: output: $out stderr: $said" ;; esac
 jq -n '{schema:"skarbiec.item.v2",kind:"service-account",fields:{credential_json:"{\"type\":\"authorized_user\"}"},context:{}}' >"$ROOT/stdin"
 WANT=ok run set "user-$RUN" --type service-account
 : >"$ROOT/stdin"
 WANT=refused run rotate "user-$RUN" --with gcp
-case "$out" in *"not a service_account key file"*) ;; *) fail "an authorized-user credential was not refused: $out" ;; esac
+case "$said" in *"not a service_account key file"*) ;; *) fail "an authorized-user credential was not refused: output: $out stderr: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

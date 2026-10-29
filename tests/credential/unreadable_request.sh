@@ -37,20 +37,22 @@ fail() {
   false
 }
 
-# Runs one command, its standard output and standard error together in $out;
-# WANT says whether it had to succeed (ok) or be refused (refused). The
+# Runs one command, its standard output in $out and its standard error in
+# $said; WANT says whether it had to succeed (ok) or be refused (refused). The
 # command, observed exit status and verdict are reported.
 run() {
-  if out=$("$BIN" "$@" &>/dev/stdout); then
+  if out=$("$BIN" "$@" 2>"$ROOT/said"); then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
-  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput:\n%s\n\n' "$*" "$status" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput:\n%s\nstderr:\n%s\n\n' "$*" "$status" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
+# Every call checked here is refused, and a refusal says why on standard error.
 says() {
-  case "$out" in
+  case "$said" in
     *"$1"*) echo "ok: $2" >>"$REPORT" ;;
     *) fail "$2: expected '$1' in the answer" ;;
   esac
