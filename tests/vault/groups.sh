@@ -38,16 +38,13 @@ export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
 trap 'gpgconf --homedir "$GNUPGHOME" --kill all &>/dev/null; rm -rf "$KEYRING"' EXIT
 
-# One call: stdout lands in $out, stderr in $err, and whether it succeeded in
-# $outcome (succeeded or failed). stderr reaches the substitution through
-# &>/dev/stdout before stdout moves to the file, so the binary's own exit
-# status decides the outcome; `|&` is not used because macOS ships bash 3.2,
-# which does not have it.
+# One call: stdout lands in $out, stderr in $said through the scratch file
+# $ROOT/said, and whether it succeeded in $outcome (succeeded or failed), as
+# the binary's own exit status decides it.
 call() {
-  outcome=succeeded
-  err=$("$BIN" "$@" </dev/null &>/dev/stdout >"$ROOT/stdout") || outcome=failed
-  out=$(cat "$ROOT/stdout")
-  printf '$ skarbiec %s\noutcome: %s\nstdout: %s\nstderr: %s\n\n' "$*" "$outcome" "$out" "$err" >>"$REPORT"
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then outcome=succeeded; else outcome=failed; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\noutcome: %s\nstdout: %s\nstderr: %s\n\n' "$*" "$outcome" "$out" "$said" >>"$REPORT"
 }
 fail() {
   echo "FAIL: $1" | tee -a "$REPORT" >/dev/stderr
@@ -55,20 +52,20 @@ fail() {
 }
 ok() {
   call "$@"
-  [ "$outcome" = succeeded ] || fail "skarbiec $* failed: $err"
+  [ "$outcome" = succeeded ] || fail "skarbiec $* failed: $said; output: $out"
 }
 fails() {
   call "$@"
-  [ "$outcome" = failed ] || fail "skarbiec $* succeeded, a refusal was expected: $out"
+  [ "$outcome" = failed ] || fail "skarbiec $* succeeded, a refusal was expected: $out; stderr: $said"
 }
 check() {
   [ "$2" = "$3" ] || fail "$1: got '$2', expected '$3'"
   echo "ok: $1 = $2" >>"$REPORT"
 }
 refused() {
-  case "$err$out" in
+  case "$said" in
     *"$1"*) echo "ok: refused with: $1" >>"$REPORT" ;;
-    *) fail "expected a refusal containing '$1', got: $err $out" ;;
+    *) fail "expected a refusal containing '$1', got: $said; output: $out" ;;
   esac
 }
 

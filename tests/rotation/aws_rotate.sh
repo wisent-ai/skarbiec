@@ -52,9 +52,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 status_of() {
   keys | jq -r --arg key "$*" '.AccessKeyMetadata[] | select(.AccessKeyId == $key) | .Status'
@@ -72,7 +73,8 @@ WANT=ok run set "$ITEM" --type access-key
 FIRST_SECRET="$(printf '%s' "$FIRST" | jq -r .AccessKey.SecretAccessKey)"
 
 WANT=ok run rotate "$ITEM" --with aws
-case "$out" in *"$FIRST_SECRET"*) fail "rotate printed the old secret" ;; esac
+# Neither stream may carry the old secret.
+case "$out$said" in *"$FIRST_SECRET"*) fail "rotate printed the old secret" ;; esac
 SECOND_ID="$(printf '%s' "$out" | jq -r .key)"
 echo "$SECOND_ID" >>"$MADE"
 WANT=ok run get "$ITEM" --field access_key_id
@@ -95,12 +97,12 @@ jq -n '{schema:"skarbiec.item.v2",kind:"note",fields:{text:"not a key"},context:
 WANT=ok run set "note-$RUN" --type note
 : >"$ROOT/stdin"
 WANT=refused run rotate "note-$RUN" --with aws
-case "$out" in *"rotate --with aws replaces an access-key item"*) ;; *) fail "a note was not refused naming its kind: $out" ;; esac
+case "$said" in *"rotate --with aws replaces an access-key item"*) ;; *) fail "a note was not refused naming its kind: $said; output: $out" ;; esac
 jq -n '{schema:"skarbiec.item.v2",kind:"access-key",fields:{access_key_id:"ASIATEMPORARY",secret_access_key:"temporary",session_token:"token"},context:{}}' >"$ROOT/stdin"
 WANT=ok run set "temporary-$RUN" --type access-key
 : >"$ROOT/stdin"
 WANT=refused run rotate "temporary-$RUN" --with aws
-case "$out" in *"temporary key"*) ;; *) fail "a key with a session token was not refused: $out" ;; esac
+case "$said" in *"temporary key"*) ;; *) fail "a key with a session token was not refused: $said; output: $out" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

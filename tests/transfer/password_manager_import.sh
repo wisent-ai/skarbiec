@@ -32,14 +32,17 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" </dev/null &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
+# Either stream: a refused import says why on stderr, an accepted one names
+# each item's warning in the JSON report on stdout.
 names() {
-  case "$out" in
+  case "$out$said" in
     *"$*"*) echo "ok: names: $*" >>"$REPORT" ;;
-    *) fail "expected the answer to name '$*', got: $out" ;;
+    *) fail "expected the answer to name '$*', got: $out; stderr: $said" ;;
   esac
 }
 # The `type` Bitwarden gives a login, read from the importer's own
@@ -63,7 +66,8 @@ item "numeric-$RUN" "numeric $RUN" "{\"username\": \"numeric-user\", \"password\
 WANT=refused run import "$ROOT/numeric-password.json" --format bitwarden
 names "Bitwarden items["
 names "password holds a number"
-case "$out" in *"$NUMERIC_PASSWORD"*) fail "the refusal printed the password it refused" ;; esac
+# Neither stream may carry the refused password.
+case "$out$said" in *"$NUMERIC_PASSWORD"*) fail "the refusal printed the password it refused" ;; esac
 WANT=ok run list
 printf '%s' "$out" | jq -e 'length == 0' >/dev/null || fail "a refused import left items in the vault: $out"
 echo "ok: a numeric password refuses the import by field and kind, and the vault holds nothing" >>"$REPORT"

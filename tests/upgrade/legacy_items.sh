@@ -38,7 +38,7 @@ fail() {
 }
 
 "$BIN" init "legacy-owner-$RUN" >>"$REPORT" 2>&1 || fail "init was refused"
-owner=$("$BIN" kit 2>&1 | jq -r .owner_key_fingerprint) || fail "kit did not name the owner key"
+owner=$("$BIN" kit 2>"$ROOT/said" | jq -r .owner_key_fingerprint) || fail "kit did not name the owner key: $(cat "$ROOT/said")"
 
 seal() {
   printf '%s' "$1" | gpg --batch --yes --armor --trust-model always --recipient "$owner" --encrypt
@@ -61,8 +61,10 @@ jq --argjson login "$login" --argjson account "$account" --argjson unknown "$unk
 chmod go-rwx "$ROOT/legacy.vault.json"
 cp "$ROOT/legacy.vault.json" "$SKARBIEC_VAULT_FILE"
 
-upgraded=$("$BIN" upgrade --apply --snapshot "$ROOT/snapshot.json" 2>&1) || fail "upgrade --apply was refused: $upgraded"
-printf '$ skarbiec upgrade --apply\n%s\n\n' "$upgraded" >>"$REPORT"
+if upgraded=$("$BIN" upgrade --apply --snapshot "$ROOT/snapshot.json" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+said=$(cat "$ROOT/said")
+[ "$got" = ok ] || fail "upgrade --apply was refused: $upgraded; stderr: $said"
+printf '$ skarbiec upgrade --apply\noutput: %s\nstderr: %s\n\n' "$upgraded" "$said" >>"$REPORT"
 [ "$(jq -r .version "$SKARBIEC_VAULT_FILE")" = v2 ] || fail "the vault was not moved to the v2 envelope"
 
 stored() {

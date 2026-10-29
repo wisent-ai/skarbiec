@@ -32,14 +32,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said; output: $out" ;;
   esac
 }
 key() {
@@ -51,7 +52,8 @@ WANT=ok run init "import-owner-$RUN"
 
 key "$ROOT/kept" ""
 WANT=ok run ssh import "$ROOT/kept" "kept-$RUN" --tags "kept-$RUN"
-case "$out" in *"PRIVATE KEY"*) fail "ssh import printed a private key" ;; esac
+# Neither stream may carry a private key.
+case "$out$said" in *"PRIVATE KEY"*) fail "ssh import printed a private key" ;; esac
 [ "$(printf '%s' "$out" | jq -r .public_key)" = "$(cat "$ROOT/kept.pub")" ] || fail "the public key printed is not the one the file pairs with"
 WANT=ok run get "kept-$RUN" --field private_key
 [ "$out" = "$(cat "$ROOT/kept")" ] || fail "the item does not hold the file's private key"
