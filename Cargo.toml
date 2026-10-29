@@ -64,3 +64,10 @@ mach2 = "0.7"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 rustix = { version = "1", features = ["process"] }
+
+[lints.clippy]
+# A failure is said or returned, never dropped: `let _ = <Result>` and a
+# statement `<Result>.ok();` are how a failed lock release, staging removal or
+# audit append disappeared without a word.
+let_underscore_must_use = "deny"
+unused_result_ok = "deny"
