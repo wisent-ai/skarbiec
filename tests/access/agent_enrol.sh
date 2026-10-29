@@ -30,7 +30,8 @@ mkdir -p "$ROOT" "$KEYRING"
 chmod go-rwx "$KEYRING"
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
-echo "version: $("$BIN" --version &>/dev/stdout)" >>"$REPORT"
+echo "version: $("$BIN" --version 2>"$ROOT/said")" >>"$REPORT"
+echo "version stderr: $(cat "$ROOT/said")" >>"$REPORT"
 export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
@@ -41,25 +42,27 @@ fail() {
   false
 }
 
-# Runs one command with $ROOT/stdin on its standard input, standard output and
-# standard error together in $out; WANT says whether it had to succeed (ok) or
-# be refused (refused). Successful output is kept out of the report because a
-# resolve or get answer may carry the secret. `&>/dev/stdout` joins both
-# streams into the substitution's pipe and keeps the binary's own exit status;
-# `|&` is not used because macOS ships bash 3.2, which does not have it.
+# Runs one command with $ROOT/stdin on its standard input, standard output in
+# $out and standard error in $said (through the scratch file $ROOT/said, so the
+# substitution keeps the binary's own exit status); WANT says whether it had to
+# succeed (ok) or be refused (refused). Successful output is kept out of the
+# report because a resolve or get answer may carry the secret.
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   if [ "$got" = ok ]; then
     printf '$ skarbiec %s\nresult: ok\n\n' "$*" >>"$REPORT"
   else
-    printf '$ skarbiec %s\nresult: refused\noutput: %s\n\n' "$*" "$out" >>"$REPORT"
+    printf '$ skarbiec %s\nresult: refused\noutput: %s\nstderr: %s\n\n' "$*" "$out" "$said" >>"$REPORT"
   fi
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
+# A success answers on standard output; a refusal says why on standard error.
 has() {
-  case "$out" in
+  if [ "$got" = ok ]; then seen=$out; else seen=$said; fi
+  case "$seen" in
     *"$*"*) echo "ok: output names: $*" >>"$REPORT" ;;
-    *) fail "expected output naming '$*', got: $out" ;;
+    *) fail "expected output naming '$*', got: output: $out stderr: $said" ;;
   esac
 }
 

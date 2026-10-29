@@ -24,14 +24,15 @@ fn gh(args: &[&str]) -> Result<Value> {
         );
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    match text.trim().is_empty() {
-        true => Ok(Value::Null),
-        false => serde_json::from_str(&text).with_context(|| {
+    if text.trim().is_empty() {
+        Ok(Value::Null)
+    } else {
+        serde_json::from_str(&text).with_context(|| {
             format!(
                 "gh api {} answered something that is not JSON",
                 args.join(" ")
             )
-        }),
+        })
     }
 }
 

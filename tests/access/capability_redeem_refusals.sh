@@ -59,12 +59,13 @@ fail() {
   echo "FAIL: $* ($REPORT)" >&2
   false
 }
-# Runs one skarbiec command, both streams in $out; WANT says whether it had
-# to succeed (ok) or be refused (refused).
+# Runs one skarbiec command, standard output in $out and standard error in
+# $said; WANT says whether it had to succeed (ok) or be refused (refused).
 run() {
-  if out=$("$BIN" "$@" </dev/null 2>&1); then status=ok; else status=refused; fi
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then status=ok; else status=refused; fi
+  said=$(cat "$ROOT/said")
   echo "$status: skarbiec $*" >>"$REPORT"
-  [ "$status" = "${WANT:?}" ] || fail "skarbiec $* was $status, expected $WANT: $out"
+  [ "$status" = "${WANT:?}" ] || fail "skarbiec $* was $status, expected $WANT: output: $out stderr: $said"
 }
 
 AGENT="redeem-agent-$RUN"

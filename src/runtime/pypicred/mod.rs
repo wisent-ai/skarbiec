@@ -78,9 +78,12 @@ pub(crate) fn status() -> Result<Value> {
     let entries: Vec<Value> = found
         .iter()
         .filter(|section| section.name != "distutils")
-        .map(|section| match section.keeps_password() {
-            true => json!({"entry": section.name, "kept": "plain text"}),
-            false => json!({"entry": section.name, "kept": "no password"}),
+        .map(|section| {
+            if section.keeps_password() {
+                json!({"entry": section.name, "kept": "plain text"})
+            } else {
+                json!({"entry": section.name, "kept": "no password"})
+            }
         })
         .collect();
     Ok(json!({"file": file, "entries": entries, "variables": [USER_VARIABLE, PASSWORD_VARIABLE]}))

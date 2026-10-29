@@ -8,7 +8,6 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::num::NonZeroU64;
 
 mod decide;
 mod file;
@@ -46,7 +45,7 @@ impl Lifetime {
             (None, true) => Ok(Self::UntilRevoked),
             (Some(raw), false) => {
                 let seconds: u64 = raw.parse().context("--ttl-seconds must be whole seconds")?;
-                if NonZeroU64::new(seconds).is_none() {
+                if seconds == 0 {
                     bail!("--ttl-seconds must be at least one second");
                 }
                 Ok(Self::Seconds(seconds))

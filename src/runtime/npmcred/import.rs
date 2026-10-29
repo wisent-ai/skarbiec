@@ -22,10 +22,10 @@ const PREFIX: &str = "NPM_TOKEN_";
 fn variable(registry: &str) -> String {
     let mut name = PREFIX.to_string();
     for c in registry.chars() {
-        match c.is_ascii_alphanumeric() {
-            true => name.push(c.to_ascii_uppercase()),
-            false if !name.ends_with('_') => name.push('_'),
-            false => {}
+        if c.is_ascii_alphanumeric() {
+            name.push(c.to_ascii_uppercase());
+        } else if !name.ends_with('_') {
+            name.push('_');
         }
     }
     name.trim_end_matches('_').to_string()

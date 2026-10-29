@@ -4,7 +4,6 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::fs;
-use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -68,7 +67,7 @@ pub(crate) fn read_secret_file(path: &Path) -> Result<String> {
     if !metadata.file_type().is_file()
         || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
-        || NonZeroU32::new(metadata.permissions().mode() & group_and_other).is_some()
+        || (metadata.permissions().mode() & group_and_other) != 0
     {
         bail!("credential token file must be an owner-only regular file");
     }

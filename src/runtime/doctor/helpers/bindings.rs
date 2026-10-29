@@ -43,15 +43,16 @@ pub(in crate::runtime::doctor) fn bindings_files_check() -> Value {
             ),
         })
         .collect();
-    match problems.is_empty() {
-        true => check(
+    if problems.is_empty() {
+        check(
             NAME,
             PASS,
             format!(
                 "every line of {} known bindings files gives its program a value",
                 files.len()
             ),
-        ),
-        false => check(NAME, FAIL, problems.join("; ")),
+        )
+    } else {
+        check(NAME, FAIL, problems.join("; "))
     }
 }

@@ -168,9 +168,10 @@ fn report(flags: &HashMap<String, String>) -> Result<Value> {
     // `--saved-versions` opens every saved version too and names each
     // value in use now that some item once gave up.
     let saved_versions = crate::cli::args::flag_set(flags, "saved-versions");
-    let (reused_retired, retired_unreadable) = match saved_versions {
-        true => crate::runtime::retired::reused(&vault, field, &holders)?,
-        false => (Vec::new(), Vec::new()),
+    let (reused_retired, retired_unreadable) = if saved_versions {
+        crate::runtime::retired::reused(&vault, field, &holders)?
+    } else {
+        (Vec::new(), Vec::new())
     };
     // A digest held by more than one item is one secret in several places:
     // a leak through any of them is a leak of all.

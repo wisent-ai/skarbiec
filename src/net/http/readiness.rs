@@ -142,9 +142,10 @@ fn agent_wedge_pass() -> Result<Vec<String>> {
     let Some(refusal) = decided else {
         return noted;
     };
-    let refusal = match holders.is_empty() {
-        true => refusal,
-        false => format!("{refusal}; keyring locks: {}", holders.join("; ")),
+    let refusal = if holders.is_empty() {
+        refusal
+    } else {
+        format!("{refusal}; keyring locks: {}", holders.join("; "))
     };
     let before = crate::core::crypto::recover_daemons()
         .with_context(|| format!("skarbiec maintain: recover the daemons behind: {refusal}"))?;

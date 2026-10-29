@@ -30,9 +30,10 @@ pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
     let restored = live_ids(&copy);
     let live = vault_path();
     let present = crate::core::is_present(&live, "live vault")?;
-    let current = match present {
-        true => live_ids(&Vault::open(live.clone())?),
-        false => Vec::new(),
+    let current = if present {
+        live_ids(&Vault::open(live.clone())?)
+    } else {
+        Vec::new()
     };
     let lost: Vec<&String> = current.iter().filter(|id| !restored.contains(id)).collect();
     if !confirmed {
@@ -46,9 +47,10 @@ pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
     }
     let bytes =
         std::fs::read(file).with_context(|| format!("read the backup {}", file.display()))?;
-    let kept = match present {
-        false => None,
-        true => Some(keep_aside(&live)?),
+    let kept = if present {
+        Some(keep_aside(&live)?)
+    } else {
+        None
     };
     crate::core::vault::atomic_write(&live, &bytes).with_context(|| {
         format!(

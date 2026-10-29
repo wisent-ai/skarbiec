@@ -124,14 +124,13 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
     // The forges' deploy keys first, then the servers: the vault takes the
     // new key only once every repository and every host holds it, and a
     // later refusal takes it back off the repositories it reached.
-    let added = match places.is_empty() {
-        true => Vec::new(),
-        false => {
-            let old_public = retired.as_deref().with_context(|| {
-                format!("{id} holds no public_key to find among the repositories' deploy keys")
-            })?;
-            super::forges::add_everywhere(&places, old_public, &public_key)?
-        }
+    let added = if places.is_empty() {
+        Vec::new()
+    } else {
+        let old_public = retired.as_deref().with_context(|| {
+            format!("{id} holds no public_key to find among the repositories' deploy keys")
+        })?;
+        super::forges::add_everywhere(&places, old_public, &public_key)?
     };
     let take_back = |error: anyhow::Error| -> anyhow::Error {
         match super::forges::take_back(&added).as_slice() {
@@ -143,18 +142,17 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
         }
     };
     // The workspace holding both keys is gone by return.
-    let work = match hosts.is_empty() {
-        true => None,
-        false => {
-            let old_private = old_private
-                .as_deref()
-                .with_context(|| format!("{id} holds no private_key to reach the hosts with"))
-                .map_err(take_back)?;
-            let work = super::workspace(&vault_path()).map_err(take_back)?;
-            super::push::add_everywhere(&work.0, &hosts, old_private, &private_key, &public_key)
-                .map_err(take_back)?;
-            Some(work)
-        }
+    let work = if hosts.is_empty() {
+        None
+    } else {
+        let old_private = old_private
+            .as_deref()
+            .with_context(|| format!("{id} holds no private_key to reach the hosts with"))
+            .map_err(take_back)?;
+        let work = super::workspace(&vault_path()).map_err(take_back)?;
+        super::push::add_everywhere(&work.0, &hosts, old_private, &private_key, &public_key)
+            .map_err(take_back)?;
+        Some(work)
     };
     let fields = payload
         .get_mut("fields")

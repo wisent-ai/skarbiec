@@ -55,10 +55,11 @@ fn iam(key: &Key, args: &[&str]) -> Result<Value> {
         );
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    match text.trim().is_empty() {
-        true => Ok(Value::Null),
-        false => serde_json::from_str(&text)
-            .with_context(|| format!("read aws iam {}'s answer", args.join(" "))),
+    if text.trim().is_empty() {
+        Ok(Value::Null)
+    } else {
+        serde_json::from_str(&text)
+            .with_context(|| format!("read aws iam {}'s answer", args.join(" ")))
     }
 }
 
@@ -167,13 +168,12 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
             ),
         }
     }
-    let retired = match delete_old {
-        true => {
-            iam(&new, &["delete-access-key", "--user-name", &user, "--access-key-id", &old.id])
-                .with_context(|| format!("{id} holds the new key {} and the old one {} is inactive, but it could not be deleted", new.id, old.id))?;
-            "deleted"
-        }
-        false => "inactive",
+    let retired = if delete_old {
+        iam(&new, &["delete-access-key", "--user-name", &user, "--access-key-id", &old.id])
+            .with_context(|| format!("{id} holds the new key {} and the old one {} is inactive, but it could not be deleted", new.id, old.id))?;
+        "deleted"
+    } else {
+        "inactive"
     };
     crate::runtime::audit::append(
         "aws-key-rotated",

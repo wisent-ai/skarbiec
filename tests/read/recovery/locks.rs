@@ -43,9 +43,10 @@ impl Journey {
         self.run("held-lock-kill-keyboxd", &mut kill);
         // The lock gpg takes is keyboxd's database lock when the keyring
         // uses keyboxd, and the legacy keybox lock otherwise.
-        let lock = match self.keyring.join("public-keys.d").is_dir() {
-            true => self.keyring.join("public-keys.d/pubring.db.lock"),
-            false => self.keyring.join("pubring.kbx.lock"),
+        let lock = if self.keyring.join("public-keys.d").is_dir() {
+            self.keyring.join("public-keys.d/pubring.db.lock")
+        } else {
+            self.keyring.join("pubring.kbx.lock")
         };
         fs::write(&lock, format!("{}\n{node}\n", holder.id())).unwrap();
 

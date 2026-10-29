@@ -163,13 +163,12 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
             ),
         }
     }
-    let retired = match delete_old {
-        true => {
-            keys(&work.0, &new, &["delete", old.id.as_str()])
-                .with_context(|| format!("{id} holds the new key {} and the old one {} is disabled, but it could not be deleted", new.id, old.id))?;
-            "deleted"
-        }
-        false => "disabled",
+    let retired = if delete_old {
+        keys(&work.0, &new, &["delete", old.id.as_str()])
+            .with_context(|| format!("{id} holds the new key {} and the old one {} is disabled, but it could not be deleted", new.id, old.id))?;
+        "deleted"
+    } else {
+        "disabled"
     };
     drop(work);
     crate::runtime::audit::append(

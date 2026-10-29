@@ -38,13 +38,14 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
-  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\n\n' "$*" "$status" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT"
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$status" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 login() {
   printf '{"schema":"skarbiec.item.v2","kind":"login","fields":{"username":"audit-tail-user-%s","password":"audit-tail-%s"},"context":{}}' "$1" "$RUN" >"$ROOT/stdin"
@@ -64,7 +65,7 @@ damaged="{\"at\": \"audit-tail-$RUN\", \"op\": "
 printf '%s\n' "$damaged" >>"$SKARBIEC_AUDIT_FILE"
 login second
 WANT=refused run set "audit-tail-second-$RUN" --type login
-case "$out" in
+case "$said" in
   *"ends with a line that is not an entry"*) ;;
   *) fail "the refusal does not name the damaged last journal line" ;;
 esac
@@ -76,7 +77,7 @@ kept=$(grep -v -F -x -- "$damaged" "$SKARBIEC_AUDIT_FILE")
 printf '%s\n{"at":"audit-tail-%s","op":"audit-tail-unhashed"}\n' "$kept" "$RUN" >"$SKARBIEC_AUDIT_FILE"
 login third
 WANT=refused run set "audit-tail-third-$RUN" --type login
-case "$out" in
+case "$said" in
   *"last entry carries no hash"*) ;;
   *) fail "the refusal does not name the last entry's missing hash" ;;
 esac

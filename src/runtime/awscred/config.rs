@@ -45,9 +45,10 @@ pub(super) fn read(path: &Path) -> Result<String> {
 
 /// The config file's header for `profile`.
 fn config_header(profile: &str) -> String {
-    match profile == DEFAULT {
-        true => format!("[{DEFAULT}]"),
-        false => format!("[profile {profile}]"),
+    if profile == DEFAULT {
+        format!("[{DEFAULT}]")
+    } else {
+        format!("[profile {profile}]")
     }
 }
 

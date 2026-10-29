@@ -173,10 +173,11 @@ fn setup(id: &str, scope: &Scope, on_github: bool) -> Result<Value> {
     let signing = bare(&public_key(id)?)
         .with_context(|| format!("{id}'s public_key is not an SSH public key line"))?;
     // GitHub first: when it refuses, git is left as it was.
-    let github = match on_github {
-        true => github::publish(id, &signing)
-            .with_context(|| format!("{} was left as it was", scope.named()))?,
-        false => Value::Null,
+    let github = if on_github {
+        github::publish(id, &signing)
+            .with_context(|| format!("{} was left as it was", scope.named()))?
+    } else {
+        Value::Null
     };
     set(scope, "gpg.format", "ssh")?;
     set(scope, SIGNING_KEY, &format!("{LITERAL}{signing}"))?;

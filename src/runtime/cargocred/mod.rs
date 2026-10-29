@@ -130,9 +130,10 @@ fn import(id: &str, registry: &str, host: &str, tags: Option<&String>) -> Result
         "host": host,
         "file": file,
         "provider_configured": configured,
-        "next": match configured {
-            true => "Cargo reads the token from the vault from now on".to_string(),
-            false => "`skarbiec helper setup cargo` makes Cargo read it from the vault; until then Cargo has no token for this registry".to_string(),
+        "next": if configured {
+            "Cargo reads the token from the vault from now on".to_string()
+        } else {
+            "`skarbiec helper setup cargo` makes Cargo read it from the vault; until then Cargo has no token for this registry".to_string()
         },
     }))
 }

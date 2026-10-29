@@ -66,9 +66,10 @@ fn hosts() -> Result<(PathBuf, String, Vec<Host>)> {
 }
 
 fn variable(host: &str) -> &'static str {
-    match host == PUBLIC_HOST {
-        true => PUBLIC_VARIABLE,
-        false => ENTERPRISE_VARIABLE,
+    if host == PUBLIC_HOST {
+        PUBLIC_VARIABLE
+    } else {
+        ENTERPRISE_VARIABLE
     }
 }
 
@@ -77,9 +78,10 @@ pub(crate) fn status() -> Result<Value> {
     let (file, _, found) = hosts()?;
     let entries: Vec<Value> = found
         .iter()
-        .map(|host| match host.tokens.is_empty() {
-            true => json!({"entry": host.name, "kept": "no token here", "variable": variable(&host.name)}),
-            false => json!({"entry": host.name, "kept": "plain text", "variable": variable(&host.name)}),
+        .map(|host| if host.tokens.is_empty() {
+            json!({"entry": host.name, "kept": "no token here", "variable": variable(&host.name)})
+        } else {
+            json!({"entry": host.name, "kept": "plain text", "variable": variable(&host.name)})
         })
         .collect();
     Ok(json!({"file": file, "entries": entries}))

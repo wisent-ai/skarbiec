@@ -44,6 +44,10 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
         .or_else(|| flags.get("owner"))
         .map(String::as_str)
         .or_usage("usage: init <owner-uid>")?;
+    // Refused before any key is made: an init a client host or an existing
+    // vault refuses must not leave new keys in the keyring.
+    let path = vault_path();
+    Vault::creatable(&path)?;
     let recovery_uid = format!("skarbiec-recovery <{owner}>");
     let owner_fpr = match crypto::fingerprint_for(owner)? {
         Some(fpr) => fpr,
@@ -53,7 +57,7 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
         Some(fpr) => fpr,
         None => crypto::generate_key(&recovery_uid)?,
     };
-    let vault = Vault::create(vault_path(), owner, &owner_fpr, &recovery_fpr)?;
+    let vault = Vault::create(path, owner, &owner_fpr, &recovery_fpr)?;
     Ok(
         json!({"ok": true, "vault": vault.path.display().to_string(), "owner_fpr": owner_fpr, "recovery_fpr": recovery_fpr}),
     )
@@ -142,14 +146,17 @@ fn run() -> Result<()> {
     match command.as_str() {
         "version" | "--version" | "-V" => emit(&cmd_version()?),
         "status" => emit(&core::items::status_json()?),
-        "doctor" => match cli::args::flag_set(&flags, "alert") {
-            true => emit(&runtime::doctor::report_alerting(
-                flags.get("tail").map(String::as_str),
-            )?),
-            false => emit(&runtime::doctor::report(
-                flags.get("tail").map(String::as_str),
-            )?),
-        },
+        "doctor" => {
+            if cli::args::flag_set(&flags, "alert") {
+                emit(&runtime::doctor::report_alerting(
+                    flags.get("tail").map(String::as_str),
+                )?)
+            } else {
+                emit(&runtime::doctor::report(
+                    flags.get("tail").map(String::as_str),
+                )?)
+            }
+        }
         "keyring" if positionals.first().map(String::as_str) == Some("recover") => {
             // Exit 0 only when the daemons were replaced: the receipt is
             // printed either way, and a failed recovery fails the command

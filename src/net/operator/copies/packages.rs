@@ -78,16 +78,15 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
     let mut positionals = vec![leaf.to_string()];
     // status names a tool or none; the import names the tool, its item and
     // the bindings file, an absolute path on this machine.
-    match *imports {
-        true => {
-            given.extend(HashMap::from([(
-                "bindings".to_string(),
-                absolute(parsed, "bindings")?,
-            )]));
-            positionals.push(text(parsed, "tool")?);
-            positionals.push(text(parsed, "id")?);
-        }
-        false => positionals.extend(optional(parsed, "tool")),
+    if *imports {
+        given.extend(HashMap::from([(
+            "bindings".to_string(),
+            absolute(parsed, "bindings")?,
+        )]));
+        positionals.push(text(parsed, "tool")?);
+        positionals.push(text(parsed, "id")?);
+    } else {
+        positionals.extend(optional(parsed, "tool"));
     }
     runtime("tool", &given, &positionals).map(Some)
 }

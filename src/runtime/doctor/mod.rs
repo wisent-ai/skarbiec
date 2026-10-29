@@ -234,9 +234,10 @@ pub fn report_alerting(tail: Option<&str>) -> Result<Value> {
         .filter(|entry| entry.get("status").and_then(Value::as_str) == Some(FAIL))
         .map(|entry| format!("{}: {}", entry["check"], entry["detail"]))
         .collect();
-    answer["alert"] = match failed.is_empty() {
-        true => json!({"posted": false, "reason": "no check failed"}),
-        false => match crate::runtime::alert::send(&format!(
+    answer["alert"] = if failed.is_empty() {
+        json!({"posted": false, "reason": "no check failed"})
+    } else {
+        match crate::runtime::alert::send(&format!(
             "skarbiec doctor: {} check(s) failed — {}",
             failed.len(),
             failed.join("; ")
@@ -244,7 +245,7 @@ pub fn report_alerting(tail: Option<&str>) -> Result<Value> {
             Ok(Some(_)) => json!({"posted": true}),
             Ok(None) => json!({"posted": false, "reason": "no alert is set on this host"}),
             Err(error) => json!({"posted": false, "error": format!("{error:#}")}),
-        },
+        }
     };
     Ok(answer)
 }

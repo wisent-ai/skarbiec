@@ -30,12 +30,13 @@ fn held_back(
                 .any(|(_, run)| run.pid == *holder && stands_at_agent(run, stood))
         })
         .collect();
-    let why = match holders.is_empty() {
-        false => "the keyring lock it needs is held by a run that waits on gpg-agent".to_owned(),
-        true => match super::super::lock_holder::orphaned_database_holder()? {
+    let why = if holders.is_empty() {
+        match super::super::lock_holder::orphaned_database_holder()? {
             Some(orphaned) => orphaned,
             None => return Ok(Vec::new()),
-        },
+        }
+    } else {
+        "the keyring lock it needs is held by a run that waits on gpg-agent".to_owned()
     };
     Ok(quiet
         .into_iter()

@@ -257,9 +257,10 @@ pub fn migrate_vault(flags: &HashMap<String, String>) -> Result<Value> {
         field_names.sort();
         migrated.push(json!({"id": id, "kind": item_kind, "fields": field_names}));
     }
-    let retired = match reconcile && unreconciled.is_empty() {
-        true => Some(retire(Path::new(from))?.display().to_string()),
-        false => None,
+    let retired = if reconcile && unreconciled.is_empty() {
+        Some(retire(Path::new(from))?.display().to_string())
+    } else {
+        None
     };
     Ok(json!({
         "ok": true,

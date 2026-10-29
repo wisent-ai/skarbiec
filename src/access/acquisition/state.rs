@@ -7,7 +7,6 @@ use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -80,7 +79,7 @@ fn validate_owned_metadata(path: &Path, metadata: &fs::Metadata) -> Result<()> {
             path.display()
         );
     }
-    if NonZeroU32::new(metadata.mode() & unsafe_mode_bits()).is_some() {
+    if (metadata.mode() & unsafe_mode_bits()) != 0 {
         bail!(
             "acquisition state {} permissions must not grant group or other access",
             path.display()

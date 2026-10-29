@@ -93,10 +93,11 @@ fn az(args: &[&str]) -> Result<Value> {
         );
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    match text.trim().is_empty() {
-        true => Ok(Value::Null),
-        false => serde_json::from_str(&text)
-            .with_context(|| format!("az {} answered something that is not JSON", args.join(" "))),
+    if text.trim().is_empty() {
+        Ok(Value::Null)
+    } else {
+        serde_json::from_str(&text)
+            .with_context(|| format!("az {} answered something that is not JSON", args.join(" ")))
     }
 }
 
@@ -285,9 +286,10 @@ fn rotate(
         "old_keys": old_keys,
         "deleted": retired,
         "revision": revision,
-        "next": match delete_old {
-            true => "the old secret no longer signs in".to_string(),
-            false => "the old secret still signs in until it ends or rotate --with azure --delete-old runs; every program signed in with it must read the new one from the vault".to_string(),
+        "next": if delete_old {
+            "the old secret no longer signs in".to_string()
+        } else {
+            "the old secret still signs in until it ends or rotate --with azure --delete-old runs; every program signed in with it must read the new one from the vault".to_string()
         },
     }))
 }

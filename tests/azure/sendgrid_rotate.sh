@@ -36,9 +36,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 # Whether SendGrid takes one key; the key reaches curl as a header on its
 # standard input, and curl fails on SendGrid's refusal.
@@ -77,9 +78,9 @@ jq -n '{schema:"skarbiec.item.v2",kind:"token",fields:{token:"not-a-sendgrid-key
 WANT=ok run set "other-$RUN" --type token
 : >"$ROOT/stdin"
 WANT=refused run rotate "note-$RUN" --with sendgrid
-case "$out" in *"rotate --with sendgrid replaces a token item"*) ;; *) fail "a note was not refused naming its kind: $out" ;; esac
+case "$said" in *"rotate --with sendgrid replaces a token item"*) ;; *) fail "a note was not refused naming its kind: output: $out stderr: $said" ;; esac
 WANT=refused run rotate "other-$RUN" --with sendgrid
-case "$out" in *"not a SendGrid API key"*) ;; *) fail "a token that is not a SendGrid key was not refused: $out" ;; esac
+case "$said" in *"not a SendGrid API key"*) ;; *) fail "a token that is not a SendGrid key was not refused: output: $out stderr: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

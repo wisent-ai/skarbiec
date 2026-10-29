@@ -13,7 +13,6 @@ use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::num::NonZeroU64;
 
 use super::register::{self, text};
 use super::Lifetime;
@@ -135,7 +134,7 @@ fn uses_for(form: Form, uses: Option<u64>, lifetime: Lifetime) -> Result<Option<
         (Form::Consumer, Some(_)) => {
             bail!("a standing consumer grant is not counted in uses: drop --uses")
         }
-        (_, Some(uses)) if NonZeroU64::new(uses).is_none() => bail!("--uses must be at least one"),
+        (_, Some(0)) => bail!("--uses must be at least one"),
         (_, uses) => Ok(uses),
     }
 }

@@ -3,7 +3,6 @@
 
 use anyhow::{bail, Context, Result};
 use std::fs;
-use std::num::NonZeroU32;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::process::Command;
@@ -13,7 +12,7 @@ use crate::core::effective_uid;
 /// Whether a group or another user holds any permission on a file: an
 /// owner-controlled file holds none.
 fn shared_beyond_owner(metadata: &fs::Metadata) -> bool {
-    NonZeroU32::new(metadata.mode() & crate::core::mode::GROUP_AND_OTHER).is_some()
+    (metadata.mode() & crate::core::mode::GROUP_AND_OTHER) != 0
 }
 
 pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<String> {
