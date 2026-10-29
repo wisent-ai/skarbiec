@@ -5,7 +5,6 @@
 use anyhow::{bail, Context, Result};
 use std::fs::File;
 use std::io::Read;
-use std::num::{NonZeroU64, NonZeroUsize};
 
 const LOWER: &str = "abcdefghijklmnopqrstuvwxyz";
 const UPPER: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -44,9 +43,11 @@ impl Entropy {
     /// 2^64 mod `bound` is drawn again, so the draws that remain divide evenly
     /// among the indices and no index is favoured.
     fn below(&mut self, bound: usize) -> Result<usize> {
-        let bound = NonZeroU64::new(u64::try_from(bound).context("draw range exceeds 64 bits")?)
-            .context("draw from an empty range")?;
-        let threshold = bound.get().wrapping_neg() % bound;
+        let bound = u64::try_from(bound).context("draw range exceeds 64 bits")?;
+        if bound == 0 {
+            bail!("draw from an empty range");
+        }
+        let threshold = bound.wrapping_neg() % bound;
         let mut bytes: [u8; std::mem::size_of::<u64>()] = Default::default();
         loop {
             self.0.read_exact(&mut bytes).context("read entropy")?;
@@ -115,7 +116,7 @@ pub fn generate_password(
     symbols_from: Option<&str>,
     unambiguous: bool,
 ) -> Result<String> {
-    if NonZeroUsize::new(length).is_none() {
+    if length == 0 {
         bail!("password length must be positive");
     }
     if let Some(set) = symbols_from {
@@ -180,7 +181,7 @@ pub fn generate_passphrase(
     capitalize: bool,
     with_digit: bool,
 ) -> Result<String> {
-    if NonZeroUsize::new(count).is_none() {
+    if count == 0 {
         bail!("passphrase word count must be positive");
     }
     let mut pool = words()?;
