@@ -28,7 +28,9 @@ pub(crate) struct Binding {
 /// letters, digits and underscores.
 pub(crate) fn is_variable(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+    chars
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
         && chars.all(|rest| rest.is_ascii_alphanumeric() || rest == '_')
 }
 
@@ -45,14 +47,19 @@ fn binding(given: &str) -> Result<Binding> {
     if item.is_empty() || field.is_empty() {
         return Err(refused().into());
     }
-    Ok(Binding { name: name.to_string(), item: item.to_string(), field: field.to_string() })
+    Ok(Binding {
+        name: name.to_string(),
+        item: item.to_string(),
+        field: field.to_string(),
+    })
 }
 
 /// The bindings a file lists, one NAME=<id>:<field> a line, so a project can
 /// commit which variables its programs read and from where; blank lines and
 /// lines starting with # are skipped, and a refusal quotes the line.
 pub(crate) fn bindings_in(file: &str) -> Result<Vec<Binding>> {
-    let text = std::fs::read_to_string(file).with_context(|| format!("read the bindings file {file}"))?;
+    let text =
+        std::fs::read_to_string(file).with_context(|| format!("read the bindings file {file}"))?;
     let mut listed = Vec::new();
     for line in text.lines().map(str::trim) {
         if line.is_empty() || line.starts_with('#') {
@@ -76,7 +83,10 @@ fn item_bindings(given: &str) -> Result<Vec<Binding>> {
         return Err(refused().into());
     }
     let payload = Vault::open(vault_path())?.get_item(item)?;
-    let fields = payload.get("fields").and_then(Value::as_object).with_context(|| format!("{item} holds no fields"))?;
+    let fields = payload
+        .get("fields")
+        .and_then(Value::as_object)
+        .with_context(|| format!("{item} holds no fields"))?;
     let listed: Vec<Binding> = fields
         .iter()
         .filter(|(_, value)| value.as_str().is_some_and(|text| !text.is_empty()))
@@ -105,7 +115,13 @@ fn tag_bindings(tag: &str) -> Result<Vec<Binding>> {
     for id in &tagged {
         let prefix: String = id
             .chars()
-            .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_uppercase() } else { '_' })
+            .map(|c| {
+                if c.is_ascii_alphanumeric() {
+                    c.to_ascii_uppercase()
+                } else {
+                    '_'
+                }
+            })
             .collect();
         if !is_variable(&prefix) {
             bail!("{id}, tagged {tag}, gives the prefix {prefix}, which is not a variable name; bind it with --env-item <PREFIX>={id}");
@@ -121,7 +137,10 @@ fn tag_bindings(tag: &str) -> Result<Vec<Binding>> {
 /// one of this command.
 fn parse(rest: &[String]) -> Result<(Vec<Binding>, String, Vec<String>)> {
     let no_program = || Usage(format!("name the program after --; {USAGE}"));
-    let split = rest.iter().position(|word| word == "--").ok_or_else(no_program)?;
+    let split = rest
+        .iter()
+        .position(|word| word == "--")
+        .ok_or_else(no_program)?;
     let (ours, theirs) = rest.split_at(split);
     let mut bindings: Vec<Binding> = Vec::new();
     let mut words = ours.iter();
@@ -132,7 +151,10 @@ fn parse(rest: &[String]) -> Result<(Vec<Binding>, String, Vec<String>)> {
         };
         let value = match inline {
             Some(value) => value,
-            None => words.next().cloned().ok_or_else(|| Usage(format!("{option} needs a value; {USAGE}")))?,
+            None => words
+                .next()
+                .cloned()
+                .ok_or_else(|| Usage(format!("{option} needs a value; {USAGE}")))?,
         };
         let found = match option {
             "--env" => vec![binding(&value)?],
@@ -143,13 +165,20 @@ fn parse(rest: &[String]) -> Result<(Vec<Binding>, String, Vec<String>)> {
         };
         for next in found {
             if bindings.iter().any(|known| known.name == next.name) {
-                return Err(Usage(format!("{} is bound twice; give each variable once", next.name)).into());
+                return Err(Usage(format!(
+                    "{} is bound twice; give each variable once",
+                    next.name
+                ))
+                .into());
             }
             bindings.push(next);
         }
     }
     if bindings.is_empty() {
-        return Err(Usage(format!("exec puts at least one vault value into the program's environment; {USAGE}")).into());
+        return Err(Usage(format!(
+            "exec puts at least one vault value into the program's environment; {USAGE}"
+        ))
+        .into());
     }
     // `theirs` starts with the `--` itself.
     let (_separator, command) = theirs.split_first().ok_or_else(no_program)?;
@@ -187,9 +216,12 @@ pub fn run(rest: &[String]) -> Result<()> {
         .map(|binding| json!({"variable": binding.name, "item": binding.item, "field": binding.field}))
         .collect();
     crate::runtime::audit::append("exec", &json!({"program": program, "env": journal}))?;
-    let status = stado_wait::blocking(stado_wait::Kind::Process, "a program run by skarbiec exec", &program, || {
-        command.status()
-    })
+    let status = stado_wait::blocking(
+        stado_wait::Kind::Process,
+        "a program run by skarbiec exec",
+        &program,
+        || command.status(),
+    )
     .with_context(|| format!("start {program}"))?;
     match (status.code(), status.signal()) {
         (Some(code), _) => std::process::exit(code),

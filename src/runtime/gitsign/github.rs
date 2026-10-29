@@ -13,7 +13,8 @@ use std::process::Command;
 const PATH: &str = "user/ssh_signing_keys";
 
 fn gh(args: &[&str]) -> Result<Value> {
-    let output = stado_wait::output(Command::new("gh").arg("api").args(args)).context("run gh api, which adds the GitHub signing key")?;
+    let output = stado_wait::output(Command::new("gh").arg("api").args(args))
+        .context("run gh api, which adds the GitHub signing key")?;
     if !output.status.success() {
         bail!(
             "gh api {} ({}): {}; gh needs the admin:ssh_signing_key scope, which `gh auth refresh -s admin:ssh_signing_key` grants",
@@ -25,7 +26,12 @@ fn gh(args: &[&str]) -> Result<Value> {
     let text = String::from_utf8_lossy(&output.stdout);
     match text.trim().is_empty() {
         true => Ok(Value::Null),
-        false => serde_json::from_str(&text).with_context(|| format!("gh api {} answered something that is not JSON", args.join(" "))),
+        false => serde_json::from_str(&text).with_context(|| {
+            format!(
+                "gh api {} answered something that is not JSON",
+                args.join(" ")
+            )
+        }),
     }
 }
 

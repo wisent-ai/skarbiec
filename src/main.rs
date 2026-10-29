@@ -20,14 +20,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use cli::args::{emit, parse_args, OrUsage, Usage};
+use cli::generate::cmd_generate;
 use cli::items::{cmd_retag, cmd_set_json};
-use cli::rename::cmd_rename;
 use cli::list::cmd_list;
 use cli::reads::{
     cmd_delete, cmd_duplicates, cmd_get, cmd_history, cmd_purge, cmd_readers, cmd_reclaim,
     cmd_restore,
 };
-use cli::generate::cmd_generate;
+use cli::rename::cmd_rename;
 use cli::tools::{cmd_export, cmd_tags, cmd_version};
 use core::{crypto, items, vault::Vault};
 
@@ -77,7 +77,10 @@ fn run() -> Result<()> {
     // docker-credential-skarbiec, linked to this binary by `helper setup
     // docker`; started under that name, the words are Docker's protocol.
     let started_as = argv.next();
-    let program = started_as.as_deref().map(std::path::Path::new).and_then(std::path::Path::file_name);
+    let program = started_as
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(std::path::Path::file_name);
     if program.and_then(std::ffi::OsStr::to_str) == Some(runtime::dockercred::PROGRAM) {
         return runtime::dockercred::run(&argv.collect::<Vec<_>>());
     }
@@ -140,8 +143,12 @@ fn run() -> Result<()> {
         "version" | "--version" | "-V" => emit(&cmd_version()?),
         "status" => emit(&core::items::status_json()?),
         "doctor" => match cli::args::flag_set(&flags, "alert") {
-            true => emit(&runtime::doctor::report_alerting(flags.get("tail").map(String::as_str))?),
-            false => emit(&runtime::doctor::report(flags.get("tail").map(String::as_str))?),
+            true => emit(&runtime::doctor::report_alerting(
+                flags.get("tail").map(String::as_str),
+            )?),
+            false => emit(&runtime::doctor::report(
+                flags.get("tail").map(String::as_str),
+            )?),
         },
         "keyring" if positionals.first().map(String::as_str) == Some("recover") => {
             // Exit 0 only when the daemons were replaced: the receipt is
@@ -180,17 +187,29 @@ fn run() -> Result<()> {
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => match flags.get("tag") {
             Some(tag) => emit(&cli::bulk::restore_tagged(&flags, tag)?),
-            None => emit(&cmd_restore(&positionals, flags.get("at").map(String::as_str))?),
+            None => emit(&cmd_restore(
+                &positionals,
+                flags.get("at").map(String::as_str),
+            )?),
         },
         "purge" => match (flags.get("trashed-before"), flags.get("versions-before")) {
             (Some(before), _) => emit(&cli::tools::cmd_purge_trash(&flags, &positionals, before)?),
-            (None, Some(before)) => emit(&cli::prune::purge_versions(&flags, &positionals, before)?),
-            (None, None) => emit(&cmd_purge(&positionals, cli::args::flag_set(&flags, "yes"))?),
+            (None, Some(before)) => {
+                emit(&cli::prune::purge_versions(&flags, &positionals, before)?)
+            }
+            (None, None) => emit(&cmd_purge(
+                &positionals,
+                cli::args::flag_set(&flags, "yes"),
+            )?),
         },
         "generate" => cmd_generate(&flags),
         "agent" => match cli::args::verb(&command, &positionals, "agent", "enrol") {
             Some(rest) => emit(&access::agent::enrol(rest)?),
-            None => Err(Usage(format!("agent {} is not a form of agent; usage: agent enrol <agent>", positionals.join(" "))).into()),
+            None => Err(Usage(format!(
+                "agent {} is not a form of agent; usage: agent enrol <agent>",
+                positionals.join(" ")
+            ))
+            .into()),
         },
         "import" => emit(&core::importer::run(&flags, &positionals)?),
         "migrate" => emit(&items::migrate_vault(&flags)?),
@@ -221,7 +240,11 @@ fn run() -> Result<()> {
             None => Ok(()),
         },
         // The keyring command's one verb, refused naming it for any other.
-        "keyring" => Err(Usage(format!("keyring {} is not a form of keyring; usage: keyring recover", positionals.join(" "))).into()),
+        "keyring" => Err(Usage(format!(
+            "keyring {} is not a form of keyring; usage: keyring recover",
+            positionals.join(" ")
+        ))
+        .into()),
         other => {
             if let Some(v) = credential::dispatch(other, &flags, &positionals, &vault_path())? {
                 emit(&v)
@@ -236,7 +259,11 @@ fn run() -> Result<()> {
             } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else if let Some(usage) = cli::help::usage_of(other) {
-                Err(Usage(format!("{other} {} is not a form of {other}; usage: {usage}", positionals.join(" "))).into())
+                Err(Usage(format!(
+                    "{other} {} is not a form of {other}; usage: {usage}",
+                    positionals.join(" ")
+                ))
+                .into())
             } else {
                 Err(Usage(format!(
                     "unknown command: {other}; `skarbiec --help` lists every command"

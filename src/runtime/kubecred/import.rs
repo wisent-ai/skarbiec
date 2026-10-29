@@ -16,24 +16,40 @@ use serde_json::{json, Map, Value};
 
 /// What a user keeps inline: the kind of item it becomes, its fields, and
 /// the kubeconfig keys to unset once the user runs this vault's exec.
-fn kept(user: &str, entry: &Value) -> Result<(&'static str, Map<String, Value>, Vec<&'static str>)> {
+fn kept(
+    user: &str,
+    entry: &Value,
+) -> Result<(&'static str, Map<String, Value>, Vec<&'static str>)> {
     let inline = |key: &str| entry[key].as_str().filter(|value| !value.is_empty());
     if let Some(token) = inline("token") {
         let mut fields = Map::new();
         fields.insert("token".to_string(), json!(token));
         return Ok((super::KIND, fields, vec!["token"]));
     }
-    if let (Some(certificate), Some(key)) = (inline("client-certificate-data"), inline("client-key-data")) {
+    if let (Some(certificate), Some(key)) =
+        (inline("client-certificate-data"), inline("client-key-data"))
+    {
         let decode = |what: &str, data: &str| -> Result<String> {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(data)
                 .with_context(|| format!("kubeconfig user {user}'s {what} is not base64"))?;
-            String::from_utf8(bytes).with_context(|| format!("kubeconfig user {user}'s {what} is not PEM text"))
+            String::from_utf8(bytes)
+                .with_context(|| format!("kubeconfig user {user}'s {what} is not PEM text"))
         };
         let mut fields = Map::new();
-        fields.insert("certificate".to_string(), json!(decode("client-certificate-data", certificate)?));
-        fields.insert("private_key".to_string(), json!(decode("client-key-data", key)?));
-        return Ok((super::CERTIFICATE, fields, vec!["client-certificate-data", "client-key-data"]));
+        fields.insert(
+            "certificate".to_string(),
+            json!(decode("client-certificate-data", certificate)?),
+        );
+        fields.insert(
+            "private_key".to_string(),
+            json!(decode("client-key-data", key)?),
+        );
+        return Ok((
+            super::CERTIFICATE,
+            fields,
+            vec!["client-certificate-data", "client-key-data"],
+        ));
     }
     if inline("client-certificate").is_some() || inline("client-key").is_some() {
         bail!("kubeconfig user {user} keeps its client certificate in files it names, not inline; `kubectl config set-credentials {user} --embed-certs --client-certificate=<file> --client-key=<file>` embeds them so they can be imported");
@@ -42,18 +58,28 @@ fn kept(user: &str, entry: &Value) -> Result<(&'static str, Map<String, Value>, 
 }
 
 pub(super) fn import(id: &str, user: &str, tags: Option<&String>) -> Result<Value> {
-    let view: Value = serde_json::from_str(&super::kubectl(&["view".to_string(), "--raw".to_string(), "-o".to_string(), "json".to_string()])?)
-        .context("kubectl config view answered something that is not JSON")?;
+    let view: Value = serde_json::from_str(&super::kubectl(&[
+        "view".to_string(),
+        "--raw".to_string(),
+        "-o".to_string(),
+        "json".to_string(),
+    ])?)
+    .context("kubectl config view answered something that is not JSON")?;
     let entry = view["users"]
         .as_array()
         .into_iter()
         .flatten()
         .find(|entry| entry["name"] == json!(user))
-        .with_context(|| format!("the kubeconfig has no user {user}; `kubectl config view` lists its users"))?;
+        .with_context(|| {
+            format!("the kubeconfig has no user {user}; `kubectl config view` lists its users")
+        })?;
     let (kind, fields, keys) = kept(user, &entry["user"])?;
 
     let mut context = Map::new();
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(format!("kubeconfig user {user}")));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!(format!("kubeconfig user {user}")),
+    );
     let payload = crate::core::schema::payload(kind, fields.clone(), context)?;
     let mut write = std::collections::HashMap::from([("type".to_string(), kind.to_string())]);
     if let Some(tags) = tags {
@@ -61,8 +87,13 @@ pub(super) fn import(id: &str, user: &str, tags: Option<&String>) -> Result<Valu
     }
     crate::cli::items::create_value(&write, id, &payload.to_string(), "helper import kube")?;
     let stored = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
-    if fields.iter().any(|(field, value)| &stored["fields"][field] != value) {
-        bail!("{id} does not read back user {user}'s credential; the kubeconfig was left as it was");
+    if fields
+        .iter()
+        .any(|(field, value)| &stored["fields"][field] != value)
+    {
+        bail!(
+            "{id} does not read back user {user}'s credential; the kubeconfig was left as it was"
+        );
     }
 
     let set = super::setup(id, user)?;
@@ -73,6 +104,11 @@ pub(super) fn import(id: &str, user: &str, tags: Option<&String>) -> Result<Valu
         })?;
         removed.push(said);
     }
-    crate::runtime::audit::append("kube-credential-import", &json!({"item": id, "user": user, "kind": kind}))?;
-    Ok(json!({"ok": true, "item": id, "kind": kind, "user": user, "program": set["program"], "kubectl": removed.join("; ")}))
+    crate::runtime::audit::append(
+        "kube-credential-import",
+        &json!({"item": id, "user": user, "kind": kind}),
+    )?;
+    Ok(
+        json!({"ok": true, "item": id, "kind": kind, "user": user, "program": set["program"], "kubectl": removed.join("; ")}),
+    )
 }

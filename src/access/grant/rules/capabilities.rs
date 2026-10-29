@@ -87,8 +87,9 @@ pub(in crate::access::grant) fn parse_capabilities(
             if field.is_some() {
                 bail!("request capability names one request kind without a field: request:{kinds}");
             }
-            crate::access::request::Kind::named(item)
-                .with_context(|| format!("request capability names one request kind: request:{kinds}"))?;
+            crate::access::request::Kind::named(item).with_context(|| {
+                format!("request capability names one request kind: request:{kinds}")
+            })?;
             capabilities.push(capability);
             continue;
         }

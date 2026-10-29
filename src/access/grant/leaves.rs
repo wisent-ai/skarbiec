@@ -51,8 +51,10 @@ pub(in crate::access::grant) fn group(
             }
         }
         "narrow" => {
-            let (consumer, item) =
-                consumer_and_item(positionals, "usage: grant narrow <consumer> <item> --field <field>")?;
+            let (consumer, item) = consumer_and_item(
+                positionals,
+                "usage: grant narrow <consumer> <item> --field <field>",
+            )?;
             let field = flags.get("field").or_usage("--field is required")?;
             loop {
                 match super::change::narrow_read_once(consumer, item, field) {
@@ -163,7 +165,10 @@ pub(in crate::access::grant) fn group(
                         .with_context(|| format!("no item: {item}; `skarbiec list` lists them"))?;
                     crate::core::vault::entry_texts(item, entry, "tags")?
                         .into_iter()
-                        .filter_map(|tag| tag.strip_prefix("stado:role:").map(|role| format!("role:{role}")))
+                        .filter_map(|tag| {
+                            tag.strip_prefix("stado:role:")
+                                .map(|role| format!("role:{role}"))
+                        })
                         .collect()
                 }
                 None => Vec::new(),
@@ -177,7 +182,9 @@ pub(in crate::access::grant) fn group(
                             capability
                                 .get("item")
                                 .and_then(Value::as_str)
-                                .is_some_and(|named| named == item.as_str() || roles.iter().any(|role| role == named))
+                                .is_some_and(|named| {
+                                    named == item.as_str() || roles.iter().any(|role| role == named)
+                                })
                         })
                     }),
                 None => true,
@@ -273,7 +280,10 @@ pub(in crate::access::grant) fn group(
 
 /// The consumer and item a leaf names as its two positionals; anything else
 /// is refused with the leaf's usage.
-fn consumer_and_item<'a>(positionals: &'a [String], usage: &str) -> Result<(&'a String, &'a String)> {
+fn consumer_and_item<'a>(
+    positionals: &'a [String],
+    usage: &str,
+) -> Result<(&'a String, &'a String)> {
     match positionals {
         [consumer, item] => Ok((consumer, item)),
         _ => Err(crate::cli::args::Usage(usage.to_string()).into()),

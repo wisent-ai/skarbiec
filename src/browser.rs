@@ -153,8 +153,13 @@ pub fn install_host(flags: &HashMap<String, String>) -> Result<Value> {
     };
     let binary = fs::canonicalize(&binary)
         .with_context(|| format!("resolve browser host binary {}", binary.display()))?;
-    if !crate::core::file_type(&binary, "the browser host binary")?.is_some_and(|kind| kind.is_file()) {
-        bail!("browser host binary {} must be a regular file", binary.display());
+    if !crate::core::file_type(&binary, "the browser host binary")?
+        .is_some_and(|kind| kind.is_file())
+    {
+        bail!(
+            "browser host binary {} must be a regular file",
+            binary.display()
+        );
     }
 
     let paths = HostPaths::of(&home_dir()?);
@@ -236,7 +241,9 @@ fn present(path: &Path) -> Result<bool> {
 mod command;
 mod coverage;
 pub use command::{command, launched};
-pub use coverage::{cover_all, cover_login, maintain_pass as autofill_maintain_pass, reach as autofill_reach};
+pub use coverage::{
+    cover_all, cover_login, maintain_pass as autofill_maintain_pass, reach as autofill_reach,
+};
 
 /// `browser status`: whether the autofill extension is connected here —
 /// both manifests, the token file and the grant — what is missing when it is

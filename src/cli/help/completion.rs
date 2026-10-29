@@ -14,7 +14,8 @@ pub(crate) fn bash_script() -> String {
         .iter()
         .filter_map(|command| {
             let flags = flags_of(command.usage);
-            (!flags.is_empty()).then(|| format!("    {}) flags=\"{}\" ;;\n", command.name, flags.join(" ")))
+            (!flags.is_empty())
+                .then(|| format!("    {}) flags=\"{}\" ;;\n", command.name, flags.join(" ")))
         })
         .collect();
     format!(
@@ -44,7 +45,12 @@ pub(crate) fn fish_script() -> String {
     let quoted = |text: &str| format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"));
     let mut script = String::from("# skarbiec completion for fish.\ncomplete -c skarbiec -f\n");
     for command in COMMANDS {
-        let clause = command.summary.split([';', ':']).next().map(str::trim).filter(|text| !text.is_empty());
+        let clause = command
+            .summary
+            .split([';', ':'])
+            .next()
+            .map(str::trim)
+            .filter(|text| !text.is_empty());
         let description = match clause {
             Some(text) => format!(" -d {}", quoted(text)),
             None => String::new(),
@@ -68,7 +74,10 @@ pub(crate) fn fish_script() -> String {
 pub(super) fn flags_of(usage: &str) -> Vec<String> {
     let mut flags: Vec<String> = usage
         .split(|character: char| !(character.is_ascii_alphanumeric() || character == '-'))
-        .filter(|word| word.strip_prefix("--").is_some_and(|name| !name.is_empty() && !name.starts_with('-')))
+        .filter(|word| {
+            word.strip_prefix("--")
+                .is_some_and(|name| !name.is_empty() && !name.starts_with('-'))
+        })
         .map(str::to_string)
         .collect();
     flags.sort();

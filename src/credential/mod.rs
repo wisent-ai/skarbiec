@@ -21,7 +21,9 @@ mod lifecycle;
 mod quarantine;
 mod receipt;
 mod schedule;
-pub(crate) use schedule::{follow_rename as follow_rotation_rename, forget as forget_rotation, mark_due};
+pub(crate) use schedule::{
+    follow_rename as follow_rotation_rename, forget as forget_rotation, mark_due,
+};
 mod serve;
 mod state;
 mod status;

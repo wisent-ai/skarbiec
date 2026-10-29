@@ -52,7 +52,10 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
     }
     let description = String::from_utf8_lossy(&output.stdout);
     if !description.to_ascii_uppercase().contains("ED25519") {
-        bail!("workload public key {} is not an Ed25519 public key", path.display());
+        bail!(
+            "workload public key {} is not an Ed25519 public key",
+            path.display()
+        );
     }
     Ok(key)
 }
@@ -86,7 +89,6 @@ pub(in crate::access::grant) fn exact_resource(value: &str) -> bool {
             byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':' | b'/')
         })
 }
-
 
 /// A route within a service: components joined by `/`, each one exact.
 ///

@@ -35,7 +35,8 @@ fn find(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value
     let in_notes = crate::cli::args::flag_set(flags, "notes");
     let Some(asked) = positionals.first().filter(|text| !text.trim().is_empty()) else {
         return Err(crate::cli::args::Usage(
-            "usage: find <text>; it is looked for in names, usernames, emails, phones and sites".to_string(),
+            "usage: find <text>; it is looked for in names, usernames, emails, phones and sites"
+                .to_string(),
         )
         .into());
     };
@@ -69,7 +70,10 @@ fn find(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value
             matched.push("notes".to_string());
         }
         if let Some(context) = context {
-            if item_domains(context).iter().any(|domain| domain.to_lowercase().contains(&needle)) {
+            if item_domains(context)
+                .iter()
+                .any(|domain| domain.to_lowercase().contains(&needle))
+            {
                 matched.push("sites".to_string());
             }
         }

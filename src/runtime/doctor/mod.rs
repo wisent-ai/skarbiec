@@ -89,7 +89,11 @@ fn keys_check() -> Value {
         Err(error) => return check("keys", FAIL, format!("{error:#}")),
     };
     if answer.get("ok").and_then(Value::as_bool) == Some(true) {
-        return check("keys", PASS, "every key the vault writes to is in this keyring and unexpired".into());
+        return check(
+            "keys",
+            PASS,
+            "every key the vault writes to is in this keyring and unexpired".into(),
+        );
     }
     let ended: Vec<String> = answer
         .get("keys")
@@ -117,7 +121,10 @@ fn keys_check() -> Value {
     check(
         "keys",
         FAIL,
-        format!("writes will fail until these keys are usable: {}", ended.join("; ")),
+        format!(
+            "writes will fail until these keys are usable: {}",
+            ended.join("; ")
+        ),
     )
 }
 
@@ -132,15 +139,33 @@ fn backup_check() -> Value {
         &[],
     );
     let entries = match listed {
-        Ok(Some(answer)) => answer.get("entries").and_then(Value::as_array).cloned().into_iter().flatten().collect::<Vec<_>>(),
+        Ok(Some(answer)) => answer
+            .get("entries")
+            .and_then(Value::as_array)
+            .cloned()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
         Ok(None) => return check("backup", FAIL, "the audit journal answered nothing".into()),
         Err(error) => return check("backup", FAIL, format!("{error:#}")),
     };
     let Some(latest) = entries.last() else {
-        return check("backup", NOT_CONFIGURED, "no backup recorded; skarbiec backup <directory> makes one".into());
+        return check(
+            "backup",
+            NOT_CONFIGURED,
+            "no backup recorded; skarbiec backup <directory> makes one".into(),
+        );
     };
-    let Some(path) = latest.get("extra").and_then(|extra| extra.get("backup")).and_then(Value::as_str) else {
-        return check("backup", FAIL, format!("the newest backup entry names no copy: {latest}"));
+    let Some(path) = latest
+        .get("extra")
+        .and_then(|extra| extra.get("backup"))
+        .and_then(Value::as_str)
+    else {
+        return check(
+            "backup",
+            FAIL,
+            format!("the newest backup entry names no copy: {latest}"),
+        );
     };
     match crate::core::vault::Vault::open(std::path::PathBuf::from(path)) {
         Ok(_) => check("backup", PASS, format!("the newest backup {path} reads as a vault (made {})", latest["at"])),
@@ -211,7 +236,11 @@ pub fn report_alerting(tail: Option<&str>) -> Result<Value> {
         .collect();
     answer["alert"] = match failed.is_empty() {
         true => json!({"posted": false, "reason": "no check failed"}),
-        false => match crate::runtime::alert::send(&format!("skarbiec doctor: {} check(s) failed — {}", failed.len(), failed.join("; "))) {
+        false => match crate::runtime::alert::send(&format!(
+            "skarbiec doctor: {} check(s) failed — {}",
+            failed.len(),
+            failed.join("; ")
+        )) {
             Ok(Some(_)) => json!({"posted": true}),
             Ok(None) => json!({"posted": false, "reason": "no alert is set on this host"}),
             Err(error) => json!({"posted": false, "error": format!("{error:#}")}),

@@ -24,21 +24,33 @@ pub(super) fn import(id: &str, registry: &str, link: &str, tags: Option<&String>
         .and_then(|auths| auths.get(registry))
         .and_then(|entry| entry.get("auth"))
         .and_then(Value::as_str)
-        .with_context(|| format!("Docker's {} keeps no sign-in for {registry} under {AUTHS}; nothing was changed", file.display()))?;
+        .with_context(|| {
+            format!(
+                "Docker's {} keeps no sign-in for {registry} under {AUTHS}; nothing was changed",
+                file.display()
+            )
+        })?;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .with_context(|| format!("{registry}'s sign-in in {} is not base64", file.display()))?;
-    let decoded = String::from_utf8(decoded).with_context(|| format!("{registry}'s sign-in in {} is not text", file.display()))?;
-    let (username, password) = decoded
-        .split_once(':')
-        .with_context(|| format!("{registry}'s sign-in in {} is not username:password", file.display()))?;
+    let decoded = String::from_utf8(decoded)
+        .with_context(|| format!("{registry}'s sign-in in {} is not text", file.display()))?;
+    let (username, password) = decoded.split_once(':').with_context(|| {
+        format!(
+            "{registry}'s sign-in in {} is not username:password",
+            file.display()
+        )
+    })?;
 
     let mut fields = Map::new();
     fields.insert("username".to_string(), json!(username));
     fields.insert("password".to_string(), json!(password));
     let mut context = Map::new();
     context.insert("domains".to_string(), json!([registry]));
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(format!("Docker registry {registry}")));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!(format!("Docker registry {registry}")),
+    );
     let payload = crate::core::schema::payload("login", fields, context)?;
     let mut write = HashMap::from([("type".to_string(), "login".to_string())]);
     if let Some(tags) = tags {
@@ -47,22 +59,34 @@ pub(super) fn import(id: &str, registry: &str, link: &str, tags: Option<&String>
     crate::cli::items::create_value(&write, id, &payload.to_string(), "helper import docker")?;
     let stored = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if stored["fields"]["password"] != json!(password) {
-        bail!("{id} does not read back {registry}'s password; {} was left as it was", file.display());
+        bail!(
+            "{id} does not read back {registry}'s password; {} was left as it was",
+            file.display()
+        );
     }
 
     let set = config::setup(registry, link).with_context(|| {
-        format!("{} still keeps {registry}'s sign-in under {AUTHS}, and {id} holds a copy of it", file.display())
+        format!(
+            "{} still keeps {registry}'s sign-in under {AUTHS}, and {id} holds a copy of it",
+            file.display()
+        )
     })?;
     // Read again: setup has just written credHelpers into the same file.
     let mut members = config::read_config(&file)?;
-    let removed = members.get_mut(AUTHS).and_then(Value::as_object_mut).and_then(|auths| auths.remove(registry));
+    let removed = members
+        .get_mut(AUTHS)
+        .and_then(Value::as_object_mut)
+        .and_then(|auths| auths.remove(registry));
     if removed.is_none() {
         bail!("{registry}'s sign-in left {}'s {AUTHS} while it was imported; {id} holds it and Docker asks this vault for it", file.display());
     }
     config::write_config(&file, members).with_context(|| {
         format!("Docker asks this vault for {registry} now, but its sign-in is still under {AUTHS} in {}; remove it there", file.display())
     })?;
-    crate::runtime::audit::append("docker-credential-import", &json!({"item": id, "registry": registry, "config": file}))?;
+    crate::runtime::audit::append(
+        "docker-credential-import",
+        &json!({"item": id, "registry": registry, "config": file}),
+    )?;
     Ok(json!({
         "ok": true,
         "item": id,

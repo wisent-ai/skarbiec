@@ -212,13 +212,22 @@ pub(super) fn run_once(program: &str, args: &[&str], input: Option<&str>) -> Res
         || child.wait(),
     )?;
     let written = input_writer.join().map_err(|panic| {
-        anyhow::anyhow!("{program} stdin writer panicked: {}", crate::core::panic_reason(&*panic))
+        anyhow::anyhow!(
+            "{program} stdin writer panicked: {}",
+            crate::core::panic_reason(&*panic)
+        )
     })?;
     let stdout = stdout_reader.join().map_err(|panic| {
-        anyhow::anyhow!("{program} stdout reader panicked: {}", crate::core::panic_reason(&*panic))
+        anyhow::anyhow!(
+            "{program} stdout reader panicked: {}",
+            crate::core::panic_reason(&*panic)
+        )
     })??;
     let stderr = stderr_reader.join().map_err(|panic| {
-        anyhow::anyhow!("{program} stderr reader panicked: {}", crate::core::panic_reason(&*panic))
+        anyhow::anyhow!(
+            "{program} stderr reader panicked: {}",
+            crate::core::panic_reason(&*panic)
+        )
     })??;
     // A child that failed explains itself; the broken stdin pipe is only the
     // consequence of it having stopped reading. Reporting the write error

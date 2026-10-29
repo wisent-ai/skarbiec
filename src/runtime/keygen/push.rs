@@ -38,7 +38,8 @@ fn key_file(dir: &Path, name: &str, private_key: &str) -> Result<std::path::Path
     if !text.ends_with('\n') {
         text.push('\n');
     }
-    std::io::Write::write_all(&mut file, text.as_bytes()).with_context(|| format!("write the key file {}", path.display()))?;
+    std::io::Write::write_all(&mut file, text.as_bytes())
+        .with_context(|| format!("write the key file {}", path.display()))?;
     Ok(path)
 }
 
@@ -46,7 +47,15 @@ fn key_file(dir: &Path, name: &str, private_key: &str) -> Result<std::path::Path
 fn remote(key: &Path, host: &str, script: &str, line: &str) -> Result<()> {
     let mut command = Command::new("ssh");
     command
-        .args(["-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-i"])
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "IdentitiesOnly=yes",
+            "-o",
+            "IdentityAgent=none",
+            "-i",
+        ])
         .arg(key)
         .args([host, "sh", "-s", "--"])
         .arg(format!("'{}'", line.replace('\'', r"'\''")))
@@ -54,13 +63,28 @@ fn remote(key: &Path, host: &str, script: &str, line: &str) -> Result<()> {
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     let mut child = command.spawn().context("start ssh")?;
-    std::io::Write::write_all(child.stdin.as_mut().context("ssh was started without a standard input")?, script.as_bytes())
-        .context("hand the script to ssh")?;
+    std::io::Write::write_all(
+        child
+            .stdin
+            .as_mut()
+            .context("ssh was started without a standard input")?,
+        script.as_bytes(),
+    )
+    .context("hand the script to ssh")?;
     drop(child.stdin.take());
-    let output = stado_wait::blocking(stado_wait::Kind::Process, "ssh changing authorized_keys", host, || child.wait_with_output())
-        .context("wait for ssh")?;
+    let output = stado_wait::blocking(
+        stado_wait::Kind::Process,
+        "ssh changing authorized_keys",
+        host,
+        || child.wait_with_output(),
+    )
+    .context("wait for ssh")?;
     if !output.status.success() {
-        bail!("ssh {host} ({}): {}", output.status, String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "ssh {host} ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(())
 }
@@ -84,13 +108,17 @@ pub(super) fn add_everywhere(
         if added.is_ok() {
             reached.push(host);
         }
-        let proven = added.and_then(|()| remote(&new_key, host, "true", new_public).context("the new key does not log in"));
+        let proven = added.and_then(|()| {
+            remote(&new_key, host, "true", new_public).context("the new key does not log in")
+        });
         if let Err(error) = proven {
             failure = Some(format!("{host}: {error:#}"));
             break;
         }
     }
-    let Some(failure) = failure else { return Ok(()) };
+    let Some(failure) = failure else {
+        return Ok(());
+    };
     let mut left = Vec::new();
     for host in reached {
         if let Err(error) = remote(&old_key, host, REMOVE, new_public) {
@@ -108,7 +136,12 @@ pub(super) fn add_everywhere(
 
 /// With the new key, remove the retired line from every host; a host that
 /// refuses is named, the others still lose it.
-pub(super) fn retire_everywhere(dir: &Path, hosts: &[String], new_private: &str, old_public: &str) -> Result<Vec<Value>> {
+pub(super) fn retire_everywhere(
+    dir: &Path,
+    hosts: &[String],
+    new_private: &str,
+    old_public: &str,
+) -> Result<Vec<Value>> {
     let new_key = dir.join("new");
     let new_key = if crate::core::is_present(&new_key, "the staged new key")? {
         new_key
@@ -119,7 +152,9 @@ pub(super) fn retire_everywhere(dir: &Path, hosts: &[String], new_private: &str,
         .iter()
         .map(|host| match remote(&new_key, host, REMOVE, old_public) {
             Ok(()) => json!({"host": host, "retired_removed": true}),
-            Err(error) => json!({"host": host, "retired_removed": false, "error": format!("{error:#}")}),
+            Err(error) => {
+                json!({"host": host, "retired_removed": false, "error": format!("{error:#}")})
+            }
         })
         .collect())
 }

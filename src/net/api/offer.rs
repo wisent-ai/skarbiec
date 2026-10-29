@@ -19,7 +19,10 @@ pub(crate) const OFFERED: &str = "logins";
 const KIND: &str = "login";
 
 fn text<'v>(body: &'v Value, key: &str) -> Option<&'v str> {
-    body.get(key).and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty())
+    body.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
 }
 
 /// The item id an offer arrives under: the site and the username, lower
@@ -29,19 +32,35 @@ fn offered_id(site: &str, username: &str) -> String {
     format!("{site}-{username}")
         .to_lowercase()
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
-pub(crate) fn handle_offer(stream: &mut TcpStream, headers: &HashMap<String, String>, body: &str) -> Result<()> {
+pub(crate) fn handle_offer(
+    stream: &mut TcpStream,
+    headers: &HashMap<String, String>,
+    body: &str,
+) -> Result<()> {
     let bad = "HTTP/1.1 400 Bad Request";
     let Some(parsed) = http::request_json(stream, body)? else {
         return Ok(());
     };
-    let (Some(site), Some(username), Some(password)) =
-        (text(&parsed, "site"), text(&parsed, "username"), text(&parsed, "password"))
-    else {
-        return http::write_response(stream, bad, &json!({"error": "site, username and password are required"}));
+    let (Some(site), Some(username), Some(password)) = (
+        text(&parsed, "site"),
+        text(&parsed, "username"),
+        text(&parsed, "password"),
+    ) else {
+        return http::write_response(
+            stream,
+            bad,
+            &json!({"error": "site, username and password are required"}),
+        );
     };
     if let Err(error) = crate::runtime::gitcred::checked_host(site) {
         return http::write_response(stream, bad, &json!({"error": format!("{error:#}")}));
@@ -78,9 +97,9 @@ pub(crate) fn handle_offer(stream: &mut TcpStream, headers: &HashMap<String, Str
     context.insert("domains".to_string(), json!([site.to_lowercase()]));
     let payload = schema::payload(KIND, fields, context)?;
     let owner = vault.owner_uid().to_string();
-    let fingerprint = vault
-        .recipient_fpr(&owner)
-        .with_context(|| format!("the vault's owner {owner} has no registered key to seal the offer to"))?;
+    let fingerprint = vault.recipient_fpr(&owner).with_context(|| {
+        format!("the vault's owner {owner} has no registered key to seal the offer to")
+    })?;
     let armor = crypto::encrypt_to(&[fingerprint], &serde_json::to_string(&payload)?)?;
     let donation_id = inbox::enqueue(&id, &consumer, &consumer, KIND, &armor)?;
     crate::runtime::audit::append(

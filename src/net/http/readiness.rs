@@ -189,8 +189,10 @@ pub(crate) fn maintenance_pass() -> Result<Vec<String>> {
             first_sighted.join("; ")
         )),
     };
-    let repairs: Vec<anyhow::Error> =
-        [ceiling, wedge.map(|_wedge_report| ())].into_iter().filter_map(Result::err).collect();
+    let repairs: Vec<anyhow::Error> = [ceiling, wedge.map(|_wedge_report| ())]
+        .into_iter()
+        .filter_map(Result::err)
+        .collect();
     if repairs.is_empty() {
         return readiness;
     }

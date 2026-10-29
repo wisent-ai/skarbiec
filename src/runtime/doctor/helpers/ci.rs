@@ -17,8 +17,15 @@ pub(in crate::runtime::doctor) fn ci_secrets_check() -> Value {
         Ok(kept) => kept,
         Err(error) => return check(NAME, FAIL, format!("{error:#}")),
     };
-    let Some(targets) = kept["kept"].as_array().filter(|targets| !targets.is_empty()) else {
-        return check(NAME, NOT_CONFIGURED, "this host keeps no CI or cluster secrets set".into());
+    let Some(targets) = kept["kept"]
+        .as_array()
+        .filter(|targets| !targets.is_empty())
+    else {
+        return check(
+            NAME,
+            NOT_CONFIGURED,
+            "this host keeps no CI or cluster secrets set".into(),
+        );
     };
     let mut problems = Vec::new();
     for target in targets {
@@ -27,7 +34,12 @@ pub(in crate::runtime::doctor) fn ci_secrets_check() -> Value {
             problems.push(format!("{named}: {error}"));
             continue;
         }
-        let changed: Vec<&str> = target["changed_since"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+        let changed: Vec<&str> = target["changed_since"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect();
         if !changed.is_empty() {
             problems.push(format!(
                 "{named} is behind {}; skarbiec maintain sets it again, and its failure names why it did not",
@@ -39,15 +51,28 @@ pub(in crate::runtime::doctor) fn ci_secrets_check() -> Value {
             match crate::runtime::bindings::rows(file) {
                 Err(error) => problems.push(format!("{named}: {error:#}")),
                 Ok(rows) => {
-                    for row in rows.iter().filter(|row| row["ok"] == serde_json::json!(false)) {
-                        problems.push(format!("{named}: {} from {file} gets nothing — {}", row["variable"], row["problem"]));
+                    for row in rows
+                        .iter()
+                        .filter(|row| row["ok"] == serde_json::json!(false))
+                    {
+                        problems.push(format!(
+                            "{named}: {} from {file} gets nothing — {}",
+                            row["variable"], row["problem"]
+                        ));
                     }
                 }
             }
         }
     }
     if problems.is_empty() {
-        return check(NAME, PASS, format!("{} kept targets hold every item's current value", targets.len()));
+        return check(
+            NAME,
+            PASS,
+            format!(
+                "{} kept targets hold every item's current value",
+                targets.len()
+            ),
+        );
     }
     check(NAME, FAIL, problems.join("; "))
 }

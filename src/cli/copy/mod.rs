@@ -20,10 +20,18 @@ pub(crate) fn copy_value(flags: &HashMap<String, String>, positionals: &[String]
         return Err(Usage(USAGE.to_string()).into());
     };
     if from == to {
-        return Err(Usage(format!("{from} and the copy have the same id; name a new one")).into());
+        return Err(Usage(format!(
+            "{from} and the copy have the same id; name a new one"
+        ))
+        .into());
     }
     let vault = Vault::open(vault_path())?;
-    if vault.doc().get("items").and_then(|items| items.get(to.as_str())).is_some() {
+    if vault
+        .doc()
+        .get("items")
+        .and_then(|items| items.get(to.as_str()))
+        .is_some()
+    {
         bail!("{to} already exists, live or trashed; copy creates an item and never replaces one");
     }
     let mut payload = vault.get_item(from)?;
@@ -40,7 +48,9 @@ pub(crate) fn copy_value(flags: &HashMap<String, String>, positionals: &[String]
         let fields = payload
             .get_mut("fields")
             .and_then(Value::as_object_mut)
-            .with_context(|| format!("{from} holds no fields object, so --without has nothing to leave out"))?;
+            .with_context(|| {
+                format!("{from} holds no fields object, so --without has nothing to leave out")
+            })?;
         for field in &left_out {
             if fields.remove(field).is_none() {
                 return Err(Usage(format!("{from} has no field {field} to leave out")).into());
@@ -65,7 +75,10 @@ pub(crate) fn copy_value(flags: &HashMap<String, String>, positionals: &[String]
         write.insert("type".to_string(), kind.to_string());
     }
     let written = super::items::create_value(&write, to, &payload.to_string(), "copy")?;
-    crate::runtime::audit::append("item-copied", &json!({"from": from, "to": to, "without": left_out}))?;
+    crate::runtime::audit::append(
+        "item-copied",
+        &json!({"from": from, "to": to, "without": left_out}),
+    )?;
     // A copied login is offered by autofill at once, as a new login is.
     let autofill = match entry.get("kind").and_then(Value::as_str) {
         Some("login") => match crate::browser::cover_login(to) {

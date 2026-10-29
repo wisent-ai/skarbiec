@@ -30,7 +30,9 @@ pub fn dispatch(
     let Some(positionals) = crate::cli::args::verb(command, positionals, "breach", "check") else {
         return Ok(None);
     };
-    let id = positionals.first().or_usage(&format!("usage: breach check <item-id> [--field {DECLARED_FIELD}]"))?;
+    let id = positionals.first().or_usage(&format!(
+        "usage: breach check <item-id> [--field {DECLARED_FIELD}]"
+    ))?;
     let field = match flags.get("field") {
         Some(field) => field.as_str(),
         None => DECLARED_FIELD,
@@ -53,7 +55,9 @@ pub fn dispatch(
         Lookup::Answered(seen) => seen,
     };
     crate::runtime::audit::append("breach-check", &json!({"item": id, "field": field}))?;
-    Ok(Some(json!({"item": id, "field": field, "checked": true, "pwned": verdict.is_some(), "seen_count": verdict})))
+    Ok(Some(
+        json!({"item": id, "field": field, "checked": true, "pwned": verdict.is_some(), "seen_count": verdict}),
+    ))
 }
 
 /// What the range API said about one candidate: how often it was seen (none

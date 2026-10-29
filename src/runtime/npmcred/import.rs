@@ -44,9 +44,16 @@ pub(crate) fn bound(file: &Path, pairs: &[(&str, &str)]) -> Result<Option<String
     for (name, binding) in pairs {
         let line = format!("{name}={binding}");
         let start = format!("{name}=");
-        match text.lines().find(|kept| kept.trim_start().starts_with(&start)) {
+        match text
+            .lines()
+            .find(|kept| kept.trim_start().starts_with(&start))
+        {
             Some(kept) if kept.trim() == line => {}
-            Some(kept) => bail!("{} already binds {name} as {}; give another --bindings file or remove that line", file.display(), kept.trim()),
+            Some(kept) => bail!(
+                "{} already binds {name} as {}; give another --bindings file or remove that line",
+                file.display(),
+                kept.trim()
+            ),
             None => {
                 if !text.is_empty() && !text.ends_with('\n') {
                     text.push('\n');
@@ -68,10 +75,16 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     }
     let (npmrc, found) = super::signins()?;
     let Some(signin) = found.into_iter().find(|signin| signin.registry == registry) else {
-        bail!("{} keeps no _authToken for {registry}; nothing was changed", npmrc.display());
+        bail!(
+            "{} keeps no _authToken for {registry}; nothing was changed",
+            npmrc.display()
+        );
     };
     if let Some(name) = signin.reference() {
-        bail!("{} already reads {registry}'s token from ${{{name}}}; nothing was changed", npmrc.display());
+        bail!(
+            "{} already reads {registry}'s token from ${{{name}}}; nothing was changed",
+            npmrc.display()
+        );
     }
     let name = variable(registry);
     let binding = format!("{id}:{FIELD}");
@@ -80,7 +93,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let mut fields = Map::new();
     fields.insert(FIELD.to_string(), json!(signin.token));
     let mut context = Map::new();
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(format!("npm token for {registry}")));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!(format!("npm token for {registry}")),
+    );
     let payload = crate::core::schema::payload(KIND, fields, context)?;
     let mut write = HashMap::from([("type".to_string(), KIND.to_string())]);
     if let Some(tags) = tags {
@@ -89,7 +105,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     crate::cli::items::create_value(&write, id, &payload.to_string(), "tool import")?;
     let read_back = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if read_back["fields"][FIELD] != json!(signin.token) {
-        bail!("{id} does not read back {registry}'s token; {} was left as it was", npmrc.display());
+        bail!(
+            "{id} does not read back {registry}'s token; {} was left as it was",
+            npmrc.display()
+        );
     }
 
     if let Some(out) = updated {
@@ -98,9 +117,19 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
         })?;
     }
     crate::runtime::bindings::remember(bindings)?;
-    let text = std::fs::read_to_string(&npmrc).with_context(|| format!("read {} again", npmrc.display()))?;
+    let text = std::fs::read_to_string(&npmrc)
+        .with_context(|| format!("read {} again", npmrc.display()))?;
     let replaced = format!("{registry}:_authToken=${{{name}}}");
-    let mut out: Vec<&str> = text.lines().map(|line| if line == signin.line { replaced.as_str() } else { line }).collect();
+    let mut out: Vec<&str> = text
+        .lines()
+        .map(|line| {
+            if line == signin.line {
+                replaced.as_str()
+            } else {
+                line
+            }
+        })
+        .collect();
     if text.ends_with('\n') {
         out.push("");
     }

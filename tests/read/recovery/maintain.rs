@@ -68,11 +68,14 @@ impl Journey {
             );
             said
         };
-        let at_agent = |said: &str| said.contains("deferred to the next pass") && said.contains("stopped at status ENC_TO");
+        let at_agent = |said: &str| {
+            said.contains("deferred to the next pass") && said.contains("stopped at status ENC_TO")
+        };
         let first = deferring("maintain-first-sighting");
         if !at_agent(&first) {
             assert!(
-                first.contains("deferred to the next pass") && first.contains("has written no status"),
+                first.contains("deferred to the next pass")
+                    && first.contains("has written no status"),
                 "the first pass deferred on neither waiting point: {first}"
             );
             let second = deferring("maintain-second-sighting");

@@ -42,7 +42,12 @@ fn registry() -> Result<Map<String, Value>> {
 /// them as `--set` would, naming the site they were found under.
 pub(super) fn lookup(id: &str) -> Result<Value> {
     let payload = Vault::open(vault_path())?.get_item(id)?;
-    let sites = payload.get("context").map(item_domains).into_iter().flatten().collect::<Vec<_>>();
+    let sites = payload
+        .get("context")
+        .map(item_domains)
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     if sites.is_empty() {
         bail!("{id} names no site, so no site's rules can be looked up; `skarbiec sites {id} --add <domain>` names one");
     }
@@ -59,7 +64,9 @@ pub(super) fn lookup(id: &str) -> Result<Value> {
     let rules = entry
         .get("password-rules")
         .and_then(Value::as_str)
-        .with_context(|| format!("the entry for {listed} at {RULES_URL} holds no password-rules text"))?;
+        .with_context(|| {
+            format!("the entry for {listed} at {RULES_URL} holds no password-rules text")
+        })?;
     let mut answer = super::set(id, rules)?;
     answer["found_for"] = json!(listed);
     answer["password_rules"] = json!(rules.trim());

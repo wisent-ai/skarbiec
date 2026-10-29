@@ -41,12 +41,23 @@ struct Key {
 
 impl Key {
     fn read(text: &str, whose: &str) -> Result<Key> {
-        let parsed: Value = serde_json::from_str(text).with_context(|| format!("{whose} is not a JSON key file"))?;
+        let parsed: Value = serde_json::from_str(text)
+            .with_context(|| format!("{whose} is not a JSON key file"))?;
         if parsed["type"] != json!(KEY_TYPE) {
             bail!("{whose} is a {} credential, not a {KEY_TYPE} key file; rotate --with gcp replaces a service account's key", parsed["type"]);
         }
-        let field = |name: &str| parsed[name].as_str().map(str::to_string).with_context(|| format!("{whose} names no {name}"));
-        Ok(Key { file: text.to_string(), id: field("private_key_id")?, account: field("client_email")?, project: field("project_id")? })
+        let field = |name: &str| {
+            parsed[name]
+                .as_str()
+                .map(str::to_string)
+                .with_context(|| format!("{whose} names no {name}"))
+        };
+        Ok(Key {
+            file: text.to_string(),
+            id: field("private_key_id")?,
+            account: field("client_email")?,
+            project: field("project_id")?,
+        })
     }
 }
 
@@ -67,8 +78,10 @@ fn keys(work: &Path, key: &Key, args: &[&str]) -> Result<String> {
         .env("CLOUDSDK_CONFIG", work.join("gcloud"))
         .env("CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE", &signed_in)
         .env_remove("GOOGLE_APPLICATION_CREDENTIALS");
-    let output = stado_wait::output(&mut command).with_context(|| format!("run gcloud iam service-accounts keys {}", args.join(" ")));
-    let removed = std::fs::remove_file(&signed_in).with_context(|| format!("remove the key file {}", signed_in.display()));
+    let output = stado_wait::output(&mut command)
+        .with_context(|| format!("run gcloud iam service-accounts keys {}", args.join(" ")));
+    let removed = std::fs::remove_file(&signed_in)
+        .with_context(|| format!("remove the key file {}", signed_in.display()));
     let output = output?;
     removed?;
     if !output.status.success() {
@@ -88,9 +101,14 @@ fn held(id: &str) -> Result<Key> {
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     let payload = vault.get_item(id)?;
     if payload["kind"] != json!(KIND) {
-        bail!("{id} is a {} item; rotate --with gcp replaces a {KIND} item's {FIELD}", payload["kind"]);
+        bail!(
+            "{id} is a {} item; rotate --with gcp replaces a {KIND} item's {FIELD}",
+            payload["kind"]
+        );
     }
-    let text = payload["fields"][FIELD].as_str().with_context(|| format!("{id} holds no {FIELD}"))?;
+    let text = payload["fields"][FIELD]
+        .as_str()
+        .with_context(|| format!("{id} holds no {FIELD}"))?;
     Key::read(text, &format!("{id}'s {FIELD}"))
 }
 
@@ -104,7 +122,8 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
     let made_file = work.0.join("new.json");
     let made_path = made_file.to_string_lossy().into_owned();
     keys(&work.0, &old, &["create", made_path.as_str()])?;
-    let made = std::fs::read_to_string(&made_file).with_context(|| format!("read the key gcloud wrote to {}", made_file.display()))?;
+    let made = std::fs::read_to_string(&made_file)
+        .with_context(|| format!("read the key gcloud wrote to {}", made_file.display()))?;
     std::fs::remove_file(&made_file).with_context(|| format!("remove {}", made_file.display()))?;
     let new = Key::read(&made, "the key gcloud made")?;
     let revision = match store(id, &new) {
@@ -122,7 +141,10 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
         }
     };
     if let Err(error) = keys(&work.0, &new, &["disable", old.id.as_str()]) {
-        crate::runtime::audit::append("gcp-rotate-failed", &json!({"item": id, "account": new.account, "key": new.id, "revision": revision}))?;
+        crate::runtime::audit::append(
+            "gcp-rotate-failed",
+            &json!({"item": id, "account": new.account, "key": new.id, "revision": revision}),
+        )?;
         let undone = keys(&work.0, &old, &["delete", new.id.as_str()]);
         let restored = store(id, &old);
         match (undone, restored) {

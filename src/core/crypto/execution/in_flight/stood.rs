@@ -33,7 +33,11 @@ pub(super) struct Stood {
 
 impl Stood {
     pub(super) fn of(run: &PublishedRun) -> Self {
-        Self { pid: run.pid, started: run.started.clone(), last_status: run.last_status.clone() }
+        Self {
+            pid: run.pid,
+            started: run.started.clone(),
+            last_status: run.last_status.clone(),
+        }
     }
 
     pub(super) fn is(&self, run: &PublishedRun) -> bool {

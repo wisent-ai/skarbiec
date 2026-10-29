@@ -39,9 +39,7 @@ pub fn dispatch(
             let id = operands
                 .first()
                 .or_usage("usage: credential set <id> [--type <canonical-kind>]")?;
-            let encoded = flags
-                .get("__payload__")
-                .context("set payload required")?;
+            let encoded = flags.get("__payload__").context("set payload required")?;
             Ok(Some(crate::cli::items::set_json_value(flags, id, encoded)?))
         }
         _ => Ok(None),

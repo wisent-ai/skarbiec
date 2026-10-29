@@ -103,8 +103,12 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
     let shares = match &kept {
         Ok(false) => Ok(serde_json::json!({"skipped": "this host keeps no vault"})),
         Ok(true) => match crate::core::vault::Vault::open(path) {
-            Ok(vault) if crate::cli::items::ensure_not_replica(&vault, "shares expire").is_err() => {
-                Ok(serde_json::json!({"skipped": "this vault is a replica; its source ends its shares"}))
+            Ok(vault)
+                if crate::cli::items::ensure_not_replica(&vault, "shares expire").is_err() =>
+            {
+                Ok(
+                    serde_json::json!({"skipped": "this vault is a replica; its source ends its shares"}),
+                )
             }
             Ok(_) => crate::access::recipients::expire_timed_shares(),
             Err(error) => Err(error),
@@ -123,9 +127,17 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
         Ok(true) => crate::runtime::cisecrets::kept_pass(),
         _ => Ok(None),
     };
-    let shares_failed = shares.as_ref().is_ok_and(|report| report["ok"] == serde_json::json!(false));
-    let autofill_failed = autofill.as_ref().is_ok_and(|report| report["ok"] == serde_json::json!(false));
-    let ci_failed = ci.as_ref().is_ok_and(|report| report.as_ref().is_some_and(|report| report["ok"] == serde_json::json!(false)));
+    let shares_failed = shares
+        .as_ref()
+        .is_ok_and(|report| report["ok"] == serde_json::json!(false));
+    let autofill_failed = autofill
+        .as_ref()
+        .is_ok_and(|report| report["ok"] == serde_json::json!(false));
+    let ci_failed = ci.as_ref().is_ok_and(|report| {
+        report
+            .as_ref()
+            .is_some_and(|report| report["ok"] == serde_json::json!(false))
+    });
     match (pass, mirror, shares, autofill, backup, ci) {
         (Ok(Some(mut report)), Ok(mirror), Ok(shares), Ok(autofill), Ok(backup), Ok(ci))
             if !shares_failed && !autofill_failed && !ci_failed =>
@@ -148,26 +160,33 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
             }
             match shares {
                 Err(error) => reasons.push(format!("skarbiec maintain: shares expire: {error:#}")),
-                Ok(report) if shares_failed => {
-                    reasons.push(format!("skarbiec maintain: shares expire left shares in force: {}", report["failed"]))
-                }
+                Ok(report) if shares_failed => reasons.push(format!(
+                    "skarbiec maintain: shares expire left shares in force: {}",
+                    report["failed"]
+                )),
                 Ok(_) => {}
             }
             match autofill {
-                Err(error) => reasons.push(format!("skarbiec maintain: browser autofill cover: {error:#}")),
-                Ok(report) if autofill_failed => {
-                    reasons.push(format!("skarbiec maintain: browser autofill could not cover: {}", report["logins"]))
-                }
+                Err(error) => reasons.push(format!(
+                    "skarbiec maintain: browser autofill cover: {error:#}"
+                )),
+                Ok(report) if autofill_failed => reasons.push(format!(
+                    "skarbiec maintain: browser autofill could not cover: {}",
+                    report["logins"]
+                )),
                 Ok(_) => {}
             }
             if let Err(error) = backup {
                 reasons.push(format!("skarbiec maintain: scheduled backup: {error:#}"));
             }
             match ci {
-                Err(error) => reasons.push(format!("skarbiec maintain: kept CI secrets: {error:#}")),
-                Ok(Some(report)) if ci_failed => {
-                    reasons.push(format!("skarbiec maintain: kept CI secrets were not set again: {}", report["failed"]))
+                Err(error) => {
+                    reasons.push(format!("skarbiec maintain: kept CI secrets: {error:#}"))
                 }
+                Ok(Some(report)) if ci_failed => reasons.push(format!(
+                    "skarbiec maintain: kept CI secrets were not set again: {}",
+                    report["failed"]
+                )),
                 Ok(_) => {}
             }
             // A scheduled pass that fails is seen by nobody reading its log;
@@ -176,7 +195,9 @@ fn maintain(flags: &HashMap<String, String>, positionals: &[String]) -> Result<V
             match crate::runtime::alert::send(&format!("skarbiec maintain failed: {failed}")) {
                 Ok(Some(_)) => anyhow::bail!("{failed} (the alert was posted)"),
                 Ok(None) => anyhow::bail!("{failed}"),
-                Err(error) => anyhow::bail!("{failed}; the alert could not be posted either: {error:#}"),
+                Err(error) => {
+                    anyhow::bail!("{failed}; the alert could not be posted either: {error:#}")
+                }
             }
         }
     }

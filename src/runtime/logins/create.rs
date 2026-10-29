@@ -30,7 +30,12 @@ pub fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Va
     };
     {
         let vault = Vault::open(vault_path())?;
-        if vault.doc().get("items").and_then(|items| items.get(id.as_str())).is_some() {
+        if vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id.as_str()))
+            .is_some()
+        {
             bail!("{id} already exists; login new creates an item and never replaces one (generate --into {id} --field password replaces its password)");
         }
     }
@@ -61,7 +66,10 @@ pub fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Va
     // The site's rules the password was made by stay with the login, so the
     // next rotation follows them too (`generate --rules-of <id>`).
     if let Some(rules) = flags.get("rules") {
-        context.insert(crate::core::items::PASSWORD_RULES.to_string(), json!(rules.trim()));
+        context.insert(
+            crate::core::items::PASSWORD_RULES.to_string(),
+            json!(rules.trim()),
+        );
     }
     let payload = schema::payload("login", fields, context)?;
     let mut write = HashMap::new();
@@ -70,7 +78,10 @@ pub fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Va
     }
     crate::cli::items::create_value(&write, id, &payload.to_string(), "login new")?;
     let revision = Vault::open(vault_path())?.item_revision(id)?;
-    crate::runtime::audit::append("login-created", &json!({"item": id, "sites": domains, "revision": revision}))?;
+    crate::runtime::audit::append(
+        "login-created",
+        &json!({"item": id, "sites": domains, "revision": revision}),
+    )?;
     // Autofill connected here offers the new login at once: its grant is
     // widened to it, bearer kept. Where that fails the login still exists,
     // and the answer says why autofill does not offer it yet.

@@ -38,7 +38,8 @@ impl Journey {
             .spawn()
             .expect("the lock holder starts");
         let mut kill = Command::new("gpgconf");
-        kill.args(["--kill", "keyboxd"]).env("GNUPGHOME", &self.keyring);
+        kill.args(["--kill", "keyboxd"])
+            .env("GNUPGHOME", &self.keyring);
         self.run("held-lock-kill-keyboxd", &mut kill);
         // The lock gpg takes is keyboxd's database lock when the keyring
         // uses keyboxd, and the legacy keybox lock otherwise.
@@ -59,8 +60,12 @@ impl Journey {
         let mut before = String::new();
         loop {
             let mut line = String::new();
-            said.read_line(&mut line).expect("the read's stderr can be read");
-            assert!(!line.is_empty(), "the read ended without starting gpg: {before}");
+            said.read_line(&mut line)
+                .expect("the read's stderr can be read");
+            assert!(
+                !line.is_empty(),
+                "the read ended without starting gpg: {before}"
+            );
             before.push_str(&line);
             if line.starts_with("czekam: gpg") {
                 break;
@@ -71,8 +76,12 @@ impl Journey {
         // the daemons. Otherwise the first pass sees the run before any status
         // and defers, and the second finds it still there and replaces them.
         let mut pass = self.command(&["maintain"]);
-        let first = String::from_utf8_lossy(&self.observe("held-lock-maintain-first", &mut pass).stderr).into_owned();
-        if !(first.contains("replaced the GnuPG daemons") && first.contains("does not serve the keyboxd socket")) {
+        let first =
+            String::from_utf8_lossy(&self.observe("held-lock-maintain-first", &mut pass).stderr)
+                .into_owned();
+        if !(first.contains("replaced the GnuPG daemons")
+            && first.contains("does not serve the keyboxd socket"))
+        {
             assert!(
                 !first.contains("replaced the GnuPG daemons")
                     && first.contains("deferred to the next pass")
@@ -80,7 +89,10 @@ impl Journey {
                 "the first pass neither deferred on the run before any status nor named the orphaned lock: {first}"
             );
             let mut again = self.command(&["maintain"]);
-            let second = String::from_utf8_lossy(&self.observe("held-lock-maintain-second", &mut again).stderr).into_owned();
+            let second = String::from_utf8_lossy(
+                &self.observe("held-lock-maintain-second", &mut again).stderr,
+            )
+            .into_owned();
             assert!(
                 second.contains("replaced the GnuPG daemons") && second.contains("has written no status and was still there"),
                 "the second pass did not replace the daemons behind the run that stood; first: {first}; second: {second}"
@@ -88,11 +100,15 @@ impl Journey {
         }
 
         let mut rest = String::new();
-        said.read_to_string(&mut rest).expect("the rest of the read's stderr");
-        let ended = waiting.wait_with_output().expect("the read behind the lock ends");
+        said.read_to_string(&mut rest)
+            .expect("the rest of the read's stderr");
+        let ended = waiting
+            .wait_with_output()
+            .expect("the read behind the lock ends");
         let refused = format!("{before}{rest}");
         fs::write(self.root.join("held-lock-read.stderr"), &refused).unwrap();
-        self.commands.push(serde_json::json!({"label": "held-lock-read",
+        self.commands
+            .push(serde_json::json!({"label": "held-lock-read",
             "exit": ended.status.code(), "status": ended.status.to_string()}));
         self.save();
         assert!(

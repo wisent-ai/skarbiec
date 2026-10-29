@@ -20,8 +20,8 @@ mod kept;
 mod kubernetes;
 mod rename;
 
-pub use kept::pass as kept_pass;
 pub(crate) use kept::list as kept_list;
+pub use kept::pass as kept_pass;
 pub(crate) use rename::follow_rename;
 
 const USAGE: &str = "usage: ci set|keep github <owner/repo> --env-from <file> [--environment <name>] [--yes] | ci set|keep kubernetes <namespace>/<name> --env-from <file> [--context <name>] [--yes] | ci kept | ci forget <target> <place>";
@@ -51,20 +51,28 @@ fn push(target: &str, place: &str, flags: &HashMap<String, String>) -> Result<Va
     match target {
         "github" => github(place, flags, &bindings),
         "kubernetes" => kubernetes::run(place, flags, &bindings),
-        other => Err(Usage(format!("ci sets GitHub Actions or Kubernetes secrets; {other} is neither. {USAGE}")).into()),
+        other => Err(Usage(format!(
+            "ci sets GitHub Actions or Kubernetes secrets; {other} is neither. {USAGE}"
+        ))
+        .into()),
     }
 }
 
 /// A name GitHub or Kubernetes takes as one path component.
 fn named(text: &str) -> bool {
-    !text.is_empty() && text.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
 }
 
 /// Each secret with the item field it comes from, never the value.
 fn listed(bindings: &[Binding]) -> Vec<Value> {
     bindings
         .iter()
-        .map(|binding| json!({"secret": binding.name, "item": binding.item, "field": binding.field}))
+        .map(
+            |binding| json!({"secret": binding.name, "item": binding.item, "field": binding.field}),
+        )
         .collect()
 }
 
@@ -77,7 +85,12 @@ fn values(bindings: &[Binding]) -> Result<Vec<(&Binding, String)>> {
         let payload = vault.get_item(&binding.item)?;
         let fields = crate::core::schema::fields(&payload)?;
         let Some(value) = fields.get(&binding.field).and_then(Value::as_str) else {
-            bail!("{} has no text field {} for {}; no secret was set", binding.item, binding.field, binding.name);
+            bail!(
+                "{} has no text field {} for {}; no secret was set",
+                binding.item,
+                binding.field,
+                binding.name
+            );
         };
         values.push((binding, value.to_string()));
     }
@@ -98,22 +111,37 @@ fn piped(mut command: Command, input: &[u8], program: &str, target: &str) -> Res
         .with_context(|| format!("{program} was started without a standard input"))?
         .write_all(input)
         .with_context(|| format!("hand the secret to {program}"))?;
-    stado_wait::blocking(stado_wait::Kind::Process, "a CLI setting secrets", target, || child.wait_with_output())
-        .with_context(|| format!("wait for {program}"))
+    stado_wait::blocking(
+        stado_wait::Kind::Process,
+        "a CLI setting secrets",
+        target,
+        || child.wait_with_output(),
+    )
+    .with_context(|| format!("wait for {program}"))
 }
 
 fn github(repo: &str, flags: &HashMap<String, String>, bindings: &[Binding]) -> Result<Value> {
-    let well_formed = repo.split_once('/').is_some_and(|(owner, name)| named(owner) && named(name));
+    let well_formed = repo
+        .split_once('/')
+        .is_some_and(|(owner, name)| named(owner) && named(name));
     if !well_formed {
-        return Err(Usage(format!("{repo} is not owner/repo as GitHub names a repository; {USAGE}")).into());
+        return Err(Usage(format!(
+            "{repo} is not owner/repo as GitHub names a repository; {USAGE}"
+        ))
+        .into());
     }
     let environment = flags.get("environment");
     if let Some(environment) = environment.filter(|environment| environment.is_empty()) {
-        return Err(Usage(format!("--environment {environment} names no environment; {USAGE}")).into());
+        return Err(Usage(format!(
+            "--environment {environment} names no environment; {USAGE}"
+        ))
+        .into());
     }
     let listed = listed(bindings);
     if !flag_set(flags, "yes") {
-        return Ok(json!({"ok": true, "applied": false, "repo": repo, "environment": environment, "secrets": listed}));
+        return Ok(
+            json!({"ok": true, "applied": false, "repo": repo, "environment": environment, "secrets": listed}),
+        );
     }
     let mut set = Vec::new();
     let mut refused = Vec::new();

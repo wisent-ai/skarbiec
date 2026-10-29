@@ -36,33 +36,37 @@ pub(crate) fn handle_acquisitions_issue(
     let consumer = match http::presented_consumer(headers) {
         Ok(consumer) => consumer,
         Err(reason) => {
-            return http::write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
+            return http::write_response(
+                stream,
+                "HTTP/1.1 401 Unauthorized",
+                &json!({"error": reason}),
+            )
         }
     };
     let issued = match crate::access::acquisition::issue(
-            &consumer,
-            item,
-            field,
-            workload_id,
-            timestamp,
-            nonce,
-            signature,
-        ) {
-            Ok(value) => value,
-            Err(error)
-                if error
-                    .downcast_ref::<crate::access::acquisition::AcquisitionFieldMissing>()
-                    .is_some() =>
-            {
-                eprintln!("acquisition field absent for {consumer} on {item}#{field}: {error:#}");
-                let e = &json!({"error": "acquisition field does not exist on item"});
-                return http::write_response(stream, "HTTP/1.1 404 Not Found", e);
-            }
-            Err(error) => {
-                eprintln!("acquisition issue failed for {consumer} on {item}#{field}: {error:#}");
-                let e = &json!({"error": Code::InfraDown.as_str()});
-                return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
-            }
+        &consumer,
+        item,
+        field,
+        workload_id,
+        timestamp,
+        nonce,
+        signature,
+    ) {
+        Ok(value) => value,
+        Err(error)
+            if error
+                .downcast_ref::<crate::access::acquisition::AcquisitionFieldMissing>()
+                .is_some() =>
+        {
+            eprintln!("acquisition field absent for {consumer} on {item}#{field}: {error:#}");
+            let e = &json!({"error": "acquisition field does not exist on item"});
+            return http::write_response(stream, "HTTP/1.1 404 Not Found", e);
+        }
+        Err(error) => {
+            eprintln!("acquisition issue failed for {consumer} on {item}#{field}: {error:#}");
+            let e = &json!({"error": Code::InfraDown.as_str()});
+            return http::write_response(stream, "HTTP/1.1 503 Service Unavailable", e);
+        }
     };
     let Some(issued) = issued else {
         let e = &json!({"error": "unauthorized"});
@@ -117,36 +121,36 @@ pub(crate) fn authorized_items(
     // (`read:role:<role>#<field>`): the item carrying `stado:role:<role>` is
     // listed for that consumer too, so a reader granted roles sees the items
     // it may read without naming any of them.
-    Ok(Ok(
-        vault
-            .list(false)
-            .into_iter()
-            .filter(|item| {
-                let allows = |coordinate: &str| {
-                    grant::token_allows_any_item_hash(&vault, &consumer, &hash, "read", coordinate)
-                };
-                let by_id = item.get("id").and_then(Value::as_str).is_some_and(allows);
-                by_id
-                    || item
-                        .get("tags")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(Value::as_str)
-                        .filter_map(|tag| tag.strip_prefix("stado:role:"))
-                        .any(|role| allows(&format!("role:{role}")))
-            })
-            .collect(),
-    ))
+    Ok(Ok(vault
+        .list(false)
+        .into_iter()
+        .filter(|item| {
+            let allows = |coordinate: &str| {
+                grant::token_allows_any_item_hash(&vault, &consumer, &hash, "read", coordinate)
+            };
+            let by_id = item.get("id").and_then(Value::as_str).is_some_and(allows);
+            by_id
+                || item
+                    .get("tags")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(Value::as_str)
+                    .filter_map(|tag| tag.strip_prefix("stado:role:"))
+                    .any(|role| allows(&format!("role:{role}")))
+        })
+        .collect()))
 }
 
 /// The refusal every item-index route answers with, so an operator who loses
 /// access to one of them reads the same reason from all of them.
 pub(crate) fn refuse_items(stream: &mut TcpStream, refusal: ItemsRefusal) -> Result<()> {
     match refusal {
-        ItemsRefusal::Unidentified(reason) => {
-            http::write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
-        }
+        ItemsRefusal::Unidentified(reason) => http::write_response(
+            stream,
+            "HTTP/1.1 401 Unauthorized",
+            &json!({"error": reason}),
+        ),
         ItemsRefusal::NoGrant => http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

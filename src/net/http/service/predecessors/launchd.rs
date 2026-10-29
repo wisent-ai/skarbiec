@@ -178,7 +178,9 @@ fn listening_ports(pid: u32) -> Result<BTreeSet<u16>> {
             continue;
         }
         ports.insert(port.parse::<u16>().map_err(|error| {
-            anyhow::anyhow!("lsof for pid {pid} listed {address:?} with an unreadable port: {error}")
+            anyhow::anyhow!(
+                "lsof for pid {pid} listed {address:?} with an unreadable port: {error}"
+            )
         })?);
     }
     Ok(ports)

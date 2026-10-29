@@ -26,10 +26,19 @@ pub(super) const WITH: &str = crate::runtime::rotate::WITH;
 /// The command's own flags a submission keeps, without the command itself;
 /// null for a managed policy's submission.
 pub(super) fn passed(submission: Option<&Value>) -> Value {
-    let Some(flags) = submission.and_then(Value::as_object).filter(|flags| flags.contains_key(WITH)) else {
+    let Some(flags) = submission
+        .and_then(Value::as_object)
+        .filter(|flags| flags.contains_key(WITH))
+    else {
         return Value::Null;
     };
-    Value::Object(flags.iter().filter(|(key, _)| key.as_str() != WITH).map(|(key, value)| (key.clone(), value.clone())).collect())
+    Value::Object(
+        flags
+            .iter()
+            .filter(|(key, _)| key.as_str() != WITH)
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
 }
 
 pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Value> {
@@ -46,7 +55,10 @@ pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Va
             continue;
         }
         if !taken.iter().any(|flag| flag == key) {
-            bail!("--with {} takes no --{key}, so a policy rotating with it cannot keep one. {USAGE}", provider.name);
+            bail!(
+                "--with {} takes no --{key}, so a policy rotating with it cannot keep one. {USAGE}",
+                provider.name
+            );
         }
         submission.insert(key.clone(), json!(value));
     }
@@ -62,13 +74,18 @@ pub(super) fn set(flags: &HashMap<String, String>, args: &[String]) -> Result<Va
     let entry = section(&mut vault)?
         .entry(item.clone())
         .or_insert_with(|| json!({"created_at": stamp, "anchor_epoch": now}));
-    let record = entry.as_object_mut().context("rotation policy is not an object")?;
+    let record = entry
+        .as_object_mut()
+        .context("rotation policy is not an object")?;
     record.insert("every_seconds".to_string(), json!(every_seconds));
     record.insert(SUBMISSION.to_string(), Value::Object(submission));
     record.insert("updated_at".to_string(), json!(stamp));
     let report = view(item, entry, now)?;
     vault.save()?;
-    audit::append("rotation-set", &json!({"item": item, "every_days": every_days, "with": provider.name}))?;
+    audit::append(
+        "rotation-set",
+        &json!({"item": item, "every_days": every_days, "with": provider.name}),
+    )?;
     Ok(json!({"ok": true, "policy": report}))
 }
 

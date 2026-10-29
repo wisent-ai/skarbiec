@@ -38,11 +38,19 @@ fn resolve(path: &str) -> Result<std::path::PathBuf> {
 /// An id that exists is refused; a file is never written over an item.
 fn attach(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let [id, file, ..] = positionals else {
-        return Err(crate::cli::args::Usage("usage: attach <id> <file> [--tags <tag,...>]".to_string()).into());
+        return Err(crate::cli::args::Usage(
+            "usage: attach <id> <file> [--tags <tag,...>]".to_string(),
+        )
+        .into());
     };
     {
         let vault = Vault::open(vault_path())?;
-        if vault.doc().get("items").and_then(|items| items.get(id.as_str())).is_some() {
+        if vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id.as_str()))
+            .is_some()
+        {
             bail!("{id} already exists; attach creates an item and never replaces one");
         }
     }
@@ -55,7 +63,10 @@ fn attach(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Val
         .to_string();
     let fields = Map::from_iter([
         (FILE_NAME.to_string(), json!(file_name)),
-        (CONTENT.to_string(), json!(base64::engine::general_purpose::STANDARD.encode(&bytes))),
+        (
+            CONTENT.to_string(),
+            json!(base64::engine::general_purpose::STANDARD.encode(&bytes)),
+        ),
     ]);
     let payload = schema::payload("bundle", fields, Map::new())?;
     let mut write = HashMap::new();
@@ -63,7 +74,10 @@ fn attach(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Val
         write.insert("tags".to_string(), tags.clone());
     }
     crate::cli::items::create_value(&write, id, &payload.to_string(), "attach")?;
-    crate::runtime::audit::append("file-attached", &json!({"item": id, "file_name": file_name, "bytes": bytes.len()}))?;
+    crate::runtime::audit::append(
+        "file-attached",
+        &json!({"item": id, "file_name": file_name, "bytes": bytes.len()}),
+    )?;
     Ok(json!({"ok": true, "item": id, "file_name": file_name, "bytes": bytes.len()}))
 }
 
@@ -76,18 +90,24 @@ fn detach(positionals: &[String]) -> Result<Value> {
     };
     let target = resolve(out)?;
     if crate::core::is_present(&target, "detach destination")? {
-        bail!("{} already exists; name a path that does not, so nothing is overwritten", target.display());
+        bail!(
+            "{} already exists; name a path that does not, so nothing is overwritten",
+            target.display()
+        );
     }
     let payload = Vault::open(vault_path())?.get_item(id)?;
     let fields = schema::fields(&payload)?;
     let encoded = fields
         .get(CONTENT)
         .and_then(Value::as_str)
-        .with_context(|| format!("{id} holds no {CONTENT}; only an attached or imported file can be detached"))?;
+        .with_context(|| {
+            format!("{id} holds no {CONTENT}; only an attached or imported file can be detached")
+        })?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .with_context(|| format!("{id}'s {CONTENT} is not Base64"))?;
-    crate::core::vault::atomic_write(&target, &bytes).with_context(|| format!("write {}", target.display()))?;
+    crate::core::vault::atomic_write(&target, &bytes)
+        .with_context(|| format!("write {}", target.display()))?;
     crate::runtime::audit::append("file-detached", &json!({"item": id, "bytes": bytes.len()}))?;
     Ok(json!({
         "ok": true,

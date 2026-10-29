@@ -50,14 +50,13 @@ pub(super) fn acquire(
     }
     // The route refused a request without a consumer or bearer by name.
     if !grant::token_allows_field_action(
-            vault,
-            consumer,
-            bearer,
-            crate::access::actions::Action::Stage.as_str(),
-            requested,
-            field,
-        )?
-    {
+        vault,
+        consumer,
+        bearer,
+        crate::access::actions::Action::Stage.as_str(),
+        requested,
+        field,
+    )? {
         return refuse(
             "HTTP/1.1 403 Forbidden",
             json!("consumer not authorized to acquire item field"),

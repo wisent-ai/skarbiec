@@ -66,14 +66,13 @@ pub(super) fn locate(
     };
     let vault = http::load()?;
     if !grant::token_allows_field_action(
-            &vault,
-            &consumer,
-            &bearer,
-            crate::access::actions::Action::Read.as_str(),
-            id,
-            field,
-        )?
-    {
+        &vault,
+        &consumer,
+        &bearer,
+        crate::access::actions::Action::Read.as_str(),
+        id,
+        field,
+    )? {
         http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

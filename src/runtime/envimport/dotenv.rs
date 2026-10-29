@@ -37,9 +37,16 @@ pub(super) fn read(text: &str) -> Result<Vec<Variable>> {
             bail!("line {line}: {name} is not a variable name; use letters, digits and underscores, not starting with a digit");
         }
         if let Some(earlier) = variables.iter().find(|variable| variable.name == name) {
-            bail!("line {line} sets {name} again, first set on line {}; keep one", earlier.line);
+            bail!(
+                "line {line} sets {name} again, first set on line {}; keep one",
+                earlier.line
+            );
         }
-        variables.push(Variable { line, name: name.to_string(), value: unquote(value.trim(), line)? });
+        variables.push(Variable {
+            line,
+            name: name.to_string(),
+            value: unquote(value.trim(), line)?,
+        });
     }
     Ok(variables)
 }

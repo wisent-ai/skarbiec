@@ -17,7 +17,8 @@ use std::process::Command;
 use crate::cli::args::Usage;
 use crate::core::{clock, schema, vault::Vault, vault_path};
 
-const USAGE: &str = "usage: ssh new <id> [--comment <text>] [--name <display name>] [--tags <tag,...>]";
+const USAGE: &str =
+    "usage: ssh new <id> [--comment <text>] [--name <display name>] [--tags <tag,...>]";
 /// The key type ssh-keygen makes: Ed25519, the one every current OpenSSH
 /// server and forge accepts and the shortest to paste.
 const KEY_TYPE: &str = "ed25519";
@@ -57,16 +58,26 @@ pub(in crate::runtime) struct Workspace(pub(in crate::runtime) PathBuf);
 impl Drop for Workspace {
     fn drop(&mut self) {
         if let Err(error) = std::fs::remove_dir_all(&self.0) {
-            eprintln!("skarbiec: could not remove the key workspace {}: {error}", self.0.display());
+            eprintln!(
+                "skarbiec: could not remove the key workspace {}: {error}",
+                self.0.display()
+            );
         }
     }
 }
 
 pub(in crate::runtime) fn workspace(vault: &Path) -> Result<Workspace> {
-    let parent = vault
-        .parent()
-        .with_context(|| format!("the vault path {} has no directory to work beside", vault.display()))?;
-    let path = parent.join(format!(".skarbiec-keygen-{}-{}", clock::now_stamp(), std::process::id()));
+    let parent = vault.parent().with_context(|| {
+        format!(
+            "the vault path {} has no directory to work beside",
+            vault.display()
+        )
+    })?;
+    let path = parent.join(format!(
+        ".skarbiec-keygen-{}-{}",
+        clock::now_stamp(),
+        std::process::id()
+    ));
     std::fs::DirBuilder::new()
         .mode(u32::from(libc::S_IRWXU))
         .create(&path)
@@ -80,16 +91,11 @@ pub(in crate::runtime) fn workspace(vault: &Path) -> Result<Workspace> {
 fn generate(comment: &str) -> Result<(String, String)> {
     let work = workspace(&vault_path())?;
     let key_file = work.0.join("key");
-    let made = stado_wait::output(Command::new("ssh-keygen").args([
-        "-q",
-        "-t",
-        KEY_TYPE,
-        "-N",
-        "",
-        "-C",
-        comment,
-        "-f",
-    ]).arg(&key_file))
+    let made = stado_wait::output(
+        Command::new("ssh-keygen")
+            .args(["-q", "-t", KEY_TYPE, "-N", "", "-C", comment, "-f"])
+            .arg(&key_file),
+    )
     .context("run ssh-keygen")?;
     if !made.status.success() {
         bail!(
@@ -102,7 +108,12 @@ fn generate(comment: &str) -> Result<(String, String)> {
         .with_context(|| format!("read the key ssh-keygen wrote to {}", key_file.display()))?;
     let public_file = key_file.with_extension("pub");
     let public_key = std::fs::read_to_string(&public_file)
-        .with_context(|| format!("read the public key ssh-keygen wrote to {}", public_file.display()))?
+        .with_context(|| {
+            format!(
+                "read the public key ssh-keygen wrote to {}",
+                public_file.display()
+            )
+        })?
         .trim()
         .to_string();
     drop(work);
@@ -112,7 +123,12 @@ fn generate(comment: &str) -> Result<(String, String)> {
 fn make(id: &str, flags: &HashMap<String, String>) -> Result<Value> {
     {
         let vault = Vault::open(vault_path())?;
-        if vault.doc().get("items").and_then(|items| items.get(id)).is_some() {
+        if vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id))
+            .is_some()
+        {
             bail!("{id} already exists; ssh new creates an item and never replaces one (rotate {id} --with ssh replaces its key)");
         }
     }

@@ -19,7 +19,8 @@ use crate::core::{vault::Vault, vault_path};
 const BREACHES_URL: &str = "https://haveibeenpwned.com/api/v3/breaches";
 /// The attribution the list's Creative Commons Attribution 4.0 licence asks
 /// for wherever it is shown: https://haveibeenpwned.com/API/v3#License
-const ATTRIBUTION: &str = "Breach data from Have I Been Pwned (https://haveibeenpwned.com), licensed CC BY 4.0.";
+const ATTRIBUTION: &str =
+    "Breach data from Have I Been Pwned (https://haveibeenpwned.com), licensed CC BY 4.0.";
 
 pub fn dispatch(
     command: &str,
@@ -37,8 +38,14 @@ pub fn dispatch(
 
 fn breaches() -> Result<Vec<Value>> {
     // The API refuses a request that names no user agent.
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", "-A", "skarbiec", BREACHES_URL]))
-        .context("curl the Have I Been Pwned breach list")?;
+    let response = stado_wait::output(Command::new("curl").args([
+        "-sS",
+        "--fail",
+        "-A",
+        "skarbiec",
+        BREACHES_URL,
+    ]))
+    .context("curl the Have I Been Pwned breach list")?;
     if !response.status.success() {
         bail!(
             "the Have I Been Pwned breach list at {BREACHES_URL} could not be read ({}): {}; no login was judged",
@@ -55,7 +62,9 @@ fn breaches() -> Result<Vec<Value>> {
 }
 
 fn text<'v>(row: &'v Value, key: &str) -> Option<&'v str> {
-    row.get(key).and_then(Value::as_str).filter(|value| !value.is_empty())
+    row.get(key)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
 }
 
 /// One breach as the list states it: the site it hit, the day and its name.
@@ -65,7 +74,8 @@ fn breach_of(row: &Value) -> Result<Option<(&str, &str, &str)>> {
     let Some(site) = text(row, "Domain") else {
         return Ok(None);
     };
-    let name = text(row, "Name").with_context(|| format!("a breach of {site} in {BREACHES_URL} has no Name"))?;
+    let name = text(row, "Name")
+        .with_context(|| format!("a breach of {site} in {BREACHES_URL} has no Name"))?;
     let when = text(row, "BreachDate")
         .with_context(|| format!("the breach {name} in {BREACHES_URL} has no BreachDate"))?;
     Ok(Some((site, when, name)))
@@ -74,13 +84,19 @@ fn breach_of(row: &Value) -> Result<Option<(&str, &str, &str)>> {
 fn report() -> Result<Value> {
     let breached = breaches()?
         .iter()
-        .map(|row| breach_of(row).map(|found| found.map(|(s, w, n)| (s.to_string(), w.to_string(), n.to_string()))))
+        .map(|row| {
+            breach_of(row)
+                .map(|found| found.map(|(s, w, n)| (s.to_string(), w.to_string(), n.to_string())))
+        })
         .collect::<Result<Vec<_>>>()?
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
     let ages = crate::runtime::age::report(None)?;
-    let logins = ages.get("logins").and_then(Value::as_array).context("password age answered no logins")?;
+    let logins = ages
+        .get("logins")
+        .and_then(Value::as_array)
+        .context("password age answered no logins")?;
     let vault = Vault::open(vault_path())?;
     let mut exposed = Vec::new();
     let mut changed = Vec::new();
@@ -99,7 +115,12 @@ fn report() -> Result<Value> {
                 continue;
             }
         };
-        let domains = payload.get("context").map(item_domains).into_iter().flatten().collect::<Vec<_>>();
+        let domains = payload
+            .get("context")
+            .map(item_domains)
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>();
         for (site, when, name) in &breached {
             if !domains.iter().any(|domain| domain_matches(site, domain)) {
                 continue;

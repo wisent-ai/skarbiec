@@ -28,7 +28,10 @@ pub(crate) fn rename_tag(flags: &HashMap<String, String>) -> Result<Value> {
         .map(|tag| tag.trim())
         .or_usage("usage: retag --rename <tag> --to <tag> (--to \"\" drops it)")?;
     if from == to {
-        return Err(Usage(format!("--rename and --to both name {from}; there is nothing to rename")).into());
+        return Err(Usage(format!(
+            "--rename and --to both name {from}; there is nothing to rename"
+        ))
+        .into());
     }
     if !to.is_empty() {
         ensure_no_reserved_tags(&[to.to_string()])?;
@@ -46,11 +49,16 @@ pub(crate) fn rename_tag(flags: &HashMap<String, String>) -> Result<Value> {
                 .filter_map(Value::as_str)
                 .map(str::to_string)
                 .collect();
-            tags.iter().any(|tag| tag == from).then(|| (id.to_string(), tags))
+            tags.iter()
+                .any(|tag| tag == from)
+                .then(|| (id.to_string(), tags))
         })
         .collect();
     if carrying.is_empty() {
-        return Err(Usage(format!("no live item carries the tag {from}, so nothing was renamed")).into());
+        return Err(Usage(format!(
+            "no live item carries the tag {from}, so nothing was renamed"
+        ))
+        .into());
     }
     let mut retagged = Vec::new();
     let mut not_retagged = Vec::new();

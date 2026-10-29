@@ -19,14 +19,19 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         ),
         // `codes` is the provider's new set, one per line, as stdin takes it.
         "/v1/operator/items/recovery-codes/replace" => {
-            crate::runtime::totp::replace_recovery_codes(&text(parsed, "id")?, &text(parsed, "codes")?)
+            crate::runtime::totp::replace_recovery_codes(
+                &text(parsed, "id")?,
+                &text(parsed, "codes")?,
+            )
         }
         "/v1/operator/items/sites/set" => crate::runtime::logins::set_sites_from_body(parsed),
         // `sites <id> --add|--remove`: one site at a time, keeping the others;
         // `add-related` adds the sites sharing a sign-in with them.
-        "/v1/operator/items/sites/change" => {
-            runtime("sites", &flags(parsed, &["add", "remove", "add-related"]), &positionals(parsed, &["id"])?)
-        }
+        "/v1/operator/items/sites/change" => runtime(
+            "sites",
+            &flags(parsed, &["add", "remove", "add-related"]),
+            &positionals(parsed, &["id"])?,
+        ),
         // The whole new text; an empty one removes the notes, so it is read
         // as given rather than through a helper that drops empty text.
         "/v1/operator/items/notes/set" => {
@@ -36,9 +41,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             crate::runtime::notes::set(&text(parsed, "id")?, notes)
         }
         // `set` with the rules, `lookup` or `clear`, as `password rules` takes them.
-        "/v1/operator/items/password-rules/change" => {
-            runtime("password", &flags(parsed, &["set", "lookup", "clear"]), &verbed("rules", parsed, &["id"])?)
-        }
+        "/v1/operator/items/password-rules/change" => runtime(
+            "password",
+            &flags(parsed, &["set", "lookup", "clear"]),
+            &verbed("rules", parsed, &["id"])?,
+        ),
         // The password is made and stored in the backend; the answer names
         // the item and never carries it.
         "/v1/operator/items/new-login" => runtime(
@@ -46,9 +53,23 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             &flags(
                 parsed,
                 &[
-                    "username", "sites", "name", "tags", "length", "lower", "upper", "digits", "symbols",
-                    "symbols-from", "unambiguous", "passphrase", "words", "separator", "capitalize",
-                    "with-digit", "rules",
+                    "username",
+                    "sites",
+                    "name",
+                    "tags",
+                    "length",
+                    "lower",
+                    "upper",
+                    "digits",
+                    "symbols",
+                    "symbols-from",
+                    "unambiguous",
+                    "passphrase",
+                    "words",
+                    "separator",
+                    "capitalize",
+                    "with-digit",
+                    "rules",
                 ],
             ),
             &verbed("new", parsed, &["id"])?,
@@ -65,11 +86,16 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         // gh, glab or curl — runs where the vault is, and the answer names key
         // ids, accounts, revisions and public keys, never a secret.
         "/v1/operator/items/rotate" => {
-            let provider = crate::runtime::rotate::provider(&text(parsed, crate::runtime::rotate::WITH)?)?;
+            let provider =
+                crate::runtime::rotate::provider(&text(parsed, crate::runtime::rotate::WITH)?)?;
             let taken = provider.flags();
             let mut keys: Vec<&str> = taken.iter().map(String::as_str).collect();
             keys.push(crate::runtime::rotate::WITH);
-            runtime("rotate", &flags(parsed, &keys), &positionals(parsed, &["id"])?)
+            runtime(
+                "rotate",
+                &flags(parsed, &keys),
+                &positionals(parsed, &["id"])?,
+            )
         }
         // The seed travels in the loopback body, never in an argument.
         "/v1/operator/items/totp-set" => {
@@ -77,23 +103,34 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         }
         // The seed leaves inside the address, as `totp uri` prints it, and
         // the read is journalled, so it is serialized with the writes.
-        "/v1/operator/items/totp-uri" => runtime("totp", &HashMap::new(), &verbed("uri", parsed, &["id"])?),
+        "/v1/operator/items/totp-uri" => {
+            runtime("totp", &HashMap::new(), &verbed("uri", parsed, &["id"])?)
+        }
         // The desktop names its own session's agent socket in `agent`: the
         // serving process may hold none, and the key goes where the operator is.
         // `id` adds one key; `tag` every key the tagged items hold.
         "/v1/operator/items/ssh-add" => runtime(
             "ssh",
             &flags(parsed, &["agent", "lifetime", "tag"]),
-            &std::iter::once("add".to_string()).chain(optional(parsed, "id")).collect::<Vec<_>>(),
+            &std::iter::once("add".to_string())
+                .chain(optional(parsed, "id"))
+                .collect::<Vec<_>>(),
         ),
         // The file is on the machine the app runs on, at the absolute path its
         // panel chose; a relative one would mean the server's directory.
         "/v1/operator/items/attach" | "/v1/operator/items/detach" => {
             let given = positionals(parsed, &["id", "path"])?;
-            if !given.last().is_some_and(|path| std::path::Path::new(path).is_absolute()) {
+            if !given
+                .last()
+                .is_some_and(|path| std::path::Path::new(path).is_absolute())
+            {
                 bail!("path must be absolute: the file is the one the app chose, not one in the server's directory");
             }
-            runtime(path.trim_start_matches("/v1/operator/items/"), &flags(parsed, &["tags"]), &given)
+            runtime(
+                path.trim_start_matches("/v1/operator/items/"),
+                &flags(parsed, &["tags"]),
+                &given,
+            )
         }
         // The key file is on the machine the app runs on, at the absolute
         // path its panel chose; it is read there and never reaches the app.
@@ -102,12 +139,21 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             if !std::path::Path::new(&file).is_absolute() {
                 bail!("path must be absolute: the key file is the one the app chose, not one in the server's directory");
             }
-            runtime("ssh", &flags(parsed, &["name", "tags", "remove"]), &["import".to_string(), file, text(parsed, "id")?])
+            runtime(
+                "ssh",
+                &flags(parsed, &["name", "tags", "remove"]),
+                &["import".to_string(), file, text(parsed, "id")?],
+            )
         }
         // `keep` and the list `drop`, as `merge <keep> <drop>...` takes them.
         "/v1/operator/items/merge" => {
             let mut given = vec![text(parsed, "keep")?];
-            for drop in parsed.get("drop").and_then(Value::as_array).into_iter().flatten() {
+            for drop in parsed
+                .get("drop")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
                 let Some(drop) = drop.as_str() else {
                     bail!("drop must list item ids as text");
                 };
@@ -139,10 +185,13 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             )
         }
         // The sealed message and its passphrase, once; nothing is kept.
-        "/v1/operator/items/send" => crate::runtime::send::seal(&text(parsed, "id")?, &text(parsed, "field")?),
-        "/v1/operator/items/copy" => {
-            crate::cli::copy::copy_value(&flags(parsed, &["without"]), &positionals(parsed, &["id", "to"])?)
+        "/v1/operator/items/send" => {
+            crate::runtime::send::seal(&text(parsed, "id")?, &text(parsed, "field")?)
         }
+        "/v1/operator/items/copy" => crate::cli::copy::copy_value(
+            &flags(parsed, &["without"]),
+            &positionals(parsed, &["id", "to"])?,
+        ),
         _ => return Ok(None),
     };
     answer.map(Some)

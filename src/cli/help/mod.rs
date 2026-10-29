@@ -162,7 +162,10 @@ pub(crate) fn is_group(name: &str) -> bool {
 
 /// The flags a usage line names, without their dashes.
 pub(crate) fn flags_in(usage: &str) -> Vec<String> {
-    completion::flags_of(usage).iter().filter_map(|flag| flag.strip_prefix("--").map(str::to_string)).collect()
+    completion::flags_of(usage)
+        .iter()
+        .filter_map(|flag| flag.strip_prefix("--").map(str::to_string))
+        .collect()
 }
 
 /// Whether `name` prints its own usage for `--help`.
@@ -175,7 +178,10 @@ pub(crate) fn answers_own_help(name: &str) -> bool {
 /// The usage line of `name`, so an invocation of a known command with a verb
 /// none of its modules answers is refused with what the command takes.
 pub(crate) fn usage_of(name: &str) -> Option<&'static str> {
-    COMMANDS.iter().find(|command| command.name == name).map(|command| command.usage)
+    COMMANDS
+        .iter()
+        .find(|command| command.name == name)
+        .map(|command| command.usage)
 }
 
 /// The machine-readable inventory `skarbiec help` prints: the group and

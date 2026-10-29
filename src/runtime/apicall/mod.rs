@@ -29,7 +29,12 @@ pub(crate) fn call(request: &Call) -> Result<Value> {
         command.args(["--data-urlencode", field]);
     }
     if let Some(body) = request.json {
-        command.args(["-H", "Content-Type: application/json", "--data", &body.to_string()]);
+        command.args([
+            "-H",
+            "Content-Type: application/json",
+            "--data",
+            &body.to_string(),
+        ]);
     }
     let mut child = command
         .arg(request.url)
@@ -44,8 +49,13 @@ pub(crate) fn call(request: &Call) -> Result<Value> {
         .context("curl was started without a standard input")?
         .write_all(format!("{}\n", request.header).as_bytes())
         .context("hand the header to curl")?;
-    let output = stado_wait::blocking(stado_wait::Kind::Process, "curl talking to a provider", request.url, || child.wait_with_output())
-        .context("wait for curl")?;
+    let output = stado_wait::blocking(
+        stado_wait::Kind::Process,
+        "curl talking to a provider",
+        request.url,
+        || child.wait_with_output(),
+    )
+    .context("wait for curl")?;
     let body = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() {
         bail!(
@@ -61,5 +71,6 @@ pub(crate) fn call(request: &Call) -> Result<Value> {
     if body.trim().is_empty() {
         return Ok(Value::Null);
     }
-    serde_json::from_str(&body).with_context(|| format!("{} answered something that is not JSON", request.url))
+    serde_json::from_str(&body)
+        .with_context(|| format!("{} answered something that is not JSON", request.url))
 }

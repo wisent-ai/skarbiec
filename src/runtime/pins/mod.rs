@@ -70,7 +70,10 @@ fn live_ids(vault: &Vault) -> Vec<String> {
 pub fn add(id: &str) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     if !live_ids(&vault).iter().any(|live| live == id) {
-        return Err(Usage(format!("{id} is not a live item, so it was not pinned; skarbiec list names the live ones")).into());
+        return Err(Usage(format!(
+            "{id} is not a live item, so it was not pinned; skarbiec list names the live ones"
+        ))
+        .into());
     }
     let mut ids = pinned(&vault);
     if ids.iter().any(|held| held == id) {

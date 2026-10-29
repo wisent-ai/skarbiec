@@ -40,7 +40,8 @@ pub(super) fn diff(file: &Path) -> Result<Value> {
         .iter()
         .filter_map(|(id, copied)| {
             let held = ours.get(id)?;
-            (copied["revision"] != held["revision"]).then(|| json!({"item": id, "copy": side(copied), "vault": side(held)}))
+            (copied["revision"] != held["revision"])
+                .then(|| json!({"item": id, "copy": side(copied), "vault": side(held)}))
         })
         .collect();
     Ok(json!({

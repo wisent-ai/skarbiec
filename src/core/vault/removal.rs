@@ -135,7 +135,8 @@ impl Vault {
                 not_reader.push(id.clone());
                 continue;
             }
-            let remaining: Vec<String> = readers.into_iter().filter(|reader| reader != uid).collect();
+            let remaining: Vec<String> =
+                readers.into_iter().filter(|reader| reader != uid).collect();
             versions.push(self.rewrap_item(id, &remaining)?);
             rewrapped.push(id.clone());
         }

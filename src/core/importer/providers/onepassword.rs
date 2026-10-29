@@ -43,7 +43,11 @@ pub(in crate::core::importer) fn archive(bytes: &[u8]) -> Result<ImportDocument>
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|account| Ok(text(&account["attrs"], "uuid").context("1Password account")?.to_string()))
+        .map(|account| {
+            Ok(text(&account["attrs"], "uuid")
+                .context("1Password account")?
+                .to_string())
+        })
         .collect::<Result<_>>()?;
     account_ids.sort();
     let mut document = document(value)?;
@@ -176,13 +180,21 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                 let details = item
                     .get("details")
                     .with_context(|| format!("{at} requires details"))?;
-                let title = text(overview, "title").with_context(|| at.clone())?.to_string();
+                let title = text(overview, "title")
+                    .with_context(|| at.clone())?
+                    .to_string();
                 let notes = text(details, "notesPlain").with_context(|| at.clone())?;
                 let state = text(&item, "state").with_context(|| at.clone())?;
                 let mut context = Map::from_iter([
-                    ("url".into(), json!(text(overview, "url").with_context(|| at.clone())?)),
+                    (
+                        "url".into(),
+                        json!(text(overview, "url").with_context(|| at.clone())?),
+                    ),
                     ("notes".into(), json!(notes)),
-                    ("folder".into(), json!(text(&vault_attrs, "name").with_context(|| at.clone())?)),
+                    (
+                        "folder".into(),
+                        json!(text(&vault_attrs, "name").with_context(|| at.clone())?),
+                    ),
                     ("source_state".into(), json!(state)),
                 ]);
                 if let Some(urls) = overview.get("urls") {
@@ -207,10 +219,7 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                         ),
                     )
                 } else if category == SECURE_NOTE_CATEGORY {
-                    (
-                        "note",
-                        Map::from_iter([("value".into(), json!(notes))]),
-                    )
+                    ("note", Map::from_iter([("value".into(), json!(notes))]))
                 } else {
                     (
                         "bundle",

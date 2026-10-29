@@ -81,8 +81,13 @@ pub(super) fn lock() -> Result<RegisterLock> {
         .open(&path)
         .with_context(|| format!("open request register lock {}", path.display()))?;
     let place = path.display().to_string();
-    stado_wait::blocking(stado_wait::Kind::Lock, "the request register lock", place, || file.lock_exclusive())
-        .context("lock request register")?;
+    stado_wait::blocking(
+        stado_wait::Kind::Lock,
+        "the request register lock",
+        place,
+        || file.lock_exclusive(),
+    )
+    .context("lock request register")?;
     Ok(RegisterLock(file))
 }
 
@@ -90,8 +95,12 @@ pub(super) fn load() -> Result<Value> {
     let path = register_path();
     let body = match fs::read_to_string(&path) {
         Ok(body) => body,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(json!({"requests": []})),
-        Err(error) => return Err(error).with_context(|| format!("read request register {}", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(json!({"requests": []}))
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("read request register {}", path.display()))
+        }
     };
     let doc: Value = serde_json::from_str(&body)
         .with_context(|| format!("parse request register {}", path.display()))?;
@@ -131,19 +140,32 @@ pub(super) fn write_private(path: &Path, bytes: &[u8]) -> Result<()> {
 /// reader (ENXIO), or already holds an unread wake (EAGAIN). Any other
 /// failure is said, since a watcher would then sit on a stale register.
 fn wake() {
-    let fifo = OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open(wake_path());
+    let fifo = OpenOptions::new()
+        .write(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(wake_path());
     let mut fifo = match fifo {
         Ok(fifo) => fifo,
-        Err(error) if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ENXIO) => return,
+        Err(error)
+            if error.kind() == ErrorKind::NotFound || error.raw_os_error() == Some(libc::ENXIO) =>
+        {
+            return
+        }
         Err(error) => {
-            eprintln!("request watcher could not be woken: {}: {error}", wake_path().display());
+            eprintln!(
+                "request watcher could not be woken: {}: {error}",
+                wake_path().display()
+            );
             return;
         }
     };
     match fifo.write_all(b"\n") {
         Ok(()) => {}
         Err(error) if error.kind() == ErrorKind::WouldBlock => {}
-        Err(error) => eprintln!("request watcher could not be woken: {}: {error}", wake_path().display()),
+        Err(error) => eprintln!(
+            "request watcher could not be woken: {}: {error}",
+            wake_path().display()
+        ),
     }
 }
 
@@ -174,9 +196,10 @@ pub(super) fn get(doc: &Value, id: &str) -> Result<Value> {
 /// record and the key it lacks: a record missing one is damaged, and is
 /// never read as an empty answer.
 pub(super) fn text<'a>(record: &'a Value, key: &str) -> Result<&'a str> {
-    record.get(key).and_then(Value::as_str).with_context(|| {
-        format!("access request record holds no text {key}: {record}")
-    })
+    record
+        .get(key)
+        .and_then(Value::as_str)
+        .with_context(|| format!("access request record holds no text {key}: {record}"))
 }
 
 /// A request id: a version 4 UUID in lowercase, the shape Las accepts as
@@ -189,7 +212,10 @@ pub(super) fn new_id() -> Result<String> {
         .read_to_end(&mut octets)
         .context("read /dev/urandom")?;
     if octets.len() != UUID_OCTETS {
-        bail!("/dev/urandom gave {} of the {UUID_OCTETS} octets a request id needs", octets.len());
+        bail!(
+            "/dev/urandom gave {} of the {UUID_OCTETS} octets a request id needs",
+            octets.len()
+        );
     }
     octets[VERSION_OCTET] = (octets[VERSION_OCTET] & VERSION_KEPT) | VERSION_BITS;
     octets[VARIANT_OCTET] = (octets[VARIANT_OCTET] & VARIANT_KEPT) | VARIANT_BITS;
@@ -197,7 +223,12 @@ pub(super) fn new_id() -> Result<String> {
     let mut rest = octets.as_slice();
     for width in GROUP_OCTETS {
         let (group, after) = rest.split_at(*width);
-        groups.push(group.iter().map(|octet| format!("{octet:02x}")).collect::<String>());
+        groups.push(
+            group
+                .iter()
+                .map(|octet| format!("{octet:02x}"))
+                .collect::<String>(),
+        );
         rest = after;
     }
     Ok(groups.join("-"))

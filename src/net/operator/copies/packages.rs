@@ -20,7 +20,12 @@ use super::absolute;
 const TOOL: &[(&str, &str, &[&str], bool)] = &[
     ("/v1/operator/tool/list", "list", &[], false),
     ("/v1/operator/tool/status", "status", &[], false),
-    ("/v1/operator/tool/import", "import", &["select", "tags"], true),
+    (
+        "/v1/operator/tool/import",
+        "import",
+        &["select", "tags"],
+        true,
+    ),
 ];
 const CHECK: &str = "/v1/operator/bindings/check";
 /// The routes over the bindings files this host knows of: each route, the
@@ -35,12 +40,15 @@ fn known(path: &str) -> Option<&'static (&'static str, &'static str, bool)> {
     KNOWN.iter().find(|(route, _, _)| *route == path)
 }
 
-fn tool_token(path: &str) -> Option<&'static (&'static str, &'static str, &'static [&'static str], bool)> {
+fn tool_token(
+    path: &str,
+) -> Option<&'static (&'static str, &'static str, &'static [&'static str], bool)> {
     TOOL.iter().find(|(route, _, _, _)| *route == path)
 }
 
 pub(in crate::net::operator) fn is_mutation(path: &str) -> bool {
-    tool_token(path).is_some_and(|(_, _, _, imports)| *imports) || known(path).is_some_and(|(_, _, changes)| *changes)
+    tool_token(path).is_some_and(|(_, _, _, imports)| *imports)
+        || known(path).is_some_and(|(_, _, changes)| *changes)
 }
 
 pub(in crate::net::operator) fn is_host_local(path: &str) -> bool {
@@ -49,7 +57,12 @@ pub(in crate::net::operator) fn is_host_local(path: &str) -> bool {
 
 pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
     if path == CHECK {
-        return runtime("bindings", &flags(parsed, &["refuse"]), &["check".to_string(), absolute(parsed, "file")?]).map(Some);
+        return runtime(
+            "bindings",
+            &flags(parsed, &["refuse"]),
+            &["check".to_string(), absolute(parsed, "file")?],
+        )
+        .map(Some);
     }
     if let Some((_, leaf, changes)) = known(path) {
         let mut positionals = vec![leaf.to_string()];
@@ -67,7 +80,10 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
     // the bindings file, an absolute path on this machine.
     match *imports {
         true => {
-            given.extend(HashMap::from([("bindings".to_string(), absolute(parsed, "bindings")?)]));
+            given.extend(HashMap::from([(
+                "bindings".to_string(),
+                absolute(parsed, "bindings")?,
+            )]));
             positionals.push(text(parsed, "tool")?);
             positionals.push(text(parsed, "id")?);
         }

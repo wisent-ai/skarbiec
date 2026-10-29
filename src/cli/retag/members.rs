@@ -24,7 +24,11 @@ pub(crate) enum Change {
 pub(crate) fn change_tag(change: Change, tag: &str, ids: &[String]) -> Result<Value> {
     let tag = tag.trim();
     if tag.is_empty() || ids.is_empty() {
-        return Err(Usage("usage: retag --add <tag> <id> [<id>...] | retag --remove <tag> <id> [<id>...]".to_string()).into());
+        return Err(Usage(
+            "usage: retag --add <tag> <id> [<id>...] | retag --remove <tag> <id> [<id>...]"
+                .to_string(),
+        )
+        .into());
     }
     if matches!(change, Change::Add) {
         ensure_no_reserved_tags(&[tag.to_string()])?;
@@ -35,7 +39,10 @@ pub(crate) fn change_tag(change: Change, tag: &str, ids: &[String]) -> Result<Va
     let mut unchanged = Vec::new();
     let mut not_retagged = Vec::new();
     for id in ids {
-        let Some(held) = live.iter().find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str())) else {
+        let Some(held) = live
+            .iter()
+            .find(|item| item.get("id").and_then(Value::as_str) == Some(id.as_str()))
+        else {
             not_retagged.push(json!({"id": id, "error": format!("{id} is not a live item")}));
             continue;
         };
@@ -57,7 +64,10 @@ pub(crate) fn change_tag(change: Change, tag: &str, ids: &[String]) -> Result<Va
                 unchanged.push(id.clone());
                 continue;
             }
-            Change::Add => tags.into_iter().chain(std::iter::once(tag.to_string())).collect(),
+            Change::Add => tags
+                .into_iter()
+                .chain(std::iter::once(tag.to_string()))
+                .collect(),
             Change::Remove => tags.into_iter().filter(|held| held != tag).collect(),
         };
         if let Err(error) = ensure_owner_mutation_allowed(&vault, id, "retag") {

@@ -21,7 +21,11 @@ pub(crate) use known::{follow_rename, rebind_file, remember, report as known_rep
 
 const USAGE: &str = "usage: bindings check <file> [--refuse] | bindings list | bindings remember <file> | bindings forget <file>";
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     if command != "bindings" {
         return Ok(None);
     }
@@ -36,12 +40,22 @@ pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[S
 
 /// Why one binding would give its program nothing, or None when it would
 /// give a value.
-fn problem(vault: &Vault, live: &[String], trashed: &[String], item: &str, field: &str) -> Option<String> {
+fn problem(
+    vault: &Vault,
+    live: &[String],
+    trashed: &[String],
+    item: &str,
+    field: &str,
+) -> Option<String> {
     if trashed.iter().any(|held| held == item) {
-        return Some(format!("{item} is in the trash; restore {item} or bind another item"));
+        return Some(format!(
+            "{item} is in the trash; restore {item} or bind another item"
+        ));
     }
     if !live.iter().any(|held| held == item) {
-        return Some(format!("no item {item}; it may have been renamed or purged"));
+        return Some(format!(
+            "no item {item}; it may have been renamed or purged"
+        ));
     }
     match vault.get_item(item) {
         Err(error) => Some(format!("{item} would not open here: {error:#}")),
@@ -63,7 +77,9 @@ pub(crate) fn rows(shown: &str) -> Result<Vec<Value>> {
         vault
             .list(state_trashed)
             .iter()
-            .filter(|item| (item.get("state").and_then(Value::as_str) == Some("trashed")) == state_trashed)
+            .filter(|item| {
+                (item.get("state").and_then(Value::as_str) == Some("trashed")) == state_trashed
+            })
             .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
             .collect()
     };
@@ -82,10 +98,24 @@ fn check(file: &str, refuse: bool) -> Result<Value> {
     let here = std::env::current_dir().context("read the working directory")?;
     let shown = here.join(file).display().to_string();
     let rows = rows(&shown)?;
-    let failing: Vec<&str> = rows.iter().filter(|row| row["ok"] == json!(false)).filter_map(|row| row["variable"].as_str()).collect();
-    crate::runtime::audit::append("bindings-checked", &json!({"file": shown, "failing": failing}))?;
+    let failing: Vec<&str> = rows
+        .iter()
+        .filter(|row| row["ok"] == json!(false))
+        .filter_map(|row| row["variable"].as_str())
+        .collect();
+    crate::runtime::audit::append(
+        "bindings-checked",
+        &json!({"file": shown, "failing": failing}),
+    )?;
     if refuse && !failing.is_empty() {
-        bail!("{shown}: exec would give {} nothing — {}", failing.join(", "), rows.iter().filter_map(|row| row["problem"].as_str()).collect::<Vec<_>>().join("; "));
+        bail!(
+            "{shown}: exec would give {} nothing — {}",
+            failing.join(", "),
+            rows.iter()
+                .filter_map(|row| row["problem"].as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
     }
     Ok(json!({"ok": failing.is_empty(), "file": shown, "bindings": rows}))
 }

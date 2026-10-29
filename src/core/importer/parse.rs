@@ -54,7 +54,8 @@ pub(super) fn parse(bytes: &[u8], format: &str) -> Result<ImportDocument> {
     // A sealed export opens with this keyring's secret key, then is read as
     // the export it holds; a key this keyring lacks is gpg's refusal.
     if bytes.starts_with(SEALED.as_bytes()) {
-        let armored = std::str::from_utf8(bytes).context("a sealed export is armored text, and this is not UTF-8")?;
+        let armored = std::str::from_utf8(bytes)
+            .context("a sealed export is armored text, and this is not UTF-8")?;
         let opened = crate::core::crypto::decrypt(armored)
             .context("open the sealed export with this keyring's secret key")?;
         return parse(opened.as_bytes(), format);

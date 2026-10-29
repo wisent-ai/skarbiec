@@ -12,8 +12,7 @@ use super::readiness::readiness_check;
 use super::request::{browser_refusal, credential_status_item, is_mutation, read_body, read_line};
 use super::{
     detail_text, load, presented_identity, request_field, request_id, request_json, unidentified,
-    write_guard,
-    write_response,
+    write_guard, write_response,
 };
 use crate::access::grant;
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
@@ -49,11 +48,21 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     }
     // No route answers a web page: see request::browser_refusal.
     if let Some(reason) = browser_refusal(&method, &path, &headers) {
-        return write_response(&mut stream, "HTTP/1.1 403 Forbidden", &json!({"error": reason}));
+        return write_response(
+            &mut stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": reason}),
+        );
     }
     let body = match read_body(&mut reader, &headers)? {
         Ok(body) => body,
-        Err(reason) => return write_response(&mut stream, "HTTP/1.1 400 Bad Request", &json!({"error": reason})),
+        Err(reason) => {
+            return write_response(
+                &mut stream,
+                "HTTP/1.1 400 Bad Request",
+                &json!({"error": reason}),
+            )
+        }
     };
 
     let ok_line = "HTTP/1.1 200 OK";
@@ -158,7 +167,12 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         };
         // A redemption that failed to read its own state is not a wrong
         // token: it answers unavailable with the cause, never 401.
-        let acquired = match crate::access::acquisition::consume(&consumer, &acquisition_token, item, field) {
+        let acquired = match crate::access::acquisition::consume(
+            &consumer,
+            &acquisition_token,
+            item,
+            field,
+        ) {
             Ok(acquired) => acquired,
             Err(error) => {
                 return write_response(
@@ -228,13 +242,12 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             );
         }
         if !grant::token_allows_action(
-                &vault,
-                &consumer,
-                &bearer,
-                crate::access::actions::Action::Trash.as_str(),
-                id,
-            )?
-        {
+            &vault,
+            &consumer,
+            &bearer,
+            crate::access::actions::Action::Trash.as_str(),
+            id,
+        )? {
             return write_response(
                 &mut stream,
                 denied_line,

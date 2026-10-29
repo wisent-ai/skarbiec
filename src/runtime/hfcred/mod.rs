@@ -29,7 +29,10 @@ fn files() -> Result<(PathBuf, PathBuf)> {
         Some(home) => home,
         None => match crate::core::env::path("XDG_CACHE_HOME") {
             Some(cache) => cache.join("huggingface"),
-            None => crate::core::env::path("HOME").context("neither HF_HOME nor HOME names where Hugging Face keeps its token")?.join(".cache").join("huggingface"),
+            None => crate::core::env::path("HOME")
+                .context("neither HF_HOME nor HOME names where Hugging Face keeps its token")?
+                .join(".cache")
+                .join("huggingface"),
         },
     };
     let active = match crate::core::env::path("HF_TOKEN_PATH") {
@@ -55,8 +58,15 @@ fn stored(text: &str) -> Vec<Stored> {
     let mut found: Vec<Stored> = Vec::new();
     for (index, line) in text.lines().enumerate() {
         let trimmed = line.trim();
-        if let Some(name) = trimmed.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
-            found.push(Stored { name: name.to_string(), lines: index..index, token: String::new() });
+        if let Some(name) = trimmed
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            found.push(Stored {
+                name: name.to_string(),
+                lines: index..index,
+                token: String::new(),
+            });
         } else if let Some(section) = found.last_mut() {
             if let Some((key, value)) = trimmed.split_once('=') {
                 if key.trim() == STORED_KEY {
@@ -68,7 +78,10 @@ fn stored(text: &str) -> Vec<Stored> {
             section.lines.end = index + std::iter::once(()).count();
         }
     }
-    found.into_iter().filter(|section| !section.token.is_empty()).collect()
+    found
+        .into_iter()
+        .filter(|section| !section.token.is_empty())
+        .collect()
 }
 
 fn read(path: &Path, what: &str) -> Result<String> {
@@ -90,21 +103,31 @@ pub(crate) fn status() -> Result<Value> {
     for section in stored(&read(&stored_file, "Hugging Face's stored tokens")?) {
         entries.push(json!({"entry": section.name, "kept": PLAIN}));
     }
-    Ok(json!({"file": active_file, "stored_file": stored_file, "entries": entries, "variables": [VARIABLE]}))
+    Ok(
+        json!({"file": active_file, "stored_file": stored_file, "entries": entries, "variables": [VARIABLE]}),
+    )
 }
 
 pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Value> {
     let (id, name, bindings, tags) = (request.id, request.select, request.bindings, request.tags);
     let (active_file, stored_file) = files()?;
-    let active = read(&active_file, "the Hugging Face token")?.trim().to_string();
+    let active = read(&active_file, "the Hugging Face token")?
+        .trim()
+        .to_string();
     let stored_text = read(&stored_file, "Hugging Face's stored tokens")?;
     let sections = stored(&stored_text);
     let token = match name {
         Some(name) => match sections.iter().find(|section| section.name == name) {
             Some(section) => section.token.clone(),
-            None => bail!("{} keeps no token named {name}; nothing was changed", stored_file.display()),
+            None => bail!(
+                "{} keeps no token named {name}; nothing was changed",
+                stored_file.display()
+            ),
         },
-        None if active.is_empty() => bail!("{} holds no active token; name a stored one with --select; nothing was changed", active_file.display()),
+        None if active.is_empty() => bail!(
+            "{} holds no active token; name a stored one with --select; nothing was changed",
+            active_file.display()
+        ),
         None => active.clone(),
     };
     let binding = format!("{id}:{FIELD}");
@@ -137,7 +160,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     // Every plain copy of this token goes: the active file when it holds it,
     // and each stored section holding it.
     let mut removed: Vec<String> = Vec::new();
-    let held: Vec<&Stored> = sections.iter().filter(|section| section.token == token).collect();
+    let held: Vec<&Stored> = sections
+        .iter()
+        .filter(|section| section.token == token)
+        .collect();
     if !held.is_empty() {
         let mut out: Vec<&str> = stored_text
             .lines()
@@ -151,7 +177,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
         crate::core::vault::atomic_write(&stored_file, out.join("\n").as_bytes()).with_context(|| {
             format!("{} still keeps the token; {id} holds a copy and {} binds {VARIABLE}, so remove it there", stored_file.display(), bindings.display())
         })?;
-        removed.extend(held.iter().map(|section| format!("{} [{}]", stored_file.display(), section.name)));
+        removed.extend(
+            held.iter()
+                .map(|section| format!("{} [{}]", stored_file.display(), section.name)),
+        );
     }
     if active == token {
         std::fs::remove_file(&active_file).with_context(|| {

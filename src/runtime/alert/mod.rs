@@ -20,20 +20,29 @@ use std::process::{Command, Stdio};
 use crate::cli::args::{OrUsage, Usage};
 use crate::core::{vault::Vault, vault_path};
 
-const USAGE: &str = "usage: alert set <id> --field <field> | alert status | alert test | alert unset";
+const USAGE: &str =
+    "usage: alert set <id> --field <field> | alert status | alert test | alert unset";
 const SCHEME: &str = "https://";
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     if command != "alert" {
         return Ok(None);
     }
     match positionals {
         [action, id] if action == "set" => set(id, flags.get("field").or_usage(USAGE)?).map(Some),
         [action] if action == "status" => status().map(Some),
-        [action] if action == "test" => match send("skarbiec alert test: alerts from this vault reach this channel")? {
-            Some(sent) => Ok(Some(sent)),
-            None => bail!("no alert is set on this host; `skarbiec alert set <id> --field <field>` sets one"),
-        },
+        [action] if action == "test" => {
+            match send("skarbiec alert test: alerts from this vault reach this channel")? {
+                Some(sent) => Ok(Some(sent)),
+                None => bail!(
+                "no alert is set on this host; `skarbiec alert set <id> --field <field>` sets one"
+            ),
+            }
+        }
         [action] if action == "unset" => unset().map(Some),
         _ => Err(Usage(USAGE.to_string()).into()),
     }
@@ -52,8 +61,14 @@ fn configured() -> Result<Option<(String, String)>> {
     let Some(text) = crate::core::read_present(&path, "the alert setting")? else {
         return Ok(None);
     };
-    let kept: Value = serde_json::from_str(&text).with_context(|| format!("{} is not JSON", path.display()))?;
-    let field = |name: &str| kept[name].as_str().map(str::to_string).with_context(|| format!("{} names no {name}", path.display()));
+    let kept: Value =
+        serde_json::from_str(&text).with_context(|| format!("{} is not JSON", path.display()))?;
+    let field = |name: &str| {
+        kept[name]
+            .as_str()
+            .map(str::to_string)
+            .with_context(|| format!("{} names no {name}", path.display()))
+    };
     Ok(Some((field("item")?, field("field")?)))
 }
 
@@ -69,7 +84,10 @@ fn address(id: &str, field: &str) -> Result<String> {
     if !url.starts_with(SCHEME) {
         bail!("{id}'s {field} is not an https:// address, so no alert is posted through it");
     }
-    if url.chars().any(|c| c == '"' || c == '\\' || c.is_control() || c.is_whitespace()) {
+    if url
+        .chars()
+        .any(|c| c == '"' || c == '\\' || c.is_control() || c.is_whitespace())
+    {
         bail!("{id}'s {field} holds a character no webhook address carries");
     }
     Ok(url)
@@ -79,15 +97,20 @@ fn set(id: &str, field: &str) -> Result<Value> {
     address(id, field)?;
     let path = marker(&vault_path());
     let text = serde_json::to_string(&json!({"item": id, "field": field}))?;
-    crate::core::vault::atomic_write(&path, text.as_bytes()).with_context(|| format!("write the alert setting {}", path.display()))?;
+    crate::core::vault::atomic_write(&path, text.as_bytes())
+        .with_context(|| format!("write the alert setting {}", path.display()))?;
     crate::runtime::audit::append("alert-set", &json!({"item": id, "field": field}))?;
-    Ok(json!({"ok": true, "item": id, "field": field, "setting": path, "next": "skarbiec alert test posts a message to check it"}))
+    Ok(
+        json!({"ok": true, "item": id, "field": field, "setting": path, "next": "skarbiec alert test posts a message to check it"}),
+    )
 }
 
 fn status() -> Result<Value> {
     let path = marker(&vault_path());
     match configured()? {
-        Some((item, field)) => Ok(json!({"ok": true, "set": true, "item": item, "field": field, "setting": path})),
+        Some((item, field)) => {
+            Ok(json!({"ok": true, "set": true, "item": item, "field": field, "setting": path}))
+        }
         None => Ok(json!({"ok": true, "set": false, "setting": path})),
     }
 }
@@ -99,7 +122,9 @@ pub(crate) fn check() -> Result<Option<(String, Option<String>)>> {
     let Some((item, field)) = configured()? else {
         return Ok(None);
     };
-    let problem = address(&item, &field).err().map(|error| format!("{error:#}"));
+    let problem = address(&item, &field)
+        .err()
+        .map(|error| format!("{error:#}"));
     Ok(Some((format!("{item} · {field}"), problem)))
 }
 
@@ -114,7 +139,8 @@ pub(crate) fn follow_rename(from: &str, to: &str) -> Result<bool> {
     }
     let path = marker(&vault_path());
     let text = serde_json::to_string(&json!({"item": to, "field": field}))?;
-    crate::core::vault::atomic_write(&path, text.as_bytes()).with_context(|| format!("point the alert setting {} at {to}", path.display()))?;
+    crate::core::vault::atomic_write(&path, text.as_bytes())
+        .with_context(|| format!("point the alert setting {} at {to}", path.display()))?;
     Ok(true)
 }
 
@@ -123,7 +149,8 @@ fn unset() -> Result<Value> {
     let Some((item, field)) = configured()? else {
         bail!("no alert is set on this host; nothing was changed");
     };
-    std::fs::remove_file(&path).with_context(|| format!("remove the alert setting {}", path.display()))?;
+    std::fs::remove_file(&path)
+        .with_context(|| format!("remove the alert setting {}", path.display()))?;
     crate::runtime::audit::append("alert-unset", &json!({"item": item, "field": field}))?;
     Ok(json!({"ok": true, "item": item, "field": field}))
 }
@@ -138,7 +165,16 @@ pub(crate) fn send(text: &str) -> Result<Option<Value>> {
     let url = address(&item, &field)?;
     let body = json!({"text": text, "content": text}).to_string();
     let mut child = Command::new("curl")
-        .args(["-sS", "--fail-with-body", "-K", "-", "-H", "Content-Type: application/json", "--data", &body])
+        .args([
+            "-sS",
+            "--fail-with-body",
+            "-K",
+            "-",
+            "-H",
+            "Content-Type: application/json",
+            "--data",
+            &body,
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -150,8 +186,13 @@ pub(crate) fn send(text: &str) -> Result<Option<Value>> {
         .context("curl was started without a standard input")?
         .write_all(format!("url = \"{url}\"\n").as_bytes())
         .context("hand the webhook address to curl")?;
-    let output = stado_wait::blocking(stado_wait::Kind::Process, "curl posting an alert", &item, || child.wait_with_output())
-        .context("wait for curl")?;
+    let output = stado_wait::blocking(
+        stado_wait::Kind::Process,
+        "curl posting an alert",
+        &item,
+        || child.wait_with_output(),
+    )
+    .context("wait for curl")?;
     if !output.status.success() {
         bail!(
             "the webhook {item} keeps refused the alert ({}): {} {}",

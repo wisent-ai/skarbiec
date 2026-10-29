@@ -43,10 +43,22 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
     };
     let mut positionals = vec![verb.to_string()];
     match takes {
-        None => return runtime(crate::runtime::helper::COMMAND, &flags(parsed, &[]), &positionals).map(Some),
+        None => {
+            return runtime(
+                crate::runtime::helper::COMMAND,
+                &flags(parsed, &[]),
+                &positionals,
+            )
+            .map(Some)
+        }
         Some(false) => {
             positionals.extend(optional(parsed, "tool"));
-            return runtime(crate::runtime::helper::COMMAND, &flags(parsed, &[]), &positionals).map(Some);
+            return runtime(
+                crate::runtime::helper::COMMAND,
+                &flags(parsed, &[]),
+                &positionals,
+            )
+            .map(Some);
         }
         Some(true) => {}
     }
@@ -56,7 +68,12 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
     for argument in &takes.arguments {
         positionals.push(text(parsed, argument)?);
     }
-    let plain: Vec<&str> = takes.flags.iter().filter(|flag| !takes.directories.contains(flag)).map(String::as_str).collect();
+    let plain: Vec<&str> = takes
+        .flags
+        .iter()
+        .filter(|flag| !takes.directories.contains(flag))
+        .map(String::as_str)
+        .collect();
     let mut given = flags(parsed, &plain);
     for directory in &takes.directories {
         if optional(parsed, directory).is_some() {

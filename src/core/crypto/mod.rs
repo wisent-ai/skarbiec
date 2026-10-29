@@ -19,8 +19,8 @@ pub use execution::{
     keyring_lock_holders, recover_daemons, recycle_oversized_daemons, DAEMON_MEMORY_LIMIT_SETTING,
 };
 pub use keys::{
-    encrypted_to, export_public_key, fingerprint_for, fingerprint_of_armored, generate_key, import_key,
-    key_validity, keygrips_for, secret_key_present, KeyValidity,
+    encrypted_to, export_public_key, fingerprint_for, fingerprint_of_armored, generate_key,
+    import_key, key_validity, keygrips_for, secret_key_present, KeyValidity,
 };
 pub use messages::{
     clearsign, decrypt, encrypt_to, random_token, seal_with_passphrase, sha1_hex_upper, sha256_hex,

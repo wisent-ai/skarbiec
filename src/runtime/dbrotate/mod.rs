@@ -42,8 +42,13 @@ fn rotate(id: &str, url: &str, engine: &Engine, length: &str) -> Result<Value> {
         crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
         let payload = vault.get_item(id)?;
         let fields = &payload["fields"];
-        let user = fields[USERNAME].as_str().filter(|user| !user.is_empty()).with_context(|| format!("{id} holds no {USERNAME}, the account to rotate"))?;
-        let old = fields[PASSWORD].as_str().with_context(|| format!("{id} holds no {PASSWORD} to sign in with"))?;
+        let user = fields[USERNAME]
+            .as_str()
+            .filter(|user| !user.is_empty())
+            .with_context(|| format!("{id} holds no {USERNAME}, the account to rotate"))?;
+        let old = fields[PASSWORD]
+            .as_str()
+            .with_context(|| format!("{id} holds no {PASSWORD} to sign in with"))?;
         (user.to_string(), old.to_string())
     };
     // Letters and digits: every server and every connection string takes them.
@@ -53,7 +58,10 @@ fn rotate(id: &str, url: &str, engine: &Engine, length: &str) -> Result<Value> {
         ("upper".to_string(), "true".to_string()),
         ("digits".to_string(), "true".to_string()),
     ]))?;
-    let new = generated["password"].as_str().context("generate answered no password")?.to_string();
+    let new = generated["password"]
+        .as_str()
+        .context("generate answered no password")?
+        .to_string();
     let verdict = crate::access::policy::check(&new)?;
     if verdict["ok"] != json!(true) {
         bail!("a {length}-character value does not clear the vault policy ({}); nothing was changed. Ask for a longer one", verdict["rules"]);
@@ -65,10 +73,18 @@ fn rotate(id: &str, url: &str, engine: &Engine, length: &str) -> Result<Value> {
         Err(error) => Err(anyhow::anyhow!("{error:#}")),
     };
     let Err(error) = proven else {
-        crate::runtime::audit::append("db-rotated", &json!({"item": id, "url": url, "revision": revision}))?;
-        return Ok(json!({"ok": true, "item": id, "account": user, "url": url, "client": engine.client(), "revision": revision}));
+        crate::runtime::audit::append(
+            "db-rotated",
+            &json!({"item": id, "url": url, "revision": revision}),
+        )?;
+        return Ok(
+            json!({"ok": true, "item": id, "account": user, "url": url, "client": engine.client(), "revision": revision}),
+        );
     };
-    crate::runtime::audit::append("db-rotate-failed", &json!({"item": id, "url": url, "revision": revision}))?;
+    crate::runtime::audit::append(
+        "db-rotate-failed",
+        &json!({"item": id, "url": url, "revision": revision}),
+    )?;
     // The server first, with the password it now takes; the vault then holds
     // whatever the server holds.
     if changed.is_ok() {

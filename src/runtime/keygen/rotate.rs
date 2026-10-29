@@ -38,14 +38,28 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
         crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
         vault.get_item(id)?
     };
-    let kind = payload.get("kind").and_then(Value::as_str).with_context(|| format!("{id} records no kind"))?;
+    let kind = payload
+        .get("kind")
+        .and_then(Value::as_str)
+        .with_context(|| format!("{id} records no kind"))?;
     if kind != KIND {
         bail!("{id} is a {kind} item, not a {KIND}; rotate --with ssh replaces the SSH key a {KIND} item holds");
     }
-    let fields = payload.get("fields").and_then(Value::as_object).with_context(|| format!("{id} has no fields object"))?;
-    let retired = fields.get(PUBLIC).and_then(Value::as_str).map(str::to_string);
+    let fields = payload
+        .get("fields")
+        .and_then(Value::as_object)
+        .with_context(|| format!("{id} has no fields object"))?;
+    let retired = fields
+        .get(PUBLIC)
+        .and_then(Value::as_str)
+        .map(str::to_string);
     let hosts: Vec<String> = match flags.get("hosts") {
-        Some(listed) => listed.split(',').map(str::trim).filter(|host| !host.is_empty()).map(str::to_string).collect(),
+        Some(listed) => listed
+            .split(',')
+            .map(str::trim)
+            .filter(|host| !host.is_empty())
+            .map(str::to_string)
+            .collect(),
         None => Vec::new(),
     };
     if flags.contains_key("hosts") && hosts.is_empty() {
@@ -58,27 +72,50 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
     let mut places: Vec<Place> = Vec::new();
     for forge in [Forge::GitHub, Forge::GitLab] {
         if crate::cli::args::flag_set(flags, forge.account_flag()) {
-            places.push(Place { forge, spot: Spot::Account });
+            places.push(Place {
+                forge,
+                spot: Spot::Account,
+            });
         }
-        let Some(listed) = flags.get(forge.flag()) else { continue };
-        let repos: Vec<&str> = listed.split(',').map(str::trim).filter(|repo| !repo.is_empty()).collect();
+        let Some(listed) = flags.get(forge.flag()) else {
+            continue;
+        };
+        let repos: Vec<&str> = listed
+            .split(',')
+            .map(str::trim)
+            .filter(|repo| !repo.is_empty())
+            .collect();
         if repos.is_empty() {
             return Err(Usage(format!("--{} names no repository; {USAGE}", forge.flag())).into());
         }
         for repo in repos {
-            forge.checked(repo).map_err(|error| Usage(format!("{error:#}; {USAGE}")))?;
-            places.push(Place { forge, spot: Spot::Repo(repo.to_string()) });
+            forge
+                .checked(repo)
+                .map_err(|error| Usage(format!("{error:#}; {USAGE}")))?;
+            places.push(Place {
+                forge,
+                spot: Spot::Repo(repo.to_string()),
+            });
         }
     }
     // GitHub keeps signing keys apart from sign-in keys; GitLab's account
     // keys carry both, so --gitlab-account covers signing there.
     if crate::cli::args::flag_set(flags, "github-signing") {
-        places.push(Place { forge: Forge::GitHub, spot: Spot::Signing });
+        places.push(Place {
+            forge: Forge::GitHub,
+            spot: Spot::Signing,
+        });
     }
-    let old_private = fields.get(PRIVATE).and_then(Value::as_str).map(str::to_string);
+    let old_private = fields
+        .get(PRIVATE)
+        .and_then(Value::as_str)
+        .map(str::to_string);
     // The old key's comment is kept unless one is given; a key with none
     // takes the item's id, as ssh new gives it.
-    let comment = match (flags.get("comment"), retired.as_deref().and_then(comment_of)) {
+    let comment = match (
+        flags.get("comment"),
+        retired.as_deref().and_then(comment_of),
+    ) {
         (Some(given), _) => given.clone(),
         (None, Some(kept)) => kept.to_string(),
         (None, None) => id.to_string(),
@@ -90,23 +127,32 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
     let added = match places.is_empty() {
         true => Vec::new(),
         false => {
-            let old_public = retired.as_deref().with_context(|| format!("{id} holds no public_key to find among the repositories' deploy keys"))?;
+            let old_public = retired.as_deref().with_context(|| {
+                format!("{id} holds no public_key to find among the repositories' deploy keys")
+            })?;
             super::forges::add_everywhere(&places, old_public, &public_key)?
         }
     };
     let take_back = |error: anyhow::Error| -> anyhow::Error {
         match super::forges::take_back(&added).as_slice() {
             [] => error,
-            left => error.context(format!("the new key could not be taken back off {}", left.join("; "))),
+            left => error.context(format!(
+                "the new key could not be taken back off {}",
+                left.join("; ")
+            )),
         }
     };
     // The workspace holding both keys is gone by return.
     let work = match hosts.is_empty() {
         true => None,
         false => {
-            let old_private = old_private.as_deref().with_context(|| format!("{id} holds no private_key to reach the hosts with")).map_err(&take_back)?;
+            let old_private = old_private
+                .as_deref()
+                .with_context(|| format!("{id} holds no private_key to reach the hosts with"))
+                .map_err(&take_back)?;
             let work = super::workspace(&vault_path()).map_err(&take_back)?;
-            super::push::add_everywhere(&work.0, &hosts, old_private, &private_key, &public_key).map_err(&take_back)?;
+            super::push::add_everywhere(&work.0, &hosts, old_private, &private_key, &public_key)
+                .map_err(&take_back)?;
             Some(work)
         }
     };
@@ -119,13 +165,20 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
     let mut vault = Vault::open(vault_path())?;
     let recipients = vault.item_recipient_uids(id)?;
     let tags = {
-        let entry = vault.doc().get("items").and_then(|items| items.get(id)).with_context(|| format!("no item: {id}"))?;
+        let entry = vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
         crate::core::vault::entry_texts(id, entry, "tags")?
     };
     vault.set_item(id, KIND, &payload, &recipients, &tags)?;
     let revision = vault.item_revision(id)?;
     let repositories: Vec<String> = places.iter().map(|place| place.label()).collect();
-    crate::runtime::audit::append("ssh-key-rotated", &json!({"item": id, "revision": revision, "hosts": hosts, "repositories": repositories}))?;
+    crate::runtime::audit::append(
+        "ssh-key-rotated",
+        &json!({"item": id, "revision": revision, "hosts": hosts, "repositories": repositories}),
+    )?;
     let pushed = match (&work, retired.as_deref()) {
         (Some(work), Some(old_public)) => super::push::retire_everywhere(&work.0, &hosts, &private_key, old_public)?,
         (Some(_), None) => hosts.iter().map(|host| json!({"host": host, "retired_removed": false, "error": "the item held no public key to remove"})).collect(),
@@ -145,7 +198,10 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
         Some(old_public) => crate::runtime::ssh_agent::follow_rotation(id, old_public),
         None => json!({"swapped": false}),
     };
-    let all_retired = pushed.iter().chain(deploy_keys.iter()).all(|place| place["retired_removed"] == json!(true));
+    let all_retired = pushed
+        .iter()
+        .chain(deploy_keys.iter())
+        .all(|place| place["retired_removed"] == json!(true));
     Ok(json!({
         "ok": all_retired,
         "item": id,

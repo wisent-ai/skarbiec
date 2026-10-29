@@ -11,7 +11,10 @@ use super::{everyone, sentences, stands_at_agent};
 /// (`lock_holder::orphaned_database_holder`). Such a run waits as surely as
 /// the holder does. Empty when neither holds; a lock that cannot be read is
 /// the error, since whether the runs wait cannot then be told.
-fn held_back(all: &[(String, PublishedRun)], stood: &[Stood]) -> Result<Vec<(u32, String)>, String> {
+fn held_back(
+    all: &[(String, PublishedRun)],
+    stood: &[Stood],
+) -> Result<Vec<(u32, String)>, String> {
     let quiet: Vec<u32> = all
         .iter()
         .filter(|(_, run)| run.last_status.is_none())
@@ -85,14 +88,18 @@ pub fn agent_refusal() -> Option<String> {
         return None;
     }
     let mut waits = sentences(&all, &stood);
-    waits.extend(all.iter().filter(|(_, run)| !stands_at_agent(run, &stood)).filter_map(|(owner, run)| {
-        reason(run).map(|why| {
-            format!(
-                "gpg {} (pid {}, of {owner}) since {} has written no status: {why}",
-                run.verb, run.pid, run.started
-            )
-        })
-    }));
+    waits.extend(
+        all.iter()
+            .filter(|(_, run)| !stands_at_agent(run, &stood))
+            .filter_map(|(owner, run)| {
+                reason(run).map(|why| {
+                    format!(
+                        "gpg {} (pid {}, of {owner}) since {} has written no status: {why}",
+                        run.verb, run.pid, run.started
+                    )
+                })
+            }),
+    );
     Some(format!(
         "{} gpg run(s) of this account are in flight and every one waits on the GnuPG daemons, \
          on gpg-agent directly or behind a keyring lock it cannot take, so a run now would wait \

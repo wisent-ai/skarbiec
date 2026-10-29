@@ -36,9 +36,20 @@ pub fn dispatch(
     let answer = match (flags.get("set"), lookup, clear) {
         (Some(rules), false, false) => set(id, rules)?,
         (None, true, false) => registry::lookup(id)?,
-        (None, false, true) => crate::runtime::notes::set_context_text(id, PASSWORD_RULES, "", "clear the password rules of", "password-rules-cleared")?,
+        (None, false, true) => crate::runtime::notes::set_context_text(
+            id,
+            PASSWORD_RULES,
+            "",
+            "clear the password rules of",
+            "password-rules-cleared",
+        )?,
         (None, false, false) => read(id)?,
-        _ => return Err(Usage(format!("--set, --lookup and --clear each change the rules; give one. {USAGE}")).into()),
+        _ => {
+            return Err(Usage(format!(
+                "--set, --lookup and --clear each change the rules; give one. {USAGE}"
+            ))
+            .into())
+        }
     };
     Ok(Some(answer))
 }
@@ -61,7 +72,10 @@ fn read(id: &str) -> Result<Value> {
 pub(super) fn set(id: &str, rules: &str) -> Result<Value> {
     let trimmed = rules.trim();
     if trimmed.is_empty() {
-        return Err(Usage(format!("--set needs the rules; --clear removes them. {USAGE}")).into());
+        return Err(Usage(format!(
+            "--set needs the rules; --clear removes them. {USAGE}"
+        ))
+        .into());
     }
     let options = crate::cli::generate::rule_options(trimmed)?;
     let mut answer = crate::runtime::notes::set_context_text(

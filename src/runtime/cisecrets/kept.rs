@@ -26,14 +26,16 @@ pub(super) fn store(vault: &Path) -> PathBuf {
 
 pub(super) fn read(path: &Path) -> Result<Vec<Value>> {
     match crate::core::read_present(path, "kept CI secrets")? {
-        Some(text) => serde_json::from_str(&text).with_context(|| format!("{} is not a JSON list of kept targets", path.display())),
+        Some(text) => serde_json::from_str(&text)
+            .with_context(|| format!("{} is not a JSON list of kept targets", path.display())),
         None => Ok(Vec::new()),
     }
 }
 
 pub(super) fn write(path: &Path, entries: &[Value]) -> Result<()> {
     let body = serde_json::to_vec_pretty(entries).context("render the kept CI secrets")?;
-    crate::core::vault::atomic_write(path, &body).with_context(|| format!("write {}", path.display()))
+    crate::core::vault::atomic_write(path, &body)
+        .with_context(|| format!("write {}", path.display()))
 }
 
 /// Each item the bindings name, with its revision now.
@@ -41,7 +43,10 @@ fn revisions(bindings: &str) -> Result<Map<String, Value>> {
     let vault = Vault::open(vault_path())?;
     let mut revisions = Map::new();
     for binding in crate::runtime::exec::bindings_in(bindings)? {
-        revisions.insert(binding.item.clone(), json!(vault.item_revision(&binding.item)?));
+        revisions.insert(
+            binding.item.clone(),
+            json!(vault.item_revision(&binding.item)?),
+        );
     }
     Ok(revisions)
 }
@@ -49,10 +54,17 @@ fn revisions(bindings: &str) -> Result<Map<String, Value>> {
 /// The flags that set one kept target again: its bindings, the target's
 /// own flags it was kept with, and yes.
 fn flags_of(entry: &Value) -> Result<HashMap<String, String>> {
-    let bindings = entry["bindings"].as_str().context("a kept target names no bindings file")?;
-    let mut flags = HashMap::from([(BINDINGS.to_string(), bindings.to_string()), (YES.to_string(), "true".to_string())]);
+    let bindings = entry["bindings"]
+        .as_str()
+        .context("a kept target names no bindings file")?;
+    let mut flags = HashMap::from([
+        (BINDINGS.to_string(), bindings.to_string()),
+        (YES.to_string(), "true".to_string()),
+    ]);
     for (key, value) in entry["scope"].as_object().into_iter().flatten() {
-        let value = value.as_str().with_context(|| format!("a kept target's {key} is {value}, not text"))?;
+        let value = value
+            .as_str()
+            .with_context(|| format!("a kept target's {key} is {value}, not text"))?;
         flags.insert(key.clone(), value.to_string());
     }
     Ok(flags)
@@ -63,8 +75,14 @@ fn same(entry: &Value, target: &str, place: &str) -> bool {
 }
 
 pub(super) fn keep(target: &str, place: &str, flags: &HashMap<String, String>) -> Result<Value> {
-    let given = flags.get(BINDINGS).context("ci keep needs --env-from, the bindings file to set again")?;
-    let bindings = std::env::current_dir().context("read the working directory")?.join(given).display().to_string();
+    let given = flags
+        .get(BINDINGS)
+        .context("ci keep needs --env-from, the bindings file to set again")?;
+    let bindings = std::env::current_dir()
+        .context("read the working directory")?
+        .join(given)
+        .display()
+        .to_string();
     // The target's own flags — an Actions environment, a kubectl context —
     // are kept as given; the bindings and the consent are not scope.
     let scope: Map<String, Value> = flags
@@ -75,14 +93,23 @@ pub(super) fn keep(target: &str, place: &str, flags: &HashMap<String, String>) -
     let mut entry = json!({"target": target, "place": place, "bindings": bindings, "scope": scope});
     let pushed = super::push(target, place, &flags_of(&entry)?)?;
     if pushed["ok"] != json!(true) {
-        bail!("{target} {place} was not set, so it is not kept: {}", pushed["refused"]);
+        bail!(
+            "{target} {place} was not set, so it is not kept: {}",
+            pushed["refused"]
+        );
     }
     entry["revisions"] = json!(revisions(&bindings)?);
     let path = store(&vault_path());
-    let mut entries: Vec<Value> = read(&path)?.into_iter().filter(|kept| !same(kept, target, place)).collect();
+    let mut entries: Vec<Value> = read(&path)?
+        .into_iter()
+        .filter(|kept| !same(kept, target, place))
+        .collect();
     entries.push(entry.clone());
     write(&path, &entries)?;
-    crate::runtime::audit::append("ci-secrets-kept", &json!({"target": target, "place": place, "bindings": bindings}))?;
+    crate::runtime::audit::append(
+        "ci-secrets-kept",
+        &json!({"target": target, "place": place, "bindings": bindings}),
+    )?;
     Ok(json!({"ok": true, "kept": entry, "set": pushed}))
 }
 
@@ -122,21 +149,36 @@ pub(super) fn forget(target: &str, place: &str) -> Result<Value> {
     if !entries.iter().any(|entry| same(entry, target, place)) {
         bail!("{target} {place} is not kept here; `skarbiec ci kept` lists what is");
     }
-    let left: Vec<Value> = entries.into_iter().filter(|entry| !same(entry, target, place)).collect();
+    let left: Vec<Value> = entries
+        .into_iter()
+        .filter(|entry| !same(entry, target, place))
+        .collect();
     write(&path, &left)?;
-    crate::runtime::audit::append("ci-secrets-forgotten", &json!({"target": target, "place": place}))?;
+    crate::runtime::audit::append(
+        "ci-secrets-forgotten",
+        &json!({"target": target, "place": place}),
+    )?;
     Ok(json!({"ok": true, "target": target, "place": place, "kept": false}))
 }
 
 /// Set one kept target again when its items changed; false when none did.
 fn renew(entry: &mut Value) -> Result<bool> {
-    let bindings = entry["bindings"].as_str().context("the kept target names no bindings file")?.to_string();
+    let bindings = entry["bindings"]
+        .as_str()
+        .context("the kept target names no bindings file")?
+        .to_string();
     let now = revisions(&bindings)?;
     if entry["revisions"] == json!(now) {
         return Ok(false);
     }
-    let target = entry["target"].as_str().context("the kept target names no target")?.to_string();
-    let place = entry["place"].as_str().context("the kept target names no place")?.to_string();
+    let target = entry["target"]
+        .as_str()
+        .context("the kept target names no target")?
+        .to_string();
+    let place = entry["place"]
+        .as_str()
+        .context("the kept target names no place")?
+        .to_string();
     let pushed = super::push(&target, &place, &flags_of(entry)?)?;
     if pushed["ok"] != json!(true) {
         bail!("refused: {}", pushed["refused"]);
@@ -165,5 +207,7 @@ pub fn pass() -> Result<Option<Value>> {
         }
     }
     write(&path, &entries)?;
-    Ok(Some(json!({"ok": failed.is_empty(), "set": set, "unchanged": unchanged, "failed": failed})))
+    Ok(Some(
+        json!({"ok": failed.is_empty(), "set": set, "unchanged": unchanged, "failed": failed}),
+    ))
 }

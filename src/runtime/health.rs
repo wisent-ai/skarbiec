@@ -88,12 +88,16 @@ fn report(flags: &HashMap<String, String>) -> Result<Value> {
                 insecure_addresses.push(json!({"item": id, "addresses": plain}));
             }
         }
-        if let (Some(context), Some(username)) =
-            (payload.get("context"), fields.get("username").and_then(Value::as_str))
-        {
+        if let (Some(context), Some(username)) = (
+            payload.get("context"),
+            fields.get("username").and_then(Value::as_str),
+        ) {
             if !username.is_empty() {
                 for site in crate::core::items::item_domains(context) {
-                    accounts.entry((site, username.to_lowercase())).or_default().push(id.to_string());
+                    accounts
+                        .entry((site, username.to_lowercase()))
+                        .or_default()
+                        .push(id.to_string());
                 }
             }
         }
@@ -106,7 +110,9 @@ fn report(flags: &HashMap<String, String>) -> Result<Value> {
         checked.push(id.to_string());
         let digest = crypto::sha256_hex(text)?;
         if check_breaches {
-            values.entry(digest.clone()).or_insert_with(|| text.to_string());
+            values
+                .entry(digest.clone())
+                .or_insert_with(|| text.to_string());
         }
         holders.entry(digest).or_default().push(id.to_string());
         let kept_rules = payload
@@ -118,7 +124,8 @@ fn report(flags: &HashMap<String, String>) -> Result<Value> {
             match crate::cli::generate::rules_broken(rules, text) {
                 Ok(broken) if broken.is_empty() => {}
                 Ok(broken) => breaks_site_rules.push(json!({"item": id, "broken": broken})),
-                Err(error) => unreadable.push(json!({"item": id, "error": format!("its password rules: {error:#}")})),
+                Err(error) => unreadable
+                    .push(json!({"item": id, "error": format!("its password rules: {error:#}")})),
             }
         }
         let verdict = crate::access::policy::decide(policy, text);
@@ -130,7 +137,10 @@ fn report(flags: &HashMap<String, String>) -> Result<Value> {
                 .filter(|rule| rule["ok"] != json!(true))
                 .filter_map(|rule| rule.get("key"))
                 .collect();
-            if failed.iter().any(|key| key.as_str() == Some("min_generated_length")) {
+            if failed
+                .iter()
+                .any(|key| key.as_str() == Some("min_generated_length"))
+            {
                 short.push(id.to_string());
             }
             below_policy.push(json!({"item": id, "failed": failed}));

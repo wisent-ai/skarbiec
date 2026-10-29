@@ -58,14 +58,22 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         return reply(stream, super::super::status::observed()?, &[]);
     }
 
-    let (Some(version), Some(operation), Some(capability_id), Some(nonce), Some(workload_id), Some(proof)) = (
+    let (
+        Some(version),
+        Some(operation),
+        Some(capability_id),
+        Some(nonce),
+        Some(workload_id),
+        Some(proof),
+    ) = (
         text(&request, "version"),
         text(&request, "operation"),
         text(&request, "capability_id"),
         text(&request, "nonce"),
         text(&request, "workload_id"),
         text(&request, "proof"),
-    ) else {
+    )
+    else {
         return denied_because(stream, MALFORMED);
     };
     // The wire leaves authorization_id out for a capability issued without

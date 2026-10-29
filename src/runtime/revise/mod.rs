@@ -16,7 +16,10 @@ pub(crate) fn fields(id: &str, values: &[(&str, &str)]) -> Result<u64> {
     let mut vault = Vault::open(vault_path())?;
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "revise")?;
     let mut payload = vault.get_item(id)?;
-    let kind = payload["kind"].as_str().with_context(|| format!("{id} records no kind"))?.to_string();
+    let kind = payload["kind"]
+        .as_str()
+        .with_context(|| format!("{id} records no kind"))?
+        .to_string();
     let held = payload
         .get_mut("fields")
         .and_then(Value::as_object_mut)
@@ -26,7 +29,11 @@ pub(crate) fn fields(id: &str, values: &[(&str, &str)]) -> Result<u64> {
     }
     let recipients = vault.item_recipient_uids(id)?;
     let tags = {
-        let entry = vault.doc().get("items").and_then(|items| items.get(id)).with_context(|| format!("no item: {id}"))?;
+        let entry = vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id))
+            .with_context(|| format!("no item: {id}"))?;
         crate::core::vault::entry_texts(id, entry, "tags")?
     };
     vault.set_item(id, &kind, &payload, &recipients, &tags)?;

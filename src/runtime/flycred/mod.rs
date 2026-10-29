@@ -23,7 +23,9 @@ const ENTRY: &str = "access_token";
 fn config_file() -> Result<PathBuf> {
     let directory = match crate::core::env::path("FLY_CONFIG_DIR") {
         Some(directory) => directory,
-        None => crate::core::env::path("HOME").context("neither FLY_CONFIG_DIR nor HOME names where flyctl keeps its configuration")?.join(".fly"),
+        None => crate::core::env::path("HOME")
+            .context("neither FLY_CONFIG_DIR nor HOME names where flyctl keeps its configuration")?
+            .join(".fly"),
     };
     Ok(directory.join("config.yml"))
 }
@@ -35,7 +37,12 @@ fn kept() -> Result<(PathBuf, String, Option<(usize, String)>)> {
         return Ok((file, String::new(), None));
     };
     let found = text.lines().enumerate().find_map(|(index, line)| {
-        let token = line.trim_start().strip_prefix(KEY)?.trim().trim_matches('"').trim_matches('\'');
+        let token = line
+            .trim_start()
+            .strip_prefix(KEY)?
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'');
         (!token.is_empty()).then(|| (index, token.to_string()))
     });
     Ok((file, text, found))
@@ -44,7 +51,10 @@ fn kept() -> Result<(PathBuf, String, Option<(usize, String)>)> {
 /// The access token, when the file keeps one, as tool status lists it.
 pub(crate) fn status() -> Result<Value> {
     let (file, _, found) = kept()?;
-    let entries: Vec<Value> = found.iter().map(|_| json!({"entry": ENTRY, "kept": "plain text"})).collect();
+    let entries: Vec<Value> = found
+        .iter()
+        .map(|_| json!({"entry": ENTRY, "kept": "plain text"}))
+        .collect();
     Ok(json!({"file": file, "entries": entries, "variables": [VARIABLE]}))
 }
 
@@ -60,7 +70,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let mut fields = Map::new();
     fields.insert(FIELD.to_string(), json!(token));
     let mut context = Map::new();
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!("Fly.io access token"));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!("Fly.io access token"),
+    );
     let payload = crate::core::schema::payload(FIELD, fields, context)?;
     let mut write = HashMap::from([("type".to_string(), FIELD.to_string())]);
     if let Some(tags) = tags {
@@ -69,14 +82,22 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     crate::cli::items::create_value(&write, id, &payload.to_string(), "tool import")?;
     let read_back = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if read_back["fields"][FIELD] != json!(token) {
-        bail!("{id} does not read back the access token; {} was left as it was", file.display());
+        bail!(
+            "{id} does not read back the access token; {} was left as it was",
+            file.display()
+        );
     }
     if let Some(out) = updated {
         crate::core::vault::atomic_write(bindings, out.as_bytes())
             .with_context(|| format!("{} still keeps the access token and {id} holds a copy, but {} could not bind {VARIABLE}", file.display(), bindings.display()))?;
     }
     crate::runtime::bindings::remember(bindings)?;
-    let mut out: Vec<&str> = text.lines().enumerate().filter(|(line, _)| *line != index).map(|(_, line)| line).collect();
+    let mut out: Vec<&str> = text
+        .lines()
+        .enumerate()
+        .filter(|(line, _)| *line != index)
+        .map(|(_, line)| line)
+        .collect();
     if text.ends_with('\n') {
         out.push("");
     }

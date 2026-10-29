@@ -74,8 +74,17 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         Ok(found) => found,
         Err(error) => return check(NAME, FAIL, format!("{error:#}")),
     };
-    let npm_asks = npm_signins.iter().any(|signin| signin.reference().is_some());
-    if forges.is_empty() && registries.is_empty() && profiles.is_empty() && kube_users.is_empty() && !terraform_asks && !cargo_asks && !npm_asks {
+    let npm_asks = npm_signins
+        .iter()
+        .any(|signin| signin.reference().is_some());
+    if forges.is_empty()
+        && registries.is_empty()
+        && profiles.is_empty()
+        && kube_users.is_empty()
+        && !terraform_asks
+        && !cargo_asks
+        && !npm_asks
+    {
         return check(NAME, NOT_CONFIGURED, "neither git, Docker, AWS, kubectl, Terraform, Cargo nor npm asks this vault for credentials".into());
     }
     let mut problems = Vec::new();
@@ -85,7 +94,12 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
             terraform["config"], terraform["program"]
         ));
     }
-    let plain: Vec<&str> = terraform["hosts_in_file"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let plain: Vec<&str> = terraform["hosts_in_file"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     if terraform_asks && !plain.is_empty() {
         problems.push(format!(
             "{} still holds Terraform tokens for {} in plain text, which Terraform no longer reads; skarbiec helper import terraform <id> --host <host> moves each into the vault",
@@ -94,7 +108,12 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         ));
     }
     // Cargo's provider names this binary by its absolute path too.
-    let cargo_plain: Vec<&str> = cargo["registries_in_file"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let cargo_plain: Vec<&str> = cargo["registries_in_file"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     if cargo_asks && !cargo_plain.is_empty() {
         problems.push(format!(
             "{} still holds Cargo tokens for {} in plain text beside this vault's provider; skarbiec helper import cargo <id> --registry <name> --host <index host> moves each into the vault",
@@ -146,7 +165,10 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
     match crate::runtime::gitcred::stored_hosts() {
         Err(error) => problems.push(format!("{error:#}")),
         Ok(stored) => {
-            for (file, host) in stored.iter().filter(|(_, host)| forges.iter().any(|(asked, _)| asked == host)) {
+            for (file, host) in stored
+                .iter()
+                .filter(|(_, host)| forges.iter().any(|(asked, _)| asked == host))
+            {
                 problems.push(format!(
                     "{} still keeps a plain-text sign-in for {host}, which git asks this vault for; skarbiec helper import git <id> {host} moves it into the vault",
                     file.display()
@@ -173,7 +195,10 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
         match crate::runtime::dockercred::plain_auths() {
             Err(error) => problems.push(format!("{error:#}")),
             Ok(plain) => {
-                for registry in plain.iter().filter(|registry| registries.contains(registry)) {
+                for registry in plain
+                    .iter()
+                    .filter(|registry| registries.contains(registry))
+                {
                     problems.push(format!(
                         "Docker's {} still keeps a base64 sign-in for {registry} under auths, which Docker asks this vault for; remove it there, or skarbiec helper import docker <id> {registry} --link <dir> moves it into a new item",
                         docker_config.display()
@@ -182,7 +207,11 @@ pub(in crate::runtime::doctor) fn helpers_check() -> Value {
             }
         }
     }
-    let npm_plain: Vec<&str> = npm_signins.iter().filter(|signin| signin.reference().is_none()).map(|signin| signin.registry.as_str()).collect();
+    let npm_plain: Vec<&str> = npm_signins
+        .iter()
+        .filter(|signin| signin.reference().is_none())
+        .map(|signin| signin.registry.as_str())
+        .collect();
     if npm_asks && !npm_plain.is_empty() {
         problems.push(format!(
             "{} still holds npm tokens for {} in plain text beside the ones read from the vault; skarbiec tool import npm <id> --select <registry> --bindings <file> moves each into the vault",

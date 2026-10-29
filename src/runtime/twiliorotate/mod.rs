@@ -32,11 +32,20 @@ pub(crate) fn rotate_item(_flags: &HashMap<String, String>, id: &str) -> Result<
 
 /// The Basic header Twilio signs in with: the Account SID and a token.
 fn header(sid: &str, token: &str) -> String {
-    format!("Authorization: Basic {}", base64::engine::general_purpose::STANDARD.encode(format!("{sid}:{token}")))
+    format!(
+        "Authorization: Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(format!("{sid}:{token}"))
+    )
 }
 
 fn twilio(method: &str, url: &str, sid: &str, token: &str) -> Result<Value> {
-    call(&Call { method, url, header: &header(sid, token), form: &[], json: None })
+    call(&Call {
+        method,
+        url,
+        header: &header(sid, token),
+        form: &[],
+        json: None,
+    })
 }
 
 fn held(id: &str) -> Result<(String, String)> {
@@ -46,7 +55,13 @@ fn held(id: &str) -> Result<(String, String)> {
     if payload["kind"] != json!(KIND) {
         bail!("{id} is a {} item; rotate --with twilio replaces an {KIND} item's {TOKEN}, with the Account SID in {SID}", payload["kind"]);
     }
-    let text = |field: &str| payload["fields"][field].as_str().filter(|value| !value.is_empty()).map(str::to_string).with_context(|| format!("{id} holds no {field}"));
+    let text = |field: &str| {
+        payload["fields"][field]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .with_context(|| format!("{id} holds no {field}"))
+    };
     let sid = text(SID)?;
     if !sid.starts_with(SID_PREFIX) {
         bail!("{id}'s {SID} is {sid}, not a Twilio Account SID, which starts with {SID_PREFIX}");
@@ -57,7 +72,10 @@ fn held(id: &str) -> Result<(String, String)> {
 fn rotate(id: &str) -> Result<Value> {
     let (sid, old) = held(id)?;
     let made = twilio("POST", &format!("{ACCOUNTS}/Secondary"), &sid, &old)?;
-    let new = made["secondary_auth_token"].as_str().context("Twilio answered no secondary_auth_token")?.to_string();
+    let new = made["secondary_auth_token"]
+        .as_str()
+        .context("Twilio answered no secondary_auth_token")?
+        .to_string();
     let take_back = || twilio("DELETE", &format!("{ACCOUNTS}/Secondary"), &sid, &old);
     let revision = match crate::runtime::revise::fields(id, &[(TOKEN, &new)]) {
         Ok(revision) => revision,
@@ -68,9 +86,13 @@ fn rotate(id: &str) -> Result<Value> {
             };
         }
     };
-    let proved = twilio("GET", &format!("{API}/{sid}.json"), &sid, &new).and_then(|_| twilio("POST", &format!("{ACCOUNTS}/Promote"), &sid, &new));
+    let proved = twilio("GET", &format!("{API}/{sid}.json"), &sid, &new)
+        .and_then(|_| twilio("POST", &format!("{ACCOUNTS}/Promote"), &sid, &new));
     if let Err(error) = proved {
-        crate::runtime::audit::append("twilio-rotate-failed", &json!({"item": id, "account": sid, "revision": revision}))?;
+        crate::runtime::audit::append(
+            "twilio-rotate-failed",
+            &json!({"item": id, "account": sid, "revision": revision}),
+        )?;
         let undone = take_back();
         let restored = crate::runtime::revise::fields(id, &[(TOKEN, &old)]);
         match (undone, restored) {
@@ -79,7 +101,10 @@ fn rotate(id: &str) -> Result<Value> {
             (_, Err(undo)) => bail!("{error:#}; {id} keeps the secondary token at revision {revision}, as the old one could not be written back ({undo:#}); it is the saved version before it"),
         }
     }
-    crate::runtime::audit::append("twilio-token-rotated", &json!({"item": id, "account": sid, "revision": revision}))?;
+    crate::runtime::audit::append(
+        "twilio-token-rotated",
+        &json!({"item": id, "account": sid, "revision": revision}),
+    )?;
     Ok(json!({
         "ok": true,
         "item": id,

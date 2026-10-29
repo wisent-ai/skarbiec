@@ -48,7 +48,10 @@ pub(super) fn dispatch(flags: &HashMap<String, String>, positionals: &[String]) 
         "remove" => policy::remove(args),
         "providers" => {
             if !args.is_empty() || !flags.is_empty() {
-                return Err(crate::cli::args::Usage(format!("rotation providers takes no argument or flag; {USAGE}")).into());
+                return Err(crate::cli::args::Usage(format!(
+                    "rotation providers takes no argument or flag; {USAGE}"
+                ))
+                .into());
             }
             Ok(crate::runtime::rotate::providers())
         }
@@ -74,7 +77,9 @@ fn policies(vault: &Vault) -> Result<Map<String, Value>> {
     match vault.doc().get(SECTION) {
         None => Ok(Map::new()),
         Some(Value::Object(section)) => Ok(section.clone()),
-        Some(other) => anyhow::bail!("the vault's {SECTION} section is {other}, not an object of policies"),
+        Some(other) => {
+            anyhow::bail!("the vault's {SECTION} section is {other}, not an object of policies")
+        }
     }
 }
 
@@ -118,7 +123,11 @@ pub(crate) fn mark_due(ids: &[String], reason: &str) -> Result<Vec<String>> {
 /// Carry an item's rotation policy to its new id after a rename, so the
 /// schedule keeps rotating it; the caller saves. True when there was one.
 pub(crate) fn follow_rename(vault: &mut Vault, from: &str, to: &str) -> bool {
-    let Some(section) = vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) else {
+    let Some(section) = vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+    else {
         return false;
     };
     match section.remove(from) {

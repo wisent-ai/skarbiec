@@ -34,37 +34,69 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
     let lasting = match (flags.get("end-date"), flags.get("years")) {
         (Some(end), None) => {
             let shaped = end.len() == DAY.len()
-                && end.chars().zip(DAY.chars()).all(|(given, shape)| match shape {
-                    '-' => given == '-',
-                    _ => given.is_ascii_digit(),
-                });
+                && end
+                    .chars()
+                    .zip(DAY.chars())
+                    .all(|(given, shape)| match shape {
+                        '-' => given == '-',
+                        _ => given.is_ascii_digit(),
+                    });
             if !shaped {
-                return Err(Usage(format!("--end-date {end} is not a day as {DAY}; {USAGE}")).into());
+                return Err(
+                    Usage(format!("--end-date {end} is not a day as {DAY}; {USAGE}")).into(),
+                );
             }
             ("--end-date", end.as_str())
         }
         (None, Some(years)) => {
-            if !years.chars().all(|c| c.is_ascii_digit()) || years.trim_start_matches('0').is_empty() {
-                return Err(Usage(format!("--years {years} is not a whole number of years above zero; {USAGE}")).into());
+            if !years.chars().all(|c| c.is_ascii_digit())
+                || years.trim_start_matches('0').is_empty()
+            {
+                return Err(Usage(format!(
+                    "--years {years} is not a whole number of years above zero; {USAGE}"
+                ))
+                .into());
             }
             ("--years", years.as_str())
         }
-        (Some(_), Some(_)) => return Err(Usage(format!("--end-date and --years both say when the new secret ends; give one; {USAGE}")).into()),
-        (None, None) => return Err(Usage(format!("say when the new secret ends with --end-date or --years; {USAGE}")).into()),
+        (Some(_), Some(_)) => {
+            return Err(Usage(format!(
+                "--end-date and --years both say when the new secret ends; give one; {USAGE}"
+            ))
+            .into())
+        }
+        (None, None) => {
+            return Err(Usage(format!(
+                "say when the new secret ends with --end-date or --years; {USAGE}"
+            ))
+            .into())
+        }
     };
-    rotate(id, tenant, lasting, crate::cli::args::flag_set(flags, "delete-old"))
+    rotate(
+        id,
+        tenant,
+        lasting,
+        crate::cli::args::flag_set(flags, "delete-old"),
+    )
 }
 
 /// Run `az <args>` as the account az is signed in as, answering its JSON.
 fn az(args: &[&str]) -> Result<Value> {
-    let output = stado_wait::output(Command::new("az").args(args).args(["--output", "json"])).with_context(|| format!("run az {}", args.join(" ")))?;
+    let output = stado_wait::output(Command::new("az").args(args).args(["--output", "json"]))
+        .with_context(|| format!("run az {}", args.join(" ")))?;
     if !output.status.success() {
-        bail!("az {} ({}): {}", args.join(" "), output.status, String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "az {} ({}): {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     let text = String::from_utf8_lossy(&output.stdout);
     match text.trim().is_empty() {
         true => Ok(Value::Null),
-        false => serde_json::from_str(&text).with_context(|| format!("az {} answered something that is not JSON", args.join(" "))),
+        false => serde_json::from_str(&text)
+            .with_context(|| format!("az {} answered something that is not JSON", args.join(" "))),
     }
 }
 
@@ -75,7 +107,17 @@ fn proves(client: &str, secret: &str, tenant: &str) -> Result<()> {
     let work = crate::runtime::keygen::workspace(&vault_path())?;
     let output = stado_wait::output(
         Command::new("az")
-            .args(["login", "--service-principal", "--username", client, "--tenant", tenant, "--allow-no-subscriptions", "--output", "none"])
+            .args([
+                "login",
+                "--service-principal",
+                "--username",
+                client,
+                "--tenant",
+                tenant,
+                "--allow-no-subscriptions",
+                "--output",
+                "none",
+            ])
             .args(["--password", "env:AZURE_CLIENT_SECRET"])
             .env("AZURE_CONFIG_DIR", work.0.join("azure"))
             .env("AZURE_CLIENT_SECRET", secret),
@@ -83,7 +125,11 @@ fn proves(client: &str, secret: &str, tenant: &str) -> Result<()> {
     drop(work);
     let output = output.context("run az login as the service principal")?;
     if !output.status.success() {
-        bail!("az login as {client} ({}): {}", output.status, String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "az login as {client} ({}): {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(())
 }
@@ -93,9 +139,18 @@ fn held(id: &str) -> Result<(String, String)> {
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     let payload = vault.get_item(id)?;
     if payload["kind"] != json!(KIND) {
-        bail!("{id} is a {} item; rotate --with azure replaces an {KIND} item's {SECRET}", payload["kind"]);
+        bail!(
+            "{id} is a {} item; rotate --with azure replaces an {KIND} item's {SECRET}",
+            payload["kind"]
+        );
     }
-    let text = |field: &str| payload["fields"][field].as_str().filter(|value| !value.is_empty()).map(str::to_string).with_context(|| format!("{id} holds no {field}"));
+    let text = |field: &str| {
+        payload["fields"][field]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .with_context(|| format!("{id} holds no {field}"))
+    };
     Ok((text(ID)?, text(SECRET)?))
 }
 
@@ -105,17 +160,41 @@ fn keys_of(listed: &Value, secret: &str) -> Vec<String> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|key| key["hint"].as_str().is_some_and(|hint| !hint.is_empty() && secret.starts_with(hint)))
+        .filter(|key| {
+            key["hint"]
+                .as_str()
+                .is_some_and(|hint| !hint.is_empty() && secret.starts_with(hint))
+        })
         .filter_map(|key| key["keyId"].as_str().map(str::to_string))
         .collect()
 }
 
-fn rotate(id: &str, tenant: &str, (lasting, until): (&str, &str), delete_old: bool) -> Result<Value> {
+fn rotate(
+    id: &str,
+    tenant: &str,
+    (lasting, until): (&str, &str),
+    delete_old: bool,
+) -> Result<Value> {
     let (client, old) = held(id)?;
     let before = az(&["ad", "app", "credential", "list", "--id", &client])?;
     let old_keys = keys_of(&before, &old);
-    let made = az(&["ad", "app", "credential", "reset", "--id", &client, "--append", "--display-name", "skarbiec", lasting, until])?;
-    let new = made["password"].as_str().context("az ad app credential reset answered no password")?.to_string();
+    let made = az(&[
+        "ad",
+        "app",
+        "credential",
+        "reset",
+        "--id",
+        &client,
+        "--append",
+        "--display-name",
+        "skarbiec",
+        lasting,
+        until,
+    ])?;
+    let new = made["password"]
+        .as_str()
+        .context("az ad app credential reset answered no password")?
+        .to_string();
     let after = az(&["ad", "app", "credential", "list", "--id", &client])?;
     let known = keys_of(&before, &new);
     let new_key = keys_of(&after, &new)
@@ -130,7 +209,18 @@ fn rotate(id: &str, tenant: &str, (lasting, until): (&str, &str), delete_old: bo
         .find(|key| key["keyId"].as_str() == Some(new_key.as_str()))
         .map(|key| key["endDateTime"].clone())
         .context("the new secret's key is missing from the application's credentials")?;
-    let take_back = || az(&["ad", "app", "credential", "delete", "--id", &client, "--key-id", &new_key]);
+    let take_back = || {
+        az(&[
+            "ad",
+            "app",
+            "credential",
+            "delete",
+            "--id",
+            &client,
+            "--key-id",
+            &new_key,
+        ])
+    };
     let revision = match crate::runtime::revise::fields(id, &[(SECRET, &new)]) {
         Ok(revision) => revision,
         Err(error) => {
@@ -143,7 +233,10 @@ fn rotate(id: &str, tenant: &str, (lasting, until): (&str, &str), delete_old: bo
         }
     };
     if let Err(error) = proves(&client, &new, tenant) {
-        crate::runtime::audit::append("azure-rotate-failed", &json!({"item": id, "client": client, "key": new_key, "revision": revision}))?;
+        crate::runtime::audit::append(
+            "azure-rotate-failed",
+            &json!({"item": id, "client": client, "key": new_key, "revision": revision}),
+        )?;
         let undone = take_back();
         let restored = crate::runtime::revise::fields(id, &[(SECRET, &old)]);
         match (undone, restored) {
@@ -161,8 +254,21 @@ fn rotate(id: &str, tenant: &str, (lasting, until): (&str, &str), delete_old: bo
     let mut retired = Vec::new();
     if delete_old {
         for key in &old_keys {
-            az(&["ad", "app", "credential", "delete", "--id", &client, "--key-id", key])
-                .with_context(|| format!("{id} holds the new secret {new_key}, but the old {key} could not be deleted"))?;
+            az(&[
+                "ad",
+                "app",
+                "credential",
+                "delete",
+                "--id",
+                &client,
+                "--key-id",
+                key,
+            ])
+            .with_context(|| {
+                format!(
+                    "{id} holds the new secret {new_key}, but the old {key} could not be deleted"
+                )
+            })?;
             retired.push(key.clone());
         }
     }

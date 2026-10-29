@@ -144,12 +144,12 @@ impl Vault {
             .into_iter()
             .flat_map(|items| items.iter())
             .filter_map(|(id, item)| {
-                let state = if item.get("format").and_then(Value::as_u64) == Some(current_envelope())
-                {
-                    item.get("state").and_then(Value::as_str)
-                } else {
-                    Some("legacy")
-                };
+                let state =
+                    if item.get("format").and_then(Value::as_u64) == Some(current_envelope()) {
+                        item.get("state").and_then(Value::as_str)
+                    } else {
+                        Some("legacy")
+                    };
                 let deleted = state == Some("trashed");
                 if deleted && !include_deleted {
                     return None;

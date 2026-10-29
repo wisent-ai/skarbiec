@@ -68,7 +68,10 @@ fn handle(request: &Value, out: &mut impl Write, broker: bool) -> Result<()> {
         None => return Ok(()),
     };
     let Some(method) = request.get("method").and_then(Value::as_str) else {
-        return send(out, &error_response(id, CODE_INVALID_REQUEST, "the request names no method"));
+        return send(
+            out,
+            &error_response(id, CODE_INVALID_REQUEST, "the request names no method"),
+        );
     };
     match method {
         "initialize" => send(
@@ -83,7 +86,12 @@ fn handle(request: &Value, out: &mut impl Write, broker: bool) -> Result<()> {
             let listed = if broker {
                 match broker::tools() {
                     Ok(listed) => listed,
-                    Err(e) => return send(out, &error_response(id, CODE_INTERNAL_ERROR, &format!("{e:#}"))),
+                    Err(e) => {
+                        return send(
+                            out,
+                            &error_response(id, CODE_INTERNAL_ERROR, &format!("{e:#}")),
+                        )
+                    }
                 }
             } else {
                 tools()
@@ -98,7 +106,11 @@ fn handle(request: &Value, out: &mut impl Write, broker: bool) -> Result<()> {
             let Some(name) = request.pointer("/params/name").and_then(Value::as_str) else {
                 return send(
                     out,
-                    &error_response(id, CODE_INVALID_PARAMS, "tools/call needs params.name, the tool to call"),
+                    &error_response(
+                        id,
+                        CODE_INVALID_PARAMS,
+                        "tools/call needs params.name, the tool to call",
+                    ),
                 );
             };
             // A tool called with no `arguments` is called with an empty argument object, as MCP defines it.
@@ -158,7 +170,11 @@ pub fn serve(surface: &[String]) -> Result<()> {
             Ok(request) => handle(&request, &mut stdout, broker)?,
             Err(error) => send(
                 &mut stdout,
-                &error_response(Value::Null, CODE_PARSE_ERROR, &format!("parse error: {error}")),
+                &error_response(
+                    Value::Null,
+                    CODE_PARSE_ERROR,
+                    &format!("parse error: {error}"),
+                ),
             )?,
         }
     }

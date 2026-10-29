@@ -24,7 +24,11 @@ pub(super) fn items_of(uid: &str) -> Result<Value> {
             .collect();
         return Err(crate::cli::args::Usage(format!(
             "unknown recipient: {uid}; the registered recipients are: {}",
-            registered.iter().map(|name| name.as_str()).collect::<Vec<_>>().join(", ")
+            registered
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         ))
         .into());
     }

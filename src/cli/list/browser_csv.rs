@@ -38,10 +38,16 @@ pub(crate) fn logins(rows: &[(String, Value)]) -> Result<String> {
             }
         };
         let context = payload.get("context");
-        let name = context.and_then(crate::core::items::display_name).map(str::to_string);
+        let name = context
+            .and_then(crate::core::items::display_name)
+            .map(str::to_string);
         // A login's first site is the address the browser files it under;
         // one with no site is still a login, filed under no address.
-        let url = match context.map(item_domains).as_deref().and_then(<[String]>::first) {
+        let url = match context
+            .map(item_domains)
+            .as_deref()
+            .and_then(<[String]>::first)
+        {
             Some(domain) => format!("https://{domain}/"),
             None => String::new(),
         };

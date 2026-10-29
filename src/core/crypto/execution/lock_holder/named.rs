@@ -61,9 +61,12 @@ fn recorded(named: &Named, file: &str) -> Result<Option<(libc::pid_t, String)>, 
         .next()
         .filter(|pid| !pid.is_empty())
         .ok_or_else(|| format!("{} names no holder pid", lock.display()))?;
-    let pid = pid
-        .parse::<libc::pid_t>()
-        .map_err(|error| format!("{} names holder {pid:?}, not a pid: {error}", lock.display()))?;
+    let pid = pid.parse::<libc::pid_t>().map_err(|error| {
+        format!(
+            "{} names holder {pid:?}, not a pid: {error}",
+            lock.display()
+        )
+    })?;
     if !pid.is_positive() {
         return Err(format!(
             "{} names holder {pid}, not a positive pid",

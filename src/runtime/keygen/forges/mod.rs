@@ -71,7 +71,9 @@ fn add_one(place: &Place, old: &str, public: &str) -> Result<Added> {
         .flatten()
         .find(|key| key["key"].as_str().and_then(bare).as_deref() == Some(old))
         .with_context(|| format!("{label} hold no key matching the item's public key, so there is nothing there to rotate"))?;
-    let title = found["title"].as_str().with_context(|| format!("{label}: the matching key has no title"))?;
+    let title = found["title"]
+        .as_str()
+        .with_context(|| format!("{label}: the matching key has no title"))?;
     let mut args = vec![
         "-X".to_string(),
         "POST".to_string(),
@@ -81,15 +83,32 @@ fn add_one(place: &Place, old: &str, public: &str) -> Result<Added> {
         "-f".to_string(),
         format!("key={public}"),
     ];
-    let carried = forge.carried_fields(&place.spot, found).with_context(|| label.clone())?;
-    args.extend(carried.into_iter().flat_map(|field| ["-F".to_string(), field]));
+    let carried = forge
+        .carried_fields(&place.spot, found)
+        .with_context(|| label.clone())?;
+    args.extend(
+        carried
+            .into_iter()
+            .flat_map(|field| ["-F".to_string(), field]),
+    );
     let made = forge.api(&args)?;
-    Ok(Added { place: Place { forge, spot: place.spot.clone() }, new_id: made["id"].clone(), old_id: found["id"].clone() })
+    Ok(Added {
+        place: Place {
+            forge,
+            spot: place.spot.clone(),
+        },
+        new_id: made["id"].clone(),
+        old_id: found["id"].clone(),
+    })
 }
 
 /// Add `public` at every place beside `old_public`; on a refusal take it
 /// back off the ones it reached and fail.
-pub(in crate::runtime::keygen) fn add_everywhere(places: &[Place], old_public: &str, public: &str) -> Result<Vec<Added>> {
+pub(in crate::runtime::keygen) fn add_everywhere(
+    places: &[Place],
+    old_public: &str,
+    public: &str,
+) -> Result<Vec<Added>> {
     let old = bare(old_public).context("the item's public key is not an SSH public key line")?;
     let mut added: Vec<Added> = Vec::new();
     for place in places {
@@ -110,7 +129,13 @@ pub(in crate::runtime::keygen) fn add_everywhere(places: &[Place], old_public: &
 pub(in crate::runtime::keygen) fn take_back(added: &[Added]) -> Vec<String> {
     added
         .iter()
-        .filter_map(|one| one.place.forge.delete(&one.place.spot, &one.new_id).err().map(|undo| format!("{}: {undo:#}", one.place.label())))
+        .filter_map(|one| {
+            one.place
+                .forge
+                .delete(&one.place.spot, &one.new_id)
+                .err()
+                .map(|undo| format!("{}: {undo:#}", one.place.label()))
+        })
         .collect()
 }
 

@@ -86,7 +86,9 @@ pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
     }
     let needle = match flags.get("match") {
         Some(text) if text.trim().is_empty() => {
-            return Err(Usage("--match needs text to look for in item ids and tags".to_string()).into())
+            return Err(
+                Usage("--match needs text to look for in item ids and tags".to_string()).into(),
+            )
         }
         Some(text) => Some(text.to_lowercase()),
         None => None,
@@ -128,15 +130,25 @@ pub(crate) fn cmd_list(flags: &HashMap<String, String>) -> Result<Value> {
             Some(uid) => item
                 .get("recipients")
                 .and_then(Value::as_array)
-                .is_some_and(|readers| readers.iter().any(|reader| reader.as_str() == Some(uid.as_str()))),
+                .is_some_and(|readers| {
+                    readers
+                        .iter()
+                        .any(|reader| reader.as_str() == Some(uid.as_str()))
+                }),
             None => true,
         })
         .filter(|item| match &touched {
-            Some(touched) => item.get("id").and_then(Value::as_str).is_some_and(|id| !touched.contains(id)),
+            Some(touched) => item
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| !touched.contains(id)),
             None => true,
         })
         .filter(|item| match &pinned {
-            Some(pinned) => item.get("id").and_then(Value::as_str).is_some_and(|id| pinned.iter().any(|held| held == id)),
+            Some(pinned) => item
+                .get("id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| pinned.iter().any(|held| held == id)),
             None => true,
         })
         .collect();

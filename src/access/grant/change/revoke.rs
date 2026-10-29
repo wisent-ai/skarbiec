@@ -57,7 +57,10 @@ pub(in crate::access::grant) fn revoke(
     }
     if let (Some(seen), Some(moment)) = (seen, flags.get("idle-since")) {
         if !positionals.is_empty() {
-            return Err(Usage("grant revoke takes either one consumer or --idle-since, not both".to_string()).into());
+            return Err(Usage(
+                "grant revoke takes either one consumer or --idle-since, not both".to_string(),
+            )
+            .into());
         }
         // A grant used once a year is idle most of the year: the list comes
         // first, and withdrawing every one of them is said out loud.
@@ -67,7 +70,11 @@ pub(in crate::access::grant) fn revoke(
             ))
             .into());
         }
-        let idle: Vec<String> = tokens.keys().filter(|consumer| seen.idle(consumer)).cloned().collect();
+        let idle: Vec<String> = tokens
+            .keys()
+            .filter(|consumer| seen.idle(consumer))
+            .cloned()
+            .collect();
         for consumer in &idle {
             tokens.remove(consumer);
         }

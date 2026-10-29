@@ -99,7 +99,10 @@ pub fn stado_config_file() -> Result<Option<PathBuf>, String> {
             Ok(_not_file) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
-                return Err(format!("Stado's config candidate {} cannot be examined: {error}", candidate.display()))
+                return Err(format!(
+                    "Stado's config candidate {} cannot be examined: {error}",
+                    candidate.display()
+                ))
             }
         }
     }
@@ -177,10 +180,17 @@ pub fn remote_owner_route() -> Result<Option<OwnerRoute>, String> {
             .map(str::to_string)
     });
     if let Some(route) = configured {
-        return Ok(Some(OwnerRoute { route, declared_by: "secrets.skarbiec.url".to_string() }));
+        return Ok(Some(OwnerRoute {
+            route,
+            declared_by: "secrets.skarbiec.url".to_string(),
+        }));
     }
-    let forward = crate::credential::published_canonical_forward().map_err(|error| format!("{error:#}"))?;
-    Ok(forward.map(|(file, route)| OwnerRoute { route, declared_by: file.display().to_string() }))
+    let forward =
+        crate::credential::published_canonical_forward().map_err(|error| format!("{error:#}"))?;
+    Ok(forward.map(|(file, route)| OwnerRoute {
+        route,
+        declared_by: file.display().to_string(),
+    }))
 }
 
 /// The owner route that makes `path` a copy this machine does not open, when

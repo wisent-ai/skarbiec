@@ -173,7 +173,11 @@ pub(super) fn seal_directory(
     args: &[String],
     reseal: bool,
 ) -> Result<Value> {
-    let command = if reseal { "directory reseal" } else { "directory seal" };
+    let command = if reseal {
+        "directory reseal"
+    } else {
+        "directory seal"
+    };
     let allowed = [
         "provider",
         "tenant",

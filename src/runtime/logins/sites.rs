@@ -22,10 +22,20 @@ pub fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Va
     let id = positionals.first().or_usage(USAGE)?;
     let related = crate::cli::args::flag_set(flags, "add-related");
     let pages = crate::cli::args::flag_set(flags, "change-pages");
-    match (flags.get("set"), flags.get("add"), flags.get("remove"), related, pages) {
+    match (
+        flags.get("set"),
+        flags.get("add"),
+        flags.get("remove"),
+        related,
+        pages,
+    ) {
         (Some(listed), None, None, false, false) => set(id, bare_hosts("set", listed)?),
-        (None, Some(listed), None, false, false) => change(id, bare_hosts("add", listed)?, Vec::new()),
-        (None, None, Some(listed), false, false) => change(id, Vec::new(), bare_hosts("remove", listed)?),
+        (None, Some(listed), None, false, false) => {
+            change(id, bare_hosts("add", listed)?, Vec::new())
+        }
+        (None, None, Some(listed), false, false) => {
+            change(id, Vec::new(), bare_hosts("remove", listed)?)
+        }
         (None, None, None, true, false) => add_related(id),
         (None, None, None, false, true) => change_pages(id),
         (None, None, None, false, false) => read(id),
@@ -75,9 +85,15 @@ fn add_related(id: &str) -> Result<Value> {
 fn change(id: &str, added: Vec<String>, removed: Vec<String>) -> Result<Value> {
     let current = domains_of(&Vault::open(vault_path())?.get_item(id)?);
     if let Some(absent) = removed.iter().find(|site| !current.contains(site)) {
-        bail!("{id} is not offered on {absent}; its sites are: {}", current.join(", "));
+        bail!(
+            "{id} is not offered on {absent}; its sites are: {}",
+            current.join(", ")
+        );
     }
-    let mut domains: Vec<String> = current.into_iter().filter(|site| !removed.contains(site)).collect();
+    let mut domains: Vec<String> = current
+        .into_iter()
+        .filter(|site| !removed.contains(site))
+        .collect();
     for site in added {
         if !domains.contains(&site) {
             domains.push(site);
@@ -126,7 +142,11 @@ pub fn set_from_body(body: &Value) -> Result<Value> {
 /// `flag` is the option that carried the list, named in the refusal.
 pub(super) fn bare_hosts(flag: &str, listed: &str) -> Result<Vec<String>> {
     let mut domains = Vec::new();
-    for domain in listed.split(',').map(str::trim).filter(|domain| !domain.is_empty()) {
+    for domain in listed
+        .split(',')
+        .map(str::trim)
+        .filter(|domain| !domain.is_empty())
+    {
         let host = site_host(domain);
         if host != domain || host.contains(char::is_whitespace) {
             return Err(crate::cli::args::Usage(format!(

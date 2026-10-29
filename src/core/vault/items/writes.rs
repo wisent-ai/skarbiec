@@ -212,7 +212,11 @@ impl Vault {
             // cannot reach the section is said beside it.
             let items = match obj_mut(&mut self.doc, "items") {
                 Ok(items) => items,
-                Err(lost) => return Err(error.context(format!("the in-memory rollback failed too: {lost:#}"))),
+                Err(lost) => {
+                    return Err(
+                        error.context(format!("the in-memory rollback failed too: {lost:#}"))
+                    )
+                }
             };
             for (id, old) in previous {
                 match old {
@@ -248,7 +252,11 @@ impl Vault {
         if let Err(error) = self.save() {
             let items = match obj_mut(&mut self.doc, "items") {
                 Ok(items) => items,
-                Err(lost) => return Err(error.context(format!("the in-memory rollback failed too: {lost:#}"))),
+                Err(lost) => {
+                    return Err(
+                        error.context(format!("the in-memory rollback failed too: {lost:#}"))
+                    )
+                }
             };
             match previous {
                 Some(entry) => {

@@ -24,7 +24,10 @@ const FIELD: &str = "token";
 pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<Value> {
     let url = flags.get("url").or_usage(USAGE)?.trim_end_matches('/');
     if !url.starts_with("https://") || url.contains('@') {
-        return Err(Usage(format!("--url {url} is not an https:// GitLab address without a user in it. {USAGE}")).into());
+        return Err(Usage(format!(
+            "--url {url} is not an https:// GitLab address without a user in it. {USAGE}"
+        ))
+        .into());
     }
     rotate(id, url, flags.get("expires-at"))
 }
@@ -33,8 +36,14 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
 fn gitlab(url: &str, path: &str, token: &str, method: &str, form: &[String]) -> Result<Value> {
     let endpoint = format!("{url}/api/v4/{path}");
     let header = format!("PRIVATE-TOKEN: {token}");
-    crate::runtime::apicall::call(&crate::runtime::apicall::Call { method, url: &endpoint, header: &header, form, json: None })
-        .with_context(|| format!("GitLab refused {method} {path}"))
+    crate::runtime::apicall::call(&crate::runtime::apicall::Call {
+        method,
+        url: &endpoint,
+        header: &header,
+        form,
+        json: None,
+    })
+    .with_context(|| format!("GitLab refused {method} {path}"))
 }
 
 fn rotate(id: &str, url: &str, expires_at: Option<&String>) -> Result<Value> {
@@ -43,13 +52,32 @@ fn rotate(id: &str, url: &str, expires_at: Option<&String>) -> Result<Value> {
         crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
         let payload = vault.get_item(id)?;
         if payload["kind"] != json!("token") {
-            bail!("{id} is a {} item; rotate --with gitlab replaces the token a token item keeps", payload["kind"]);
+            bail!(
+                "{id} is a {} item; rotate --with gitlab replaces the token a token item keeps",
+                payload["kind"]
+            );
         }
-        payload["fields"][FIELD].as_str().filter(|token| !token.is_empty()).with_context(|| format!("{id} holds no {FIELD}"))?.to_string()
+        payload["fields"][FIELD]
+            .as_str()
+            .filter(|token| !token.is_empty())
+            .with_context(|| format!("{id} holds no {FIELD}"))?
+            .to_string()
     };
-    let form: Vec<String> = expires_at.map(|date| format!("expires_at={date}")).into_iter().collect();
-    let rotated = gitlab(url, "personal_access_tokens/self/rotate", &old, "POST", &form)?;
-    let new = rotated["token"].as_str().context("GitLab rotated the token but answered no new one")?.to_string();
+    let form: Vec<String> = expires_at
+        .map(|date| format!("expires_at={date}"))
+        .into_iter()
+        .collect();
+    let rotated = gitlab(
+        url,
+        "personal_access_tokens/self/rotate",
+        &old,
+        "POST",
+        &form,
+    )?;
+    let new = rotated["token"]
+        .as_str()
+        .context("GitLab rotated the token but answered no new one")?
+        .to_string();
     let expires = rotated["expires_at"].clone();
     let revision = crate::runtime::revise::issued(id, FIELD, &new, "GitLab")?;
     let proven = gitlab(url, "personal_access_tokens/self", &new, "GET", &[])
@@ -68,7 +96,9 @@ fn rotate(id: &str, url: &str, expires_at: Option<&String>) -> Result<Value> {
         "gitlab-token-rotated",
         &json!({"item": id, "url": url, "token_id": proven["id"], "expires_at": expires, "revision": revision}),
     )?;
-    Ok(json!({"ok": true, "item": id, "url": url, "name": proven["name"], "scopes": proven["scopes"], "expires_at": expires, "expiry": expiry, "revision": revision}))
+    Ok(
+        json!({"ok": true, "item": id, "url": url, "name": proven["name"], "scopes": proven["scopes"], "expires_at": expires, "expiry": expiry, "revision": revision}),
+    )
 }
 
 /// The UTC moment a GitLab `YYYY-MM-DD` day starts, in the vault's stamp form.
@@ -77,14 +107,22 @@ fn midnight(day: &str) -> Result<String> {
     let [year, month, date] = parts.as_slice() else {
         bail!("GitLab answered expires_at {day}, which is not a YYYY-MM-DD day");
     };
-    let year: i32 = year.parse().with_context(|| format!("GitLab's expires_at {day} names no year"))?;
-    let month: u8 = month.parse().with_context(|| format!("GitLab's expires_at {day} names no month"))?;
-    let date: u8 = date.parse().with_context(|| format!("GitLab's expires_at {day} names no day"))?;
-    let month = time::Month::try_from(month).with_context(|| format!("GitLab's expires_at {day} names no month"))?;
+    let year: i32 = year
+        .parse()
+        .with_context(|| format!("GitLab's expires_at {day} names no year"))?;
+    let month: u8 = month
+        .parse()
+        .with_context(|| format!("GitLab's expires_at {day} names no month"))?;
+    let date: u8 = date
+        .parse()
+        .with_context(|| format!("GitLab's expires_at {day} names no day"))?;
+    let month = time::Month::try_from(month)
+        .with_context(|| format!("GitLab's expires_at {day} names no month"))?;
     let start = time::Date::from_calendar_date(year, month, date)
         .with_context(|| format!("GitLab's expires_at {day} is not a calendar day"))?
         .midnight()
         .assume_utc()
         .unix_timestamp();
-    crate::core::clock::iso_at(start).with_context(|| format!("GitLab's expires_at {day} is outside the times the vault stamps"))
+    crate::core::clock::iso_at(start)
+        .with_context(|| format!("GitLab's expires_at {day} is outside the times the vault stamps"))
 }

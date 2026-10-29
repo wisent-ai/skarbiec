@@ -35,8 +35,12 @@ impl Kind {
 
     /// The kind a wire name means, or a refusal naming every kind.
     pub(crate) fn named(word: &str) -> Result<Self> {
-        serde_json::from_value(json!(word))
-            .map_err(|cause| anyhow!("{word:?} is no request kind ({cause}); a kind is one of {}", Self::listed(", ")))
+        serde_json::from_value(json!(word)).map_err(|cause| {
+            anyhow!(
+                "{word:?} is no request kind ({cause}); a kind is one of {}",
+                Self::listed(", ")
+            )
+        })
     }
 
     /// The wire name of this kind.
@@ -132,7 +136,12 @@ impl Filing {
         if !exact_token(&decider) || decider == "true" {
             bail!("--decider names a recipient uid, or the role owner or admin");
         }
-        let asked = [flags.get("purpose"), flags.get("target"), flags.get("ttl-seconds"), flags.get("max-uses")];
+        let asked = [
+            flags.get("purpose"),
+            flags.get("target"),
+            flags.get("ttl-seconds"),
+            flags.get("max-uses"),
+        ];
         let bounded = asked.iter().any(Option::is_some);
         let standing = flags.contains_key("for-consumer");
         let action = required(flags, "action")?.to_string();
@@ -166,7 +175,10 @@ impl Filing {
                     Some((item, _field)) => item.to_string(),
                     None => resource.clone(),
                 };
-                (json!({"form": "consumer", "consumer": consumer}), Some(item))
+                (
+                    json!({"form": "consumer", "consumer": consumer}),
+                    Some(item),
+                )
             }
             (Kind::Secret, _, _) => bail!("{SECRET_FORMS}"),
             (_, false, false) => (json!({"form": "record"}), None),

@@ -70,11 +70,17 @@ fn review(flags: &HashMap<String, String>) -> Result<Value> {
     if breached {
         health.insert("breached".to_string(), "true".to_string());
     }
-    section("secret_health", crate::runtime::dispatch("health", &health, &none));
+    section(
+        "secret_health",
+        crate::runtime::dispatch("health", &health, &none),
+    );
     // With `--breached`, also the logins whose site was breached after their
     // password was set, from Have I Been Pwned's public list of breaches.
     if breached {
-        section("breached_sites", crate::runtime::dispatch("breach", &HashMap::new(), &["sites".to_string()]));
+        section(
+            "breached_sites",
+            crate::runtime::dispatch("breach", &HashMap::new(), &["sites".to_string()]),
+        );
     }
     section(
         "certificates_ending_before",
@@ -121,17 +127,37 @@ fn review(flags: &HashMap<String, String>) -> Result<Value> {
         crate::runtime::age::report(Some(before.as_str())).map(Some),
     );
     // Logins autofill cannot offer anywhere: they name no site.
-    section("logins_offered_nowhere", crate::runtime::logins::offered_nowhere().map(Some));
+    section(
+        "logins_offered_nowhere",
+        crate::runtime::logins::offered_nowhere().map(Some),
+    );
     section(
         "rotations_due",
-        crate::credential::dispatch("rotation", &flag("due", "true"), &["list".to_string()], &vault_path()),
+        crate::credential::dispatch(
+            "rotation",
+            &flag("due", "true"),
+            &["list".to_string()],
+            &vault_path(),
+        ),
     );
-    section("emergency_grants", crate::access::dispatch("emergency list", &HashMap::new(), &none));
+    section(
+        "emergency_grants",
+        crate::access::dispatch("emergency list", &HashMap::new(), &none),
+    );
     // Every login and identity's seed state, and every share that ends on
     // its own: an ended one still listed is one maintain has not revoked.
-    section("second_factors", crate::runtime::dispatch("totp", &HashMap::new(), &["seed".to_string()]));
-    section("timed_shares", crate::access::dispatch("shares", &HashMap::new(), &none));
-    crate::runtime::audit::append("review", &json!({"before": before, "failed_sections": failed}))?;
+    section(
+        "second_factors",
+        crate::runtime::dispatch("totp", &HashMap::new(), &["seed".to_string()]),
+    );
+    section(
+        "timed_shares",
+        crate::access::dispatch("shares", &HashMap::new(), &none),
+    );
+    crate::runtime::audit::append(
+        "review",
+        &json!({"before": before, "failed_sections": failed}),
+    )?;
     let mut report = json!({
         "ok": failed.is_empty(),
         "before": before,

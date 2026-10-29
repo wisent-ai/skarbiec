@@ -26,7 +26,9 @@ fn hosts_file() -> Result<PathBuf> {
     }
     let config = match crate::core::env::path("XDG_CONFIG_HOME") {
         Some(dir) => dir,
-        None => crate::core::env::path("HOME").context("HOME names no directory where gh keeps its configuration")?.join(".config"),
+        None => crate::core::env::path("HOME")
+            .context("HOME names no directory where gh keeps its configuration")?
+            .join(".config"),
     };
     Ok(config.join("gh").join("hosts.yml"))
 }
@@ -47,8 +49,13 @@ fn hosts() -> Result<(PathBuf, String, Vec<Host>)> {
     for (index, line) in text.lines().enumerate() {
         let indented = line.starts_with(char::is_whitespace);
         if !indented && line.trim_end().ends_with(':') {
-            found.push(Host { name: line.trim_end().trim_end_matches(':').to_string(), tokens: Vec::new() });
-        } else if let (true, Some(host), Some(token)) = (indented, found.last_mut(), line.trim().strip_prefix(KEY)) {
+            found.push(Host {
+                name: line.trim_end().trim_end_matches(':').to_string(),
+                tokens: Vec::new(),
+            });
+        } else if let (true, Some(host), Some(token)) =
+            (indented, found.last_mut(), line.trim().strip_prefix(KEY))
+        {
             let token = token.trim().trim_matches('"').to_string();
             if !token.is_empty() {
                 host.tokens.push((index, token));
@@ -85,7 +92,11 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let Some(host) = found.iter().find(|host| host.name == name) else {
         bail!("{} keeps no {name}; nothing was changed", file.display());
     };
-    let mut distinct: Vec<&str> = host.tokens.iter().map(|(_, token)| token.as_str()).collect();
+    let mut distinct: Vec<&str> = host
+        .tokens
+        .iter()
+        .map(|(_, token)| token.as_str())
+        .collect();
     distinct.sort_unstable();
     distinct.dedup();
     let token = match distinct.as_slice() {
@@ -100,7 +111,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let mut fields = Map::new();
     fields.insert(FIELD.to_string(), json!(token));
     let mut context = Map::new();
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(format!("GitHub CLI token for {name}")));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!(format!("GitHub CLI token for {name}")),
+    );
     let payload = crate::core::schema::payload(FIELD, fields, context)?;
     let mut write = HashMap::from([("type".to_string(), FIELD.to_string())]);
     if let Some(tags) = tags {
@@ -109,7 +123,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     crate::cli::items::create_value(&write, id, &payload.to_string(), "tool import")?;
     let read_back = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if read_back["fields"][FIELD] != json!(token) {
-        bail!("{id} does not read back {name}'s token; {} was left as it was", file.display());
+        bail!(
+            "{id} does not read back {name}'s token; {} was left as it was",
+            file.display()
+        );
     }
 
     if let Some(out) = updated {
@@ -118,7 +135,12 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     }
     crate::runtime::bindings::remember(bindings)?;
     let drop: Vec<usize> = host.tokens.iter().map(|(index, _)| *index).collect();
-    let mut out: Vec<&str> = text.lines().enumerate().filter(|(index, _)| !drop.contains(index)).map(|(_, line)| line).collect();
+    let mut out: Vec<&str> = text
+        .lines()
+        .enumerate()
+        .filter(|(index, _)| !drop.contains(index))
+        .map(|(_, line)| line)
+        .collect();
     if text.ends_with('\n') {
         out.push("");
     }

@@ -14,12 +14,22 @@ use std::collections::HashMap;
 use crate::cli::args::Usage;
 
 /// The generator options the rules ask for, merged over the caller's own.
-pub(super) fn options(rules: &str, mut flags: HashMap<String, String>) -> Result<HashMap<String, String>> {
+pub(super) fn options(
+    rules: &str,
+    mut flags: HashMap<String, String>,
+) -> Result<HashMap<String, String>> {
     let mut lengths: (Option<usize>, Option<usize>) = (None, None);
     let mut symbols = String::new();
-    for rule in rules.split(';').map(str::trim).filter(|rule| !rule.is_empty()) {
+    for rule in rules
+        .split(';')
+        .map(str::trim)
+        .filter(|rule| !rule.is_empty())
+    {
         let Some((name, value)) = rule.split_once(':') else {
-            return Err(Usage(format!("password rule `{rule}` names no value; rules read `name: value; ...`")).into());
+            return Err(Usage(format!(
+                "password rule `{rule}` names no value; rules read `name: value; ...`"
+            ))
+            .into());
         };
         let value = value.trim();
         match name.trim() {
@@ -59,7 +69,10 @@ pub(super) fn options(rules: &str, mut flags: HashMap<String, String>) -> Result
 fn number(name: &str, value: &str) -> Result<usize> {
     match value.parse::<usize>() {
         Ok(number) => Ok(number),
-        Err(cause) => Err(Usage(format!("password rule {name}: {value} is not a whole number ({cause})")).into()),
+        Err(cause) => Err(Usage(format!(
+            "password rule {name}: {value} is not a whole number ({cause})"
+        ))
+        .into()),
     }
 }
 

@@ -57,7 +57,9 @@ fn index_host(url: &str) -> Result<String> {
         Some((_, rest)) if rest.contains("://") => rest,
         _ => url,
     };
-    let (_, rest) = bare.split_once("://").with_context(|| format!("the index {url} is not an address"))?;
+    let (_, rest) = bare
+        .split_once("://")
+        .with_context(|| format!("the index {url} is not an address"))?;
     let host = rest.split('/').next().context("the index names no host")?;
     Ok(crate::runtime::gitcred::checked_host(host)?.to_string())
 }
@@ -67,8 +69,11 @@ fn get() -> Result<()> {
         .context("Cargo named no registry index in CARGO_REGISTRY_INDEX_URL; helper answer cargo is Cargo's provider, run by Cargo")?;
     let host = index_host(&url)?;
     let flags = HashMap::from([("field".to_string(), "password".to_string())]);
-    let chosen = crate::runtime::dispatch("login", &flags, &["get".to_string(), host.clone()])?.context("login get answered nothing")?;
-    let token = chosen["value"].as_str().context("login get answered no password")?;
+    let chosen = crate::runtime::dispatch("login", &flags, &["get".to_string(), host.clone()])?
+        .context("login get answered nothing")?;
+    let token = chosen["value"]
+        .as_str()
+        .context("login get answered no password")?;
     let item = chosen["item"].as_str().context("login get named no item")?;
     crate::runtime::audit::append("cargo-credential", &json!({"item": item, "index": url}))?;
     let mut out = std::io::stdout().lock();
@@ -80,14 +85,20 @@ fn import(id: &str, registry: &str, host: &str, tags: Option<&String>) -> Result
     let host = crate::runtime::gitcred::checked_host(host)?;
     let (file, lines, found) = config::stored_tokens()?;
     let Some((_, at, token)) = found.into_iter().find(|(name, _, _)| name == registry) else {
-        bail!("{} keeps no token for registry {registry}; nothing was changed", file.display());
+        bail!(
+            "{} keeps no token for registry {registry}; nothing was changed",
+            file.display()
+        );
     };
     let mut fields = Map::new();
     fields.insert("username".to_string(), json!(registry));
     fields.insert("password".to_string(), json!(token));
     let mut context = Map::new();
     context.insert("domains".to_string(), json!([host]));
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(format!("Cargo registry {registry}")));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!(format!("Cargo registry {registry}")),
+    );
     let payload = crate::core::schema::payload("login", fields, context)?;
     let mut write = HashMap::from([("type".to_string(), "login".to_string())]);
     if let Some(tags) = tags {
@@ -96,10 +107,21 @@ fn import(id: &str, registry: &str, host: &str, tags: Option<&String>) -> Result
     crate::cli::items::create_value(&write, id, &payload.to_string(), "helper import cargo")?;
     let stored = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if stored["fields"]["password"] != json!(token) {
-        bail!("{id} does not read back {registry}'s token; {} was left as it was", file.display());
+        bail!(
+            "{id} does not read back {registry}'s token; {} was left as it was",
+            file.display()
+        );
     }
-    config::remove_line(&file, &lines, at).with_context(|| format!("{id} holds {registry}'s token, but it is still in {}", file.display()))?;
-    crate::runtime::audit::append("cargo-credential-import", &json!({"item": id, "registry": registry, "host": host}))?;
+    config::remove_line(&file, &lines, at).with_context(|| {
+        format!(
+            "{id} holds {registry}'s token, but it is still in {}",
+            file.display()
+        )
+    })?;
+    crate::runtime::audit::append(
+        "cargo-credential-import",
+        &json!({"item": id, "registry": registry, "host": host}),
+    )?;
     let configured = config::status()?["configured"].as_bool() == Some(true);
     Ok(json!({
         "ok": true,

@@ -22,7 +22,9 @@ fn file(variable: &str, name: &str) -> Result<PathBuf> {
     match crate::core::env::path(variable) {
         Some(path) => Ok(path),
         None => Ok(crate::core::env::path("HOME")
-            .with_context(|| format!("neither {variable} nor HOME names where AWS keeps its {name} file"))?
+            .with_context(|| {
+                format!("neither {variable} nor HOME names where AWS keeps its {name} file")
+            })?
             .join(".aws")
             .join(name)),
     }
@@ -53,8 +55,14 @@ fn config_header(profile: &str) -> String {
 /// next header or the end of the file, as indexes into `lines`; None when the
 /// file has no such section.
 pub(super) fn section(lines: &[&str], header: &str) -> Option<Range<usize>> {
-    let start = lines.iter().position(|line| line.trim() == header)?.checked_add(std::iter::once(()).count())?;
-    let end = match lines[start..].iter().position(|line| line.trim_start().starts_with('[')) {
+    let start = lines
+        .iter()
+        .position(|line| line.trim() == header)?
+        .checked_add(std::iter::once(()).count())?;
+    let end = match lines[start..]
+        .iter()
+        .position(|line| line.trim_start().starts_with('['))
+    {
         Some(offset) => start + offset,
         None => lines.len(),
     };
@@ -63,7 +71,11 @@ pub(super) fn section(lines: &[&str], header: &str) -> Option<Range<usize>> {
 
 /// The index of the line in `range` setting `key`.
 fn setting(lines: &[&str], range: Range<usize>, key: &str) -> Option<usize> {
-    range.into_iter().find(|&index| lines[index].split_once('=').is_some_and(|(name, _)| name.trim() == key))
+    range.into_iter().find(|&index| {
+        lines[index]
+            .split_once('=')
+            .is_some_and(|(name, _)| name.trim() == key)
+    })
 }
 
 pub(super) fn setup(id: &str, profile: &str) -> Result<Value> {
@@ -82,8 +94,13 @@ pub(super) fn setup(id: &str, profile: &str) -> Result<Value> {
     let text = read(&path)?;
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     let header = config_header(profile);
-    let program = std::env::current_exe().context("name this skarbiec binary for the credential_process line")?;
-    let line = format!("{PROCESS} = \"{}\" {} {id}", program.display(), crate::runtime::helper::invocation(super::TOOL));
+    let program = std::env::current_exe()
+        .context("name this skarbiec binary for the credential_process line")?;
+    let line = format!(
+        "{PROCESS} = \"{}\" {} {id}",
+        program.display(),
+        crate::runtime::helper::invocation(super::TOOL)
+    );
     let (found, process, static_key) = {
         let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
         match section(&borrowed, &header) {
@@ -107,7 +124,10 @@ pub(super) fn setup(id: &str, profile: &str) -> Result<Value> {
         }
     }
     write(&path, &lines)?;
-    crate::runtime::audit::append("aws-credential-setup", &json!({"item": id, "profile": profile, "config": path}))?;
+    crate::runtime::audit::append(
+        "aws-credential-setup",
+        &json!({"item": id, "profile": profile, "config": path}),
+    )?;
     Ok(json!({"ok": true, "item": id, "profile": profile, "config": path, "line": line}))
 }
 
@@ -117,24 +137,36 @@ pub(super) fn unset(profile: &str) -> Result<Value> {
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     let index = {
         let borrowed: Vec<&str> = lines.iter().map(String::as_str).collect();
-        let range = section(&borrowed, &config_header(profile)).with_context(|| format!("{} has no profile {profile}", path.display()))?;
-        setting(&borrowed, range, PROCESS).with_context(|| format!("profile {profile} in {} runs no credential_process", path.display()))?
+        let range = section(&borrowed, &config_header(profile))
+            .with_context(|| format!("{} has no profile {profile}", path.display()))?;
+        setting(&borrowed, range, PROCESS).with_context(|| {
+            format!(
+                "profile {profile} in {} runs no credential_process",
+                path.display()
+            )
+        })?
     };
     if !lines[index].contains(&crate::runtime::helper::invocation(super::TOOL)) {
         bail!("profile {profile}'s credential_process in {} is not this vault's, so it is left alone: {}", path.display(), lines[index]);
     }
     let removed = lines.remove(index);
     write(&path, &lines)?;
-    crate::runtime::audit::append("aws-credential-unset", &json!({"profile": profile, "config": path}))?;
+    crate::runtime::audit::append(
+        "aws-credential-unset",
+        &json!({"profile": profile, "config": path}),
+    )?;
     Ok(json!({"ok": true, "profile": profile, "config": path, "removed": removed}))
 }
 
 pub(super) fn write(path: &Path, lines: &[String]) -> Result<()> {
-    let dir = path.parent().context("the AWS config file has no directory")?;
+    let dir = path
+        .parent()
+        .context("the AWS config file has no directory")?;
     std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let mut text = lines.join("\n");
     text.push('\n');
-    crate::core::vault::atomic_write(path, text.as_bytes()).with_context(|| format!("write {}", path.display()))
+    crate::core::vault::atomic_write(path, text.as_bytes())
+        .with_context(|| format!("write {}", path.display()))
 }
 
 /// One profile the AWS config file sends to this vault.
@@ -155,23 +187,43 @@ pub(crate) fn profiles() -> Result<(PathBuf, Vec<Profile>)> {
     let mut current: Option<String> = None;
     for line in text.lines() {
         let trimmed = line.trim();
-        if let Some(name) = trimmed.strip_prefix('[').and_then(|rest| rest.strip_suffix(']')) {
+        if let Some(name) = trimmed
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
             current = Some(match name.strip_prefix("profile ") {
                 Some(profile) => profile.trim().to_string(),
                 None => name.trim().to_string(),
             });
             continue;
         }
-        let Some((key, value)) = trimmed.split_once('=') else { continue };
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
         if key.trim() != PROCESS {
             continue;
         }
         // setup writes `"<program>" helper answer aws <id>`; any other line
         // is someone else's and not this vault's to check.
-        let Some((program, rest)) = value.trim().strip_prefix('"').and_then(|quoted| quoted.split_once('"')) else { continue };
+        let Some((program, rest)) = value
+            .trim()
+            .strip_prefix('"')
+            .and_then(|quoted| quoted.split_once('"'))
+        else {
+            continue;
+        };
         let words: Vec<&str> = rest.split_whitespace().collect();
-        let (Some([item]), Some(name)) = (crate::runtime::helper::invoked(super::TOOL, &words), &current) else { continue };
-        found.push(Profile { name: name.clone(), program: PathBuf::from(program), item: item.to_string() });
+        let (Some([item]), Some(name)) = (
+            crate::runtime::helper::invoked(super::TOOL, &words),
+            &current,
+        ) else {
+            continue;
+        };
+        found.push(Profile {
+            name: name.clone(),
+            program: PathBuf::from(program),
+            item: item.to_string(),
+        });
     }
     Ok((path, found))
 }

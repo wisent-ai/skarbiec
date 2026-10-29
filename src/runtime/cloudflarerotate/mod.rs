@@ -23,8 +23,20 @@ const API: &str = "https://api.cloudflare.com/client/v4";
 /// Roll `id`'s Cloudflare token, as `rotate <id> --with cloudflare` asks.
 pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<Value> {
     let owner = match flags.get("account") {
-        Some(account) if !account.is_empty() && account.chars().all(|character| character.is_ascii_alphanumeric()) => format!("accounts/{account}"),
-        Some(account) => return Err(Usage(format!("--account {account} is not a Cloudflare account id. {USAGE}")).into()),
+        Some(account)
+            if !account.is_empty()
+                && account
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric()) =>
+        {
+            format!("accounts/{account}")
+        }
+        Some(account) => {
+            return Err(Usage(format!(
+                "--account {account} is not a Cloudflare account id. {USAGE}"
+            ))
+            .into())
+        }
         None => "user".to_string(),
     };
     rotate(id, &owner)
@@ -35,10 +47,19 @@ pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<V
 fn cloudflare(method: &str, path: &str, token: &str, body: Option<&Value>) -> Result<Value> {
     let url = format!("{API}/{path}");
     let header = format!("Authorization: Bearer {token}");
-    let answer = crate::runtime::apicall::call(&crate::runtime::apicall::Call { method, url: &url, header: &header, form: &[], json: body })
-        .with_context(|| format!("Cloudflare refused {method} {path}"))?;
+    let answer = crate::runtime::apicall::call(&crate::runtime::apicall::Call {
+        method,
+        url: &url,
+        header: &header,
+        form: &[],
+        json: body,
+    })
+    .with_context(|| format!("Cloudflare refused {method} {path}"))?;
     if answer["success"] != json!(true) {
-        bail!("Cloudflare answered {method} {path} without success: {}", answer["errors"]);
+        bail!(
+            "Cloudflare answered {method} {path} without success: {}",
+            answer["errors"]
+        );
     }
     Ok(answer["result"].clone())
 }
@@ -49,14 +70,32 @@ fn rotate(id: &str, owner: &str) -> Result<Value> {
         crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
         let payload = vault.get_item(id)?;
         if payload["kind"] != json!("token") {
-            bail!("{id} is a {} item; rotate --with cloudflare rolls the token a token item keeps", payload["kind"]);
+            bail!(
+                "{id} is a {} item; rotate --with cloudflare rolls the token a token item keeps",
+                payload["kind"]
+            );
         }
-        payload["fields"][FIELD].as_str().filter(|token| !token.is_empty()).with_context(|| format!("{id} holds no {FIELD}"))?.to_string()
+        payload["fields"][FIELD]
+            .as_str()
+            .filter(|token| !token.is_empty())
+            .with_context(|| format!("{id} holds no {FIELD}"))?
+            .to_string()
     };
     let verified = cloudflare("GET", &format!("{owner}/tokens/verify"), &old, None)?;
-    let token_id = verified["id"].as_str().context("Cloudflare verified the token but named no token id")?.to_string();
-    let rolled = cloudflare("PUT", &format!("{owner}/tokens/{token_id}/value"), &old, Some(&json!({})))?;
-    let new = rolled.as_str().context("Cloudflare rolled the token but answered no new value")?.to_string();
+    let token_id = verified["id"]
+        .as_str()
+        .context("Cloudflare verified the token but named no token id")?
+        .to_string();
+    let rolled = cloudflare(
+        "PUT",
+        &format!("{owner}/tokens/{token_id}/value"),
+        &old,
+        Some(&json!({})),
+    )?;
+    let new = rolled
+        .as_str()
+        .context("Cloudflare rolled the token but answered no new value")?
+        .to_string();
     let revision = crate::runtime::revise::issued(id, FIELD, &new, "Cloudflare")?;
     let proven = cloudflare("GET", &format!("{owner}/tokens/verify"), &new, None)
         .with_context(|| format!("{id} holds Cloudflare's new value at revision {revision}, but Cloudflare did not verify it"))?;
@@ -74,5 +113,7 @@ fn rotate(id: &str, owner: &str) -> Result<Value> {
         "cloudflare-token-rotated",
         &json!({"item": id, "token_id": token_id, "owner": owner, "revision": revision}),
     )?;
-    Ok(json!({"ok": true, "item": id, "token_id": token_id, "status": proven["status"], "expires_on": proven["expires_on"], "expiry": expiry, "revision": revision}))
+    Ok(
+        json!({"ok": true, "item": id, "token_id": token_id, "status": proven["status"], "expires_on": proven["expires_on"], "expiry": expiry, "revision": revision}),
+    )
 }

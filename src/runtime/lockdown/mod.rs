@@ -35,26 +35,48 @@ pub fn dispatch(
         .filter_map(|grant| grant["consumer"].as_str().map(str::to_string))
         .collect();
     let kept: BTreeSet<String> = match flags.get("except") {
-        Some(names) => names.split(',').map(str::trim).filter(|name| !name.is_empty()).map(str::to_string).collect(),
+        Some(names) => names
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+            .collect(),
         None => BTreeSet::new(),
     };
-    let unknown: Vec<&String> = kept.iter().filter(|name| !consumers.contains(*name)).collect();
+    let unknown: Vec<&String> = kept
+        .iter()
+        .filter(|name| !consumers.contains(*name))
+        .collect();
     if !unknown.is_empty() {
         let named: Vec<&str> = unknown.iter().map(|name| name.as_str()).collect();
         bail!("--except names {}, which hold no grant; nothing was withdrawn. `skarbiec grant list` names the consumers", named.join(", "));
     }
-    let withdrawn: Vec<&String> = consumers.iter().filter(|consumer| !kept.contains(*consumer)).collect();
+    let withdrawn: Vec<&String> = consumers
+        .iter()
+        .filter(|consumer| !kept.contains(*consumer))
+        .collect();
     if !flag_set(flags, "yes") {
-        return Ok(Some(json!({"ok": true, "applied": false, "would_withdraw": withdrawn, "kept": kept})));
+        return Ok(Some(
+            json!({"ok": true, "applied": false, "would_withdraw": withdrawn, "kept": kept}),
+        ));
     }
     let mut revoked = Vec::new();
     let mut failed = Vec::new();
     for consumer in withdrawn {
-        match crate::access::dispatch("grant", &HashMap::new(), &["revoke".to_string(), consumer.clone()]) {
+        match crate::access::dispatch(
+            "grant",
+            &HashMap::new(),
+            &["revoke".to_string(), consumer.clone()],
+        ) {
             Ok(_) => revoked.push(consumer.clone()),
             Err(error) => failed.push(json!({"consumer": consumer, "error": format!("{error:#}")})),
         }
     }
-    crate::runtime::audit::append("lockdown", &json!({"revoked": revoked, "kept": kept, "failed": failed.len()}))?;
-    Ok(Some(json!({"ok": failed.is_empty(), "applied": true, "revoked": revoked, "kept": kept, "failed": failed})))
+    crate::runtime::audit::append(
+        "lockdown",
+        &json!({"revoked": revoked, "kept": kept, "failed": failed.len()}),
+    )?;
+    Ok(Some(
+        json!({"ok": failed.is_empty(), "applied": true, "revoked": revoked, "kept": kept, "failed": failed}),
+    ))
 }

@@ -116,7 +116,8 @@ fn tail_window(file: &mut File, length: u64, window: u64) -> Result<(Vec<String>
         (false, Some(first_break)) => &bytes[first_break..],
         (false, None) => &[],
     };
-    let text = std::str::from_utf8(complete).context("audit journal holds text that is not UTF-8")?;
+    let text =
+        std::str::from_utf8(complete).context("audit journal holds text that is not UTF-8")?;
     let lines = text
         .lines()
         .map(str::trim)

@@ -54,8 +54,14 @@ pub fn kit() -> Result<Value> {
         .map(|entry| json!({"at": entry.get("at"), "backup": entry.get("extra").and_then(|extra| extra.get("backup"))}));
     let missing: Vec<&str> = [
         (owner.is_empty(), "the vault records no owner"),
-        (owner_key.is_none(), "the owner's key fingerprint is not registered"),
-        (recovery_key.is_empty(), "the vault records no recovery key, so losing the owner's key loses the vault"),
+        (
+            owner_key.is_none(),
+            "the owner's key fingerprint is not registered",
+        ),
+        (
+            recovery_key.is_empty(),
+            "the vault records no recovery key, so losing the owner's key loses the vault",
+        ),
     ]
     .into_iter()
     .filter_map(|(absent, why)| absent.then_some(why))
@@ -77,11 +83,17 @@ pub fn kit() -> Result<Value> {
         recorded("Recovery key fingerprint", Some(recovery_key.as_str())),
         recorded(
             "Latest backup",
-            latest_backup.as_ref().and_then(|entry| entry.get("backup")).and_then(Value::as_str),
+            latest_backup
+                .as_ref()
+                .and_then(|entry| entry.get("backup"))
+                .and_then(Value::as_str),
         ),
         recorded(
             "Latest backup made at",
-            latest_backup.as_ref().and_then(|entry| entry.get("at")).and_then(Value::as_str),
+            latest_backup
+                .as_ref()
+                .and_then(|entry| entry.get("at"))
+                .and_then(Value::as_str),
         ),
     ];
     page.extend(missing.iter().map(|gap| format!("Missing: {gap}")));

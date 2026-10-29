@@ -10,9 +10,9 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::process::Command;
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
+use std::process::Command;
 
 use crate::cli::args::Usage;
 use crate::core::{schema, vault::Vault, vault_path};
@@ -29,7 +29,11 @@ pub(super) fn sign(flags: &HashMap<String, String>, positionals: &[String]) -> R
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| Usage(format!("--{name} is required; {USAGE}")))
     };
-    let (identity, principals, validity) = (required("identity")?, required("principals")?, required("validity")?);
+    let (identity, principals, validity) = (
+        required("identity")?,
+        required("principals")?,
+        required("validity")?,
+    );
     let public_key = std::fs::read_to_string(public_file)
         .with_context(|| format!("read the public key to sign, {public_file}"))?;
     let path = vault_path();
@@ -38,7 +42,9 @@ pub(super) fn sign(flags: &HashMap<String, String>, positionals: &[String]) -> R
         .get("private_key")
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
-        .with_context(|| format!("{ca} holds no private_key text, so there is no authority to sign with"))?
+        .with_context(|| {
+            format!("{ca} holds no private_key text, so there is no authority to sign with")
+        })?
         .to_string();
     let work = super::workspace(&path)?;
     let ca_file = work.0.join("ca");
@@ -55,11 +61,15 @@ pub(super) fn sign(flags: &HashMap<String, String>, positionals: &[String]) -> R
         .open(&ca_file)
         .and_then(|mut file| file.write_all(ca_text.as_bytes()))
         .context("hand the authority key to ssh-keygen")?;
-    crate::core::vault::atomic_write(&user_file, public_key.as_bytes()).context("hand the public key to ssh-keygen")?;
+    crate::core::vault::atomic_write(&user_file, public_key.as_bytes())
+        .context("hand the public key to ssh-keygen")?;
     // `--host` signs a server's host key, which clients that trust the
     // authority then accept without a known_hosts entry.
     let mut command = Command::new("ssh-keygen");
-    command.args(["-q", "-s"]).arg(&ca_file).args(["-I", identity, "-n", principals, "-V", validity]);
+    command
+        .args(["-q", "-s"])
+        .arg(&ca_file)
+        .args(["-I", identity, "-n", principals, "-V", validity]);
     let host = crate::cli::args::flag_set(flags, "host");
     if host {
         command.arg("-h");
@@ -74,7 +84,12 @@ pub(super) fn sign(flags: &HashMap<String, String>, positionals: &[String]) -> R
     }
     let cert_file = work.0.join("user-cert.pub");
     let certificate = std::fs::read_to_string(&cert_file)
-        .with_context(|| format!("read the certificate ssh-keygen wrote to {}", cert_file.display()))?
+        .with_context(|| {
+            format!(
+                "read the certificate ssh-keygen wrote to {}",
+                cert_file.display()
+            )
+        })?
         .trim()
         .to_string();
     drop(work);

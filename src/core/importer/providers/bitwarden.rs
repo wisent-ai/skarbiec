@@ -99,10 +99,7 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
                     &mut context,
                 ),
             ),
-            SECURE_NOTE_TYPE => (
-                "note",
-                Map::from_iter([("value".into(), json!(notes))]),
-            ),
+            SECURE_NOTE_TYPE => ("note", Map::from_iter([("value".into(), json!(notes))])),
             _ => (
                 "bundle",
                 Map::from_iter([("source_record".into(), item.clone())]),
@@ -121,7 +118,9 @@ pub(in crate::core::importer) fn document(mut value: Value) -> Result<ImportDocu
             ]
         } else {
             vec![
-                text(&item, "organizationId").with_context(|| at.clone())?.to_string(),
+                text(&item, "organizationId")
+                    .with_context(|| at.clone())?
+                    .to_string(),
                 id,
             ]
         };

@@ -16,8 +16,8 @@ mod migrate;
 mod vault_copy;
 
 pub use domains::{
-    display_name, domain_matches, item_domains, notes, plain_http_addresses, site_host, DISPLAY_NAME, NOTES,
-    PASSWORD_RULES,
+    display_name, domain_matches, item_domains, notes, plain_http_addresses, site_host,
+    DISPLAY_NAME, NOTES, PASSWORD_RULES,
 };
 pub use generate::{generate_passphrase, generate_password};
 pub use migrate::upgrade;
@@ -91,15 +91,20 @@ pub fn status_json() -> Result<Value> {
             continue;
         }
         match item.get("kind").and_then(Value::as_str) {
-            Some(kind) => kinds.entry(kind.to_string()).or_default().push(id.to_string()),
+            Some(kind) => kinds
+                .entry(kind.to_string())
+                .or_default()
+                .push(id.to_string()),
             None => kindless.push(id.to_string()),
         }
         if !vault.item_recipient_uids(id)?.is_empty() {
             shared.push(id.to_string());
         }
     }
-    let by_kind: std::collections::BTreeMap<String, usize> =
-        kinds.into_iter().map(|(kind, ids)| (kind, ids.len())).collect();
+    let by_kind: std::collections::BTreeMap<String, usize> = kinds
+        .into_iter()
+        .map(|(kind, ids)| (kind, ids.len()))
+        .collect();
     Ok(json!({
         "vault": vault_path().display().to_string(),
         "item_count": count("items")?,

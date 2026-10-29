@@ -47,7 +47,13 @@ pub fn fingerprint_for(uid: &str) -> Result<Option<String>> {
 pub fn fingerprint_of_armored(armored: &str) -> Result<String> {
     let listing = run(
         "gpg",
-        &["--batch", "--with-colons", "--import-options", "show-only", "--import"],
+        &[
+            "--batch",
+            "--with-colons",
+            "--import-options",
+            "show-only",
+            "--import",
+        ],
         Some(armored),
     )?;
     listing
@@ -91,20 +97,26 @@ pub fn key_validity(fingerprint: &str) -> Result<Option<KeyValidity>> {
     };
     let mut fields = record.split(':');
     let _kind = fields.next();
-    let validity = fields.next().with_context(|| format!("{fingerprint}'s pub record has no validity field"))?;
+    let validity = fields
+        .next()
+        .with_context(|| format!("{fingerprint}'s pub record has no validity field"))?;
     let _length = fields.next();
     let _algorithm = fields.next();
     let _key_id = fields.next();
     let _created = fields.next();
-    let expires = fields.next().with_context(|| format!("{fingerprint}'s pub record has no expiry field"))?;
+    let expires = fields
+        .next()
+        .with_context(|| format!("{fingerprint}'s pub record has no expiry field"))?;
     let expires_epoch = match expires {
         "" => None,
-        text => Some(
-            text.parse::<i64>()
-                .with_context(|| format!("{fingerprint}'s pub record states expiry {text}, which is not a time"))?,
-        ),
+        text => Some(text.parse::<i64>().with_context(|| {
+            format!("{fingerprint}'s pub record states expiry {text}, which is not a time")
+        })?),
     };
-    Ok(Some(KeyValidity { expires_epoch, validity: validity.to_string() }))
+    Ok(Some(KeyValidity {
+        expires_epoch,
+        validity: validity.to_string(),
+    }))
 }
 
 /// Whether the private half for this fingerprint is in the local keyring. The

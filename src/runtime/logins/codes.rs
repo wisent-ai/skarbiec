@@ -26,8 +26,9 @@ const ATTRIBUTION: &str = "Data sourced from 2FA Directory (https://2fa.director
 /// The directory's sites, domain -> entry; a refusal names the address and
 /// curl's own reason, because without it nothing can be said.
 fn directory() -> Result<Map<String, Value>> {
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", DIRECTORY_TOTP_URL]))
-        .context("curl the 2FA Directory")?;
+    let response =
+        stado_wait::output(Command::new("curl").args(["-sS", "--fail", DIRECTORY_TOTP_URL]))
+            .context("curl the 2FA Directory")?;
     if !response.status.success() {
         anyhow::bail!(
             "the 2FA Directory at {DIRECTORY_TOTP_URL} could not be read ({}): {}; no login was judged",
@@ -35,8 +36,9 @@ fn directory() -> Result<Map<String, Value>> {
             String::from_utf8_lossy(&response.stderr).trim()
         );
     }
-    let parsed: Value = serde_json::from_slice(&response.stdout)
-        .with_context(|| format!("the 2FA Directory at {DIRECTORY_TOTP_URL} answered something that is not JSON"))?;
+    let parsed: Value = serde_json::from_slice(&response.stdout).with_context(|| {
+        format!("the 2FA Directory at {DIRECTORY_TOTP_URL} answered something that is not JSON")
+    })?;
     match parsed {
         Value::Object(sites) => Ok(sites),
         other => anyhow::bail!(
@@ -80,7 +82,11 @@ pub(super) fn run() -> Result<Value> {
         if holds_seed(&payload) {
             continue;
         }
-        let domains = payload.get("context").map(item_domains).into_iter().flatten();
+        let domains = payload
+            .get("context")
+            .map(item_domains)
+            .into_iter()
+            .flatten();
         let offered: Vec<Value> = domains
             .filter_map(|domain| {
                 sites

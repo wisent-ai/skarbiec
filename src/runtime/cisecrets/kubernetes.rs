@@ -16,17 +16,34 @@ use crate::runtime::exec::Binding;
 /// The field manager server-side apply records as owning the Secret's data.
 const MANAGER: &str = "skarbiec";
 
-pub(super) fn run(place: &str, flags: &HashMap<String, String>, bindings: &[Binding]) -> Result<Value> {
-    let Some((namespace, name)) = place.split_once('/').filter(|(namespace, name)| super::named(namespace) && super::named(name)) else {
-        return Err(Usage(format!("{place} is not <namespace>/<name> of a Kubernetes Secret; {}", super::USAGE)).into());
+pub(super) fn run(
+    place: &str,
+    flags: &HashMap<String, String>,
+    bindings: &[Binding],
+) -> Result<Value> {
+    let Some((namespace, name)) = place
+        .split_once('/')
+        .filter(|(namespace, name)| super::named(namespace) && super::named(name))
+    else {
+        return Err(Usage(format!(
+            "{place} is not <namespace>/<name> of a Kubernetes Secret; {}",
+            super::USAGE
+        ))
+        .into());
     };
     let context = flags.get("context");
     if let Some(context) = context.filter(|context| context.is_empty()) {
-        return Err(Usage(format!("--context {context} names no kubectl context; {}", super::USAGE)).into());
+        return Err(Usage(format!(
+            "--context {context} names no kubectl context; {}",
+            super::USAGE
+        ))
+        .into());
     }
     let listed = super::listed(bindings);
     if !flag_set(flags, "yes") {
-        return Ok(json!({"ok": true, "applied": false, "secret": place, "context": context, "secrets": listed}));
+        return Ok(
+            json!({"ok": true, "applied": false, "secret": place, "context": context, "secrets": listed}),
+        );
     }
     let mut data = Map::new();
     for (binding, value) in super::values(bindings)? {
@@ -43,7 +60,15 @@ pub(super) fn run(place: &str, flags: &HashMap<String, String>, bindings: &[Bind
     if let Some(context) = context {
         command.args(["--context", context.as_str()]);
     }
-    command.args(["apply", "--server-side", "--force-conflicts", "--field-manager", MANAGER, "-f", "-"]);
+    command.args([
+        "apply",
+        "--server-side",
+        "--force-conflicts",
+        "--field-manager",
+        MANAGER,
+        "-f",
+        "-",
+    ]);
     let output = super::piped(command, manifest.to_string().as_bytes(), "kubectl", place)?;
     let applied = output.status.success();
     let answer = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -53,7 +78,12 @@ pub(super) fn run(place: &str, flags: &HashMap<String, String>, bindings: &[Bind
         &json!({"secret": place, "context": context, "secrets": listed, "applied": applied}),
     )?;
     if !applied {
-        anyhow::bail!("kubectl apply refused the Secret {place} ({}): {refusal}", output.status);
+        anyhow::bail!(
+            "kubectl apply refused the Secret {place} ({}): {refusal}",
+            output.status
+        );
     }
-    Ok(json!({"ok": true, "applied": true, "secret": place, "context": context, "secrets": listed, "kubectl": answer}))
+    Ok(
+        json!({"ok": true, "applied": true, "secret": place, "context": context, "secrets": listed, "kubectl": answer}),
+    )
 }

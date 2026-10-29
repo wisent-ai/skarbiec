@@ -102,7 +102,12 @@ fn inspect(vault: &Vault, id: &str) -> Result<CertificateFacts> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .with_context(|| format!("start {} to read the certificate of {id}", openssl.display()))?;
+        .with_context(|| {
+            format!(
+                "start {} to read the certificate of {id}",
+                openssl.display()
+            )
+        })?;
     child
         .stdin
         .take()
@@ -132,7 +137,9 @@ fn inspect(vault: &Vault, id: &str) -> Result<CertificateFacts> {
             .lines()
             .find_map(|line| line.strip_prefix(prefix))
             .map(|value| value.trim().to_string())
-            .with_context(|| format!("OpenSSL printed no {prefix} line for the certificate of {id}"))
+            .with_context(|| {
+                format!("OpenSSL printed no {prefix} line for the certificate of {id}")
+            })
     };
     // `-dateopt iso_8601` prints `YYYY-MM-DD HH:MM:SSZ`; the vault's stamps
     // join date and time with `T`, and only that form compares as text.

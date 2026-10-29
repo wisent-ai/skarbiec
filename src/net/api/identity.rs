@@ -38,13 +38,12 @@ pub(crate) fn handle_tokens_introspect(
     };
     let vault = http::load()?;
     if !grant::token_allows_action(
-            &vault,
-            &consumer,
-            &bearer,
-            crate::access::actions::Action::Introspect.as_str(),
-            "tokens",
-        )?
-    {
+        &vault,
+        &consumer,
+        &bearer,
+        crate::access::actions::Action::Introspect.as_str(),
+        "tokens",
+    )? {
         return http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",

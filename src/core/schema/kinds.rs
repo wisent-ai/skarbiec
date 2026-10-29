@@ -28,15 +28,30 @@ pub(super) struct Field {
 }
 
 const fn required(name: &'static str, shape: Shape) -> Field {
-    Field { name, required: true, one_of: None, shape }
+    Field {
+        name,
+        required: true,
+        one_of: None,
+        shape,
+    }
 }
 
 const fn optional(name: &'static str, shape: Shape) -> Field {
-    Field { name, required: false, one_of: None, shape }
+    Field {
+        name,
+        required: false,
+        one_of: None,
+        shape,
+    }
 }
 
 const fn one_of(name: &'static str, set: &'static str, shape: Shape) -> Field {
-    Field { name, required: false, one_of: Some(set), shape }
+    Field {
+        name,
+        required: false,
+        one_of: Some(set),
+        shape,
+    }
 }
 
 /// What a login authenticates with; it needs at least one.
@@ -71,7 +86,10 @@ const IDENTITY: &[Field] = &[
 // root account to a browser flow; `host-account` keeps the two sets disjoint.
 // Both fields are required: a host account with only a username is not a
 // credential, and one with only a password cannot say who it is.
-const HOST_ACCOUNT: &[Field] = &[required("username", Shape::Text), required("password", Shape::Text)];
+const HOST_ACCOUNT: &[Field] = &[
+    required("username", Shape::Text),
+    required("password", Shape::Text),
+];
 const API_KEY: &[Field] = &[
     required("api_key", Shape::Text),
     optional("api_user", Shape::Text),
@@ -84,7 +102,10 @@ const ACCESS_KEY: &[Field] = &[
     optional("session_token", Shape::Text),
 ];
 const TOKEN: &[Field] = &[required("token", Shape::Text)];
-const OAUTH_CLIENT: &[Field] = &[required("client_id", Shape::Text), required("client_secret", Shape::Text)];
+const OAUTH_CLIENT: &[Field] = &[
+    required("client_id", Shape::Text),
+    required("client_secret", Shape::Text),
+];
 const PROXY: &[Field] = &[
     required("username", Shape::Text),
     required("password", Shape::Text),

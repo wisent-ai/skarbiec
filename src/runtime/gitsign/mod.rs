@@ -39,7 +39,9 @@ pub fn dispatch(
         None => Scope::Global,
     };
     match positionals {
-        [action, id] if action == "setup" => setup(id, &scope, crate::cli::args::flag_set(flags, "github")).map(Some),
+        [action, id] if action == "setup" => {
+            setup(id, &scope, crate::cli::args::flag_set(flags, "github")).map(Some)
+        }
         [action] if action == "status" => status(&scope).map(Some),
         [action] if action == "unset" => unset(&scope).map(Some),
         _ => Err(Usage(USAGE.to_string()).into()),
@@ -68,7 +70,8 @@ fn git_config(scope: &Scope, args: &[&str]) -> Result<(bool, String, String)> {
         Scope::Global => command.args(["config", "--global"]),
         Scope::Repo(repo) => command.args(["-C", repo, "config", "--local"]),
     };
-    let output = stado_wait::output(command.args(args)).context("run git config, which keeps git's signing settings")?;
+    let output = stado_wait::output(command.args(args))
+        .context("run git config, which keeps git's signing settings")?;
     Ok((
         output.status.success(),
         String::from_utf8_lossy(&output.stdout).trim().to_string(),
@@ -88,23 +91,35 @@ fn set(scope: &Scope, key: &str, value: &str) -> Result<()> {
 fn public_key(id: &str) -> Result<String> {
     let payload = Vault::open(vault_path())?.get_item(id)?;
     if payload["kind"] != json!("key-pair") {
-        bail!("{id} is a {} item; signing signs with the SSH key a key-pair item keeps", payload["kind"]);
+        bail!(
+            "{id} is a {} item; signing signs with the SSH key a key-pair item keeps",
+            payload["kind"]
+        );
     }
     payload["fields"]["public_key"]
         .as_str()
         .map(str::trim)
         .filter(|key| !key.is_empty())
         .map(str::to_string)
-        .with_context(|| format!("{id} keeps no public_key; rotate {id} --with ssh makes a pair that has one"))
+        .with_context(|| {
+            format!("{id} keeps no public_key; rotate {id} --with ssh makes a pair that has one")
+        })
 }
 
 /// The live key-pair item whose public key is `key`, if the vault keeps one.
 fn item_keeping(key: &str) -> Result<Option<String>> {
     let vault = Vault::open(vault_path())?;
     for entry in vault.list(false) {
-        let (Some(id), Some("key-pair")) = (entry["id"].as_str(), entry["kind"].as_str()) else { continue };
+        let (Some(id), Some("key-pair")) = (entry["id"].as_str(), entry["kind"].as_str()) else {
+            continue;
+        };
         let payload = vault.get_item(id)?;
-        if payload["fields"]["public_key"].as_str().and_then(bare).as_deref() == Some(key) {
+        if payload["fields"]["public_key"]
+            .as_str()
+            .and_then(bare)
+            .as_deref()
+            == Some(key)
+        {
             return Ok(Some(id.to_string()));
         }
     }
@@ -114,7 +129,9 @@ fn item_keeping(key: &str) -> Result<Option<String>> {
 /// Whether the ssh-agent this process would use holds `key`.
 fn agent_holds(key: &str) -> Value {
     match stado_wait::output(Command::new("ssh-add").arg("-L")) {
-        Ok(output) => json!(String::from_utf8_lossy(&output.stdout).lines().any(|line| line.trim().starts_with(key))),
+        Ok(output) => json!(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line.trim().starts_with(key))),
         Err(error) => json!({"error": format!("ssh-add -L could not run: {error:#}")}),
     }
 }
@@ -153,17 +170,22 @@ pub(crate) fn follow_rotation(old: &str, new: &str) -> Value {
 }
 
 fn setup(id: &str, scope: &Scope, on_github: bool) -> Result<Value> {
-    let signing = bare(&public_key(id)?).with_context(|| format!("{id}'s public_key is not an SSH public key line"))?;
+    let signing = bare(&public_key(id)?)
+        .with_context(|| format!("{id}'s public_key is not an SSH public key line"))?;
     // GitHub first: when it refuses, git is left as it was.
     let github = match on_github {
-        true => github::publish(id, &signing).with_context(|| format!("{} was left as it was", scope.named()))?,
+        true => github::publish(id, &signing)
+            .with_context(|| format!("{} was left as it was", scope.named()))?,
         false => Value::Null,
     };
     set(scope, "gpg.format", "ssh")?;
     set(scope, SIGNING_KEY, &format!("{LITERAL}{signing}"))?;
     set(scope, "commit.gpgsign", "true")?;
     set(scope, "tag.gpgsign", "true")?;
-    crate::runtime::audit::append("git-sign-setup", &json!({"item": id, "scope": scope.named(), "github": on_github}))?;
+    crate::runtime::audit::append(
+        "git-sign-setup",
+        &json!({"item": id, "scope": scope.named(), "github": on_github}),
+    )?;
     Ok(json!({
         "ok": true,
         "item": id,
@@ -178,29 +200,53 @@ fn setup(id: &str, scope: &Scope, on_github: bool) -> Result<Value> {
 fn status(scope: &Scope) -> Result<Value> {
     let (set, value, _) = git_config(scope, &[SIGNING_KEY])?;
     let Some(key) = value.strip_prefix(LITERAL).filter(|_| set) else {
-        return Ok(json!({"ok": true, "scope": scope.named(), "signing_key": if set { json!(value) } else { Value::Null }, "item": Value::Null}));
+        return Ok(
+            json!({"ok": true, "scope": scope.named(), "signing_key": if set { json!(value) } else { Value::Null }, "item": Value::Null}),
+        );
     };
     let Some(key) = bare(key) else {
-        bail!("{} signs with {value}, which is not an SSH public key", scope.named());
+        bail!(
+            "{} signs with {value}, which is not an SSH public key",
+            scope.named()
+        );
     };
-    Ok(json!({"ok": true, "scope": scope.named(), "signing_key": key, "item": item_keeping(&key)?, "agent_holds_it": agent_holds(&key)}))
+    Ok(
+        json!({"ok": true, "scope": scope.named(), "signing_key": key, "item": item_keeping(&key)?, "agent_holds_it": agent_holds(&key)}),
+    )
 }
 
 fn unset(scope: &Scope) -> Result<Value> {
     let (set, value, _) = git_config(scope, &[SIGNING_KEY])?;
     let Some(key) = value.strip_prefix(LITERAL).filter(|_| set) else {
-        bail!("{} signs with no key set by signing setup, so nothing was changed", scope.named());
+        bail!(
+            "{} signs with no key set by signing setup, so nothing was changed",
+            scope.named()
+        );
     };
-    let kept = bare(key).with_context(|| format!("{} signs with {value}, which is not an SSH public key, so it is left alone", scope.named()))?;
+    let kept = bare(key).with_context(|| {
+        format!(
+            "{} signs with {value}, which is not an SSH public key, so it is left alone",
+            scope.named()
+        )
+    })?;
     let Some(item) = item_keeping(&kept)? else {
-        bail!("{} signs with a key no item here keeps, so it is left alone", scope.named());
+        bail!(
+            "{} signs with a key no item here keeps, so it is left alone",
+            scope.named()
+        );
     };
     for key in [SIGNING_KEY, "gpg.format", "commit.gpgsign", "tag.gpgsign"] {
         let (ok, _, said) = git_config(scope, &["--unset", key])?;
         if !ok && !said.is_empty() {
-            bail!("git config --unset {key} in {} was refused: {said}", scope.named());
+            bail!(
+                "git config --unset {key} in {} was refused: {said}",
+                scope.named()
+            );
         }
     }
-    crate::runtime::audit::append("git-sign-unset", &json!({"item": item, "scope": scope.named()}))?;
+    crate::runtime::audit::append(
+        "git-sign-unset",
+        &json!({"item": item, "scope": scope.named()}),
+    )?;
     Ok(json!({"ok": true, "item": item, "scope": scope.named()}))
 }

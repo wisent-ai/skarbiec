@@ -111,9 +111,9 @@ pub(crate) fn active_count() -> Result<usize> {
             .values()
             .filter(|record| redeemable(record, now))
             .count()),
-        Some(other) => anyhow::bail!(
-            "the capability state holds {other} where the capabilities map belongs"
-        ),
+        Some(other) => {
+            anyhow::bail!("the capability state holds {other} where the capabilities map belongs")
+        }
     }
 }
 

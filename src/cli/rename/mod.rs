@@ -40,9 +40,14 @@ pub(crate) fn cmd_rename(flags: &HashMap<String, String>, positionals: &[String]
 /// /v1/operator/items/rename` alike. With `--move-grants` every grant that
 /// named the old id is retargeted to the new one in the same call, keeping
 /// its bearer; one that cannot be moved is named with its reason.
-pub(crate) fn rename_value(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(crate) fn rename_value(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     let [from, to, ..] = positionals else {
-        return Err(super::args::Usage("usage: rename <id> <new-id> [--move-grants]".to_string()).into());
+        return Err(
+            super::args::Usage("usage: rename <id> <new-id> [--move-grants]".to_string()).into(),
+        );
     };
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, from, "rename")?;
@@ -61,7 +66,8 @@ pub(crate) fn rename_value(flags: &HashMap<String, String>, positionals: &[Strin
     // in the command they run; they are pointed at the new id, and one that
     // could not be — or a configuration that could not be read — is named
     // with why. The item is renamed already, so neither refuses the rename.
-    let unread = |error: anyhow::Error| json!({"moved": [], "not_moved": [{"error": format!("{error:#}")}]});
+    let unread =
+        |error: anyhow::Error| json!({"moved": [], "not_moved": [{"error": format!("{error:#}")}]});
     let aws_profiles = match crate::runtime::awscred::follow_rename(from, to) {
         Ok(answer) => answer,
         Err(error) => unread(error),
@@ -97,19 +103,36 @@ pub(crate) fn rename_value(flags: &HashMap<String, String>, positionals: &[Strin
     let mut moved = Vec::new();
     let mut not_moved = Vec::new();
     if flag_set(flags, "move-grants") {
-        let target = HashMap::from([("from".to_string(), from.clone()), ("to".to_string(), to.clone())]);
+        let target = HashMap::from([
+            ("from".to_string(), from.clone()),
+            ("to".to_string(), to.clone()),
+        ]);
         for consumer in &stranded {
-            match crate::access::dispatch("grant", &target, &["retarget".to_string(), consumer.clone()]) {
+            match crate::access::dispatch(
+                "grant",
+                &target,
+                &["retarget".to_string(), consumer.clone()],
+            ) {
                 Ok(_) => moved.push(consumer.clone()),
-                Err(error) => not_moved.push(json!({"consumer": consumer, "error": format!("{error:#}")})),
+                Err(error) => {
+                    not_moved.push(json!({"consumer": consumer, "error": format!("{error:#}")}))
+                }
             }
         }
     }
-    let machine_left = aws_profiles["not_moved"].as_array().is_some_and(|left| !left.is_empty())
-        || kube_users["not_moved"].as_array().is_some_and(|left| !left.is_empty())
+    let machine_left = aws_profiles["not_moved"]
+        .as_array()
+        .is_some_and(|left| !left.is_empty())
+        || kube_users["not_moved"]
+            .as_array()
+            .is_some_and(|left| !left.is_empty())
         || alert.get("error").is_some()
-        || ci_bindings["not_moved"].as_array().is_some_and(|left| !left.is_empty())
-        || bindings_files["not_moved"].as_array().is_some_and(|left| !left.is_empty());
+        || ci_bindings["not_moved"]
+            .as_array()
+            .is_some_and(|left| !left.is_empty())
+        || bindings_files["not_moved"]
+            .as_array()
+            .is_some_and(|left| !left.is_empty());
     Ok(json!({
         "ok": not_moved.is_empty() && !machine_left,
         "from": from,
@@ -142,9 +165,9 @@ pub(crate) fn grants_naming(vault: &Vault, id: &str) -> Vec<String> {
                 .get("capabilities")
                 .and_then(Value::as_array)
                 .is_some_and(|capabilities| {
-                    capabilities
-                        .iter()
-                        .any(|capability| capability.get("item").and_then(Value::as_str) == Some(id))
+                    capabilities.iter().any(|capability| {
+                        capability.get("item").and_then(Value::as_str) == Some(id)
+                    })
                 })
         })
         .map(|(consumer, _)| consumer.clone())

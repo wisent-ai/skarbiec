@@ -14,7 +14,11 @@ pub(crate) fn broken(rules: &str, value: &str) -> Result<Vec<String>> {
     // Every class a required or allowed rule names; when there is one, the
     // value may hold no character outside them.
     let mut permitted: Vec<String> = Vec::new();
-    for rule in rules.split(';').map(str::trim).filter(|rule| !rule.is_empty()) {
+    for rule in rules
+        .split(';')
+        .map(str::trim)
+        .filter(|rule| !rule.is_empty())
+    {
         let Some((name, stated)) = rule.split_once(':') else {
             bail!("password rule `{rule}` names no value; rules read `name: value; ...`");
         };
@@ -24,7 +28,9 @@ pub(crate) fn broken(rules: &str, value: &str) -> Result<Vec<String>> {
             "maxlength" => length <= number(name, stated)?,
             "required" => {
                 let classes = classes(stated)?;
-                let met = value.chars().any(|character| classes.iter().any(|class| holds(class, character)));
+                let met = value
+                    .chars()
+                    .any(|character| classes.iter().any(|class| holds(class, character)));
                 permitted.extend(classes);
                 met
             }
@@ -43,7 +49,9 @@ pub(crate) fn broken(rules: &str, value: &str) -> Result<Vec<String>> {
         }
     }
     let outside = !permitted.is_empty()
-        && value.chars().any(|character| !permitted.iter().any(|class| holds(class, character)));
+        && value
+            .chars()
+            .any(|character| !permitted.iter().any(|class| holds(class, character)));
     if outside {
         broken.push(format!("a character outside {}", permitted.join(", ")));
     }
@@ -61,8 +69,10 @@ fn number(name: &str, value: &str) -> Result<usize> {
 fn classes(value: &str) -> Result<Vec<String>> {
     let mut named = Vec::new();
     for class in value.split(',').map(str::trim) {
-        let known = matches!(class, "lower" | "upper" | "digit" | "special" | "ascii-printable" | "unicode")
-            || (class.starts_with('[') && class.ends_with(']'));
+        let known = matches!(
+            class,
+            "lower" | "upper" | "digit" | "special" | "ascii-printable" | "unicode"
+        ) || (class.starts_with('[') && class.ends_with(']'));
         if !known {
             bail!("password rule class {class} is not lower, upper, digit, special, ascii-printable, unicode or a [set]");
         }
@@ -81,7 +91,10 @@ fn holds(class: &str, character: char) -> bool {
         "special" => character.is_ascii_punctuation() || character == ' ',
         "ascii-printable" => character.is_ascii_graphic() || character == ' ',
         "unicode" => true,
-        set => set.trim_start_matches('[').trim_end_matches(']').contains(character),
+        set => set
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .contains(character),
     }
 }
 

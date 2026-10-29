@@ -143,7 +143,9 @@ pub(super) fn waiting_on_agent() -> usize {
         .iter()
         .filter(|(pid, run)| {
             at_waiting_point(run.last_status.as_deref())
-                && stood.iter().any(|seen| seen.matches(**pid, &run.started, &run.last_status))
+                && stood
+                    .iter()
+                    .any(|seen| seen.matches(**pid, &run.started, &run.last_status))
         })
         .count()
 }
@@ -221,7 +223,10 @@ pub fn note_agent_waits() -> Result<Vec<String>, String> {
         .filter(|(_, run)| !before.iter().any(|seen| seen.is(run)))
         .map(|(owner, run)| {
             let (at, _) = waiting_on(run);
-            format!("gpg {} (pid {}, of {owner}) since {} {at}", run.verb, run.pid, run.started)
+            format!(
+                "gpg {} (pid {}, of {owner}) since {} {at}",
+                run.verb, run.pid, run.started
+            )
         })
         .collect())
 }

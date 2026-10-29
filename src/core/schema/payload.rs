@@ -38,7 +38,10 @@ fn check_declared(kind: &str, declared: &[Field], fields: &Map<String, Value>) -
             continue;
         };
         let members = declared.iter().filter(|member| member.one_of == Some(set));
-        if !members.clone().any(|member| fields.contains_key(member.name)) {
+        if !members
+            .clone()
+            .any(|member| fields.contains_key(member.name))
+        {
             let named = members
                 .map(|member| format!("fields.{}", member.name))
                 .collect::<Vec<_>>()

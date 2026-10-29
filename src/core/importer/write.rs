@@ -76,7 +76,10 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
         let carried: &[Value] = match existing.and_then(|item| item.get("tags")) {
             None | Some(Value::Null) => &[],
             Some(Value::Array(carried)) => carried.as_slice(),
-            Some(other) => bail!("{} carries tags {other}, not a list; no items were written", row.id),
+            Some(other) => bail!(
+                "{} carries tags {other}, not a list; no items were written",
+                row.id
+            ),
         };
         schema::ensure_registered_tags(carried, &tags)?;
         let status = if let Some(existing) = existing {
@@ -120,7 +123,10 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
     for index in &selected {
         let row = &document.rows[*index];
         let Some(kind) = row.payload["kind"].as_str() else {
-            bail!("{} names no kind in its payload, so it cannot be written; no items were written", row.id);
+            bail!(
+                "{} names no kind in its payload, so it cannot be written; no items were written",
+                row.id
+            );
         };
         writes.push(ItemWrite {
             id: &row.id,
@@ -134,7 +140,12 @@ pub(super) fn apply(mut document: ImportDocument, conflict: Conflict) -> Result<
     vault.set_items_atomic(&writes)?;
     // Each count is read off the rows' own answers, so the totals and the
     // per-item statuses cannot disagree.
-    let counted = |status: &str| results.iter().filter(|result| result["status"] == status).count();
+    let counted = |status: &str| {
+        results
+            .iter()
+            .filter(|result| result["status"] == status)
+            .count()
+    };
     Ok(json!({
         "ok": true, "format": document.format, "total": results.len(),
         "vault": vault.path,

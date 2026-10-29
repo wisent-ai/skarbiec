@@ -22,7 +22,8 @@ const APP: &str = "com.vercel.cli";
 /// directory — ~/Library/Application Support on macOS, $XDG_DATA_HOME or
 /// ~/.local/share elsewhere — then the older ~/.vercel.
 fn candidates() -> Result<Vec<PathBuf>> {
-    let home = crate::core::env::path("HOME").context("HOME names no directory where the Vercel CLI keeps auth.json")?;
+    let home = crate::core::env::path("HOME")
+        .context("HOME names no directory where the Vercel CLI keeps auth.json")?;
     let mut found = Vec::new();
     if cfg!(target_os = "macos") {
         found.push(home.join("Library").join("Application Support").join(APP));
@@ -32,7 +33,10 @@ fn candidates() -> Result<Vec<PathBuf>> {
     }
     found.push(home.join(".local").join("share").join(APP));
     found.push(home.join(".vercel"));
-    Ok(found.into_iter().map(|directory| directory.join("auth.json")).collect())
+    Ok(found
+        .into_iter()
+        .map(|directory| directory.join("auth.json"))
+        .collect())
 }
 
 /// The auth.json the CLI reads — the first that exists, else the first it
@@ -41,22 +45,38 @@ fn auth() -> Result<(PathBuf, Option<Map<String, Value>>)> {
     let candidates = candidates()?;
     for file in &candidates {
         if let Some(text) = crate::core::read_present(file, "the Vercel CLI's auth.json")? {
-            let parsed: Map<String, Value> = serde_json::from_str(&text).with_context(|| format!("{} is not the JSON object the Vercel CLI writes", file.display()))?;
+            let parsed: Map<String, Value> = serde_json::from_str(&text).with_context(|| {
+                format!(
+                    "{} is not the JSON object the Vercel CLI writes",
+                    file.display()
+                )
+            })?;
             return Ok((file.clone(), Some(parsed)));
         }
     }
-    let first = candidates.into_iter().next().context("no place the Vercel CLI keeps auth.json")?;
+    let first = candidates
+        .into_iter()
+        .next()
+        .context("no place the Vercel CLI keeps auth.json")?;
     Ok((first, None))
 }
 
 fn token_of(parsed: &Option<Map<String, Value>>) -> Option<String> {
-    parsed.as_ref()?.get(KEY)?.as_str().filter(|token| !token.is_empty()).map(str::to_string)
+    parsed
+        .as_ref()?
+        .get(KEY)?
+        .as_str()
+        .filter(|token| !token.is_empty())
+        .map(str::to_string)
 }
 
 /// The token, when auth.json keeps one, as tool status lists it.
 pub(crate) fn status() -> Result<Value> {
     let (file, parsed) = auth()?;
-    let entries: Vec<Value> = token_of(&parsed).iter().map(|_| json!({"entry": KEY, "kept": "plain text"})).collect();
+    let entries: Vec<Value> = token_of(&parsed)
+        .iter()
+        .map(|_| json!({"entry": KEY, "kept": "plain text"}))
+        .collect();
     Ok(json!({"file": file, "entries": entries, "variables": [VARIABLE]}))
 }
 
@@ -64,7 +84,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let (id, bindings, tags) = (request.id, request.bindings, request.tags);
     let (file, parsed) = auth()?;
     let Some(token) = token_of(&parsed) else {
-        bail!("{} keeps no token — the Vercel CLI may not be signed in here; nothing was changed", file.display());
+        bail!(
+            "{} keeps no token — the Vercel CLI may not be signed in here; nothing was changed",
+            file.display()
+        );
     };
     let binding = format!("{id}:{FIELD}");
     let updated = crate::runtime::npmcred::bound(bindings, &[(VARIABLE, &binding)])?;
@@ -72,7 +95,10 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     let mut fields = Map::new();
     fields.insert(FIELD.to_string(), json!(token));
     let mut context = Map::new();
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!("Vercel CLI token"));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!("Vercel CLI token"),
+    );
     let payload = crate::core::schema::payload(FIELD, fields, context)?;
     let mut write = HashMap::from([("type".to_string(), FIELD.to_string())]);
     if let Some(tags) = tags {
@@ -81,11 +107,19 @@ pub(crate) fn import(request: &crate::runtime::tooltoken::Request) -> Result<Val
     crate::cli::items::create_value(&write, id, &payload.to_string(), "tool import")?;
     let read_back = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if read_back["fields"][FIELD] != json!(token) {
-        bail!("{id} does not read back the token; {} was left as it was", file.display());
+        bail!(
+            "{id} does not read back the token; {} was left as it was",
+            file.display()
+        );
     }
     if let Some(out) = updated {
-        crate::core::vault::atomic_write(bindings, out.as_bytes())
-            .with_context(|| format!("{} still keeps the token and {id} holds a copy, but {} could not bind {VARIABLE}", file.display(), bindings.display()))?;
+        crate::core::vault::atomic_write(bindings, out.as_bytes()).with_context(|| {
+            format!(
+                "{} still keeps the token and {id} holds a copy, but {} could not bind {VARIABLE}",
+                file.display(),
+                bindings.display()
+            )
+        })?;
     }
     crate::runtime::bindings::remember(bindings)?;
     let mut rest = parsed.context("auth.json was read with a token, so it holds an object")?;

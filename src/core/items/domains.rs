@@ -57,7 +57,12 @@ pub fn item_domains(context: &Value) -> Vec<String> {
         add(single.to_string());
     }
     if stated.is_none() {
-        for address in context.get("url").into_iter().chain(context.get("urls")).flat_map(addresses) {
+        for address in context
+            .get("url")
+            .into_iter()
+            .chain(context.get("urls"))
+            .flat_map(addresses)
+        {
             add(site_host(&address));
         }
     }
@@ -83,7 +88,11 @@ pub fn plain_http_addresses(context: &Value) -> Vec<String> {
 fn addresses(value: &Value) -> Vec<String> {
     let is_address = |text: &&str| text.contains("://");
     match value {
-        Value::String(text) => [text.as_str()].into_iter().filter(is_address).map(str::to_string).collect(),
+        Value::String(text) => [text.as_str()]
+            .into_iter()
+            .filter(is_address)
+            .map(str::to_string)
+            .collect(),
         Value::Array(rows) => rows.iter().flat_map(addresses).collect(),
         Value::Object(members) => members
             .values()

@@ -94,7 +94,9 @@ pub(in crate::access::capability) fn challenge_put(positionals: &[String]) -> Re
         Some(Value::Object(entries)) => entries
             .values()
             .any(|entry| entry["resource"].as_str() == Some(resource.as_str())),
-        Some(other) => bail!("the capability state holds capabilities {other}, not an object of entries"),
+        Some(other) => {
+            bail!("the capability state holds capabilities {other}, not an object of entries")
+        }
     };
     if !authorized {
         bail!("no capability names {resource}; nothing authorized this challenge");

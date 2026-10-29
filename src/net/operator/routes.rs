@@ -28,7 +28,6 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
     let none: Vec<String> = Vec::new();
     let no_flags = HashMap::new();
     match path {
-
         // Mutations, one route per verb, bodies naming exact targets.
         "/v1/operator/vaults/create" => {
             crate::cmd_init(&no_flags, &positionals(parsed, &["owner"])?)
@@ -38,10 +37,12 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             &positionals(parsed, &["path"])?,
         ),
         // One id, or `tag` / `untouched-since` (with `yes` to act) as delete takes them.
-        "/v1/operator/items/trash" => match crate::cli::bulk::delete_set(&flags(parsed, &["tag", "untouched-since", "yes"])) {
-            Some(answer) => answer,
-            None => crate::cmd_delete(&positionals(parsed, &["id"])?),
-        },
+        "/v1/operator/items/trash" => {
+            match crate::cli::bulk::delete_set(&flags(parsed, &["tag", "untouched-since", "yes"])) {
+                Some(answer) => answer,
+                None => crate::cmd_delete(&positionals(parsed, &["id"])?),
+            }
+        }
         "/v1/operator/items/reclaim" => crate::cmd_reclaim(&positionals(parsed, &["id"])?),
         "/v1/operator/items/rename" => crate::cli::rename::rename_value(
             &flags(parsed, &["move-grants"]),
@@ -49,7 +50,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         ),
         // Connecting the autofill extension mints a grant and writes the two
         // manifests for the user the serving process runs as.
-        "/v1/operator/browser-host/install" => crate::browser::install_host(&flags(parsed, &["binary"])),
+        "/v1/operator/browser-host/install" => {
+            crate::browser::install_host(&flags(parsed, &["binary"]))
+        }
         "/v1/operator/browser-host/uninstall" => crate::browser::uninstall_host(),
         "/v1/operator/browser-host/cover" => crate::browser::cover_all(),
         // A review is journalled, so it is serialized with the writes;
@@ -68,7 +71,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
             core::items::upgrade(&chosen)
         }
         // The signing secret is generated in the vault and never answered.
-        "/v1/operator/agents/enrol" => crate::access::agent::enrol(&positionals(parsed, &["agent"])?),
+        "/v1/operator/agents/enrol" => {
+            crate::access::agent::enrol(&positionals(parsed, &["agent"])?)
+        }
         // On the vault owner, where the daemons decrypt; a receipt that says
         // the daemons were not replaced is an error carrying gpgconf's cause.
         "/v1/operator/recover-daemons" => {
@@ -87,7 +92,10 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         // `yes` to act), every trashed item carrying it comes back.
         "/v1/operator/items/restore" => match optional(parsed, "tag") {
             Some(tag) => crate::cli::bulk::restore_tagged(&flags(parsed, &["yes"]), &tag),
-            None => crate::cmd_restore(&positionals(parsed, &["id"])?, optional(parsed, "at").as_deref()),
+            None => crate::cmd_restore(
+                &positionals(parsed, &["id"])?,
+                optional(parsed, "at").as_deref(),
+            ),
         },
         // Only the write: a generated value never travels in an API answer,
         // so `into` is required here and the answer names the revision.
@@ -130,8 +138,16 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/items/share" | "/v1/operator/items/revoke" => {
             let command = leaf(path).trim_start_matches("items ").to_string();
             match parsed.get("tag") {
-                Some(_) => access(&command, &flags(parsed, &["tag", "until"]), &positionals(parsed, &["uid"])?),
-                None => access(&command, &flags(parsed, &["until"]), &positionals(parsed, &["id", "uid"])?),
+                Some(_) => access(
+                    &command,
+                    &flags(parsed, &["tag", "until"]),
+                    &positionals(parsed, &["uid"])?,
+                ),
+                None => access(
+                    &command,
+                    &flags(parsed, &["until"]),
+                    &positionals(parsed, &["id", "uid"])?,
+                ),
             }
         }
         "/v1/operator/shares/expire" => crate::access::recipients::expire_timed_shares(),
@@ -146,7 +162,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/migrate" => {
             let from = text(parsed, "from")?;
             let to = text(parsed, "to")?;
-            if !std::path::Path::new(&from).is_absolute() || !std::path::Path::new(&to).is_absolute() {
+            if !std::path::Path::new(&from).is_absolute()
+                || !std::path::Path::new(&to).is_absolute()
+            {
                 bail!("from and to must be absolute paths of vault files on this machine; got {from} and {to}");
             }
             crate::core::items::migrate_vault(&flags(parsed, &["from", "to", "force", "reconcile"]))
@@ -167,7 +185,31 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         }
         "/v1/operator/rotation/set" => rotation(
             "set",
-            &flags(parsed, &["every-days", "provider", "consumer", "purpose", "with", "url", "length", "delete-old", "comment", "hosts", "account", "github", "gitlab", "github-account", "gitlab-account", "github-signing", "tenant", "end-date", "years", "days"]),
+            &flags(
+                parsed,
+                &[
+                    "every-days",
+                    "provider",
+                    "consumer",
+                    "purpose",
+                    "with",
+                    "url",
+                    "length",
+                    "delete-old",
+                    "comment",
+                    "hosts",
+                    "account",
+                    "github",
+                    "gitlab",
+                    "github-account",
+                    "gitlab-account",
+                    "github-signing",
+                    "tenant",
+                    "end-date",
+                    "years",
+                    "days",
+                ],
+            ),
             &positionals(parsed, &["item"])?,
         ),
         "/v1/operator/rotation/remove" => {
@@ -236,7 +278,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         // command line takes them.
         "/v1/operator/grants/revoke" => match optional(parsed, "consumer") {
             Some(consumer) => grant("revoke", &no_flags, &[consumer]),
-            None => grant("revoke", &flags(parsed, &["expired", "idle-since", "yes"]), &none),
+            None => grant(
+                "revoke",
+                &flags(parsed, &["expired", "idle-since", "yes"]),
+                &none,
+            ),
         },
         "/v1/operator/donations/accept" => {
             inbox("donation accept", &no_flags, &positionals(parsed, &["id"])?)

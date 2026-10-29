@@ -33,7 +33,12 @@ pub fn dispatch(
             // synced, so a bare file name is taken in the working directory;
             // the template is too, so the two compare as the same file.
             let here = std::env::current_dir().context("read the working directory")?;
-            inject(&here.join(template), &here.join(out), flag_set(flags, "replace")).map(Some)
+            inject(
+                &here.join(template),
+                &here.join(out),
+                flag_set(flags, "replace"),
+            )
+            .map(Some)
         }
         _ => Err(Usage(USAGE.to_string()).into()),
     }
@@ -57,10 +62,16 @@ fn pieces(text: &str) -> Result<Vec<Piece<'_>>> {
     let mut found = Vec::new();
     let mut rest = text;
     loop {
-        let Some((head, after_open)) = rest.split_once(OPEN) else { break };
-        let Some((inner, after_close)) = after_open.split_once(CLOSE) else { break };
+        let Some((head, after_open)) = rest.split_once(OPEN) else {
+            break;
+        };
+        let Some((inner, after_close)) = after_open.split_once(CLOSE) else {
+            break;
+        };
         // The line the reference starts on: the lines of everything before it.
-        let line = text[..text.len() - rest.len() + head.len()].split('\n').count();
+        let line = text[..text.len() - rest.len() + head.len()]
+            .split('\n')
+            .count();
         found.push(Piece::Kept(head.into()));
         let written = inner;
         let inner = inner.trim();
@@ -68,12 +79,17 @@ fn pieces(text: &str) -> Result<Vec<Piece<'_>>> {
             // Not ours: kept exactly as written, spaces and all.
             None => found.push(Piece::Kept(format!("{OPEN}{written}{CLOSE}").into())),
             Some(named) => {
-                let Some((item, field)) =
-                    named.rsplit_once(':').filter(|(item, field)| !item.is_empty() && !field.is_empty())
+                let Some((item, field)) = named
+                    .rsplit_once(':')
+                    .filter(|(item, field)| !item.is_empty() && !field.is_empty())
                 else {
                     bail!("line {line}: {OPEN} {inner} {CLOSE} is not {OPEN} skarbiec:<id>:<field> {CLOSE}; nothing was written");
                 };
-                found.push(Piece::Filled(Reference { line, item: item.to_string(), field: field.to_string() }));
+                found.push(Piece::Filled(Reference {
+                    line,
+                    item: item.to_string(),
+                    field: field.to_string(),
+                }));
             }
         }
         rest = after_close;
@@ -84,12 +100,20 @@ fn pieces(text: &str) -> Result<Vec<Piece<'_>>> {
 
 fn inject(template: &Path, out: &Path, replace: bool) -> Result<Value> {
     if template == out {
-        return Err(Usage(format!("{} is the template itself; name another file to write", out.display())).into());
+        return Err(Usage(format!(
+            "{} is the template itself; name another file to write",
+            out.display()
+        ))
+        .into());
     }
     if crate::core::is_present(out, "the output file")? && !replace {
-        bail!("{} exists; --replace overwrites it, else name a new file", out.display());
+        bail!(
+            "{} exists; --replace overwrites it, else name a new file",
+            out.display()
+        );
     }
-    let text = std::fs::read_to_string(template).with_context(|| format!("read the template {}", template.display()))?;
+    let text = std::fs::read_to_string(template)
+        .with_context(|| format!("read the template {}", template.display()))?;
     let cut = pieces(&text)?;
     let named: Vec<&Reference> = cut
         .iter()
@@ -110,11 +134,16 @@ fn inject(template: &Path, out: &Path, replace: bool) -> Result<Value> {
         match piece {
             Piece::Kept(kept) => filled.push_str(kept),
             Piece::Filled(reference) => {
-                let payload = vault
-                    .get_item(&reference.item)
-                    .with_context(|| format!("line {}: {}; nothing was written", reference.line, reference.item))?;
-                let Some(value) =
-                    payload.get("fields").and_then(|fields| fields.get(&reference.field)).and_then(Value::as_str)
+                let payload = vault.get_item(&reference.item).with_context(|| {
+                    format!(
+                        "line {}: {}; nothing was written",
+                        reference.line, reference.item
+                    )
+                })?;
+                let Some(value) = payload
+                    .get("fields")
+                    .and_then(|fields| fields.get(&reference.field))
+                    .and_then(Value::as_str)
                 else {
                     bail!(
                         "line {}: {} has no text field {}; nothing was written",

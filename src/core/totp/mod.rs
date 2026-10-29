@@ -31,5 +31,8 @@ pub fn code(seed: &str, at: u64) -> Result<String, String> {
     if secret.is_empty() {
         return Err("the seed decodes to no bytes".to_string());
     }
-    Ok(TOTP::new_unchecked(Algorithm::SHA1, DIGITS, SKEW_STEPS, PERIOD_SECONDS, secret).generate(at))
+    Ok(
+        TOTP::new_unchecked(Algorithm::SHA1, DIGITS, SKEW_STEPS, PERIOD_SECONDS, secret)
+            .generate(at),
+    )
 }

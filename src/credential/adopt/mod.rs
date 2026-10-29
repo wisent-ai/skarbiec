@@ -62,7 +62,11 @@ pub(super) fn read_password_stdin() -> Result<String> {
     let mut raw = Vec::new();
     std::io::stdin().lock().read_to_end(&mut raw)?;
     // The secret is what was piped in, less the line breaks a shell appends to it.
-    let trailing = raw.iter().rev().take_while(|byte| matches!(byte, b'\n' | b'\r')).count();
+    let trailing = raw
+        .iter()
+        .rev()
+        .take_while(|byte| matches!(byte, b'\n' | b'\r'))
+        .count();
     let decoded = String::from_utf8(raw[..raw.len() - trailing].to_vec());
     raw.fill(b'\0');
     let candidate = decoded.map_err(|error| {

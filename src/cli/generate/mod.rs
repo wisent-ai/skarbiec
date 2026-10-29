@@ -30,7 +30,10 @@ pub(crate) fn cmd_generate(flags: &HashMap<String, String>) -> Result<()> {
 pub(crate) fn generate_value(given: &HashMap<String, String>) -> Result<Value> {
     let flags = &match (given.get("rules"), given.get("rules-of")) {
         (Some(_), Some(_)) => {
-            return Err(super::args::Usage("--rules and --rules-of both name rules; give one".to_string()).into())
+            return Err(super::args::Usage(
+                "--rules and --rules-of both name rules; give one".to_string(),
+            )
+            .into())
         }
         (Some(text), None) => rules::options(text, given.clone())?,
         (None, Some(id)) => rules::options(&kept_rules(id)?, given.clone())?,

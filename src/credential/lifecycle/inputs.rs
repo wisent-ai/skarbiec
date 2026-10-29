@@ -91,9 +91,7 @@ pub(super) fn read_submission<'a>(
     exact_name("provider", provider)?;
     let named = match args.first() {
         Some(named) => named.as_str(),
-        None if acquire && generic_provider(provider) => {
-            generic_credential_id(provider)?
-        }
+        None if acquire && generic_provider(provider) => generic_credential_id(provider)?,
         None => bail!("{usage}"),
     };
     let (credential_id, role) = match named.strip_prefix("role:") {

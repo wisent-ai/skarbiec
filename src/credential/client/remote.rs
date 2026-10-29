@@ -54,7 +54,9 @@ pub(in crate::credential) fn canonical_call(
     // refused, never replaced, so no value is read other than as it was sent.
     let decoded = std::str::from_utf8(&raw).map(str::to_owned);
     raw.fill(b'\0');
-    let text = decoded.with_context(|| format!("canonical Skarbiec on {authority} replied with bytes that are not UTF-8"))?;
+    let text = decoded.with_context(|| {
+        format!("canonical Skarbiec on {authority} replied with bytes that are not UTF-8")
+    })?;
     let Some((head, body_text)) = text.split_once("\r\n\r\n") else {
         bail!("canonical Skarbiec on {authority} closed the connection before a complete reply");
     };

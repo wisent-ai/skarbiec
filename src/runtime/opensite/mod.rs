@@ -30,23 +30,42 @@ pub fn dispatch(
     let [id] = positionals else {
         return Err(Usage(USAGE.to_string()).into());
     };
-    let read = crate::runtime::dispatch("sites", &HashMap::new(), &[id.clone()])?.context("sites answered nothing")?;
-    let sites: Vec<&str> = read["domains"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let read = crate::runtime::dispatch("sites", &HashMap::new(), &[id.clone()])?
+        .context("sites answered nothing")?;
+    let sites: Vec<&str> = read["domains"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     let site = match (flags.get("site"), sites.as_slice()) {
         (Some(named), _) if sites.contains(&named.as_str()) => named.as_str(),
-        (Some(named), _) => bail!("{id} is not offered on {named}; its sites are: {}", sites.join(", ")),
+        (Some(named), _) => bail!(
+            "{id} is not offered on {named}; its sites are: {}",
+            sites.join(", ")
+        ),
         (None, [only]) => only,
-        (None, []) => bail!("{id} names no site to open; `skarbiec sites {id} --add <domain>` names one"),
-        (None, several) => bail!("{id} is offered on {}; name one with --site", several.join(", ")),
+        (None, []) => {
+            bail!("{id} names no site to open; `skarbiec sites {id} --add <domain>` names one")
+        }
+        (None, several) => bail!(
+            "{id} is offered on {}; name one with --site",
+            several.join(", ")
+        ),
     };
     let address = if flag_set(flags, "change-password") {
         format!("https://{site}/.well-known/change-password")
     } else {
         format!("https://{site}/")
     };
-    let opened = stado_wait::output(Command::new(OPENER).arg(&address)).with_context(|| format!("run {OPENER}"))?;
+    let opened = stado_wait::output(Command::new(OPENER).arg(&address))
+        .with_context(|| format!("run {OPENER}"))?;
     if !opened.status.success() {
-        bail!("{OPENER} could not open {address} ({}): {}", opened.status, String::from_utf8_lossy(&opened.stderr).trim());
+        bail!(
+            "{OPENER} could not open {address} ({}): {}",
+            opened.status,
+            String::from_utf8_lossy(&opened.stderr).trim()
+        );
     }
     Ok(Some(json!({"ok": true, "item": id, "opened": address})))
 }

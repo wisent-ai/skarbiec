@@ -84,8 +84,14 @@ fn keys(flags: &HashMap<String, String>) -> Result<Value> {
         }
     }
     let ok = unreadable.is_empty()
-        && rows.iter().all(|row| row["expired"] != json!(true) && row["revoked"] != json!(true) && row["in_keyring"] == json!(true));
-    Ok(json!({"ok": ok, "checked_at": now, "expiring_before": before, "keys": rows, "unreadable": unreadable}))
+        && rows.iter().all(|row| {
+            row["expired"] != json!(true)
+                && row["revoked"] != json!(true)
+                && row["in_keyring"] == json!(true)
+        });
+    Ok(
+        json!({"ok": ok, "checked_at": now, "expiring_before": before, "keys": rows, "unreadable": unreadable}),
+    )
 }
 
 /// The command that replaces a key that ended or is about to: a person's

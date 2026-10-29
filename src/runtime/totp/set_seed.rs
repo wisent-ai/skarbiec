@@ -16,9 +16,9 @@ const SEED_FIELD: &str = "totp_secret";
 
 /// `totp set <id>` with the seed on standard input.
 pub fn run(positionals: &[String]) -> Result<Value> {
-    let id = positionals
-        .first()
-        .or_usage("usage: totp set <item-id>  (the Base32 seed or the otpauth:// address on stdin)")?;
+    let id = positionals.first().or_usage(
+        "usage: totp set <item-id>  (the Base32 seed or the otpauth:// address on stdin)",
+    )?;
     let mut given = String::new();
     std::io::stdin()
         .read_to_string(&mut given)
@@ -32,7 +32,8 @@ pub fn run(positionals: &[String]) -> Result<Value> {
 pub fn store(id: &str, given: &str) -> Result<Value> {
     let seed = given_seed(given)?;
     let now = crate::core::clock::epoch_seconds()?;
-    let code = totp::code(&seed, now).map_err(|cause| anyhow::anyhow!("the seed was not stored: {cause}"))?;
+    let code = totp::code(&seed, now)
+        .map_err(|cause| anyhow::anyhow!("the seed was not stored: {cause}"))?;
     let mut vault = Vault::open(vault_path())?;
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "store an authenticator seed in")?;
     let mut payload = vault.get_item(id)?;
@@ -77,14 +78,19 @@ pub(crate) fn given_seed(given: &str) -> Result<String> {
     let raw = match given.strip_prefix("otpauth://") {
         Some(rest) => {
             let Some(totp_address) = rest.strip_prefix("totp/") else {
-                bail!("the address is not otpauth://totp/; only time-based codes are computed here");
+                bail!(
+                    "the address is not otpauth://totp/; only time-based codes are computed here"
+                );
             };
             let Some((_, query)) = totp_address.split_once('?') else {
                 bail!("the otpauth:// address has no parameters, so it carries no secret");
             };
             let mut parameters: HashMap<String, String> = HashMap::new();
             for (key, value) in form_urlencoded::parse(query.as_bytes()) {
-                if parameters.insert(key.to_string(), value.to_string()).is_some() {
+                if parameters
+                    .insert(key.to_string(), value.to_string())
+                    .is_some()
+                {
                     bail!("the otpauth:// address states {key} twice");
                 }
             }
@@ -94,17 +100,20 @@ pub(crate) fn given_seed(given: &str) -> Result<String> {
                 }
             }
             if let Some(digits) = parameters.get("digits") {
-                let stated: usize = digits
-                    .parse()
-                    .with_context(|| format!("the address states digits={digits}, which is not a number"))?;
+                let stated: usize = digits.parse().with_context(|| {
+                    format!("the address states digits={digits}, which is not a number")
+                })?;
                 if stated != totp::DIGITS {
-                    bail!("the address asks for {stated} digits; codes here have {}", totp::DIGITS);
+                    bail!(
+                        "the address asks for {stated} digits; codes here have {}",
+                        totp::DIGITS
+                    );
                 }
             }
             if let Some(period) = parameters.get("period") {
-                let stated: u64 = period
-                    .parse()
-                    .with_context(|| format!("the address states period={period}, which is not a number of seconds"))?;
+                let stated: u64 = period.parse().with_context(|| {
+                    format!("the address states period={period}, which is not a number of seconds")
+                })?;
                 if stated != totp::PERIOD_SECONDS {
                     bail!("the address asks for a {stated}-second period; codes here change every {} seconds", totp::PERIOD_SECONDS);
                 }

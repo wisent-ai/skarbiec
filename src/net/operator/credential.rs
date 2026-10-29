@@ -61,9 +61,11 @@ pub(super) fn answer(parsed: &Value) -> Result<Value> {
             crate::core::values::dispatch("credential", &call_flags, &positionals)?
                 .context("set operation failed")
         }
-        Operation::Totp => {
-            crate::runtime::totp::dispatch("totp", &flags(parsed, &[]), &["code".to_string(), text(parsed, "item")?])?
-                .context("totp operation failed")
-        }
+        Operation::Totp => crate::runtime::totp::dispatch(
+            "totp",
+            &flags(parsed, &[]),
+            &["code".to_string(), text(parsed, "item")?],
+        )?
+        .context("totp operation failed"),
     }
 }

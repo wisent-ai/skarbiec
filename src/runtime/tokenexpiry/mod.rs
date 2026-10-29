@@ -28,7 +28,11 @@ pub(crate) fn report(flags: &HashMap<String, String>, positionals: &[String]) ->
     }
     let before = flags.get("before");
     if let Some(moment) = before.filter(|moment| !clock::is_iso(moment)) {
-        return Err(Usage(format!("--before {moment} is not a UTC time of the form {}; {USAGE}", clock::now_iso())).into());
+        return Err(Usage(format!(
+            "--before {moment} is not a UTC time of the form {}; {USAGE}",
+            clock::now_iso()
+        ))
+        .into());
     }
     let now = clock::now_iso();
     let vault = Vault::open(vault_path())?;
@@ -36,11 +40,15 @@ pub(crate) fn report(flags: &HashMap<String, String>, positionals: &[String]) ->
     let mut malformed = Vec::new();
     let mut unreadable = Vec::new();
     for entry in vault.list(false) {
-        let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
+        let Some(id) = entry.get("id").and_then(Value::as_str) else {
+            continue;
+        };
         if entry.get("state").and_then(Value::as_str) != Some("active") {
             continue;
         }
-        let opened = vault.get_item(id).and_then(|payload| schema::fields(&payload).cloned());
+        let opened = vault
+            .get_item(id)
+            .and_then(|payload| schema::fields(&payload).cloned());
         let fields = match opened {
             Ok(fields) => fields,
             Err(error) => {
@@ -49,15 +57,23 @@ pub(crate) fn report(flags: &HashMap<String, String>, positionals: &[String]) ->
             }
         };
         for (field, value) in &fields {
-            let Some((header, payload)) = value.as_str().and_then(shaped) else { continue };
+            let Some((header, payload)) = value.as_str().and_then(shaped) else {
+                continue;
+            };
             let claims = match claims(header, payload) {
                 Ok(claims) => claims,
                 Err(error) => {
-                    malformed.push(json!({"item": id, "field": field, "error": format!("{error:#}")}));
+                    malformed
+                        .push(json!({"item": id, "field": field, "error": format!("{error:#}")}));
                     continue;
                 }
             };
-            let moment = |claim: &str| claims.get(claim).and_then(Value::as_i64).and_then(clock::iso_at);
+            let moment = |claim: &str| {
+                claims
+                    .get(claim)
+                    .and_then(Value::as_i64)
+                    .and_then(clock::iso_at)
+            };
             let expires_at = moment("exp");
             if let (Some(limit), Some(end)) = (before, expires_at.as_ref()) {
                 if end.as_str() >= limit.as_str() {
@@ -101,7 +117,12 @@ pub(crate) fn report(flags: &HashMap<String, String>, positionals: &[String]) ->
 /// db.example.com, three parts too, is not taken for one.
 fn shaped(value: &str) -> Option<(&str, &str)> {
     const OBJECT: &str = "eyJ";
-    let base64url = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    let base64url = |part: &str| {
+        !part.is_empty()
+            && part
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    };
     let mut parts = value.trim().split('.');
     let (header, payload, signature) = (parts.next()?, parts.next()?, parts.next()?);
     let shape = parts.next().is_none()
@@ -125,6 +146,8 @@ fn claims(header: &str, payload: &str) -> Result<Map<String, Value>> {
 }
 
 fn decode(part: &str, name: &str) -> Result<Value> {
-    let bytes = URL_SAFE_NO_PAD.decode(part).with_context(|| format!("its {name} is not base64url"))?;
+    let bytes = URL_SAFE_NO_PAD
+        .decode(part)
+        .with_context(|| format!("its {name} is not base64url"))?;
     serde_json::from_slice(&bytes).with_context(|| format!("its {name} is not JSON"))
 }

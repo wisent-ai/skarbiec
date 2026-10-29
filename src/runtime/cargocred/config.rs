@@ -17,7 +17,9 @@ const TABLE: &str = "[registry]";
 fn cargo_home() -> Result<PathBuf> {
     match crate::core::env::path("CARGO_HOME") {
         Some(dir) => Ok(dir),
-        None => Ok(crate::core::env::path("HOME").context("neither CARGO_HOME nor HOME names where Cargo keeps its configuration")?.join(".cargo")),
+        None => Ok(crate::core::env::path("HOME")
+            .context("neither CARGO_HOME nor HOME names where Cargo keeps its configuration")?
+            .join(".cargo")),
     }
 }
 
@@ -44,18 +46,26 @@ fn write(file: &Path, lines: &[String]) -> Result<()> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
-    crate::core::vault::atomic_write(file, out.as_bytes()).with_context(|| format!("write {}", file.display()))
+    crate::core::vault::atomic_write(file, out.as_bytes())
+        .with_context(|| format!("write {}", file.display()))
 }
 
 /// The provider line this binary answers as: Cargo's own token-from-stdout
 /// provider running `skarbiec helper answer cargo`.
 fn provider() -> Result<String> {
-    let binary = std::env::current_exe().context("find this skarbiec binary's path for Cargo to run")?;
-    let binary = binary.to_str().context("this binary's path is not text Cargo's configuration can carry")?.to_string();
+    let binary =
+        std::env::current_exe().context("find this skarbiec binary's path for Cargo to run")?;
+    let binary = binary
+        .to_str()
+        .context("this binary's path is not text Cargo's configuration can carry")?
+        .to_string();
     if binary.contains('"') || binary.contains(' ') {
         bail!("this binary's path {binary} holds a quote or space, which Cargo's provider line cannot carry");
     }
-    Ok(format!("{KEY} = [\"cargo:token-from-stdout {binary} {}\"]", crate::runtime::helper::invocation(super::TOOL)))
+    Ok(format!(
+        "{KEY} = [\"cargo:token-from-stdout {binary} {}\"]",
+        crate::runtime::helper::invocation(super::TOOL)
+    ))
 }
 
 /// What this vault's provider line ends with: the invocation, then the
@@ -66,7 +76,10 @@ fn ours() -> String {
 
 /// Where the provider line sits, and whether it is this vault's.
 fn provider_line(lines: &[&str]) -> Option<(usize, bool)> {
-    lines.iter().position(|line| line.trim_start().starts_with(KEY)).map(|at| (at, lines[at].contains(&ours())))
+    lines
+        .iter()
+        .position(|line| line.trim_start().starts_with(KEY))
+        .map(|at| (at, lines[at].contains(&ours())))
 }
 
 pub(super) fn setup() -> Result<Value> {
@@ -76,7 +89,11 @@ pub(super) fn setup() -> Result<Value> {
     let line = provider()?;
     let written = match provider_line(&lines) {
         Some((_, true)) => false,
-        Some((at, false)) => bail!("{} already sets `{}`; add this vault's provider to that list by hand: {line}", file.display(), lines[at].trim()),
+        Some((at, false)) => bail!(
+            "{} already sets `{}`; add this vault's provider to that list by hand: {line}",
+            file.display(),
+            lines[at].trim()
+        ),
         None => {
             let mut kept: Vec<String> = lines.iter().map(|text| (*text).to_string()).collect();
             match lines.iter().position(|text| text.trim() == TABLE) {
@@ -110,9 +127,17 @@ pub(super) fn unset() -> Result<Value> {
     let text = read(&file, "Cargo's config.toml")?;
     let lines: Vec<&str> = text.lines().collect();
     let Some((at, true)) = provider_line(&lines) else {
-        bail!("{} names no skarbiec credential provider; nothing was changed", file.display());
+        bail!(
+            "{} names no skarbiec credential provider; nothing was changed",
+            file.display()
+        );
     };
-    let kept: Vec<String> = lines.iter().enumerate().filter(|(index, _)| *index != at).map(|(_, text)| (*text).to_string()).collect();
+    let kept: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != at)
+        .map(|(_, text)| (*text).to_string())
+        .collect();
     write(&file, &kept)?;
     crate::runtime::audit::append("cargo-credential-unset", &json!({"config": file}))?;
     Ok(json!({"ok": true, "config": file}))
@@ -151,7 +176,10 @@ pub(super) fn status() -> Result<Value> {
 fn table_registry(header: &str) -> Option<String> {
     match header {
         TABLE => Some("crates-io".to_string()),
-        _ => header.strip_prefix("[registries.").and_then(|rest| rest.strip_suffix(']')).map(str::to_string),
+        _ => header
+            .strip_prefix("[registries.")
+            .and_then(|rest| rest.strip_suffix(']'))
+            .map(str::to_string),
     }
 }
 
@@ -170,7 +198,9 @@ pub(super) fn stored_tokens() -> Result<(PathBuf, Vec<String>, Vec<(String, usiz
             continue;
         }
         let Some(registry) = &current else { continue };
-        let Some((key, value)) = trimmed.split_once('=') else { continue };
+        let Some((key, value)) = trimmed.split_once('=') else {
+            continue;
+        };
         if key.trim() == "token" {
             let token = value.trim().trim_matches('"').to_string();
             found.push((registry.clone(), at, token));
@@ -180,11 +210,20 @@ pub(super) fn stored_tokens() -> Result<(PathBuf, Vec<String>, Vec<(String, usiz
 }
 
 fn stored_registries() -> Result<Vec<String>> {
-    Ok(stored_tokens()?.2.into_iter().map(|(registry, _, _)| registry).collect())
+    Ok(stored_tokens()?
+        .2
+        .into_iter()
+        .map(|(registry, _, _)| registry)
+        .collect())
 }
 
 /// Write credentials.toml back without the line at `at`.
 pub(super) fn remove_line(file: &Path, lines: &[String], at: usize) -> Result<()> {
-    let kept: Vec<String> = lines.iter().enumerate().filter(|(index, _)| *index != at).map(|(_, text)| text.clone()).collect();
+    let kept: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != at)
+        .map(|(_, text)| text.clone())
+        .collect();
     write(file, &kept)
 }

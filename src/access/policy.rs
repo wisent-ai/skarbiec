@@ -26,8 +26,13 @@ fn load() -> Result<Vault> {
 /// The vault's `key` section, created empty when the vault has none. A vault
 /// document or section that is not a JSON object is refused naming it,
 /// never a panic of the process serving every consumer.
-fn ensure_section<'a>(doc: &'a mut Value, key: &str) -> Result<&'a mut serde_json::Map<String, Value>> {
-    let object = doc.as_object_mut().context("the vault document is not a JSON object")?;
+fn ensure_section<'a>(
+    doc: &'a mut Value,
+    key: &str,
+) -> Result<&'a mut serde_json::Map<String, Value>> {
+    let object = doc
+        .as_object_mut()
+        .context("the vault document is not a JSON object")?;
     match object.entry(key).or_insert_with(|| json!({})) {
         Value::Object(section) => Ok(section),
         other => bail!("the vault's {key} section is not a JSON object: {other}"),
@@ -281,15 +286,17 @@ pub fn check(candidate: &str) -> Result<Value> {
 pub fn decide(stored: Option<&Value>, candidate: &str) -> Value {
     let rules: Vec<Value> = POLICY_KEYS
         .iter()
-        .map(|rule| match stored.and_then(|policy| policy.get(rule.name)) {
-            Some(value) => {
-                let mut verdict = (rule.decide)(value, candidate);
-                verdict["key"] = json!(rule.name);
-                verdict["configured"] = json!(true);
-                verdict
-            }
-            None => json!({"key": rule.name, "configured": false, "ok": true}),
-        })
+        .map(
+            |rule| match stored.and_then(|policy| policy.get(rule.name)) {
+                Some(value) => {
+                    let mut verdict = (rule.decide)(value, candidate);
+                    verdict["key"] = json!(rule.name);
+                    verdict["configured"] = json!(true);
+                    verdict
+                }
+                None => json!({"key": rule.name, "configured": false, "ok": true}),
+            },
+        )
         .collect();
     let ok = rules.iter().all(|rule| rule["ok"] == json!(true));
     json!({"ok": ok, "rules": rules})

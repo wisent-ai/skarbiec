@@ -150,5 +150,9 @@ pub(super) fn request(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Value> {
-    answered(crate::access::request::dispatch(command, flags, positionals))
+    answered(crate::access::request::dispatch(
+        command,
+        flags,
+        positionals,
+    ))
 }

@@ -39,7 +39,12 @@ fn groups() -> Result<Vec<Value>> {
 }
 
 fn hosts<'v>(group: &'v Value, key: &str) -> impl Iterator<Item = &'v str> {
-    group.get(key).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str)
+    group
+        .get(key)
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
 }
 
 /// The sites sharing a sign-in with any of `sites` that `sites` does not

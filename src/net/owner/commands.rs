@@ -36,9 +36,7 @@ pub(crate) fn local(path: &str, body: &Value) -> Result<Value> {
         "/v1/operator/items/get" => crate::cli::reads::get_value(&flags, &positionals),
         "/v1/operator/items/list" => crate::cli::list::cmd_list(&flags),
         "/v1/operator/items/set-json" => {
-            let id = positionals
-                .first()
-                .context("set requires an item id")?;
+            let id = positionals.first().context("set requires an item id")?;
             let encoded = body
                 .get("payload")
                 .and_then(Value::as_str)
@@ -49,7 +47,8 @@ pub(crate) fn local(path: &str, body: &Value) -> Result<Value> {
         "/v1/operator/totp/seed-state" => {
             let mut asked = vec![SEED_LEAF.to_string()];
             asked.extend(positionals);
-            crate::runtime::totp::dispatch(TOTP, &flags, &asked)?.context("totp seed answered nothing")
+            crate::runtime::totp::dispatch(TOTP, &flags, &asked)?
+                .context("totp seed answered nothing")
         }
         _ => bail!("unknown owner item operation {path}"),
     }

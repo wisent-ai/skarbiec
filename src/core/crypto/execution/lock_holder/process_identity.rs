@@ -71,8 +71,9 @@ mod platform {
 
         pub(crate) fn executable(&mut self) -> Result<PathBuf, String> {
             let mut buffer = [MaybeUninit::<u8>::uninit(); libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-            let capacity = u32::try_from(buffer.len())
-                .map_err(|error| format!("the SDK path limit does not fit libproc's size argument: {error}"))?;
+            let capacity = u32::try_from(buffer.len()).map_err(|error| {
+                format!("the SDK path limit does not fit libproc's size argument: {error}")
+            })?;
             // SAFETY: writable storage sized by the SDK. libproc returns strlen
             // of the initialized path, excluding its terminating NUL.
             let length = unsafe {

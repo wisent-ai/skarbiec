@@ -50,7 +50,9 @@ pub fn dispatch(
 /// the keyring, imported or made on purpose beforehand (`owner key mint`).
 fn rotate(positionals: &[String]) -> Result<Value> {
     let [uid] = positionals else {
-        return Err(crate::cli::args::Usage("usage: owner rotate <new-owner-uid>".to_string()).into());
+        return Err(
+            crate::cli::args::Usage("usage: owner rotate <new-owner-uid>".to_string()).into(),
+        );
     };
     let fpr = crypto::fingerprint_for(uid)?.with_context(|| {
         format!(
@@ -76,7 +78,10 @@ fn mint(uid: &str) -> Result<Value> {
     }
     let fingerprint = crypto::generate_key(uid)?;
     let report = describe(uid, &fingerprint)?;
-    crate::runtime::audit::append("owner-key mint", &json!({"uid": uid, "fingerprint": fingerprint}))?;
+    crate::runtime::audit::append(
+        "owner-key mint",
+        &json!({"uid": uid, "fingerprint": fingerprint}),
+    )?;
     Ok(report)
 }
 

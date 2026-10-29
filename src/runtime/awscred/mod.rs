@@ -33,7 +33,9 @@ pub(crate) fn follow_rename(from: &str, to: &str) -> Result<Value> {
     for profile in found.iter().filter(|profile| profile.item == from) {
         match config::setup(to, &profile.name) {
             Ok(_) => moved.push(profile.name.clone()),
-            Err(error) => not_moved.push(json!({"profile": profile.name, "error": format!("{error:#}")})),
+            Err(error) => {
+                not_moved.push(json!({"profile": profile.name, "error": format!("{error:#}")}))
+            }
         }
     }
     Ok(json!({"moved": moved, "not_moved": not_moved}))
@@ -88,7 +90,10 @@ pub(crate) fn status() -> Result<Value> {
 fn held(id: &str) -> Result<Value> {
     let payload = Vault::open(vault_path())?.get_item(id)?;
     if payload["kind"] != json!(KIND) {
-        bail!("{id} is a {} item; helper answer aws hands AWS the key an {KIND} item keeps", payload["kind"]);
+        bail!(
+            "{id} is a {} item; helper answer aws hands AWS the key an {KIND} item keeps",
+            payload["kind"]
+        );
     }
     Ok(payload["fields"].clone())
 }
@@ -96,9 +101,15 @@ fn held(id: &str) -> Result<Value> {
 /// The credential_process answer for `id`.
 fn credential(id: &str) -> Result<Value> {
     let fields = held(id)?;
-    let text = |field: &str| fields[field].as_str().filter(|value| !value.is_empty()).map(str::to_string);
+    let text = |field: &str| {
+        fields[field]
+            .as_str()
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
     let key = text("access_key_id").with_context(|| format!("{id} holds no access_key_id"))?;
-    let secret = text("secret_access_key").with_context(|| format!("{id} holds no secret_access_key"))?;
+    let secret =
+        text("secret_access_key").with_context(|| format!("{id} holds no secret_access_key"))?;
     // The process protocol's one version.
     let version = std::iter::once(()).count();
     let mut answer = json!({"Version": version, "AccessKeyId": key, "SecretAccessKey": secret});

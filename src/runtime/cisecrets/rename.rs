@@ -19,7 +19,10 @@ pub(crate) fn follow_rename(from: &str, to: &str) -> Result<Value> {
     let mut moved: Vec<String> = Vec::new();
     let mut not_moved: Vec<Value> = Vec::new();
     for entry in entries.iter_mut() {
-        if let Some(revision) = entry["revisions"].as_object_mut().and_then(|revisions| revisions.remove(from)) {
+        if let Some(revision) = entry["revisions"]
+            .as_object_mut()
+            .and_then(|revisions| revisions.remove(from))
+        {
             entry["revisions"][to] = revision;
         }
         let Some(file) = entry["bindings"].as_str().map(str::to_string) else {

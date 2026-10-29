@@ -35,7 +35,12 @@ pub(super) fn named_since(moment: Option<&String>) -> Result<Option<HashSet<Stri
         if let Some(item) = extra.get("item").and_then(Value::as_str) {
             named.insert(item.to_string());
         }
-        for item in extra.get("items").and_then(Value::as_array).into_iter().flatten() {
+        for item in extra
+            .get("items")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if let Some(item) = item.as_str() {
                 named.insert(item.to_string());
             }

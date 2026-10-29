@@ -11,7 +11,8 @@ use std::collections::HashMap;
 use crate::cli::args::{OrUsage, Usage};
 use crate::core::{schema, vault::Vault, vault_path};
 
-const USAGE: &str = "usage: login get <host or address> --field <field|one-time-code> [--username <name>]";
+const USAGE: &str =
+    "usage: login get <host or address> --field <field|one-time-code> [--username <name>]";
 /// Not a stored field: `--field one-time-code` reads the code the login's
 /// seed gives now.
 const ONE_TIME_CODE: &str = "one-time-code";
@@ -22,7 +23,10 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
     };
     let field = flags.get("field").or_usage(USAGE)?;
     let found = super::logins_for(positionals)?;
-    let host = found["host"].as_str().context("login list answered no host")?.to_string();
+    let host = found["host"]
+        .as_str()
+        .context("login list answered no host")?
+        .to_string();
     let offered: Vec<&Value> = found["logins"]
         .as_array()
         .into_iter()
@@ -34,7 +38,10 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
         .collect();
     let unreadable = found["unreadable"].as_array().into_iter().flatten().count();
     let item = match offered.as_slice() {
-        [only] => only["item"].as_str().context("a login offered on the site records no id")?.to_string(),
+        [only] => only["item"]
+            .as_str()
+            .context("a login offered on the site records no id")?
+            .to_string(),
         [] => bail!(
             "no login{} is offered on {host}{}; login list {site} lists what is",
             match flags.get("username") {
@@ -42,7 +49,8 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
                 None => String::new(),
             },
             match unreadable {
-                count if count > Default::default() => format!(", and {count} logins would not open to tell"),
+                count if count > Default::default() =>
+                    format!(", and {count} logins would not open to tell"),
                 _ => String::new(),
             }
         ),
@@ -66,15 +74,22 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
                 .to_string()
         }
     };
-    crate::runtime::audit::append("site-get", &json!({"item": item, "field": field, "site": host}))?;
+    crate::runtime::audit::append(
+        "site-get",
+        &json!({"item": item, "field": field, "site": host}),
+    )?;
     Ok(json!({"ok": true, "site": host, "item": item, "field": field, "value": value}))
 }
 
 /// The code the login's seed gives now, as `totp code <id>` computes it, or the
 /// reason it gives none.
 fn current_code(item: &str) -> Result<String> {
-    let answer = crate::runtime::dispatch("totp", &HashMap::new(), &["code".to_string(), item.to_string()])?
-        .context("totp code answered nothing")?;
+    let answer = crate::runtime::dispatch(
+        "totp",
+        &HashMap::new(),
+        &["code".to_string(), item.to_string()],
+    )?
+    .context("totp code answered nothing")?;
     match answer["code"].as_str() {
         Some(code) => Ok(code.to_string()),
         None => bail!("{item} gives no one-time code: {}", answer["reason"]),

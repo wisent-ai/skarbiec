@@ -42,13 +42,19 @@ enum Shape {
 }
 
 /// A non-empty string, as Las pins every text argument.
-const TEXT: Shape = Shape::String { min_length: NonZeroUsize::MIN };
+const TEXT: Shape = Shape::String {
+    min_length: NonZeroUsize::MIN,
+};
 /// At least one second, or one use, as Las pins `ttl_seconds` and `max_uses`.
-const AT_LEAST_ONE: Shape = Shape::Integer { minimum: NonZeroU64::MIN.get() };
+const AT_LEAST_ONE: Shape = Shape::Integer {
+    minimum: NonZeroU64::MIN.get(),
+};
 
 /// Any whole number of hops, as Las pins `delegation_depth`.
 fn unsigned() -> Shape {
-    Shape::Integer { minimum: Default::default() }
+    Shape::Integer {
+        minimum: Default::default(),
+    }
 }
 
 /// The input schema of one tool: its named arguments, the ones it requires,
@@ -143,11 +149,19 @@ fn arguments(tool: &str, args: &Value) -> Result<HashMap<String, String>> {
             {
                 number.to_string()
             }
-            _ => bail!("argument {name} does not have the shape {tool}'s schema declares: {}", json!(shape)),
+            _ => bail!(
+                "argument {name} does not have the shape {tool}'s schema declares: {}",
+                json!(shape)
+            ),
         };
         flags.insert(name.replace('_', "-"), rendered);
     }
-    for required in declared["required"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+    for required in declared["required"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
         if !flags.contains_key(&required.replace('_', "-")) {
             bail!("argument {required} is required");
         }
@@ -242,8 +256,12 @@ fn status(args: &Value) -> Result<Value> {
         .into_iter()
         .find(|record| record["id"] == json!(id) && record["requester"]["agent"] == json!(agent))
         .with_context(|| format!("no access request {id} filed by {agent}"))?;
-    let state: State = serde_json::from_value(record["state"].clone())
-        .with_context(|| format!("access request {id} is in a state this broker does not know: {}", record["state"]))?;
+    let state: State = serde_json::from_value(record["state"].clone()).with_context(|| {
+        format!(
+            "access request {id} is in a state this broker does not know: {}",
+            record["state"]
+        )
+    })?;
     if state != State::Approved {
         return Ok(json!({"request_id": id, "state": state}));
     }

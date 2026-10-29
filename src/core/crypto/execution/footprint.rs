@@ -83,7 +83,9 @@ pub fn daemon_footprints() -> Result<Vec<DaemonFootprint>> {
     ] {
         let answer = run_once("gpg-connect-agent", args, None)
             .with_context(|| format!("ask {daemon} for its pid"))?;
-        let Some(pid) = answered_pid(&answer).with_context(|| format!("ask {daemon} for its pid"))? else {
+        let Some(pid) =
+            answered_pid(&answer).with_context(|| format!("ask {daemon} for its pid"))?
+        else {
             continue;
         };
         let bytes = physical_footprint(pid)
@@ -102,10 +104,9 @@ fn answered_pid(answer: &str) -> Result<Option<u32>> {
     let Some(data) = answer.lines().find_map(|line| line.strip_prefix("D ")) else {
         return Ok(None);
     };
-    let pid = data
-        .trim()
-        .parse()
-        .with_context(|| format!("GETINFO pid answered the data line {data:?}, which is not a pid"))?;
+    let pid = data.trim().parse().with_context(|| {
+        format!("GETINFO pid answered the data line {data:?}, which is not a pid")
+    })?;
     Ok(Some(pid))
 }
 
@@ -144,7 +145,9 @@ fn physical_footprint(pid: u32) -> Result<u64> {
             .trim_end_matches("kB")
             .trim()
             .parse::<u64>()
-            .with_context(|| format!("/proc/{pid}/status states {field}{line}, which is not a number of kB"))
+            .with_context(|| {
+                format!("/proc/{pid}/status states {field}{line}, which is not a number of kB")
+            })
     };
     Ok((kib("VmRSS:")? + kib("VmSwap:")?).saturating_mul(KIB))
 }

@@ -16,8 +16,14 @@ pub(crate) const USAGE: &str =
     "usage: rotate <id> --with database --url <postgresql://host[:port]/dbname | mysql://host[:port]/dbname> --length <N>";
 
 pub(super) enum Engine {
-    Postgres { url: String },
-    Mysql { host: String, port: Option<String>, database: String },
+    Postgres {
+        url: String,
+    },
+    Mysql {
+        host: String,
+        port: Option<String>,
+        database: String,
+    },
 }
 
 impl Engine {
@@ -28,13 +34,21 @@ impl Engine {
             return Err(Usage(format!("--url {url} names a user; the account and its password come from {id}, never the address. {USAGE}")).into());
         }
         if url.starts_with("postgresql://") || url.starts_with("postgres://") {
-            return Ok(Engine::Postgres { url: url.to_string() });
+            return Ok(Engine::Postgres {
+                url: url.to_string(),
+            });
         }
         let Some(rest) = url.strip_prefix("mysql://") else {
-            return Err(Usage(format!("--url {url} is neither postgresql:// nor mysql://. {USAGE}")).into());
+            return Err(Usage(format!(
+                "--url {url} is neither postgresql:// nor mysql://. {USAGE}"
+            ))
+            .into());
         };
         let Some((address, database)) = rest.split_once('/') else {
-            return Err(Usage(format!("--url {url} names no database after the host. {USAGE}")).into());
+            return Err(Usage(format!(
+                "--url {url} names no database after the host. {USAGE}"
+            ))
+            .into());
         };
         let (host, port) = match address.rsplit_once(':') {
             Some((host, port)) => (host.to_string(), Some(port.to_string())),
@@ -43,7 +57,11 @@ impl Engine {
         if host.is_empty() || database.is_empty() {
             return Err(Usage(format!("--url {url} names no host or no database. {USAGE}")).into());
         }
-        Ok(Engine::Mysql { host, port, database: database.to_string() })
+        Ok(Engine::Mysql {
+            host,
+            port,
+            database: database.to_string(),
+        })
     }
 
     pub(super) fn client(&self) -> &'static str {
@@ -56,7 +74,10 @@ impl Engine {
     /// The statement that sets the signed-in account's password.
     pub(super) fn alter(&self, password: &str) -> String {
         match self {
-            Engine::Postgres { .. } => format!("ALTER ROLE CURRENT_USER PASSWORD '{}';\n", password.replace('\'', "''")),
+            Engine::Postgres { .. } => format!(
+                "ALTER ROLE CURRENT_USER PASSWORD '{}';\n",
+                password.replace('\'', "''")
+            ),
             Engine::Mysql { .. } => format!(
                 "ALTER USER CURRENT_USER() IDENTIFIED BY '{}';\n",
                 password.replace('\\', "\\\\").replace('\'', "\\'")
@@ -77,12 +98,29 @@ impl Engine {
         let mut command = match self {
             Engine::Postgres { url } => {
                 let mut command = Command::new("psql");
-                command.args(["-X", "-q", "-v", "ON_ERROR_STOP=on", "-U", user, "-d", url]).env("PGPASSWORD", password);
+                command
+                    .args(["-X", "-q", "-v", "ON_ERROR_STOP=on", "-U", user, "-d", url])
+                    .env("PGPASSWORD", password);
                 command
             }
-            Engine::Mysql { host, port, database } => {
+            Engine::Mysql {
+                host,
+                port,
+                database,
+            } => {
                 let mut command = Command::new("mysql");
-                command.args(["--batch", "--no-defaults", "-h", host, "-u", user, "-D", database]).env("MYSQL_PWD", password);
+                command
+                    .args([
+                        "--batch",
+                        "--no-defaults",
+                        "-h",
+                        host,
+                        "-u",
+                        user,
+                        "-D",
+                        database,
+                    ])
+                    .env("MYSQL_PWD", password);
                 if let Some(port) = port {
                     command.args(["-P", port]);
                 }
@@ -102,10 +140,19 @@ impl Engine {
             .with_context(|| format!("{client} was started without a standard input"))?
             .write_all(sql.as_bytes())
             .with_context(|| format!("hand the statement to {client}"))?;
-        let output = stado_wait::blocking(stado_wait::Kind::Process, "a database client talking to the server", client, || child.wait_with_output())
-            .with_context(|| format!("wait for {client}"))?;
+        let output = stado_wait::blocking(
+            stado_wait::Kind::Process,
+            "a database client talking to the server",
+            client,
+            || child.wait_with_output(),
+        )
+        .with_context(|| format!("wait for {client}"))?;
         if !output.status.success() {
-            bail!("{client} as {user} ({}): {}", output.status, String::from_utf8_lossy(&output.stderr).trim());
+            bail!(
+                "{client} as {user} ({}): {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
         }
         Ok(())
     }

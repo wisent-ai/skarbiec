@@ -55,7 +55,9 @@ pub(crate) fn answer(_flags: &HashMap<String, String>, arguments: &[String]) -> 
     };
     let status = credential(id)?;
     crate::runtime::audit::append("kube-credential", &json!({"item": id}))?;
-    crate::cli::args::emit(&json!({"apiVersion": API_VERSION, "kind": "ExecCredential", "status": status}))
+    crate::cli::args::emit(
+        &json!({"apiVersion": API_VERSION, "kind": "ExecCredential", "status": status}),
+    )
 }
 
 /// The kubeconfig users that run this vault's plugin, each with the item it
@@ -109,13 +111,19 @@ fn kubectl(args: &[String]) -> Result<String> {
     let output = stado_wait::output(Command::new("kubectl").arg("config").args(args))
         .context("run kubectl config, which keeps the kubeconfig")?;
     if !output.status.success() {
-        bail!("kubectl config {} ({}): {}", args.join(" "), output.status, String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "kubectl config {} ({}): {}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn setup(id: &str, user: &str) -> Result<Value> {
-    let program = std::env::current_exe().context("name this skarbiec binary for the kubeconfig")?;
+    let program =
+        std::env::current_exe().context("name this skarbiec binary for the kubeconfig")?;
     let mut args = vec![
         "set-credentials".to_string(),
         user.to_string(),
@@ -138,7 +146,10 @@ fn unset(user: &str) -> Result<Value> {
         bail!("no kubeconfig user {user} runs this vault's helper answer kube; `kubectl config view` shows the users there");
     };
     let said = kubectl(&["unset".to_string(), format!("users.{user}.exec")])?;
-    crate::runtime::audit::append("kube-credential-unset", &json!({"user": user, "item": found.item}))?;
+    crate::runtime::audit::append(
+        "kube-credential-unset",
+        &json!({"user": user, "item": found.item}),
+    )?;
     Ok(json!({"ok": true, "user": user, "item": found.item, "kubectl": said}))
 }
 
@@ -180,14 +191,24 @@ pub(crate) fn follow_rename(from: &str, to: &str) -> Result<Value> {
 /// Every kubeconfig user whose exec runs helper answer kube, as kubectl reads
 /// the kubeconfig, so unset and doctor see what kubectl would run.
 pub(crate) fn users() -> Result<Vec<KubeUser>> {
-    let view: Value = serde_json::from_str(&kubectl(&["view".to_string(), "-o".to_string(), "json".to_string()])?)
-        .context("kubectl config view answered something that is not JSON")?;
+    let view: Value = serde_json::from_str(&kubectl(&[
+        "view".to_string(),
+        "-o".to_string(),
+        "json".to_string(),
+    ])?)
+    .context("kubectl config view answered something that is not JSON")?;
     let listed = view["users"].as_array().into_iter().flatten();
     Ok(listed
         .filter_map(|user| {
             let exec = &user["user"]["exec"];
-            let args: Vec<&str> = exec["args"].as_array()?.iter().filter_map(Value::as_str).collect();
-            let [item] = crate::runtime::helper::invoked(TOOL, &args)? else { return None };
+            let args: Vec<&str> = exec["args"]
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .collect();
+            let [item] = crate::runtime::helper::invoked(TOOL, &args)? else {
+                return None;
+            };
             Some(KubeUser {
                 name: user["name"].as_str()?.to_string(),
                 program: std::path::PathBuf::from(exec["command"].as_str()?),

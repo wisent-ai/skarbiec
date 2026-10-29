@@ -19,9 +19,9 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
     let file = flags.get("import").or_usage(USAGE)?;
     let mut vault = Vault::open(vault_path())?;
     crate::cli::items::ensure_not_replica(&vault, "recipient rekey")?;
-    let old = vault
-        .recipient_fpr(uid)
-        .with_context(|| format!("unknown recipient: {uid}; `skarbiec recipient list` names them"))?;
+    let old = vault.recipient_fpr(uid).with_context(|| {
+        format!("unknown recipient: {uid}; `skarbiec recipient list` names them")
+    })?;
     if uid == vault.owner_uid() {
         bail!("{uid} owns this vault; `skarbiec owner rotate` moves the owner to a new key and rewraps every saved version too");
     }
@@ -36,12 +36,18 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
         .filter(|item| {
             item.get("recipients")
                 .and_then(Value::as_array)
-                .is_some_and(|readers| readers.iter().any(|reader| reader.as_str() == Some(uid.as_str())))
+                .is_some_and(|readers| {
+                    readers
+                        .iter()
+                        .any(|reader| reader.as_str() == Some(uid.as_str()))
+                })
         })
         .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
         .collect();
     if !flag_set(flags, "yes") {
-        return Ok(json!({"ok": true, "confirmed": false, "uid": uid, "from": old, "to": new, "would_rewrite": readable}));
+        return Ok(
+            json!({"ok": true, "confirmed": false, "uid": uid, "from": old, "to": new, "would_rewrite": readable}),
+        );
     }
     crypto::import_key(&armored)?;
     let entry = vault
@@ -51,7 +57,10 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
         .and_then(Value::as_object_mut)
         .with_context(|| format!("the vault's entry for {uid} is not an object"))?;
     entry.insert("fingerprint".to_string(), json!(new));
-    entry.insert("rekeyed_at".to_string(), json!(crate::core::clock::now_iso()));
+    entry.insert(
+        "rekeyed_at".to_string(),
+        json!(crate::core::clock::now_iso()),
+    );
     vault.save()?;
     let mut rewritten = Vec::new();
     let mut not_rewritten = Vec::new();

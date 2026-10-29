@@ -43,7 +43,8 @@ fn iam(key: &Key, args: &[&str]) -> Result<Value> {
         // The item's key, not a profile or a session someone left set.
         .env_remove("AWS_SESSION_TOKEN")
         .env_remove("AWS_PROFILE");
-    let output = stado_wait::output(&mut command).with_context(|| format!("run aws iam {}", args.join(" ")))?;
+    let output = stado_wait::output(&mut command)
+        .with_context(|| format!("run aws iam {}", args.join(" ")))?;
     if !output.status.success() {
         bail!(
             "aws iam {} signed in as {} ({}): {}",
@@ -56,7 +57,8 @@ fn iam(key: &Key, args: &[&str]) -> Result<Value> {
     let text = String::from_utf8_lossy(&output.stdout);
     match text.trim().is_empty() {
         true => Ok(Value::Null),
-        false => serde_json::from_str(&text).with_context(|| format!("read aws iam {}'s answer", args.join(" "))),
+        false => serde_json::from_str(&text)
+            .with_context(|| format!("read aws iam {}'s answer", args.join(" "))),
     }
 }
 
@@ -68,11 +70,22 @@ fn held(id: &str) -> Result<Key> {
         bail!("{id} is a {} item; rotate --with aws replaces an access-key item's {KEY_ID} and {SECRET}", payload["kind"]);
     }
     let fields = &payload["fields"];
-    if fields.get(SESSION).is_some_and(|token| token.as_str().is_some_and(|token| !token.is_empty())) {
+    if fields
+        .get(SESSION)
+        .is_some_and(|token| token.as_str().is_some_and(|token| !token.is_empty()))
+    {
         bail!("{id} holds a {SESSION}: it is a temporary key AWS hands out, which runs out by itself and cannot be rotated; rotate the user's long-lived key it came from");
     }
-    let text = |field: &str| fields[field].as_str().map(str::to_string).with_context(|| format!("{id} holds no {field}"));
-    Ok(Key { id: text(KEY_ID)?, secret: text(SECRET)? })
+    let text = |field: &str| {
+        fields[field]
+            .as_str()
+            .map(str::to_string)
+            .with_context(|| format!("{id} holds no {field}"))
+    };
+    Ok(Key {
+        id: text(KEY_ID)?,
+        secret: text(SECRET)?,
+    })
 }
 
 fn store(id: &str, key: &Key) -> Result<u64> {
@@ -87,8 +100,16 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
         .with_context(|| format!("aws iam get-user named no user for {}; the root account's keys are not rotated here", old.id))?
         .to_string();
     let made = iam(&old, &["create-access-key", "--user-name", &user])?;
-    let text = |field: &str| made["AccessKey"][field].as_str().map(str::to_string).with_context(|| format!("aws iam create-access-key answered no {field}"));
-    let new = Key { id: text("AccessKeyId")?, secret: text("SecretAccessKey")? };
+    let text = |field: &str| {
+        made["AccessKey"][field]
+            .as_str()
+            .map(str::to_string)
+            .with_context(|| format!("aws iam create-access-key answered no {field}"))
+    };
+    let new = Key {
+        id: text("AccessKeyId")?,
+        secret: text("SecretAccessKey")?,
+    };
     let revision = match store(id, &new) {
         Ok(revision) => revision,
         Err(error) => {
@@ -103,9 +124,32 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
             };
         }
     };
-    if let Err(error) = iam(&new, &["update-access-key", "--user-name", &user, "--access-key-id", &old.id, "--status", "Inactive"]) {
-        crate::runtime::audit::append("aws-rotate-failed", &json!({"item": id, "user": user, "key": new.id, "revision": revision}))?;
-        let undone = iam(&old, &["delete-access-key", "--user-name", &user, "--access-key-id", &new.id]);
+    if let Err(error) = iam(
+        &new,
+        &[
+            "update-access-key",
+            "--user-name",
+            &user,
+            "--access-key-id",
+            &old.id,
+            "--status",
+            "Inactive",
+        ],
+    ) {
+        crate::runtime::audit::append(
+            "aws-rotate-failed",
+            &json!({"item": id, "user": user, "key": new.id, "revision": revision}),
+        )?;
+        let undone = iam(
+            &old,
+            &[
+                "delete-access-key",
+                "--user-name",
+                &user,
+                "--access-key-id",
+                &new.id,
+            ],
+        );
         let restored = store(id, &old);
         match (undone, restored) {
             (Ok(_), Ok(back)) => bail!(
@@ -135,5 +179,7 @@ fn rotate(id: &str, delete_old: bool) -> Result<Value> {
         "aws-key-rotated",
         &json!({"item": id, "user": user, "key": new.id, "retired": old.id, "retired_as": retired, "revision": revision}),
     )?;
-    Ok(json!({"ok": true, "item": id, "user": user, "key": new.id, "retired": old.id, "retired_as": retired, "revision": revision}))
+    Ok(
+        json!({"ok": true, "item": id, "user": user, "key": new.id, "retired": old.id, "retired_as": retired, "revision": revision}),
+    )
 }

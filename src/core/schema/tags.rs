@@ -216,7 +216,10 @@ pub fn inventory(items: &[Value]) -> Value {
             .flatten()
             .filter_map(Value::as_str)
         {
-            carried.entry(tag.to_string()).or_default().push(id.to_string());
+            carried
+                .entry(tag.to_string())
+                .or_default()
+                .push(id.to_string());
         }
     }
     let tags: Vec<Value> = carried

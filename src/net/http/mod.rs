@@ -50,7 +50,10 @@ pub(crate) fn presented_bearer(
     headers: &HashMap<String, String>,
     consumer: &str,
 ) -> Result<String, String> {
-    match headers.get("authorization").and_then(|value| value.strip_prefix("Bearer ")) {
+    match headers
+        .get("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "))
+    {
         Some(bearer) if !bearer.is_empty() => Ok(bearer.to_string()),
         _ => Err(format!(
             "the request from {consumer} carries no bearer: send Authorization: Bearer <token>"
@@ -71,7 +74,11 @@ pub(crate) fn presented_identity(
 
 /// The 401 a request answers when it presents no identity, naming what it lacks.
 pub(crate) fn unidentified(stream: &mut TcpStream, reason: &str) -> Result<()> {
-    write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
+    write_response(
+        stream,
+        "HTTP/1.1 401 Unauthorized",
+        &json!({"error": reason}),
+    )
 }
 
 /// Operator-facing failure text, length-capped.

@@ -104,19 +104,31 @@ pub(crate) fn invocation(tool: &str) -> String {
 /// not this vault's invocation for it.
 pub(crate) fn invoked<'a, 'b>(tool: &str, words: &'a [&'b str]) -> Option<&'a [&'b str]> {
     match words {
-        [command, answer, named, rest @ ..] if *command == COMMAND && *answer == ANSWER && *named == tool => Some(rest),
+        [command, answer, named, rest @ ..]
+            if *command == COMMAND && *answer == ANSWER && *named == tool =>
+        {
+            Some(rest)
+        }
         _ => None,
     }
 }
 
 fn names() -> String {
-    ADAPTERS.iter().map(|adapter| adapter.name).collect::<Vec<_>>().join(", ")
+    ADAPTERS
+        .iter()
+        .map(|adapter| adapter.name)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn adapter(name: &str) -> Result<&'static Adapter> {
     match ADAPTERS.iter().find(|adapter| adapter.name == name) {
         Some(adapter) => Ok(adapter),
-        None => Err(Usage(format!("{name} is not a tool skarbiec answers for; it answers for {}", names())).into()),
+        None => Err(Usage(format!(
+            "{name} is not a tool skarbiec answers for; it answers for {}",
+            names()
+        ))
+        .into()),
     }
 }
 
@@ -129,11 +141,19 @@ fn opening(adapter: &Adapter, verb: &str) -> String {
 fn form(adapter: &'static Adapter, verb: &str) -> Result<&'static str> {
     let opening = opening(adapter, verb);
     let Some(parts) = adapter.usage.strip_prefix(USAGE_OPENING) else {
-        bail!("{}'s usage line does not open with `{USAGE_OPENING}`, so its forms cannot be read: {}", adapter.name, adapter.usage);
+        bail!(
+            "{}'s usage line does not open with `{USAGE_OPENING}`, so its forms cannot be read: {}",
+            adapter.name,
+            adapter.usage
+        );
     };
     match parts.split(" | ").find(|part| part.starts_with(&opening)) {
         Some(form) => Ok(form),
-        None => Err(Usage(format!("helper {verb} has no form for {}; {}", adapter.name, adapter.usage)).into()),
+        None => Err(Usage(format!(
+            "helper {verb} has no form for {}; {}",
+            adapter.name, adapter.usage
+        ))
+        .into()),
     }
 }
 
@@ -150,13 +170,20 @@ pub(crate) fn takes(tool: &str, verb: &str) -> Result<Takes> {
     let adapter = adapter(tool)?;
     let form = form(adapter, verb)?;
     let Some(after) = form.strip_prefix(opening(adapter, verb).as_str()) else {
-        bail!("{tool}'s form for {verb} does not open with `{}`: {form}", opening(adapter, verb));
+        bail!(
+            "{tool}'s form for {verb} does not open with `{}`: {form}",
+            opening(adapter, verb)
+        );
     };
     let words: Vec<&str> = after.split_whitespace().collect();
     let arguments = words
         .iter()
         .take_while(|word| word.starts_with('<'))
-        .map(|word| word.trim_start_matches('<').trim_end_matches('>').to_string())
+        .map(|word| {
+            word.trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string()
+        })
         .collect();
     let mut directories = Vec::new();
     let mut previous: Option<&str> = None;
@@ -168,13 +195,19 @@ pub(crate) fn takes(tool: &str, verb: &str) -> Result<Takes> {
         }
         previous = Some(word);
     }
-    Ok(Takes { arguments, flags: crate::cli::help::flags_in(form), directories })
+    Ok(Takes {
+        arguments,
+        flags: crate::cli::help::flags_in(form),
+        directories,
+    })
 }
 
 fn list() -> Value {
     let tools: Vec<Value> = ADAPTERS
         .iter()
-        .map(|adapter| json!({"tool": adapter.name, "about": adapter.about, "usage": adapter.usage}))
+        .map(
+            |adapter| json!({"tool": adapter.name, "about": adapter.about, "usage": adapter.usage}),
+        )
         .collect();
     json!({"tools": tools})
 }
@@ -214,7 +247,11 @@ fn person(verb: &str, flags: &HashMap<String, String>, rest: &[String]) -> Resul
     let adapter = adapter(tool)?;
     let taken = takes(tool, verb)?;
     if let Some(stray) = flags.keys().find(|key| !taken.flags.contains(key)) {
-        return Err(Usage(format!("helper {verb} {tool} takes no --{stray}; {}", form(adapter, verb)?)).into());
+        return Err(Usage(format!(
+            "helper {verb} {tool} takes no --{stray}; {}",
+            form(adapter, verb)?
+        ))
+        .into());
     }
     let mut positionals = vec![verb.to_string()];
     positionals.extend(arguments.iter().cloned());
@@ -225,7 +262,11 @@ fn person(verb: &str, flags: &HashMap<String, String>, rest: &[String]) -> Resul
 
 /// The person's side, answered as JSON; the operator routes reach it here.
 /// `answer` is refused, since only the tool reads its protocol.
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     if command != COMMAND {
         return Ok(None);
     }

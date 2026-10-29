@@ -47,7 +47,10 @@ impl Form {
     /// The form a register record's grant names, or the refusal saying so.
     pub(super) fn of(record: &Value) -> Result<Self> {
         serde_json::from_value(record["grant"]["form"].clone()).with_context(|| {
-            format!("access request {} names no readable grant form: {}", record["id"], record["grant"])
+            format!(
+                "access request {} names no readable grant form: {}",
+                record["id"], record["grant"]
+            )
         })
     }
 }
@@ -87,7 +90,10 @@ fn authorize(record: &Value, by: &str) -> Result<()> {
     let role: Role = serde_json::from_value(recipient["role"].clone())
         .with_context(|| format!("{by}'s recipient record holds no readable role"))?;
     if role == Role::Other {
-        bail!("{by} has role {}: only a recipient with role owner or admin may decide", recipient["role"]);
+        bail!(
+            "{by} has role {}: only a recipient with role owner or admin may decide",
+            recipient["role"]
+        );
     }
     let decider = text(record, "decider")?;
     let named = match serde_json::from_value::<Role>(record["decider"].clone())
@@ -106,7 +112,11 @@ fn authorize(record: &Value, by: &str) -> Result<()> {
     if !crypto::secret_key_present(fingerprint)? {
         bail!("{by}'s secret key is not in this host's keyring: decide where {by} holds it");
     }
-    let decided = record["decisions"].as_array().into_iter().flatten().any(|decision| decision["by"] == by);
+    let decided = record["decisions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|decision| decision["by"] == by);
     if decided {
         bail!("{by} already decided access request {id}");
     }
@@ -122,7 +132,9 @@ fn uses_for(form: Form, uses: Option<u64>, lifetime: Lifetime) -> Result<Option<
         (Form::Capability, Some(_)) if lifetime == Lifetime::UntilRevoked => {
             bail!("a capability always expires: state --ttl-seconds <N> instead of --until-revoked")
         }
-        (Form::Consumer, Some(_)) => bail!("a standing consumer grant is not counted in uses: drop --uses"),
+        (Form::Consumer, Some(_)) => {
+            bail!("a standing consumer grant is not counted in uses: drop --uses")
+        }
         (_, Some(uses)) if NonZeroU64::new(uses).is_none() => bail!("--uses must be at least one"),
         (_, uses) => Ok(uses),
     }
@@ -182,7 +194,8 @@ fn issue(record: &Value, lifetime: Lifetime, uses: Option<u64>) -> Result<Value>
                 Lifetime::Seconds(ttl) => flags.insert("ttl-seconds".into(), ttl.to_string()),
                 Lifetime::UntilRevoked => flags.insert("until-revoked".into(), "true".into()),
             };
-            let issued = crate::access::grant::dispatch("grant", &flags, &["issue".into(), consumer.into()]);
+            let issued =
+                crate::access::grant::dispatch("grant", &flags, &["issue".into(), consumer.into()]);
             let issued = match issued {
                 Ok(answer) => answer.context("grant issue produced no answer")?,
                 Err(error) => {
@@ -223,13 +236,22 @@ pub(crate) fn approve(id: &str, by: &str, lifetime: Lifetime, uses: Option<u64>)
         "lifetime": lifetime.json(),
         "uses": uses,
     });
-    record["decisions"].as_array_mut().context("access request has no decisions list")?.push(decision);
-    let approvals: Vec<&Value> =
-        record["decisions"].as_array().into_iter().flatten().filter(|decision| decision["answer"] == "approve").collect();
+    record["decisions"]
+        .as_array_mut()
+        .context("access request has no decisions list")?
+        .push(decision);
+    let approvals: Vec<&Value> = record["decisions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|decision| decision["answer"] == "approve")
+        .collect();
     // Dual control needs a second decider: `authorize` refuses one who has
     // already decided, so every further approval is a different person.
     let granted = if record["dual_control"] == json!(true) {
-        approvals.split_first().is_some_and(|(_, others)| !others.is_empty())
+        approvals
+            .split_first()
+            .is_some_and(|(_, others)| !others.is_empty())
     } else {
         !approvals.is_empty()
     };
@@ -241,7 +263,10 @@ pub(crate) fn approve(id: &str, by: &str, lifetime: Lifetime, uses: Option<u64>)
             .into_iter()
             .reduce(Lifetime::narrower)
             .context("access request granted without a recorded approval lifetime")?;
-        let fewest = approvals.iter().filter_map(|decision| decision["uses"].as_u64()).min();
+        let fewest = approvals
+            .iter()
+            .filter_map(|decision| decision["uses"].as_u64())
+            .min();
         let issued = issue(record, bound, fewest)?;
         record["issued"] = issued;
         record["state"] = json!("approved");
@@ -285,14 +310,17 @@ pub(crate) fn close(id: &str, by: &str, closing: Closing, reason: Option<&str>) 
         authorize(record, by)?;
     }
     let (answer, state, op) = closing.words();
-    record["decisions"].as_array_mut().context("access request has no decisions list")?.push(json!({
-        "by": by,
-        "at": crate::core::clock::now_iso(),
-        "answer": answer,
-        "lifetime": Value::Null,
-        "uses": Value::Null,
-        "reason": reason,
-    }));
+    record["decisions"]
+        .as_array_mut()
+        .context("access request has no decisions list")?
+        .push(json!({
+            "by": by,
+            "at": crate::core::clock::now_iso(),
+            "answer": answer,
+            "lifetime": Value::Null,
+            "uses": Value::Null,
+            "reason": reason,
+        }));
     record["state"] = json!(state);
     register::save(&doc, &held)?;
     crate::runtime::audit::append(op, &json!({"request": id, "by": by}))?;

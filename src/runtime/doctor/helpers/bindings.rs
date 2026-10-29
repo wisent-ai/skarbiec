@@ -16,13 +16,20 @@ pub(in crate::runtime::doctor) fn bindings_files_check() -> Value {
         Err(error) => return check(NAME, FAIL, format!("{error:#}")),
     };
     if files.is_empty() {
-        return check(NAME, NOT_CONFIGURED, "this host knows of no bindings file; imports and bindings remember add them".into());
+        return check(
+            NAME,
+            NOT_CONFIGURED,
+            "this host knows of no bindings file; imports and bindings remember add them".into(),
+        );
     }
     let problems: Vec<String> = files
         .iter()
         .filter(|file| file["ok"] != Value::Bool(true))
         .map(|file| match file["error"].as_str() {
-            Some(error) => format!("{}: {error}; bindings forget {} if it is gone for good", file["file"], file["file"]),
+            Some(error) => format!(
+                "{}: {error}; bindings forget {} if it is gone for good",
+                file["file"], file["file"]
+            ),
             None => format!(
                 "{}: {}",
                 file["file"],
@@ -37,7 +44,14 @@ pub(in crate::runtime::doctor) fn bindings_files_check() -> Value {
         })
         .collect();
     match problems.is_empty() {
-        true => check(NAME, PASS, format!("every line of {} known bindings files gives its program a value", files.len())),
+        true => check(
+            NAME,
+            PASS,
+            format!(
+                "every line of {} known bindings files gives its program a value",
+                files.len()
+            ),
+        ),
         false => check(NAME, FAIL, problems.join("; ")),
     }
 }
