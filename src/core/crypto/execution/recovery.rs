@@ -106,7 +106,9 @@ pub(super) fn gpg_status(stderr: &str) -> (Vec<u32>, String) {
         let _where = fields.next();
         match fields.next().map(str::parse::<u32>) {
             Some(Ok(value)) => errors.push(value),
-            Some(Err(_unparsed)) | None => said.push(line),
+            // A value that is not a number, or no value, is kept as said.
+            Some(Err(_unparsed)) => said.push(line),
+            None => said.push(line),
         }
     }
     (errors, said.join("\n"))
