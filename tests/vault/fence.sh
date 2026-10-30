@@ -147,6 +147,26 @@ WANT=ok run set fenced --type login
 : >"$ROOT/stdin"
 echo "ok: once lifted, reads carry no fence and writes pass" >>"$REPORT"
 
+# A fence with a reason: the copy a move leaves behind, held for good. The
+# reason is kept, answered by arm, show and every read, and said by the
+# refusal.
+R="the vault moved to destination-$RUN"
+WANT=ok run fence arm --transaction "$T" --reason "$R"
+printf '%s' "$out" | jq -e --arg r "$R" '.fence.reason == $r' >/dev/null || fail "fence arm did not keep the reason: $out"
+WANT=ok run fence show
+printf '%s' "$out" | jq -e --arg r "$R" '.fence.reason == $r' >/dev/null || fail "fence show did not answer the reason: $out"
+answer=$(ask /v1/items/revision)
+printf '%s' "$answer" | jq -e --arg r "$R" '.fence.reason == $r' >/dev/null || fail "a read did not carry the reason: $answer"
+login sixth
+WANT=refused run set fenced --type login
+: >"$ROOT/stdin"
+says "writes to this vault are held: $R (transaction $T" "a write is refused saying the fence's reason"
+WANT=ok run fence lift --transaction "$T"
+printf 'bad\nreason' >"$ROOT/reason"
+WANT=refused run fence arm --transaction "$T" --reason "$(cat "$ROOT/reason")"
+says "one line of text" "a reason holding a line break is refused"
+echo "ok: a fence with a reason keeps it and every refusal and read says it" >>"$REPORT"
+
 WANT=refused run fence arm
 says "need --transaction" "fence arm without a transaction is refused"
 WANT=refused run fence show --transaction "$T"

@@ -289,6 +289,11 @@ again), and pull, mirror pull and backup restore check the fence under the
 same lock. A fence file that cannot be read stops every write, and reads
 still answer, carrying `fence: {unreadable: <why>}`.
 
+`fence arm --transaction <T> --reason <text>` keeps a reason with the fence,
+for the copy a move leaves behind held for good: arm, show and every read
+answer it as `fence.reason`, and a write is refused with `writes to this
+vault are held: <reason> (transaction T, since S)`.
+
 ### Audit segments
 
 The journal is one hash chain kept in segments. Every entry is appended to

@@ -87,12 +87,20 @@ pub fn check_write(vault: &Path) -> Result<()> {
     if passing {
         return Ok(());
     }
-    bail!(
-        "the vault is moving (transaction {transaction}, since {since}); retry after it. Writes \
-         are held while the move stands, so nothing is written to a copy being moved; a step of \
-         that move passes --fence {transaction}, and an abandoned move is ended with `skarbiec \
-         fence lift --transaction {transaction}`"
-    )
+    let after = "a step of that move passes --fence";
+    match fence.get("reason").and_then(Value::as_str) {
+        Some(reason) => bail!(
+            "writes to this vault are held: {reason} (transaction {transaction}, since {since}). \
+             Nothing is written here while the fence stands; {after} {transaction}, and \
+             `skarbiec fence lift --transaction {transaction}` ends it"
+        ),
+        None => bail!(
+            "the vault is moving (transaction {transaction}, since {since}); retry after it. \
+             Writes are held while the move stands, so nothing is written to a copy being moved; \
+             {after} {transaction}, and an abandoned move is ended with `skarbiec fence lift \
+             --transaction {transaction}`"
+        ),
+    }
 }
 
 /// `skarbiec fence arm|lift|show`.
@@ -103,13 +111,14 @@ pub fn command(
     let vault = crate::core::vault_path();
     let verb = positionals.first().map(String::as_str);
     let allowed: &[&str] = match verb {
-        Some("arm" | "lift") => &["transaction"],
+        Some("arm") => &["transaction", "reason"],
+        Some("lift") => &["transaction"],
         _ => &[],
     };
     if let Some(flag) = flags.keys().find(|flag| !allowed.contains(&flag.as_str())) {
         return Err(crate::cli::args::Usage(format!(
-            "fence {} does not take --{flag}; usage: fence arm --transaction <T> | fence lift \
-             --transaction <T> | fence show",
+            "fence {} does not take --{flag}; usage: fence arm --transaction <T> [--reason \
+             <text>] | fence lift --transaction <T> | fence show",
             verb.unwrap_or("")
         ))
         .into());
@@ -156,7 +165,18 @@ pub fn command(
             // Under the vault's write lock, so a write already past its
             // fence check finishes before the fence stands, and every later
             // one sees it.
-            let fence = json!({"transaction": transaction, "since": crate::core::clock::now_iso()});
+            let mut fence =
+                json!({"transaction": transaction, "since": crate::core::clock::now_iso()});
+            if let Some(reason) = flags.get("reason") {
+                if reason.trim().is_empty() || reason.chars().any(char::is_control) {
+                    return Err(crate::cli::args::Usage(
+                        "fence arm --reason takes one line of text saying why writes are held"
+                            .to_string(),
+                    )
+                    .into());
+                }
+                fence["reason"] = json!(reason);
+            }
             let path = path_for(&vault);
             {
                 let _write_lock = super::acquire_write_lock(&vault).context(
@@ -190,7 +210,8 @@ pub fn command(
             Ok(json!({"lifted": true, "fence": standing}))
         }
         _ => Err(crate::cli::args::Usage(
-            "usage: fence arm --transaction <T> | fence lift --transaction <T> | fence show"
+            "usage: fence arm --transaction <T> [--reason <text>] | fence lift --transaction <T> \
+             | fence show"
                 .to_string(),
         )
         .into()),
