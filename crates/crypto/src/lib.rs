@@ -3,6 +3,7 @@
 //! protect against.
 
 pub mod aes;
+pub mod chacha;
 pub mod hmac;
 pub mod ocb;
 pub mod sha;
