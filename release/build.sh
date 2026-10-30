@@ -46,7 +46,6 @@ SKARBIEC_RELEASE_URI="stado://releases/skarbiec/$version/$platform/release.tar.g
 SKARBIEC_RELEASE_COMMIT="$commit" CARGO_TARGET_DIR="$build_root" \
   cargo build --locked --release --bin skarbiec --manifest-path "$source_dir/Cargo.toml"
 install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
-install -m 0755 "$source_dir/release/launch.sh" "$stage/bin/start"
 bridge_input=${WISENT_INPUT_WELES_CLIENT_DIR:?WISENT_INPUT_WELES_CLIENT_DIR is required}
 # The native pin-input archive retains its input-name prefix.
 bridge_package="$bridge_input/weles-client"

@@ -51,7 +51,6 @@
       },
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
-        "stage/bin/start": "bin/start",
         "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
         "stage/LICENSE": "LICENSE",
         "stage/NOTICE": "NOTICE"
@@ -99,7 +98,6 @@
       },
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
-        "stage/bin/start": "bin/start",
         "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
         "stage/share/skarbiec/browser/skarbiec-autofill.crx": "share/skarbiec/browser/skarbiec-autofill.crx",
         "stage/share/skarbiec/browser/skarbiec-autofill.xml": "share/skarbiec/browser/skarbiec-autofill.xml",
