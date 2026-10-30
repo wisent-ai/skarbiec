@@ -70,9 +70,9 @@ sealed with the content key and a random nonce, the header before the nonce
 as associated data, so a recipient list cannot be changed without the
 content failing to open.
 
-Random bytes come from the operating system (`getentropy` on macOS, the
-`getrandom` system call on Linux) through the standard library's file and
-`libc`-free system interfaces only: `/dev/urandom` read whole.
+Random bytes come from the operating system's `/dev/urandom`, read whole
+through the standard library; a short read or a failed open is the error,
+never fewer random bytes.
 
 ## Threat model
 

@@ -4,5 +4,6 @@
 
 pub mod aes;
 pub mod hmac;
+pub mod ocb;
 pub mod sha;
 pub mod wipe;
