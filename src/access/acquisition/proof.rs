@@ -7,7 +7,6 @@ use serde_json::Value;
 use crate::core::vault::Vault;
 use crate::core::{crypto, schema};
 
-use super::state::state_path;
 use super::AcquisitionFieldMissing;
 
 pub(super) fn exact_name(value: &str) -> bool {
@@ -69,9 +68,9 @@ pub(super) fn workload_payload(
 }
 
 /// Whether the workload signed `payload` with the key its grant records.
-/// OpenSSL's verdict is the denial; a verifier that cannot answer is the
-/// error with OpenSSL's words, from the one verifier capability redemption
-/// also asks.
+/// The Ed25519 verdict is the denial; a key that is not an Ed25519 public
+/// key is the error in its own words, from the one verifier capability
+/// redemption also asks.
 pub(super) fn verify_workload_proof(
     public_key: &str,
     payload: &[u8],
@@ -84,15 +83,10 @@ pub(super) fn verify_workload_proof(
     let Ok(signature) = decode_signature(signature) else {
         return Ok(false);
     };
-    let scratch = state_path()
-        .parent()
-        .context("acquisition state has no parent")?
-        .to_path_buf();
     crypto::signature::verify(
         public_key,
         payload,
         &signature,
-        &scratch,
         "workload acquisition proof",
     )
 }

@@ -15,8 +15,12 @@ use super::{ImportDocument, ImportRow};
 /// The byte-order mark some exporters put before UTF-8 text.
 const BYTE_ORDER_MARK: &str = "\u{feff}";
 
-/// How an armored OpenPGP message begins: what `export --encrypt-to` writes.
-const SEALED: &str = "-----BEGIN PGP MESSAGE-----";
+/// How a sealed export begins: what `export --encrypt-to` writes now, and the
+/// armored OpenPGP message it wrote before.
+const SEALED: [&str; 2] = [
+    "-----BEGIN SKARBIEC SEALED-----",
+    "-----BEGIN PGP MESSAGE-----",
+];
 
 /// The format the caller asked for; every other name is a CSV provider's.
 enum Declared {
@@ -51,13 +55,16 @@ pub(super) fn parse(bytes: &[u8], format: &str) -> Result<ImportDocument> {
         Some(text) => text,
         None => bytes,
     };
-    // A sealed export opens with this keyring's secret key, then is read as
-    // the export it holds; a key this keyring lacks is gpg's refusal.
-    if bytes.starts_with(SEALED.as_bytes()) {
+    // A sealed export opens with this host's secret key, then is read as the
+    // export it holds; a key this host lacks is the key file's refusal.
+    if SEALED
+        .iter()
+        .any(|begin| bytes.starts_with(begin.as_bytes()))
+    {
         let armored = std::str::from_utf8(bytes)
             .context("a sealed export is armored text, and this is not UTF-8")?;
         let opened = crate::core::crypto::decrypt(armored)
-            .context("open the sealed export with this keyring's secret key")?;
+            .context("open the sealed export with this host's secret key")?;
         return parse(opened.as_bytes(), format);
     }
     let first = bytes

@@ -19,7 +19,7 @@ pub(super) fn help() -> Value {
             "recovery status",
             "recovery drill <recipient-uid|recovery>",
         ],
-        "usage": "recovery status reports the vault's recovery recipient and whether its secret key is in this keyring; recovery drill proves that one expected recovery identity in an isolated keyring can open the vault.",
+        "usage": "recovery status reports the vault's recovery recipient and whether its secret key is in this host's key file; recovery drill proves that one expected recovery identity, in a key file holding only it (SKARBIEC_KEYS_FILE), can open the vault.",
     })
 }
 
@@ -42,7 +42,12 @@ pub(super) fn dispatch(
                     .with_context(|| format!("unknown recovery drill recipient {expected}"))?
             };
             if !crypto::secret_key_present(&expected_fingerprint)? {
-                anyhow::bail!("expected recovery secret half is absent from this keyring");
+                anyhow::bail!(
+                    "the key file {} does not hold the secret half of {expected} ({expected_fingerprint}); \
+                     bring it in with `skarbiec keys import --gnupg-home <dir> --keys {expected_fingerprint}` \
+                     into a key file of its own (SKARBIEC_KEYS_FILE) and drill again",
+                    crypto::key_file().display()
+                );
             }
             let mut local_openers: Vec<String> = Vec::new();
             for fingerprint in vault
@@ -68,7 +73,11 @@ pub(super) fn dispatch(
             match local_openers.as_slice() {
                 [fingerprint] if fingerprint == &expected_fingerprint => {}
                 _ => anyhow::bail!(
-                    "recovery drill requires an isolated keyring containing only the expected vault opener"
+                    "recovery drill needs a key file holding only the expected vault opener, and {} \
+                     holds the secret half of {}; point SKARBIEC_KEYS_FILE at a key file holding \
+                     only {expected_fingerprint}",
+                    crypto::key_file().display(),
+                    local_openers.join(", ")
                 ),
             }
             let mut ids: Vec<String> = vault
@@ -116,7 +125,7 @@ pub(super) fn dispatch(
                 "recovery_fpr": fpr,
                 "secret_half_present_locally": held,
                 "note": if held {
-                    "recovery secret half is in THIS keyring, so it shares one failure domain with the owner key; offline material belongs off-machine"
+                    "recovery secret half is in THIS host's key file, so it shares one failure domain with the owner key; offline material belongs off-machine"
                 } else {
                     "recovery recipient is on every item; its offline material is the last way in — verify a drill can open one item"
                 },
@@ -163,20 +172,12 @@ pub(super) fn dispatch(
                 if held {
                     openers.push(uid.clone());
                 }
-                let grips = crypto::keygrips_for(fpr)?;
                 recipients.push(json!({
                     "uid": uid,
                     "fingerprint": fpr,
                     "role": role,
                     "is_owner": uid == &owner,
                     "secret_half_present": held,
-                    "keygrips": grips.clone(),
-                    // Named even when the secret half is present: this is the
-                    // path an operator has to back up, not only restore.
-                    "key_files": grips
-                        .iter()
-                        .map(|grip| json!(format!("private-keys-v1.d/{grip}.key")))
-                        .collect::<Vec<Value>>(),
                 }));
             }
             if !recovery.is_empty()
@@ -188,18 +189,12 @@ pub(super) fn dispatch(
                 if held {
                     openers.push("recovery".to_string());
                 }
-                let grips = crypto::keygrips_for(&recovery)?;
                 recipients.push(json!({
                     "uid": "recovery",
                     "fingerprint": recovery,
                     "role": "recovery",
                     "is_owner": false,
                     "secret_half_present": held,
-                    "keygrips": grips.clone(),
-                    "key_files": grips
-                        .iter()
-                        .map(|grip| json!(format!("private-keys-v1.d/{grip}.key")))
-                        .collect::<Vec<Value>>(),
                 }));
             }
             // The only proof that survives argument: open something. The lowest
@@ -229,6 +224,10 @@ pub(super) fn dispatch(
             };
             Ok(Some(json!({
                 "vault": vault_path().display().to_string(),
+                // Named even when a secret half is present: this is the file
+                // an operator has to back up apart from the vault, not only
+                // restore.
+                "key_file": crypto::key_file().display().to_string(),
                 "owner": owner,
                 "status": readable,
                 "canary_item": canary,

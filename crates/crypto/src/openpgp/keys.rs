@@ -382,9 +382,12 @@ pub fn transferable_public_key(
 /// each subkey's binding, with the primary key. A key whose binding does not
 /// verify is not this key's, whatever its packets say.
 pub fn verify_self_signatures(data: &[u8]) -> Result<(), Error> {
-    let mut primary: Option<(Vec<u8>, [u8; 32])> = None;
+    let mut primary: Option<(Vec<u8>, [u8; 32], [u8; 20])> = None;
     let mut uid: Option<Vec<u8>> = None;
     let mut sub: Option<Vec<u8>> = None;
+    // A user attribute (a photo id) is bound by signatures over itself,
+    // which say nothing of the user ids and subkey this reads.
+    let mut attribute = false;
     let mut verified = 0;
     for packet in packets(data)? {
         match packet.tag {
@@ -395,19 +398,30 @@ pub fn verify_self_signatures(data: &[u8]) -> Result<(), Error> {
                         "a primary key that is not Ed25519".into(),
                     ));
                 };
-                primary = Some((packet.body.clone(), ed));
+                primary = Some((packet.body.clone(), ed, fingerprint(&packet.body)));
                 uid = None;
                 sub = None;
+                attribute = false;
             }
             13 => {
                 uid = Some(packet.body.clone());
                 sub = None;
+                attribute = false;
             }
-            14 => sub = Some(packet.body.clone()),
-            2 => {
-                let (body, ed) = primary
+            17 => attribute = true,
+            14 => {
+                sub = Some(packet.body.clone());
+                attribute = false;
+            }
+            2 if !attribute => {
+                let (body, ed, fpr) = primary
                     .as_ref()
                     .ok_or_else(|| malformed("a signature before any key"))?;
+                // Another key's certification of a user id is that key's
+                // statement, not this key's own; it is not checked here.
+                if !fpr.ends_with(&super::signature::issuer(&packet.body)?) {
+                    continue;
+                }
                 let mut hashed = key_frame(0x99, body);
                 match (&sub, &uid) {
                     (Some(sub), _) => hashed.extend(key_frame(0x99, sub)),

@@ -10,7 +10,6 @@ use write::apply;
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
@@ -109,7 +108,7 @@ pub(super) fn source_row(
     if identity.is_empty() {
         bail!("{provider} item has no source identity");
     }
-    let digest = format!("{:x}", Sha256::digest(serde_json::to_vec(identity)?));
+    let digest = crate::core::crypto::sha256_hex_bytes(&serde_json::to_vec(identity)?);
     context.insert("display_name".into(), json!(title));
     let mut payload = schema::payload(kind, fields, context)?;
     payload["extensions"] = Value::Object(Map::from_iter([(

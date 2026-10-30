@@ -1,117 +1,142 @@
-// The keyring: generating a key, finding a fingerprint, and telling whether
-// the secret half of one is still on this machine.
+// The keys a vault names, in the key file beside it: making one, finding one
+// by user id, importing and exporting public halves, and telling whether the
+// secret half of one is on this host.
 
 use anyhow::{bail, Context, Result};
 
-use super::execution::{run, ToolExit};
+use skarbiec_crypto::openpgp::armor::armor;
+use skarbiec_crypto::openpgp::keys::{parse_public_keys, transferable_public_key, PublicKey};
+use skarbiec_crypto::openpgp::{packets, write_packet};
+use skarbiec_crypto::wipe::Secret;
 
-/// Generate a new key pair for a user id, returning its fingerprint.
+use super::keyring::{self, NewKey, SecretHalf};
+
+/// Make a new key pair for a user id in this vault's key file, returning
+/// its fingerprint: an Ed25519 primary key that signs and a Curve25519
+/// subkey items are sealed to, both from the operating system's random source.
 pub fn generate_key(uid: &str) -> Result<String> {
-    run(
-        "gpg",
-        &[
-            "--batch",
-            "--pinentry-mode",
-            "loopback",
-            "--passphrase",
-            "",
-            "--quick-generate-key",
-            uid,
-            "default",
-            "default",
-            "never",
-        ],
-        None,
+    let seed = Secret::new(
+        skarbiec_crypto::random::key()
+            .context("draw the Ed25519 seed of a new key")?
+            .to_vec(),
+    );
+    let scalar = Secret::new(
+        skarbiec_crypto::random::key()
+            .context("draw the X25519 scalar of a new key")?
+            .to_vec(),
+    );
+    let seed_bytes: [u8; 32] = seed.expose().try_into().context("a 32-byte seed")?;
+    let scalar_bytes: [u8; 32] = scalar.expose().try_into().context("a 32-byte scalar")?;
+    let created = u32::try_from(crate::core::clock::epoch_seconds()?)
+        .context("the clock is past what an OpenPGP key can state (2106)")?;
+    let packets = transferable_public_key(
+        &seed_bytes,
+        &skarbiec_crypto::x25519::public_key(&scalar_bytes),
+        uid,
+        created,
+    );
+    let path = keyring::path();
+    let added = keyring::add(
+        &path,
+        vec![NewKey {
+            packets,
+            secret: Some(SecretHalf { seed, scalar }),
+        }],
     )?;
-    fingerprint_for(uid)?.with_context(|| format!("key not found after generating for {uid}"))
+    let (fingerprint, _) = added
+        .into_iter()
+        .next()
+        .context("the key file answered no key for the one added")?;
+    Ok(fingerprint)
 }
 
-/// Fingerprint of a key already in the local keyring for this user id, if any.
+/// The fingerprint of the key whose user id is exactly `uid` in this vault's
+/// key file.
 pub fn fingerprint_for(uid: &str) -> Result<Option<String>> {
-    let listing = match absent_as_none(
-        run("gpg", &["--list-keys", "--with-colons", uid], None),
-        "GPG_ERR_NO_PUBKEY",
-    )? {
-        Some(text) => text,
-        None => return Ok(None),
-    };
-    Ok(listing
-        .lines()
-        .find_map(|line| hex_field(line, "fpr"))
-        .map(str::to_string))
+    Ok(keyring::load()?.find(uid).map(|key| key.fingerprint()))
+}
+
+/// Every key an armored public key block holds, one packet run per key.
+fn split_keys(armored: &str) -> Result<Vec<(Vec<u8>, PublicKey)>> {
+    if armored.contains("-----BEGIN PGP PRIVATE KEY BLOCK-----") {
+        bail!(
+            "this is a secret key block; Skarbiec takes only public keys here: export the public \
+             half (`gpg --armor --export <uid>`), or bring a secret key gpg kept with `skarbiec keys import`"
+        );
+    }
+    let data = keyring::public_packets(armored)
+        .context("read the public key block (it must be an armored OpenPGP public key)")?;
+    let mut runs: Vec<Vec<u8>> = Vec::new();
+    for packet in packets(&data).map_err(|error| anyhow::anyhow!("{error}"))? {
+        if packet.tag == 6 || runs.is_empty() {
+            runs.push(Vec::new());
+        }
+        if let Some(run) = runs.last_mut() {
+            run.extend(write_packet(packet.tag, &packet.body));
+        }
+    }
+    let mut keys = Vec::new();
+    for run in runs {
+        let public = parse_public_keys(&run)
+            .map_err(|error| anyhow::anyhow!("the public key block: {error}"))?
+            .into_iter()
+            .next()
+            .context("the public key block holds no key")?;
+        keys.push((run, public));
+    }
+    if keys.is_empty() {
+        bail!("the public key block holds no key");
+    }
+    Ok(keys)
 }
 
 /// The fingerprint of the primary key an armored key holds, read without
 /// importing it, so a key replacing another under the same user id is named
 /// exactly rather than found by that user id.
 pub fn fingerprint_of_armored(armored: &str) -> Result<String> {
-    let listing = run(
-        "gpg",
-        &[
-            "--batch",
-            "--with-colons",
-            "--import-options",
-            "show-only",
-            "--import",
-        ],
-        Some(armored),
-    )?;
-    listing
-        .lines()
-        .find_map(|line| hex_field(line, "fpr"))
-        .map(str::to_string)
-        .context("the key file holds no key gpg can list")
+    let keys = split_keys(armored)?;
+    match keys.as_slice() {
+        [(_, key)] => Ok(key.fingerprint_hex()),
+        more => bail!(
+            "the key file holds {} keys ({}); give it one key",
+            more.len(),
+            more.iter()
+                .map(|(_, key)| key.fingerprint_hex())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
 }
 
-/// The hex value of a `--with-colons` record of `kind` (`fpr`, `grp`): its
-/// first field that is non-empty and all hex digits, or `None` for a record
-/// of another kind.
-fn hex_field<'a>(line: &'a str, kind: &str) -> Option<&'a str> {
-    line.strip_prefix(kind)?
-        .split(':')
-        .find(|field| !field.is_empty() && field.chars().all(|c| c.is_ascii_hexdigit()))
-}
-
-/// What the keyring says about one public key's life: the moment it expires
-/// (none when it never does) and gpg's validity letter for it, where `e`
-/// means expired and `r` revoked. A key either way still decrypts what was
-/// written to it, but new writes to it fail, so a share to it breaks.
+/// What the key file says about one public key's life: the moment it expires
+/// (none when it never does) and its validity letter, `e` expired and `r`
+/// revoked, empty otherwise. A key either way still opens what was sealed to
+/// it; new writes to it are the holder's to stop.
 pub struct KeyValidity {
     pub expires_epoch: Option<i64>,
     pub validity: String,
 }
 
-/// The validity of the primary key `fingerprint` names, from its `pub`
-/// record (`pub:<validity>:<length>:<algorithm>:<keyid>:<created>:<expires>`),
-/// or none when the keyring does not hold it.
+/// The validity of the key `fingerprint` names, or none when the key file
+/// does not hold it.
 pub fn key_validity(fingerprint: &str) -> Result<Option<KeyValidity>> {
-    let Some(listing) = absent_as_none(
-        run("gpg", &["--list-keys", "--with-colons", fingerprint], None),
-        "GPG_ERR_NO_PUBKEY",
-    )?
-    else {
+    let keyring = keyring::load()?;
+    let Some(key) = keyring.find(fingerprint) else {
         return Ok(None);
     };
-    let Some(record) = listing.lines().find(|line| line.starts_with("pub:")) else {
-        bail!("gpg listed {fingerprint} without a pub record");
-    };
-    let mut fields = record.split(':');
-    let _kind = fields.next();
-    let validity = fields
-        .next()
-        .with_context(|| format!("{fingerprint}'s pub record has no validity field"))?;
-    let _length = fields.next();
-    let _algorithm = fields.next();
-    let _key_id = fields.next();
-    let _created = fields.next();
-    let expires = fields
-        .next()
-        .with_context(|| format!("{fingerprint}'s pub record has no expiry field"))?;
-    let expires_epoch = match expires {
-        "" => None,
-        text => Some(text.parse::<i64>().with_context(|| {
-            format!("{fingerprint}'s pub record states expiry {text}, which is not a time")
-        })?),
+    let expires_epoch = key
+        .public
+        .expires_after
+        .filter(|after| *after != 0)
+        .map(|after| i64::from(key.public.created) + i64::from(after));
+    let now = i64::try_from(crate::core::clock::epoch_seconds()?)
+        .context("the clock does not fit a signed number of seconds")?;
+    let validity = if key.public.revoked {
+        "r"
+    } else if expires_epoch.is_some_and(|at| at <= now) {
+        "e"
+    } else {
+        ""
     };
     Ok(Some(KeyValidity {
         expires_epoch,
@@ -119,130 +144,37 @@ pub fn key_validity(fingerprint: &str) -> Result<Option<KeyValidity>> {
     }))
 }
 
-/// Whether the private half for this fingerprint is in the local keyring. The
-/// public half proves nothing: stored ciphertext opens only for whoever holds a
-/// secret key, and a vault can list a recipient whose secret half is long gone.
+/// Whether the secret half of this key (fingerprint or key id) is in this
+/// vault's key file. The public half proves nothing: stored ciphertext opens
+/// only for whoever holds a secret key.
 pub fn secret_key_present(fingerprint: &str) -> Result<bool> {
-    let listing = absent_as_none(
-        run(
-            "gpg",
-            &["--list-secret-keys", "--with-colons", fingerprint],
-            None,
-        ),
-        "GPG_ERR_NO_SECKEY",
-    )?;
-    Ok(listing.is_some_and(|listing| {
-        listing
-            .lines()
-            .any(|line| line.starts_with("sec:") || line.starts_with("ssb:"))
-    }))
+    let keyring = keyring::load()?;
+    Ok(keyring
+        .find(fingerprint)
+        .is_some_and(|key| key.holds_secret()))
 }
 
-/// Keygrips of a key and its subkeys. `gpg-agent` stores each secret half as
-/// `private-keys-v1.d/<KEYGRIP>.key`, so these are the exact filenames a restore
-/// from backup has to produce: the fingerprint names the key, the keygrip names
-/// the file on disk.
-pub fn keygrips_for(fingerprint: &str) -> Result<Vec<String>> {
-    let listing = match absent_as_none(
-        run(
-            "gpg",
-            &[
-                "--list-keys",
-                "--with-colons",
-                "--with-keygrip",
-                fingerprint,
-            ],
-            None,
-        ),
-        "GPG_ERR_NO_PUBKEY",
-    )? {
-        Some(text) => text,
-        None => return Ok(Vec::new()),
-    };
-    let mut grips: Vec<String> = Vec::new();
-    for grip in listing.lines().filter_map(|line| hex_field(line, "grp")) {
-        if !grips.iter().any(|kept| kept == grip) {
-            grips.push(grip.to_string());
-        }
-    }
-    Ok(grips)
+/// The key file a restore from backup has to bring back for this vault.
+pub fn key_file() -> std::path::PathBuf {
+    keyring::path()
 }
 
-/// A gpg listing, or none when gpg refused it only because the key it was
-/// asked for is not in the keyring: one of its status errors is the code
-/// `absent` names in gpg-error.h. Any other failure (a wedged keyboxd, a held
-/// keyring lock, a dead agent) is the error itself, so it is never read as a
-/// key that is not there.
-fn absent_as_none(listing: Result<String>, absent: &str) -> Result<Option<String>> {
-    let error = match listing {
-        Ok(text) => return Ok(Some(text)),
-        Err(error) => error,
-    };
-    let exit = match error.downcast_ref::<ToolExit>() {
-        Some(exit) => exit,
-        None => return Err(error),
-    };
-    for value in &exit.gpg_errors {
-        if gpg_error_names(*value)?.contains(&absent.to_string()) {
-            return Ok(None);
-        }
-    }
-    Err(error)
-}
-
-/// The names libgpg-error's own `gpg-error` tool gives a status value: its
-/// answer is `<value> = (<source>, <code>) = (<SOURCE NAME>, <CODE NAME>) =
-/// (<descriptions>)`, read word by word.
-fn gpg_error_names(value: u32) -> Result<Vec<String>> {
-    let output = stado_wait::output(std::process::Command::new("gpg-error").arg(value.to_string()))
-        .with_context(|| format!("gpg-error could not be run to name gpg status value {value}"))?;
-    if !output.status.success() {
-        bail!(
-            "gpg-error refused to name gpg status value {value} ({}): {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let answer = String::from_utf8(output.stdout).with_context(|| {
-        format!("gpg-error named status value {value} in text that is not UTF-8")
-    })?;
-    Ok(answer
-        .split([' ', '(', ')', ','])
-        .filter(|word| !word.is_empty())
-        .map(str::to_string)
-        .collect())
-}
-
-/// Import an armored public (or private) key, returning nothing on success.
+/// Add every public key an armored key block holds to this vault's key file.
 pub fn import_key(armored: &str) -> Result<()> {
-    run("gpg", &["--batch", "--import"], Some(armored))?;
+    let keys = split_keys(armored)?
+        .into_iter()
+        .map(|(packets, _)| NewKey {
+            packets,
+            secret: None,
+        })
+        .collect();
+    keyring::add(&keyring::path(), keys)?;
     Ok(())
 }
 
-/// Export a recipient's armored public key for sharing the vault.
+/// A recipient's armored public key, for sharing the vault.
 pub fn export_public_key(fingerprint: &str) -> Result<String> {
-    run("gpg", &["--armor", "--export", fingerprint], None)
-}
-
-/// The OpenPGP packet header of a public-key encrypted session key, and the
-/// word before the recipient's key id in it, as `gpg --list-packets` prints
-/// them (RFC 4880 section 5.1 names the packet).
-const SESSION_KEY_PACKET: &str = ":pubkey enc packet:";
-const KEY_ID_WORD: &str = "keyid ";
-
-/// The key ids a message is encrypted to, read from its session key packets
-/// without decrypting it (`--list-only`): what a message that will not open
-/// was written for, to set beside the secret keys this keyring holds.
-pub fn encrypted_to(ciphertext: &str) -> Result<Vec<String>> {
-    let listing = run(
-        "gpg",
-        &["--batch", "--list-only", "--list-packets"],
-        Some(ciphertext),
-    )?;
-    Ok(listing
-        .lines()
-        .filter(|line| line.starts_with(SESSION_KEY_PACKET))
-        .filter_map(|line| line.rsplit_once(KEY_ID_WORD))
-        .map(|(_, key_id)| key_id.trim().to_string())
-        .collect())
+    let keyring = keyring::load()?;
+    let key = keyring.require(fingerprint)?;
+    Ok(armor(&key.packets, "PGP PUBLIC KEY BLOCK"))
 }

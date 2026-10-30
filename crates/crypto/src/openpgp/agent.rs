@@ -261,6 +261,30 @@ pub fn is_protected(file: &str) -> bool {
     file.contains("(protected-private-key")
 }
 
+/// The curve and public point of a gpg-agent key file, read without its
+/// secret: a protected key's public half is in the clear, so which file
+/// holds which key is answered without a passphrase.
+pub fn key_file_public(file: &str) -> Result<(String, Vec<u8>), Error> {
+    let start = file
+        .find("Key:")
+        .ok_or_else(|| malformed("the key file has no Key: field"))?;
+    let sexp = parse_sexp(file[start + 4..].as_bytes())?;
+    let ecc = sexp
+        .find(b"ecc")
+        .ok_or_else(|| Error::Unsupported("a key that is not elliptic-curve".into()))?;
+    let curve = ecc
+        .find(b"curve")
+        .and_then(|c| c.atom(1))
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .ok_or_else(|| malformed("the key names no curve"))?;
+    let q = ecc
+        .find(b"q")
+        .and_then(|q| q.atom(1))
+        .ok_or_else(|| malformed("the key has no public point q"))?
+        .to_vec();
+    Ok((curve, q))
+}
+
 /// The secret key in a gpg-agent key file. A protected key needs
 /// `passphrase`; without one, or with the wrong one, it is refused saying
 /// so.
@@ -403,7 +427,9 @@ pub fn s2k_iterated_sha1(passphrase: &[u8], salt: &[u8], count: u64, length: usi
     s2k_iterated::<crate::sha::Sha1, 20>(passphrase, salt, count, length)
 }
 
-pub(crate) fn s2k_iterated<D: crate::sha::Digest, const N: usize>(
+/// Iterated and salted S2K (RFC 4880 section 3.7.1.3) over any hash here,
+/// `N` its digest length.
+pub fn s2k_iterated<D: crate::sha::Digest, const N: usize>(
     passphrase: &[u8],
     salt: &[u8],
     count: u64,

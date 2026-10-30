@@ -49,7 +49,6 @@ pub(crate) fn is_mutation(path: &str) -> bool {
                 | "/v1/operator/review"
                 | "/v1/operator/upgrade/apply"
                 | "/v1/operator/agents/enrol"
-                | "/v1/operator/recover-daemons"
                 | "/v1/operator/items/recovery-codes/take"
                 | "/v1/operator/items/recovery-codes/replace"
                 | "/v1/operator/items/sites/set"

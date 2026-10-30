@@ -101,7 +101,7 @@ names "$ROUTE"
 names "$COPY"
 [ ! -e "$COPY" ] || fail "a refused init still created $COPY"
 echo "ok: the refused init created no file at $COPY" >>"$REPORT"
-gpg --homedir "$GNUPGHOME" --list-keys "vault-test-owner-$RUN" >/dev/null 2>&1 && fail "the refused init made a key for vault-test-owner-$RUN"
+[ ! -e "${COPY%.json}.keys.json" ] || fail "the refused init made a key file ${COPY%.json}.keys.json"
 echo "ok: the refused init made no key" >>"$REPORT"
 
 # A vault named explicitly is the caller's own and is opened.
@@ -114,9 +114,11 @@ VAULT="$OWN" WANT=ok run get "$ITEM" --field password
 echo "ok: an explicitly named vault was written and read back" >>"$REPORT"
 
 # A leftover copy at the fallback path is neither read nor written by a
-# command that opens the vault here instead of asking the owner.
+# command that opens the vault here instead of asking the owner. Its key file
+# lies beside it, as every vault's does.
 mkdir -p "$(dirname "$COPY")"
 cp "$OWN" "$COPY"
+cp "${OWN%.json}.keys.json" "${COPY%.json}.keys.json"
 cp "$COPY" "$ROOT/copy.before"
 VAULT= WANT=refused run duplicates
 names "this machine holds no Skarbiec vault"
@@ -167,6 +169,7 @@ echo "ok: a machine publishing only the canonical forward refuses the copy namin
 # The vault owner: Stado declares the vault file here, so a bare skarbiec opens it.
 config "{\"secrets\":{\"skarbiec\":{\"url\":\"$ROUTE\",\"vault_file\":\"$DECLARED\"}}}"
 cp "$OWN" "$DECLARED"
+cp "${OWN%.json}.keys.json" "${DECLARED%.json}.keys.json"
 item_json
 VAULT= WANT=ok run set "$ITEM" --type login
 : >"$ROOT/stdin"

@@ -116,37 +116,18 @@ impl Vault {
     /// the line.
     ///
     /// The pid is the kernel's answer for this process. The parent's program is
-    /// read with `ps`, run through the announced wait, and only the program is
-    /// kept, never the rest of the argument vector: this line lands in a journal
-    /// an operator reads, and a parent that was handed a secret on its command
-    /// line must not have it copied here. A program that cannot be read does not
-    /// fail the credential write; the journal carries `not read: <cause>` in its
-    /// place, never an empty name that reads as a program nobody ran.
+    /// the executable the kernel records for it (`proc_pidpath` on macOS, the
+    /// `/proc/<pid>/exe` link on Linux), read in this process; never its
+    /// argument vector: this line lands in a journal an operator reads, and a
+    /// parent that was handed a secret on its command line must not have it
+    /// copied here. A program that cannot be read does not fail the credential
+    /// write; the journal carries `not read: <cause>` in its place, never an
+    /// empty name that reads as a program nobody ran.
     pub(in crate::core::vault) fn parent_process() -> (String, String) {
-        let pid = std::os::unix::process::parent_id().to_string();
-        let program = stado_wait::output(
-            std::process::Command::new("/bin/ps").args(["-o", "command=", "-p", &pid]),
-        )
-        .map_err(|error| format!("/bin/ps could not be run for pid {pid}: {error:#}"))
-        .and_then(|output| {
-            if !output.status.success() {
-                return Err(format!(
-                    "/bin/ps -p {pid} exited with {}: {}",
-                    output.status,
-                    String::from_utf8_lossy(&output.stderr).trim()
-                ));
-            }
-            let command = String::from_utf8(output.stdout)
-                .map_err(|error| format!("/bin/ps -p {pid} printed no text: {error}"))?;
-            command
-                .split_whitespace()
-                .next()
-                .map(str::to_string)
-                .ok_or_else(|| format!("/bin/ps -p {pid} printed no command"))
-        });
-        match program {
-            Ok(program) => (pid, program),
-            Err(cause) => (pid, format!("not read: {cause}")),
+        let pid = std::os::unix::process::parent_id();
+        match executable_of(pid) {
+            Ok(program) => (pid.to_string(), program),
+            Err(cause) => (pid.to_string(), format!("not read: {cause}")),
         }
     }
 
@@ -282,4 +263,34 @@ fn audited(audit: &Value) {
             "skarbiec: an item write was saved but its audit entry was not recorded: {error:#}"
         );
     }
+}
+
+/// The executable the kernel records for process `pid`.
+#[cfg(target_os = "macos")]
+fn executable_of(pid: u32) -> Result<String, String> {
+    let id = libc::c_int::try_from(pid).map_err(|_| format!("pid {pid} does not fit a pid_t"))?;
+    let mut buffer = vec![0u8; usize::try_from(libc::PROC_PIDPATHINFO_MAXSIZE).unwrap_or(4096)];
+    let size =
+        u32::try_from(buffer.len()).map_err(|_| "the path buffer is too large".to_string())?;
+    // SAFETY: the buffer is valid for `size` bytes and proc_pidpath writes at
+    // most that many.
+    let written = unsafe { libc::proc_pidpath(id, buffer.as_mut_ptr().cast(), size) };
+    if written <= 0 {
+        return Err(format!(
+            "the kernel names no executable for pid {pid}: {}",
+            std::io::Error::last_os_error()
+        ));
+    }
+    buffer.truncate(usize::try_from(written).map_err(|_| "a negative length".to_string())?);
+    String::from_utf8(buffer)
+        .map_err(|error| format!("pid {pid}'s executable path is not UTF-8: {error}"))
+}
+
+/// The executable the kernel records for process `pid`.
+#[cfg(not(target_os = "macos"))]
+fn executable_of(pid: u32) -> Result<String, String> {
+    let link = format!("/proc/{pid}/exe");
+    std::fs::read_link(&link)
+        .map_err(|error| format!("read {link}: {error}"))
+        .map(|path| path.display().to_string())
 }

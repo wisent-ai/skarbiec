@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Real test of `skarbiec upgrade --apply` over v1 items through the built
-# binary, on a vault and keyring of its own under this checkout's target
-# directory, so the operator's vault and keyring are never read or written.
+# binary, on a vault of its own under this checkout's target directory (its
+# key file beside it), so the operator's vault and keys are never read or
+# written.
 #
 # A fresh vault is turned back into a v1 envelope holding four items whose
-# payloads are encrypted to the owner with gpg, as v1 wrote them:
+# payloads gpg encrypted to the owner's key, as v1 wrote them (gpg runs only
+# here, to make those fixtures, in a GnuPG home of its own that imports the
+# owner's public key Skarbiec exports):
 #   - a login written under the legacy type `login`, which becomes a login
 #     carrying its username and password and no import_warning;
 #   - a service account without credential_json, kept as its kind holding its
@@ -13,7 +16,9 @@
 #     its import_warning naming the type;
 #   - an item whose value is not an object, kept as value, its import_warning
 #     saying so.
-# The persisted v2 items are decrypted and their kind and import_warning read.
+# Skarbiec then runs with a PATH that holds no gpg: the upgrade opens the
+# OpenPGP payloads in process, and the persisted v2 items, read back with
+# `get`, carry their kind and import_warning and are in the sealed format.
 #
 # Usage: SKARBIEC=target/debug/skarbiec tests/upgrade/legacy_items.sh
 set -eu
@@ -22,32 +27,43 @@ BIN=${SKARBIEC:?set SKARBIEC to the skarbiec binary under test, such as target/d
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/upgrade/$RUN"
 REPORT="$ROOT/report.txt"
-KEYRING="$PWD/target/g$$"
-mkdir -p "$ROOT" "$KEYRING"
-chmod go-rwx "$KEYRING"
+mkdir -p "$ROOT" "$ROOT/no-gpg"
+chmod go-rwx "$ROOT"
+# gpg-agent's socket lives in its home, and a Unix socket path is short.
+mkdir -p "$HOME/.skarbiec/test-runs"
+GHOME=$(mktemp -d "$HOME/.skarbiec/test-runs/u.XXXXXX")
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
-export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
-trap 'gpgconf --homedir "$GNUPGHOME" --kill all || true; rm -rf "$KEYRING"' EXIT
+trap 'gpgconf --homedir "$GHOME" --kill all || true; rm -rf "$GHOME"' EXIT
+# The tools the test itself uses, linked one by one, and no gpg among them.
+for tool in jq cat; do ln -s "$(command -v "$tool")" "$ROOT/no-gpg/$tool"; done
 
 fail() {
   echo "FAIL: $*" | tee -a "$REPORT" >/dev/stderr
   false
 }
+skarbiec() {
+  PATH="$ROOT/no-gpg" "$BIN" "$@"
+}
 
-"$BIN" init "legacy-owner-$RUN" >>"$REPORT" 2>&1 || fail "init was refused"
-owner=$("$BIN" kit 2>"$ROOT/said" | jq -r .owner_key_fingerprint) || fail "kit did not name the owner key: $(cat "$ROOT/said")"
+skarbiec init "legacy-owner-$RUN" >>"$REPORT" 2>&1 || fail "init was refused"
+owner=$(skarbiec kit 2>"$ROOT/said" | jq -r .owner_key_fingerprint) || fail "kit did not name the owner key: $(cat "$ROOT/said")"
+skarbiec owner key show "legacy-owner-$RUN" 2>"$ROOT/said" | jq -r .public_key >"$ROOT/owner.asc" \
+  || fail "owner key show did not export the owner key: $(cat "$ROOT/said")"
+gpg --homedir "$GHOME" --batch --import "$ROOT/owner.asc" >>"$REPORT" 2>&1 \
+  || fail "gpg did not import the public key Skarbiec exported"
 
 seal() {
-  printf '%s' "$1" | gpg --batch --yes --armor --trust-model always --recipient "$owner" --encrypt
+  printf '%s' "$1" | gpg --homedir "$GHOME" --batch --yes --armor --trust-model always --recipient "$owner" --encrypt
 }
 
 legacy_item() {
   jq -n --arg type "$1" --arg cipher "$(seal "$2")" '{
     type: $type, current: $cipher, recipients: [], tags: [], history: [],
-    deleted: false, created_at: "2000-01-01T00:00:00Z", updated_at: "2000-01-01T00:00:00Z"
+    deleted: false, deleted_at: null,
+    created_at: "2000-01-01T00:00:00Z", updated_at: "2000-01-01T00:00:00Z"
   }'
 }
 
@@ -61,14 +77,18 @@ jq --argjson login "$login" --argjson account "$account" --argjson unknown "$unk
 chmod go-rwx "$ROOT/legacy.vault.json"
 cp "$ROOT/legacy.vault.json" "$SKARBIEC_VAULT_FILE"
 
-if upgraded=$("$BIN" upgrade --apply --snapshot "$ROOT/snapshot.json" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+if upgraded=$(skarbiec upgrade --apply --snapshot "$ROOT/snapshot.json" 2>"$ROOT/said"); then got=ok; else got=refused; fi
 said=$(cat "$ROOT/said")
 [ "$got" = ok ] || fail "upgrade --apply was refused: $upgraded; stderr: $said"
 printf '$ skarbiec upgrade --apply\noutput: %s\nstderr: %s\n\n' "$upgraded" "$said" >>"$REPORT"
 [ "$(jq -r .version "$SKARBIEC_VAULT_FILE")" = v2 ] || fail "the vault was not moved to the v2 envelope"
 
 stored() {
-  jq -r --arg id "$1" '.items[$id].current.ciphertext' "$SKARBIEC_VAULT_FILE" | gpg --batch --quiet --decrypt
+  case "$(jq -r --arg id "$1" '.items[$id].current.ciphertext' "$SKARBIEC_VAULT_FILE")" in
+    "-----BEGIN SKARBIEC SEALED-----"*) ;;
+    *) fail "$1 was not written in the sealed format" ;;
+  esac
+  skarbiec get "$1"
 }
 check() {
   id=$1 kind=$2 warning=$3

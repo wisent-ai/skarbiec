@@ -7,7 +7,6 @@ use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use base64::Engine;
 use serde_json::Value;
 
-use crate::access::capability::state::state_path;
 use crate::core::{crypto, vault::Vault};
 
 // Liveness is grant::active's: a consumer entry carries no state field, only an
@@ -81,8 +80,8 @@ fn decode_base64url(value: &str) -> Option<Vec<u8>> {
 }
 
 /// Whether the workload signed `payload` with the key its grant records.
-/// OpenSSL's verdict is the answer; a verifier that cannot answer is the
-/// error, with OpenSSL's words (`crypto::signature::verify`).
+/// The Ed25519 verdict is the answer; a key that is not an Ed25519 public
+/// key is the error, in its own words (`crypto::signature::verify`).
 pub(super) fn verify_proof(
     public_key: &str,
     payload: &[u8],
@@ -91,15 +90,5 @@ pub(super) fn verify_proof(
     let Some(signature) = decode_base64url(signature_b64url) else {
         return Ok(false);
     };
-    let scratch = state_path()
-        .parent()
-        .context("capability state has no parent")?
-        .to_path_buf();
-    crypto::signature::verify(
-        public_key,
-        payload,
-        &signature,
-        &scratch,
-        "capability proof",
-    )
+    crypto::signature::verify(public_key, payload, &signature, "capability proof")
 }

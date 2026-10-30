@@ -74,19 +74,6 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Value> {
         "/v1/operator/agents/enrol" => {
             crate::access::agent::enrol(&positionals(parsed, &["agent"])?)
         }
-        // On the vault owner, where the daemons decrypt; a receipt that says
-        // the daemons were not replaced is an error carrying gpgconf's cause.
-        "/v1/operator/recover-daemons" => {
-            let receipt = crate::runtime::doctor::recover_daemons()?;
-            if receipt["recovered"] != serde_json::json!(true) {
-                let cause = match receipt["detail"].as_str() {
-                    Some(detail) => detail.to_string(),
-                    None => receipt.to_string(),
-                };
-                bail!("keyring recover: the GnuPG daemons were not replaced: {cause}");
-            }
-            Ok(receipt)
-        }
         // With `at`, the saved version recorded at that stamp becomes the
         // current value, as `restore <id> --at <at>` does; with `tag` (and
         // `yes` to act), every trashed item carrying it comes back.

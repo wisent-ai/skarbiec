@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Real test of the audit journal's chain tail through the built binary on a
-# vault of its own: SKARBIEC_VAULT_FILE, SKARBIEC_AUDIT_FILE and GNUPGHOME
-# point into this checkout's target directory, so the operator's vault,
-# journal and keyring are never read or written.
+# vault of its own: SKARBIEC_VAULT_FILE and SKARBIEC_AUDIT_FILE point into
+# this checkout's target directory, the key file beside that vault, so the
+# operator's vault, journal and keys are never read or written.
 #
 # It creates the vault and writes one item, so the journal holds entries,
 # then appends a line that is not an entry to the journal and writes a second
-# item. The write must be refused naming the damaged last line, and the
+# item. An item write the vault has saved stands, so the write succeeds; its
+# audit entry must be refused on stderr naming the damaged last line, and the
 # journal must still end with that line: no entry may be chained onto the
 # older hash behind it. Then it replaces the damaged line with an entry that
-# carries no hash and expects the refusal that names the missing hash.
-# Every command, whether it succeeded and its output go to the run's
-# report.txt; no item value is written there.
+# carries no hash and expects the refusal that names the missing hash, with
+# that line still last. Every command, whether it succeeded and its output go
+# to the run's report.txt; no item value is written there.
 #
 # Supply SKARBIEC and SKARBIEC_TEST_SOURCE_REVISION, then run
 # tests/audit/damaged_tail.sh.
@@ -64,24 +65,27 @@ WANT=ok run set "audit-tail-first-$RUN" --type login
 damaged="{\"at\": \"audit-tail-$RUN\", \"op\": "
 printf '%s\n' "$damaged" >>"$SKARBIEC_AUDIT_FILE"
 login second
-WANT=refused run set "audit-tail-second-$RUN" --type login
+WANT=ok run set "audit-tail-second-$RUN" --type login
 case "$said" in
-  *"ends with a line that is not an entry"*) ;;
-  *) fail "the refusal does not name the damaged last journal line" ;;
+  *"audit entry was not recorded"*"ends with a line that is not an entry"*) ;;
+  *) fail "the write did not say its audit entry was refused for the damaged last journal line" ;;
 esac
 [ "$(sed -n '$p' "$SKARBIEC_AUDIT_FILE")" = "$damaged" ] \
   || fail "an entry was chained past the damaged line"
-echo "ok: a damaged last line refuses the next entry and stays last" >>"$REPORT"
+echo "ok: a damaged last line refuses the next entry, says so, and stays last" >>"$REPORT"
 
 kept=$(grep -v -F -x -- "$damaged" "$SKARBIEC_AUDIT_FILE")
-printf '%s\n{"at":"audit-tail-%s","op":"audit-tail-unhashed"}\n' "$kept" "$RUN" >"$SKARBIEC_AUDIT_FILE"
+unhashed="{\"at\":\"audit-tail-$RUN\",\"op\":\"audit-tail-unhashed\"}"
+printf '%s\n%s\n' "$kept" "$unhashed" >"$SKARBIEC_AUDIT_FILE"
 login third
-WANT=refused run set "audit-tail-third-$RUN" --type login
+WANT=ok run set "audit-tail-third-$RUN" --type login
 case "$said" in
-  *"last entry carries no hash"*) ;;
-  *) fail "the refusal does not name the last entry's missing hash" ;;
+  *"audit entry was not recorded"*"last entry carries no hash"*) ;;
+  *) fail "the write did not say its audit entry was refused for the last entry's missing hash" ;;
 esac
-echo "ok: a last entry without a hash refuses the next entry" >>"$REPORT"
+[ "$(sed -n '$p' "$SKARBIEC_AUDIT_FILE")" = "$unhashed" ] \
+  || fail "an entry was chained past the entry without a hash"
+echo "ok: a last entry without a hash refuses the next entry, says so, and stays last" >>"$REPORT"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

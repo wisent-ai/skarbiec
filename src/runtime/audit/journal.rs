@@ -4,7 +4,6 @@
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Seek, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
@@ -95,9 +94,7 @@ pub(super) fn digest_input(prev: &str, at: &str, op: &str, extra: &Value) -> Str
 
 /// The SHA-256 of `input`, as the lowercase hex the journal chains with.
 pub(super) fn sha256_hex(input: &str) -> String {
-    let mut digest = Sha256::new();
-    digest.update(input.as_bytes());
-    format!("{:x}", digest.finalize())
+    crate::core::crypto::sha256_hex_bytes(input.as_bytes())
 }
 
 /// The journal's complete lines in a window reaching back `window` bytes

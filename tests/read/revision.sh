@@ -2,9 +2,10 @@
 # Real test of an item's revision, the version of its value a reader compares
 # against the value it holds: `skarbiec get <id> --revision` on the CLI and
 # `POST /v1/items/revision` on the API of a real `skarbiec serve`, through the
-# built binary on a vault of its own (SKARBIEC_VAULT_FILE, SKARBIEC_AUDIT_FILE
-# and GNUPGHOME point into this checkout's target directory, so the
-# operator's vault and keyring are never read or written).
+# built binary on a vault of its own (SKARBIEC_VAULT_FILE and
+# SKARBIEC_AUDIT_FILE point into this checkout's target directory, the key
+# file beside that vault, so the operator's vault and keys are never read or
+# written).
 #
 # It writes one item, grants a consumer `read` of one field, and checks:
 # - the CLI and the API name the same item_uid and revision, and the API's
@@ -17,9 +18,9 @@
 #   a trashed item 410, and `get --revision --field` is refused naming both;
 # - a request with no x-consumer, or with no bearer, is refused 401 naming
 #   the header it lacks.
-# - a second real broker with an empty keyring can return the revision but
-#   refuses the encrypted value with the actual missing-secret-key cause;
-#   the original broker still reads the unchanged value afterward.
+# - a second real broker whose key file holds no key can return the revision
+#   but refuses the encrypted value with the actual missing-key cause; the
+#   original broker still reads the unchanged value afterward.
 # Every command, curl request and verdict goes to the run's report.txt;
 # values and bearers are never written there.
 #
@@ -31,17 +32,15 @@ SOURCE_REVISION=${SKARBIEC_TEST_SOURCE_REVISION:?set the exact committed source 
 RUN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 ROOT="$PWD/target/real-tests/revision/$RUN"
 REPORT="$ROOT/report.txt"
-KEYRING="$PWD/target/g$$"
-mkdir -p "$ROOT" "$KEYRING"
-chmod go-rwx "$ROOT" "$KEYRING"
+mkdir -p "$ROOT"
+chmod go-rwx "$ROOT"
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
 echo "binary-git-blob: $(git hash-object "$BIN")" >>"$REPORT"
-export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
 export SKARBIEC_AUDIT_FILE="$ROOT/audit.jsonl"
 SERVE_PID=
-EMPTY_KEYRING="$PWD/target/e$$"
+EMPTY_KEYRING="$ROOT/empty-keys"
 EMPTY_SERVE_PID=
 # Cleanup runs on every exit; a step that cannot be done is written to the
 # report with the command's own error rather than passed over.
@@ -51,12 +50,6 @@ cleanup_step() {
 cleanup() {
   if [ -n "$SERVE_PID" ]; then cleanup_step kill "$SERVE_PID"; fi
   if [ -n "$EMPTY_SERVE_PID" ]; then cleanup_step kill "$EMPTY_SERVE_PID"; fi
-  if [ -d "$EMPTY_KEYRING" ]; then
-    cleanup_step gpgconf --homedir "$EMPTY_KEYRING" --kill all
-    rm -rf "$EMPTY_KEYRING"
-  fi
-  cleanup_step gpgconf --homedir "$GNUPGHOME" --kill all
-  rm -rf "$KEYRING"
 }
 trap cleanup EXIT
 
@@ -134,7 +127,11 @@ api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$status" = "200" ] || fail "revision answered $status: $out"
 [ "$(member item_uid)" = "$CLI_UID" ] && [ "$(member revision)" = "$CLI_REVISION" ] \
   || fail "the API's version differs from the CLI's: $out"
-case "$out" in *"first-$RUN"*|*'"value"'*) fail "the revision answer carries the value" ;; esac
+# The answer names the field it was asked about ("field":"value"); what it
+# must not carry is the stored text or a member holding a value.
+case "$out" in *"first-$RUN"*) fail "the revision answer carries the value" ;; esac
+printf '%s' "$out" | jq -e 'has("value") or has("values") | not' >/dev/null \
+  || fail "the revision answer carries a value member: $(printf '%s' "$out" | jq -c 'keys')"
 echo "ok: /v1/items/revision names the CLI's item_uid and revision and no value" >>"$REPORT"
 cmp "$SKARBIEC_AUDIT_FILE" "$ROOT/audit-before-revision.jsonl" \
   || fail "revision-only API read changed the audit journal"
@@ -162,13 +159,14 @@ api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$(member revision)" = "$SECOND" ] || fail "retagging changed the revision: $out"
 echo "ok: retagging leaves the revision as it was" >>"$REPORT"
 
-# The consumer grant lives in the vault envelope, not in the owner's
-# secret keyring. Exercise that distinction with an actual second broker.
+# The consumer grant lives in the vault envelope, not in the owner's secret
+# keys. Exercise that distinction with an actual second broker whose key
+# file holds no key.
 OWNER_ADDRESS=$ADDRESS
 mkdir "$EMPTY_KEYRING"
 chmod go-rwx "$EMPTY_KEYRING"
 mkfifo "$ROOT/empty-keyring-serve.log"
-GNUPGHOME="$EMPTY_KEYRING" LC_ALL=C "$BIN" serve --port "0" &>"$ROOT/empty-keyring-serve.log" &
+SKARBIEC_KEYS_FILE="$EMPTY_KEYRING/empty.keys.json" LC_ALL=C "$BIN" serve --port "0" &>"$ROOT/empty-keyring-serve.log" &
 EMPTY_SERVE_PID=$!
 ADDRESS=
 while read -r line; do
@@ -184,8 +182,8 @@ api /v1/items/revision "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
   || fail "the empty-keyring broker could not return the actual item revision: status $status"
 api /v1/items/read "{\"id\":\"$ITEM\",\"field\":\"$FIELD\"}" "$TOKEN"
 [ "$status" = "503" ] || fail "missing decryption authority answered $status instead of an infrastructure refusal"
-printf '%s' "$out" | jq -e '.error_code == "infra_down" and (.detail | contains("No secret key")) and (has("value") | not)' >/dev/null \
-  || fail "the decryption refusal omitted the actual GnuPG cause or returned a value"
+printf '%s' "$out" | jq -e '.error_code == "infra_down" and (.detail | contains("no key held here is a recipient")) and (has("value") | not)' >/dev/null \
+  || fail "the decryption refusal omitted the actual missing-key cause or returned a value"
 case "$out" in *"second-$RUN"*) fail "the failed decryption response disclosed the secret" ;; esac
 printf '%s\n' "$out" >"$ROOT/decryption-refusal.json"
 ADDRESS=$OWNER_ADDRESS

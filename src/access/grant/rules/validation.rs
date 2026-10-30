@@ -5,7 +5,6 @@ use anyhow::{bail, Context, Result};
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
-use std::process::Command;
 
 use crate::core::effective_uid;
 
@@ -30,32 +29,10 @@ pub(in crate::access::grant) fn read_workload_public_key(path: &Path) -> Result<
     {
         bail!("workload public key must be a PEM public key");
     }
-    // The same OpenSSL that verifies the key's proofs judges the key, and an
-    // OpenSSL that cannot read it says so rather than calling the key invalid.
-    let openssl = crate::core::crypto::signature::openssl_bin()?;
-    let output = stado_wait::output(
-        Command::new(&openssl)
-            .args(["pkey", "-pubin", "-in"])
-            .arg(path)
-            .args(["-text_pub", "-noout"]),
-    )
-    .with_context(|| format!("validate workload public key with {}", openssl.display()))?;
-    if !output.status.success() {
-        bail!(
-            "{} could not read the workload public key {} ({}): {}; SKARBIEC_OPENSSL names an Ed25519-capable OpenSSL",
-            openssl.display(),
-            path.display(),
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
-    let description = String::from_utf8_lossy(&output.stdout);
-    if !description.to_ascii_uppercase().contains("ED25519") {
-        bail!(
-            "workload public key {} is not an Ed25519 public key",
-            path.display()
-        );
-    }
+    // The same reader that verifies the key's proofs judges the key, so a
+    // key accepted here is one every proof is checked against.
+    crate::core::crypto::signature::ed25519_public_key(&key)
+        .with_context(|| format!("workload public key {}", path.display()))?;
     Ok(key)
 }
 

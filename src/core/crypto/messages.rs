@@ -1,27 +1,81 @@
-// What the vault does with a message: encrypt it to recipients, decrypt it
-// with whatever unlock the operator configured, sign it, and hash it.
+// What the vault does with a message: seal it to recipients, open it with
+// the keys this host holds, sign it, and hash it. Every step runs in this
+// process, on skarbiec-crypto; nothing waits on another program.
 
 use anyhow::{bail, Context, Result};
 
-use super::execution::run;
+use skarbiec_crypto::openpgp::armor::{armor, dearmor};
+use skarbiec_crypto::openpgp::message::DecryptionKey;
+use skarbiec_crypto::sealed;
+use skarbiec_crypto::wipe::Secret;
 
-pub fn clearsign(signer: &str, payload: &str) -> Result<String> {
-    run(
-        "gpg",
-        &[
-            "--batch",
-            "--yes",
-            "--armor",
-            "--local-user",
-            signer,
-            "--clearsign",
-        ],
-        Some(payload),
+use super::keyring::{self, Keyring};
+
+/// The armor kind an item sealed in Skarbiec's own format is written in.
+pub(crate) const SEALED_KIND: &str = "SKARBIEC SEALED";
+const SEALED_BEGIN: &str = "-----BEGIN SKARBIEC SEALED-----";
+const OPENPGP_BEGIN: &str = "-----BEGIN PGP MESSAGE-----";
+
+/// Which format a stored ciphertext is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    /// Skarbiec's own sealed format, what every write now produces.
+    Sealed,
+    /// An OpenPGP message, what gpg wrote before; read, never written.
+    OpenPgp,
+}
+
+/// The format `ciphertext` is in, refused naming what it starts with.
+pub fn format_of(ciphertext: &str) -> Result<Format> {
+    let text = ciphertext.trim_start();
+    if text.starts_with(SEALED_BEGIN) {
+        return Ok(Format::Sealed);
+    }
+    if text.starts_with(OPENPGP_BEGIN) {
+        return Ok(Format::OpenPgp);
+    }
+    let start: String = text.chars().take(40).collect();
+    bail!(
+        "the ciphertext is neither a Skarbiec sealed item ({SEALED_BEGIN}) nor an OpenPGP message \
+         ({OPENPGP_BEGIN}); it starts {start:?}, so it was damaged or is not a vault ciphertext"
     )
 }
 
+pub fn clearsign(signer: &str, payload: &str) -> Result<String> {
+    let keyring = keyring::load()?;
+    let key = keyring.find(signer).with_context(|| {
+        format!(
+            "the key file {} holds no key for {signer} to sign with",
+            keyring.path.display()
+        )
+    })?;
+    let secret = key.secret(&keyring.path)?;
+    let seed: [u8; 32] = secret
+        .seed
+        .expose()
+        .try_into()
+        .context("an Ed25519 seed is 32 bytes")?;
+    let created = u32::try_from(crate::core::clock::epoch_seconds()?)
+        .context("the clock is past what an OpenPGP signature can state (2106)")?;
+    Ok(skarbiec_crypto::openpgp::signature::sign_cleartext(
+        &seed,
+        &key.public.body,
+        payload,
+        created,
+    ))
+}
+
+/// The text a cleartext-signed message carries, when its signature verifies
+/// with a key in this host's key file.
 pub fn verify_clearsigned(signed: &str) -> Result<String> {
-    run("gpg", &["--batch", "--yes", "--decrypt"], Some(signed))
+    let keyring = keyring::load()?;
+    let keys: Vec<_> = keyring.keys.iter().map(|key| key.public.clone()).collect();
+    skarbiec_crypto::openpgp::signature::verify_cleartext(signed, &keys).map_err(|error| {
+        anyhow::anyhow!(
+            "the signed checkpoint does not verify with the keys in {}: {error}",
+            keyring.path.display()
+        )
+    })
 }
 
 /// The bytes of entropy in a consumer service token, which so carries 256
@@ -30,198 +84,188 @@ pub fn verify_clearsigned(signed: &str) -> Result<String> {
 const TOKEN_BYTES: usize = 32;
 
 /// High-entropy random token (hex). Used for consumer service tokens.
-///
-/// `/dev/urandom` rather than `openssl rand`: minting a token used to spawn a
-/// process that queued behind live decryptions in the shared crypto pool, and
-/// a token is minted on paths that hold no secret at all.
 pub fn random_token() -> Result<String> {
-    use std::io::Read;
-    let mut bytes = Vec::with_capacity(TOKEN_BYTES);
-    std::fs::File::open("/dev/urandom")
-        .context("open /dev/urandom")?
-        .take(u64::try_from(TOKEN_BYTES).context("the token length does not fit a read length")?)
-        .read_to_end(&mut bytes)
-        .context("read entropy for a service token")?;
-    if bytes.len() != TOKEN_BYTES {
-        bail!(
-            "/dev/urandom ended after {} of the {TOKEN_BYTES} bytes a service token needs",
-            bytes.len()
-        );
-    }
+    let bytes = skarbiec_crypto::random::bytes(TOKEN_BYTES)
+        .context("draw the random bytes of a service token")?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-/// Hex SHA-256 of the input. Used by the tamper-evident audit chain and the
-/// breach k-anonymity check.
-///
-/// In process, because this is how a bearer is verified on EVERY
-/// authenticated route. As a `shasum` child it took a slot in the same
-/// bounded pool the gpg decryptions use, so a request that hashes one string
-/// waited behind work it has nothing to do with: a grant metadata call took
-/// over ten seconds and `GET /readyz` nearly as long for exactly that
-/// reason, and verifying a long audit chain cost one process per line.
+/// Hex SHA-256 of the input: the audit chain, bearer verification, the
+/// payload fingerprints.
 pub fn sha256_hex(input: &str) -> Result<String> {
-    use sha2::Digest;
-    let digest = sha2::Sha256::digest(input.as_bytes());
-    Ok(digest.iter().map(|byte| format!("{byte:02x}")).collect())
+    Ok(sha256_hex_bytes(input.as_bytes()))
+}
+
+/// Hex SHA-256 of bytes.
+pub fn sha256_hex_bytes(input: &[u8]) -> String {
+    skarbiec_crypto::sha::sha256(input)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// SHA-1 (uppercase hex) — required only for the HaveIBeenPwned range API, which
 /// is defined over SHA-1 password hashes. Not used for any security decision.
 pub fn sha1_hex_upper(input: &str) -> Result<String> {
-    use sha1::Digest;
-    let digest = sha1::Sha1::digest(input.as_bytes());
-    Ok(digest.iter().map(|byte| format!("{byte:02X}")).collect())
+    Ok(skarbiec_crypto::sha::sha1(input.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect())
 }
 
-/// Encrypt plaintext to every recipient's public key (armored). Any recipient
-/// (or the recovery key) can later decrypt. This is how sharing works: add a
-/// recipient and the item re-encrypts to include them.
+/// Seal plaintext to every recipient's key: any one of them (or the recovery
+/// key) opens it. A fingerprint the key file does not hold is refused naming
+/// it, so an item is never sealed to fewer people than asked.
 pub fn encrypt_to(recipients: &[String], plaintext: &str) -> Result<String> {
     if recipients.is_empty() {
         bail!("refusing to encrypt with no recipients");
     }
-    let mut args: Vec<String> = vec![
-        "--batch".into(),
-        "--yes".into(),
-        "--armor".into(),
-        "--trust-model".into(),
-        "always".into(),
-        "--encrypt".into(),
-    ];
-    for recipient in recipients {
-        args.push("--recipient".into());
-        args.push(recipient.clone());
-    }
-    let refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    run("gpg", &refs, Some(plaintext))
+    let keyring = keyring::load()?;
+    seal_with(&keyring, recipients, plaintext.as_bytes())
 }
 
-/// Seal plaintext with a passphrase instead of a key (armored, symmetric):
-/// for a person outside the vault, who opens it with `gpg --decrypt` and the
-/// phrase handed over another way. The phrase travels on stdin before the
-/// message, as the protected decrypt hands its phrase over, never in argv.
-pub fn seal_with_passphrase(phrase: &str, plaintext: &str) -> Result<String> {
-    if phrase.contains('\n') {
-        bail!("a sealing passphrase holds a line break; gpg reads a phrase only up to its first line break");
-    }
-    let stdin = libc::STDIN_FILENO.to_string();
-    run(
-        "gpg",
-        &[
-            "--batch",
-            "--yes",
-            "--armor",
-            "--pinentry-mode",
-            "loopback",
-            "--passphrase-fd",
-            &stdin,
-            "--symmetric",
-        ],
-        Some(&format!("{phrase}\n{plaintext}")),
-    )
-}
-
-/// Decrypt using whatever private key in the local keyring applies (gpg-agent).
-/// A protected vault can receive its unlock phrase through `SKARBIEC_UNLOCK`
-/// for a single invocation, an owner-only file named by
-/// `SKARBIEC_UNLOCK_FILE`, or the persistent service default
-/// `$HOME/.stado/skarbiec-unlock`. The phrase is handed to gpg over stdin,
-/// never argv. With no phrase, an unprotected key decrypts normally while a
-/// protected key fails without opening an interactive prompt.
-fn unlock_phrase() -> Result<Option<String>> {
-    if let Some(phrase) = crate::core::env::text("SKARBIEC_UNLOCK")? {
-        return Ok(Some(phrase));
-    }
-    let path = match crate::core::env::path("SKARBIEC_UNLOCK_FILE") {
-        Some(path) => path,
-        None => {
-            let Some(home) = std::env::var_os("HOME") else {
-                return Ok(None);
-            };
-            let candidate = std::path::PathBuf::from(home)
-                .join(".stado")
-                .join("skarbiec-unlock");
-            // Only a default file that does not exist means "no phrase"; one
-            // that cannot be inspected is reported below with its cause.
-            match std::fs::symlink_metadata(&candidate) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-                _ => candidate,
-            }
-        }
-    };
-    let metadata = std::fs::symlink_metadata(&path)
-        .with_context(|| format!("inspect Skarbiec unlock file {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if metadata.file_type().is_symlink() || !metadata.is_file() {
-            anyhow::bail!(
-                "Skarbiec unlock file {} must be a regular file",
-                path.display()
+pub(crate) fn seal_with(
+    keyring: &Keyring,
+    recipients: &[String],
+    plaintext: &[u8],
+) -> Result<String> {
+    let now = crate::core::clock::epoch_seconds()?;
+    let mut publics = Vec::with_capacity(recipients.len());
+    for fingerprint in recipients {
+        let key = keyring.require(fingerprint)?;
+        // A revoked or expired key is one its holder said no longer to
+        // write to; sealing to it anyway would hide the change from them.
+        if key.public.revoked {
+            bail!(
+                "key {fingerprint} is revoked, so nothing new is sealed to it; give its holder a \
+                 new key (`skarbiec recipient rekey`, or `skarbiec owner rotate` for the owner)"
             );
         }
-        // Only the owner may read or write it: any permission bit outside
-        // owner read and write refuses the file.
-        let owner = crate::core::mode::OWNER_READ_WRITE;
-        let access = metadata.permissions().mode() & crate::core::mode::ALL;
-        if access | owner != owner {
-            anyhow::bail!("Skarbiec unlock file {} must be mode 0600", path.display());
+        if let Some(after) = key.public.expires_after.filter(|after| *after != 0) {
+            if u64::from(key.public.created) + u64::from(after) <= now {
+                bail!(
+                    "key {fingerprint} expired, so nothing new is sealed to it; `skarbiec keys` \
+                     names the repair: re-sign it with a later expiry and import it again, or give \
+                     its holder a new key"
+                );
+            }
+        }
+        let x25519 = key.x25519()?;
+        if !publics.contains(&x25519) {
+            publics.push(x25519);
         }
     }
-    let phrase = std::fs::read_to_string(&path)
-        .with_context(|| format!("read Skarbiec unlock file {}", path.display()))?;
-    let phrase = phrase.trim_end().to_string();
-    Ok((!phrase.is_empty()).then_some(phrase))
+    let sealed = sealed::seal(&publics, plaintext).context("seal the item")?;
+    Ok(armor(&sealed, SEALED_KIND))
 }
 
-pub fn decrypt(ciphertext: &str) -> Result<String> {
-    match unlock_phrase()? {
-        Some(phrase) => decrypt_protected(ciphertext, &phrase),
-        _ => run(
-            "gpg",
-            &[
-                "--batch",
-                "--yes",
-                "--pinentry-mode",
-                "loopback",
-                "--passphrase",
-                "",
-                "--decrypt",
-            ],
-            Some(ciphertext),
-        ),
-    }
-}
-
-// Protected-key path: gpg reads the phrase from its standard input one byte
-// at a time up to the first newline (`--passphrase-fd`), and the message from
-// the rest of the same input, so nothing is staged on disk and the phrase
-// never reaches argv. A phrase holding a newline would end early and hand the
-// rest of it to gpg as the message, so it is refused.
-fn decrypt_protected(ciphertext: &str, phrase: &str) -> Result<String> {
-    if phrase.contains('\n') {
-        bail!("the Skarbiec unlock phrase holds a line break; gpg reads a phrase only up to its first line break");
-    }
-    let stdin = libc::STDIN_FILENO.to_string();
-    run(
-        "gpg",
-        &[
-            "--batch",
-            "--yes",
-            "--pinentry-mode",
-            "loopback",
-            "--passphrase-fd",
-            &stdin,
-            "--decrypt",
-        ],
-        Some(&format!("{phrase}\n{ciphertext}")),
+/// Seal plaintext with a passphrase instead of a key, as an armored OpenPGP
+/// message: for a person outside the vault, who opens it with any OpenPGP
+/// tool and the phrase handed over another way.
+pub fn seal_with_passphrase(phrase: &str, plaintext: &str) -> Result<String> {
+    let message = skarbiec_crypto::openpgp::message::seal_with_passphrase(
+        phrase.as_bytes(),
+        plaintext.as_bytes(),
     )
+    .context("seal the message with its passphrase")?;
+    Ok(armor(&message, "PGP MESSAGE"))
 }
 
-#[allow(dead_code)] // public API surface consumed by the HTTP layer / clients
-/// True when the local keyring (plus any SKARBIEC_UNLOCK) opens this
-/// ciphertext. Used to gate reads by possession.
-pub fn can_decrypt(ciphertext: &str) -> bool {
-    decrypt(ciphertext).is_ok()
+/// Open a stored ciphertext with the secret keys this host holds: a sealed
+/// item, or an OpenPGP message gpg wrote before.
+pub fn decrypt(ciphertext: &str) -> Result<String> {
+    let keyring = keyring::load()?;
+    let opened = open_with(&keyring, ciphertext)?;
+    String::from_utf8(opened.into_inner()).context("the opened item is not UTF-8 text")
+}
+
+pub(crate) fn open_with(keyring: &Keyring, ciphertext: &str) -> Result<Secret> {
+    let (held, locked) = keyring.secrets();
+    let locked_note = if locked.is_empty() {
+        String::new()
+    } else {
+        format!("; keys this host could not unlock: {}", locked.join("; "))
+    };
+    match format_of(ciphertext)? {
+        Format::Sealed => {
+            let data = dearmor(ciphertext, SEALED_KIND)
+                .map_err(|error| anyhow::anyhow!("the sealed item's armor: {error}"))?;
+            let scalars: Vec<[u8; 32]> = held
+                .iter()
+                .filter_map(|(_, half)| half.scalar.expose().try_into().ok())
+                .collect();
+            sealed::open(&data, &scalars).map_err(|error| match error {
+                sealed::OpenError::NoKey(_) => anyhow::anyhow!(
+                    "{error}; the key file {} holds the secret half of {} key(s), none of them a \
+                     recipient: import the recipient's key here (`skarbiec keys import`){locked_note}",
+                    keyring.path.display(),
+                    held.len()
+                ),
+                other => anyhow::anyhow!("{other}{locked_note}"),
+            })
+        }
+        Format::OpenPgp => {
+            let data = dearmor(ciphertext, "PGP MESSAGE")
+                .map_err(|error| anyhow::anyhow!("the OpenPGP message's armor: {error}"))?;
+            let mut keys = Vec::new();
+            for (key, half) in &held {
+                let Ok(scalar) = <[u8; 32]>::try_from(half.scalar.expose()) else {
+                    continue;
+                };
+                let public = skarbiec_crypto::x25519::public_key(&scalar);
+                for subkey in key.public.subkeys.iter().filter(|sub| sub.x25519 == public) {
+                    keys.push(DecryptionKey {
+                        subkey_body: subkey.body.clone(),
+                        scalar: half.scalar.clone(),
+                    });
+                }
+            }
+            skarbiec_crypto::openpgp::message::decrypt(&data, &keys).map_err(|error| match error {
+                skarbiec_crypto::openpgp::Error::NoKey(_) => anyhow::anyhow!(
+                    "{error}; the key file {} holds the secret half of {} key(s), none of them a \
+                     recipient: import the recipient's key here (`skarbiec keys import`){locked_note}",
+                    keyring.path.display(),
+                    held.len()
+                ),
+                other => anyhow::anyhow!("{other}{locked_note}"),
+            })
+        }
+    }
+}
+
+/// The key ids a ciphertext is sealed to, read without opening it: for a
+/// sealed item the first 8 bytes of SHA-256 over each X25519 key, for an
+/// OpenPGP message each encryption subkey's key id.
+pub fn encrypted_to(ciphertext: &str) -> Result<Vec<String>> {
+    match format_of(ciphertext)? {
+        Format::Sealed => {
+            let data = dearmor(ciphertext, SEALED_KIND)
+                .map_err(|error| anyhow::anyhow!("the sealed item's armor: {error}"))?;
+            sealed::recipients(&data).map_err(|error| anyhow::anyhow!("{error}"))
+        }
+        Format::OpenPgp => {
+            let data = dearmor(ciphertext, "PGP MESSAGE")
+                .map_err(|error| anyhow::anyhow!("the OpenPGP message's armor: {error}"))?;
+            skarbiec_crypto::openpgp::message::recipients(&data)
+                .map_err(|error| anyhow::anyhow!("{error}"))
+        }
+    }
+}
+
+/// Whether the key file holds a secret half a ciphertext's recipient `key_id`
+/// (as [`encrypted_to`] names it) belongs to, and that key's fingerprint.
+pub fn holder_of(key_id: &str) -> Result<Option<(String, bool)>> {
+    let keyring = keyring::load()?;
+    for key in &keyring.keys {
+        for subkey in &key.public.subkeys {
+            let sealed_id: String = sealed::key_id(&subkey.x25519)
+                .iter()
+                .map(|byte| format!("{byte:02X}"))
+                .collect();
+            if sealed_id == key_id || subkey.key_id() == key_id {
+                return Ok(Some((key.fingerprint(), key.holds_secret())));
+            }
+        }
+    }
+    Ok(None)
 }

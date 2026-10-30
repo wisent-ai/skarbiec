@@ -14,7 +14,7 @@ mod net;
 mod onboarding;
 mod runtime;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -157,23 +157,6 @@ fn run() -> Result<()> {
                 )?)
             }
         }
-        "keyring" if positionals.first().map(String::as_str) == Some("recover") => {
-            // Exit 0 only when the daemons were replaced: the receipt is
-            // printed either way, and a failed recovery fails the command
-            // with gpgconf's own cause, so a caller never reads success.
-            let receipt = runtime::doctor::recover_daemons()?;
-            emit(&receipt)?;
-            if receipt["recovered"] != json!(true) {
-                // The receipt itself is the cause when it carries no detail
-                // line: it was printed above, and its whole text says why.
-                let cause = match receipt["detail"].as_str() {
-                    Some(detail) => detail.to_string(),
-                    None => receipt.to_string(),
-                };
-                bail!("keyring recover: the GnuPG daemons were not replaced: {cause}");
-            }
-            Ok(())
-        }
         "vaults" => emit(&runtime::vaults::inventory()?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
         "get" => cmd_get(&flags, &positionals),
@@ -246,12 +229,6 @@ fn run() -> Result<()> {
             Some(answer) => emit(&answer),
             None => Ok(()),
         },
-        // The keyring command's one verb, refused naming it for any other.
-        "keyring" => Err(Usage(format!(
-            "keyring {} is not a form of keyring; usage: keyring recover",
-            positionals.join(" ")
-        ))
-        .into()),
         other => {
             if let Some(v) = credential::dispatch(other, &flags, &positionals, &vault_path())? {
                 emit(&v)

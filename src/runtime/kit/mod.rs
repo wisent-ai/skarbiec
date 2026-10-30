@@ -68,8 +68,8 @@ pub fn kit() -> Result<Value> {
     .collect();
     let steps = [
         "Install Skarbiec on the new machine.",
-        "Import the recovery secret key you kept offline: gpg --import <recovery-key file>.",
         "Bring the vault back: copy the latest backup below to the vault file's path (skarbiec backup check <copy> --open says it opens), or pull it from one of the bonds below.",
+        "Bring the recovery key you kept offline into the vault's key file: skarbiec keys import --gnupg-home <the offline key's directory> --keys <recovery fingerprint above>.",
         "Run skarbiec doctor, then skarbiec recipient list, and replace the lost owner key with skarbiec owner rotate.",
     ];
     // The page as it is printed, so every surface prints the same one: the

@@ -32,11 +32,14 @@ pub(super) struct Located {
 }
 
 /// Check the request's grant for `read` of its item field and find the item
-/// that answers it. `None` means the refusal was already written.
+/// that answers it. `None` means the refusal was already written. A caller
+/// that answers the value (`reads_value`) is also held to the adopt check;
+/// one that answers only its version decrypts nothing.
 pub(super) fn locate(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
     body: &str,
+    reads_value: bool,
 ) -> Result<Option<Located>> {
     let Some(parsed) = http::request_json(stream, body)? else {
         return Ok(None);
@@ -113,8 +116,9 @@ pub(super) fn locate(
     // the adopt verification path, never by an ordinary read grant. Telling
     // that decrypts the item; a decrypt that fails or is ended answers the
     // caller with why, as the read's own decrypt does, never a connection
-    // closed with no answer.
-    if field != "context" {
+    // closed with no answer. A version answer carries no value, so it is not
+    // asked.
+    if reads_value && field != "context" {
         match crate::credential::managed_read(&vault, id, field, &consumer) {
             Ok(crate::credential::ManagedRead::Refused) => {
                 http::write_response(
@@ -219,7 +223,7 @@ pub(crate) fn handle_items_read(
         revision,
         field,
         consumer,
-    }) = locate(stream, headers, body)?
+    }) = locate(stream, headers, body, true)?
     else {
         return Ok(());
     };

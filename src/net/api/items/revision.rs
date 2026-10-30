@@ -31,7 +31,7 @@ pub(crate) fn handle_items_revision(
         revision,
         field,
         ..
-    }) = locate(stream, headers, body)?
+    }) = locate(stream, headers, body, false)?
     else {
         return Ok(());
     };

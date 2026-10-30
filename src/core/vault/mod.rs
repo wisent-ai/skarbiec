@@ -281,3 +281,4 @@ mod items;
 mod managed;
 mod recipients;
 mod removal;
+pub mod reseal;

@@ -102,7 +102,7 @@ fn canonical_text(text: &str) -> Vec<u8> {
 }
 
 /// The issuer fingerprint (subpacket 33) or key id (16) a signature names.
-fn issuer(body: &[u8]) -> Result<Vec<u8>, Error> {
+pub(crate) fn issuer(body: &[u8]) -> Result<Vec<u8>, Error> {
     let mut r = Reader::new(body);
     r.take(4, "a signature header")?;
     let hashed_len = usize::from(r.u16("hashed subpackets")?);

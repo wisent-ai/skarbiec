@@ -30,7 +30,7 @@ pub(super) fn tools() -> Value {
          "description": "List the consumers whose grant reaches one item, directly or through a role tag it carries, with the capabilities that do. Never returns a bearer or public key.",
          "inputSchema": schema(json!({"id": {"type": "string", "description": "The item id."}}), vec!["id"])},
         {"name": "skarbiec_certificates",
-         "description": "List every live certificate item's subject, issuer and end of validity, soonest first, and the ones OpenSSL could not read. Never returns a private key.",
+         "description": "List every live certificate item's subject, issuer and end of validity, soonest first, and the ones whose certificate could not be read. Never returns a private key.",
          "inputSchema": schema(json!({"expiring_before": {"type": "string", "description": "Optional UTC time (YYYY-MM-DDTHH:MM:SSZ); keeps the certificates ending before it."}}), vec![])},
         {"name": "skarbiec_recipient_items",
          "description": "List every live and trashed item one registered recipient can open, read from the item envelopes without decrypting anything.",

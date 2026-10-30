@@ -13,10 +13,21 @@ use crate::core::{clock, crypto, vault::Vault, vault_path};
 pub fn dispatch(
     command: &str,
     flags: &HashMap<String, String>,
-    _positionals: &[String],
+    positionals: &[String],
 ) -> Result<Option<Value>> {
+    if let Some(rest) = crate::cli::args::verb(command, positionals, "keys", "import") {
+        if let Some(extra) = rest.first() {
+            return Err(crate::cli::args::Usage(format!(
+                "keys import takes no word after it, and was given {extra}; usage: keys import \
+                 [--gnupg-home <dir>] [--keys <fingerprint,...>]"
+            ))
+            .into());
+        }
+        return crypto::import::run(flags).map(Some);
+    }
     match command {
-        "keys" => keys(flags).map(Some),
+        "keys" if positionals.is_empty() => keys(flags).map(Some),
+        "reseal" => crate::core::vault::reseal::run(flags).map(Some),
         _ => Ok(None),
     }
 }
@@ -99,10 +110,10 @@ fn keys(flags: &HashMap<String, String>) -> Result<Value> {
 /// kept offline, so extending it is said rather than named as a command.
 fn repair(holder: &str, owner: &str) -> String {
     if holder == owner {
-        return "extend the key with gpg --quick-set-expire, or move the vault to a new owner key with `skarbiec owner rotate <new-owner-uid>`".to_string();
+        return "move the vault to a new owner key with `skarbiec owner rotate <new-owner-uid>`, or have the key re-signed with a later expiry where its secret is kept and import its public half again (`skarbiec recipient rekey` is refused for the owner)".to_string();
     }
     if holder == "recovery" {
-        return "extend the recovery key with gpg --quick-set-expire where it is kept offline, then import its public half here".to_string();
+        return "re-sign the recovery key with a later expiry where it is kept offline, then import its public half here with `skarbiec keys import --gnupg-home <dir> --keys <fingerprint>`".to_string();
     }
-    format!("extend the key with gpg --quick-set-expire, or give {holder} a new one with `skarbiec recipient rekey {holder} --import <public-key-file> --yes`")
+    format!("give {holder} a new key with `skarbiec recipient rekey {holder} --import <public-key-file> --yes`, or have {holder} re-sign the key with a later expiry and import its public half again")
 }

@@ -109,7 +109,7 @@ fn authorize(record: &Value, by: &str) -> Result<()> {
         .as_str()
         .with_context(|| format!("{by}'s recipient record holds no key fingerprint"))?;
     if !crypto::secret_key_present(fingerprint)? {
-        bail!("{by}'s secret key is not in this host's keyring: decide where {by} holds it");
+        bail!("{by}'s secret key is not in this host's key file: decide where {by} holds it, or bring it here with `skarbiec keys import`");
     }
     let decided = record["decisions"]
         .as_array()

@@ -47,7 +47,7 @@ pub fn dispatch(
 /// `owner rotate <new-owner-uid>`: move the vault to a new owner key.
 /// Deliberately no key generation: a key minted here would be a key no
 /// ciphertext was ever encrypted to. The new owner's key must already be in
-/// the keyring, imported or made on purpose beforehand (`owner key mint`).
+/// the key file, imported or made on purpose beforehand (`owner key mint`).
 fn rotate(positionals: &[String]) -> Result<Value> {
     let [uid] = positionals else {
         return Err(
@@ -56,7 +56,7 @@ fn rotate(positionals: &[String]) -> Result<Value> {
     };
     let fpr = crypto::fingerprint_for(uid)?.with_context(|| {
         format!(
-            "no key in the keyring for {uid}: import it (recipient add {uid} --import <pubkey-file>) \
+            "no key in the key file for {uid}: import it (recipient add {uid} --import <pubkey-file>) \
              or make it (`skarbiec {COMMAND} mint {uid}`) first, then rotate"
         )
     })?;
@@ -66,13 +66,13 @@ fn rotate(positionals: &[String]) -> Result<Value> {
     Ok(report)
 }
 
-/// Make the owner key for `uid` in this host's keyring. A uid that already
+/// Make the owner key for `uid` in this vault's key file. A uid that already
 /// names a key here is refused: a second key under one uid would leave which
-/// one opens the vault to the keyring's order.
+/// one opens the vault to the key file's order.
 fn mint(uid: &str) -> Result<Value> {
     if let Some(existing) = crypto::fingerprint_for(uid)? {
         bail!(
-            "{uid} already names key {existing} in this host's keyring; {COMMAND} mint makes a \
+            "{uid} already names key {existing} in this vault's key file; {COMMAND} mint makes a \
              key only for a uid that names none, and `skarbiec {COMMAND} show {uid}` reads it"
         );
     }
@@ -85,11 +85,11 @@ fn mint(uid: &str) -> Result<Value> {
     Ok(report)
 }
 
-/// The key `uid` names in this host's keyring, refused when there is none.
+/// The key `uid` names in this vault's key file, refused when there is none.
 fn show(uid: &str) -> Result<Value> {
     let fingerprint = crypto::fingerprint_for(uid)?.with_context(|| {
         format!(
-            "{uid} names no key in this host's keyring; `skarbiec {COMMAND} mint {uid}` makes one"
+            "{uid} names no key in this vault's key file; `skarbiec {COMMAND} mint {uid}` makes one"
         )
     })?;
     describe(uid, &fingerprint)

@@ -82,8 +82,8 @@ pub fn dispatch(
     Ok(None)
 }
 
-/// `skarbiec maintain`: the pass `net::http` owns (GnuPG daemons, readiness
-/// proof, one pull of every pulled bond), then one push of the Git mirror on
+/// `skarbiec maintain`: the pass `net::http` owns (readiness proof, one pull
+/// of every pulled bond), then one push of the Git mirror on
 /// the host that publishes it (`mirror publish`), then revoking every timed
 /// share whose end has passed on a vault that is not a replica, then letting
 /// browser autofill offer every login added since it was connected, then the

@@ -15,13 +15,11 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 mod access;
-mod daemons;
 mod helpers;
 mod services;
 mod vault;
 
 use access::{credentials_check, grants_check};
-use daemons::daemons_check;
 use services::{endpoint_check, worm_check};
 use vault::{audit_check, selection_check, vault_check};
 
@@ -92,7 +90,7 @@ fn keys_check() -> Value {
         return check(
             "keys",
             PASS,
-            "every key the vault writes to is in this keyring and unexpired".into(),
+            "every key the vault writes to is in this host's key file and unexpired".into(),
         );
     }
     let ended: Vec<String> = answer
@@ -107,7 +105,7 @@ fn keys_check() -> Value {
         })
         .map(|row| match row.get("repair").and_then(Value::as_str) {
             Some(repair) => format!("{} ({repair})", row["holder"]),
-            None => format!("{} (not in this keyring: import it)", row["holder"]),
+            None => format!("{} (not in this host's key file: import it with `skarbiec keys import` or `recipient add --import`)", row["holder"]),
         })
         .chain(
             answer
@@ -185,7 +183,6 @@ pub fn report(tail: Option<&str>) -> Result<Value> {
         vault_check(),
         selection_check(),
         audit_check(tail),
-        daemons_check(),
         endpoint_check(),
         worm_check(),
         grants_check(),
@@ -248,41 +245,4 @@ pub fn report_alerting(tail: Option<&str>) -> Result<Value> {
         }
     };
     Ok(answer)
-}
-
-/// Repair the GnuPG daemons and say what happened, as a receipt.
-///
-/// `doctor` reports; this acts, because the state it repairs is the one that
-/// makes every other check unreadable: a wedged keyboxd answers
-/// `keydb_search failed: Broken pipe` and the vault then refuses reads of
-/// items whose keys are present, which reads downstream as unreachable
-/// infrastructure. The receipt names the daemons, so a caller sees the same
-/// three names the escalation uses rather than a bare success, and what each
-/// running daemon held before it was replaced, so a bloat and a wedge read
-/// differently in the same receipt.
-pub fn recover_daemons() -> Result<Value> {
-    let outcome = crate::core::crypto::recover_daemons();
-    let recovered = outcome.is_ok();
-    let (before, detail) = match outcome {
-        Ok(before) => (before, None),
-        Err(error) => (Vec::new(), Some(format!("{error:#}"))),
-    };
-    // The limit the footprints are judged against, or why it is not known:
-    // a receipt that only omits it reads as "no limit applies".
-    let (limit_bytes, limit_error) = match crate::core::crypto::daemon_memory_limit_bytes() {
-        Ok(limit) => (Some(limit), None),
-        Err(error) => (None, Some(format!("{error:#}"))),
-    };
-    Ok(json!({
-        "recovered": recovered,
-        "daemons": ["keyboxd", "gpg-agent", "scdaemon"],
-        "before": before.iter().map(|footprint| json!({
-            "daemon": footprint.daemon,
-            "pid": footprint.pid,
-            "bytes": footprint.bytes,
-        })).collect::<Vec<_>>(),
-        "limit_bytes": limit_bytes,
-        "limit_error": limit_error,
-        "detail": detail,
-    }))
 }
