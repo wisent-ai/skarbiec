@@ -1,5 +1,6 @@
 // The journal file itself: where it is, how a line is hashed onto the one
-// before it, and the lock that keeps two writers from sharing a predecessor.
+// before it, the lock that keeps two writers from sharing a predecessor, and
+// the closed segments (`segments`) the chain runs through before the open file.
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -11,9 +12,11 @@ use std::path::{Path, PathBuf};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
+use super::segments;
+
 /// The audit journal: `SKARBIEC_AUDIT_FILE`, else under the user's home as
 /// `crate::core::home_dir` resolves it, never under the directory the process
-/// started in.
+/// started in. This is the open file; closed segments sit in `<journal>.d/`.
 pub(super) fn audit_path() -> PathBuf {
     if let Some(path) = crate::core::env::path("SKARBIEC_AUDIT_FILE") {
         return path;
@@ -42,49 +45,26 @@ fn owner_only_directory() -> u32 {
     crate::core::mode::OWNER_ALL
 }
 
-pub(super) fn lines() -> Result<Vec<Value>> {
-    let (entries, malformed) = lines_with_faults()?;
-    if let Some(fault) = malformed.first() {
-        anyhow::bail!(
-            "audit journal {} holds a line that is not JSON: {fault}",
-            audit_path().display()
-        );
+/// Call `each` for every non-blank line of every segment, oldest first,
+/// with the segment it was read from (a closed segment's file name, or the
+/// open file's), its line number there as an editor counts it, and the
+/// entry or why the line is not one. Lines are read one at a time, so a
+/// journal of any size costs memory for one line.
+pub(super) fn each_entry(
+    mut each: impl FnMut(&str, usize, std::result::Result<Value, String>) -> Result<()>,
+) -> Result<()> {
+    for (segment, file) in segments::snapshot(&audit_path())? {
+        segments::for_each_line(file, &segment, |line, text| match text {
+            Ok(text) if text.trim().is_empty() => Ok(()),
+            Ok(text) => each(
+                &segment,
+                line,
+                serde_json::from_str(text).map_err(|error| error.to_string()),
+            ),
+            Err(error) => each(&segment, line, Err(error)),
+        })?;
     }
-    Ok(entries.into_iter().map(|(_, entry)| entry).collect())
-}
-
-/// The parsed lines, each with its line number, and the faults.
-type LinesAndFaults = (Vec<(usize, Value)>, Vec<Value>);
-
-/// Every parseable line with the number of the line it was read from, plus
-/// the ones that are not. The chain report does not stop at the first fault,
-/// so the reader it is built on cannot either, and every fault it reports
-/// names the line an editor shows for it.
-pub(super) fn lines_with_faults() -> Result<LinesAndFaults> {
-    let path = audit_path();
-    let Some(body) = crate::core::read_present(&path, "audit journal")? else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-    let mut out = Vec::new();
-    let mut malformed = Vec::new();
-    // A line's number is how many lines have been read once it is, blank
-    // lines included, as an editor counts them.
-    let mut read = Vec::new();
-    for line in body.lines() {
-        read.push(());
-        let line_number = read.len();
-        if line.trim().is_empty() {
-            continue;
-        }
-        match serde_json::from_str(line) {
-            Ok(entry) => out.push((line_number, entry)),
-            Err(error) => malformed.push(json!({
-                "line": line_number,
-                "error": error.to_string(),
-            })),
-        }
-    }
-    Ok((out, malformed))
+    Ok(())
 }
 
 // The material each line's hash covers: previous hash + the line's own fields.
@@ -97,8 +77,8 @@ pub(super) fn sha256_hex(input: &str) -> String {
     crate::core::crypto::sha256_hex_bytes(input.as_bytes())
 }
 
-/// The journal's complete lines in a window reaching back `window` bytes
-/// from its end, and whether that window reaches the start of the file.
+/// A file's complete lines in a window reaching back `window` bytes from its
+/// end, and whether that window reaches the start of the file.
 fn tail_window(file: &mut File, length: u64, window: u64) -> Result<(Vec<String>, bool)> {
     let from_start = window >= length;
     file.seek(std::io::SeekFrom::Start(length.saturating_sub(window)))?;
@@ -131,45 +111,56 @@ fn first_window(metadata: &fs::Metadata) -> Result<u64> {
         .get())
 }
 
-/// Read only the journal's tail: the hash of the last complete line, read in
-/// windows from the end instead of parsing the whole file on every request.
-pub(super) fn tail_hash() -> Result<String> {
-    let path = audit_path();
-    let mut file = match std::fs::File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("open audit journal {}", path.display()));
-        }
-    };
+/// The last `limit` complete lines of `file`, read in widening windows from
+/// its end, fewer when the file holds fewer.
+fn tail_of(mut file: File, limit: usize) -> Result<Vec<String>> {
     let metadata = file.metadata()?;
     let length = metadata.len();
     let mut window = first_window(&metadata)?;
     loop {
         let (lines, from_start) = tail_window(&mut file, length, window)?;
-        // The last entry must parse and carry its hash, because chaining onto
-        // an older hash or restarting the chain would fork the tamper-evident
-        // journal.
-        if let Some(last) = lines.last() {
-            let entry: Value = serde_json::from_str(last).with_context(|| {
-                format!(
-                    "audit journal {} ends with a line that is not an entry",
-                    path.display()
-                )
-            })?;
-            let hash = entry.get("hash").and_then(Value::as_str).with_context(|| {
-                format!(
-                    "audit journal {}'s last entry carries no hash",
-                    path.display()
-                )
-            })?;
-            return Ok(hash.to_string());
+        if lines.len() >= limit || from_start {
+            let excess = lines.len().saturating_sub(limit);
+            return Ok(lines[excess..].to_vec());
         }
-        if from_start {
-            // An empty journal: the chain starts here.
-            return Ok(String::new());
-        }
+        // Each wider window reads as much again as the last one did.
         window = window.saturating_add(window);
+    }
+}
+
+/// The hash of the last complete line of a journal file `path` names, or
+/// none when it holds no line. The last entry must parse and carry its hash,
+/// because chaining onto an older hash or restarting the chain would fork
+/// the tamper-evident journal.
+pub(super) fn last_hash_of(file: File, path: &Path) -> Result<Option<String>> {
+    let Some(last) = tail_of(file, 1)?.pop() else {
+        return Ok(None);
+    };
+    let entry: Value = serde_json::from_str(&last).with_context(|| {
+        format!(
+            "audit journal {} ends with a line that is not an entry",
+            path.display()
+        )
+    })?;
+    let hash = entry.get("hash").and_then(Value::as_str).with_context(|| {
+        format!(
+            "audit journal {}'s last entry carries no hash",
+            path.display()
+        )
+    })?;
+    Ok(Some(hash.to_string()))
+}
+
+/// The hash the next line chains onto: the open file's last, else the last
+/// closed segment's, else the empty hash (the chain starts here).
+pub(super) fn tail_hash() -> Result<String> {
+    let path = audit_path();
+    if let Some(hash) = segments::last_hash(&path)? {
+        return Ok(hash);
+    }
+    match segments::closed(&path)?.last() {
+        Some(segment) => Ok(segments::measured(segment)?.1),
+        None => Ok(String::new()),
     }
 }
 
@@ -211,34 +202,39 @@ pub(super) fn acquire_append_lock(path: &Path) -> Result<AppendLock> {
     Ok(AppendLock(file))
 }
 
-/// Parse only the journal's final `limit` entries, walking backwards in
-/// widening windows, so the cost follows the size of the answer instead of
-/// the size of the file.
+/// Parse only the journal's final `limit` entries, walking backwards from
+/// the open file through the closed segments in widening windows, so the
+/// cost follows the size of the answer instead of the size of the journal.
 pub(super) fn tail_lines(limit: usize) -> Result<Vec<Value>> {
-    let path = audit_path();
-    let mut file = match std::fs::File::open(&path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => {
-            return Err(error).with_context(|| format!("open audit journal {}", path.display()));
-        }
-    };
-    let metadata = file.metadata()?;
-    let length = metadata.len();
-    let mut window = first_window(&metadata)?;
-    loop {
-        let (lines, from_start) = tail_window(&mut file, length, window)?;
-        if lines.len() >= limit || from_start {
-            let excess = lines.len().saturating_sub(limit);
-            let mut parsed: Vec<Value> = Vec::new();
-            for line in &lines[excess..] {
-                parsed.push(serde_json::from_str(line).context("audit line is not JSON")?);
-            }
-            return Ok(parsed);
-        }
-        // Each wider window reads as much again as the last one did.
-        window = window.saturating_add(window);
+    let mut files = segments::snapshot(&audit_path())?;
+    let mut lines: Vec<String> = Vec::new();
+    while lines.len() < limit {
+        let Some((_, file)) = files.pop() else {
+            break;
+        };
+        let mut older = tail_of(file, limit - lines.len())?;
+        older.append(&mut lines);
+        lines = older;
     }
+    lines
+        .iter()
+        .map(|line| serde_json::from_str(line).context("audit line is not JSON"))
+        .collect()
+}
+
+/// How many entries the journal holds across every segment, counted by line
+/// without parsing them; a journal that does not exist yet holds none.
+pub(super) fn length() -> Result<usize> {
+    let mut count = 0;
+    for (segment, file) in segments::snapshot(&audit_path())? {
+        segments::for_each_line(file, &segment, |_, text| {
+            if text.is_err() || text.is_ok_and(|text| !text.trim().is_empty()) {
+                count += 1;
+            }
+            Ok(())
+        })?;
+    }
+    Ok(count)
 }
 
 /// Audit completion is part of the operation, not best-effort background work.
@@ -257,6 +253,97 @@ pub(super) fn open_for_append(path: &Path) -> std::io::Result<File> {
         .open(path)
 }
 
+/// Write one entry chained onto `prev` at the end of the open file and make
+/// it durable; answers its hash.
+fn write_entry(path: &Path, prev: &str, op: &str, extra: &Value) -> Result<String> {
+    let at = now_iso();
+    let hash = sha256_hex(&digest_input(prev, &at, op, extra));
+    let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
+    // A journal that cannot be examined is refused, not taken for a fresh one
+    // whose directory entry then goes unsynced.
+    let fresh = !crate::core::is_present(path, "the audit journal")?;
+    let mut file = open_for_append(path)?;
+    writeln!(file, "{entry}")?;
+    file.sync_data()?;
+    if fresh {
+        File::open(path.parent().context("audit path has no parent")?)?.sync_all()?;
+    }
+    Ok(hash)
+}
+
+/// Close the open file as the next segment and write the line that names
+/// it; the caller holds the append lock. `None` when there was nothing to
+/// close.
+fn close_segment(path: &Path, why: &str) -> Result<Option<Value>> {
+    let Some(mut closed) = segments::close(path)? else {
+        return Ok(None);
+    };
+    closed["why"] = json!(why);
+    let last = closed["last_hash"]
+        .as_str()
+        .context("a closed audit segment records no last hash")?
+        .to_string();
+    let hash = write_entry(path, &last, segments::CLOSED_OP, &closed)?;
+    closed["hash"] = json!(hash);
+    Ok(Some(closed))
+}
+
+/// `skarbiec audit rotate`: close the open file now rather than at the next
+/// UTC day. An open file with no entry, or none beyond the line that closed
+/// the segment before it, has nothing to close and says so.
+pub(super) fn rotate() -> Result<Value> {
+    let path = audit_path();
+    let _lock = acquire_append_lock(&path)?;
+    finish_interrupted_close(&path)?;
+    if let Some(segment) = segments::holds_only_closing(&path)? {
+        return Ok(json!({
+            "rotated": false,
+            "reason": format!(
+                "audit journal {} holds no entry beyond the line that closed {segment}, so there is no segment to close",
+                path.display()
+            ),
+        }));
+    }
+    match close_segment(&path, "audit rotate closed it")? {
+        Some(closed) => Ok(json!({"rotated": true, "closed": closed})),
+        None => Ok(json!({
+            "rotated": false,
+            "reason": format!("audit journal {} holds no entry, so there is no segment to close", path.display()),
+        })),
+    }
+}
+
+/// When the open file holds no entry but a closed segment exists, a close
+/// stopped after its rename, before the line naming the segment was
+/// written; that line is written now, so the chain names every segment.
+fn finish_interrupted_close(path: &Path) -> Result<()> {
+    if segments::last_hash(path)?.is_some() {
+        return Ok(());
+    }
+    if let Some(segment) = segments::closed(path)?.last() {
+        let (bytes, last) = segments::measured(segment)?;
+        let extra = json!({
+            "segment": segments::segment_name(segment),
+            "bytes": bytes,
+            "last_hash": last,
+            "why": "the close of this segment stopped before its line was written",
+        });
+        write_entry(path, &last, segments::CLOSED_OP, &extra)?;
+    }
+    Ok(())
+}
+
+/// Before an append: finish a close that stopped half way, and close the
+/// open file when it began on an earlier UTC day. Runs under the append lock.
+pub(super) fn rotate_if_due(path: &Path) -> Result<()> {
+    finish_interrupted_close(path)?;
+    let today = OffsetDateTime::now_utc().date().to_string();
+    if segments::began_before(path, &today)? {
+        close_segment(path, "the open segment began on an earlier UTC day")?;
+    }
+    Ok(())
+}
+
 /// Append one hash-chained entry inline. `prev` is the previous line's hash
 /// (empty for the genesis line). Never records any stored value.
 ///
@@ -272,18 +359,8 @@ pub fn append_sync(op: &str, extra: &Value) -> Result<()> {
             .with_context(|| format!("protect audit directory {}", parent.display()))?;
     }
     let _lock = acquire_append_lock(&path)?;
+    rotate_if_due(&path)?;
     let prev = tail_hash()?;
-    let at = now_iso();
-    let hash = sha256_hex(&digest_input(&prev, &at, op, extra));
-    let entry = json!({"at": at, "op": op, "extra": extra, "prev": prev, "hash": hash});
-    // A journal that cannot be examined is refused, not taken for a fresh one
-    // whose directory entry then goes unsynced.
-    let fresh = !crate::core::is_present(&path, "the audit journal")?;
-    let mut file = open_for_append(&path)?;
-    writeln!(file, "{entry}")?;
-    file.sync_data()?;
-    if fresh {
-        File::open(path.parent().context("audit path has no parent")?)?.sync_all()?;
-    }
+    write_entry(&path, &prev, op, extra)?;
     Ok(())
 }

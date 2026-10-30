@@ -80,17 +80,28 @@ pub(super) fn audit_check(tail: Option<&str>) -> Value {
                 report.digests_verified,
                 &report.journal,
             );
+            let closed = report.segments;
             let detail = if report.intact {
-                format!("{linked} of {total} entries linked, newest {digests} digests intact, in {journal}")
+                format!("{linked} of {total} entries linked, newest {digests} digests intact, through {closed} closed segment(s) and the open file, in {journal}")
             } else {
-                // Each fault carries its line and the entry's instant, null
-                // for a line too malformed to state one; printed as recorded.
+                // Each fault carries its segment, line, kind and the entry's
+                // instant, null for a line too malformed to state one.
                 let first = match report.faults.first() {
-                    Some(fault) => format!("line {} ({})", fault["line"], fault["at"]),
+                    Some(fault) => format!(
+                        "{} line {} ({}): {}{}",
+                        fault["segment"].as_str().unwrap_or("?"),
+                        fault["line"],
+                        fault["at"],
+                        fault["fault"].as_str().unwrap_or("?"),
+                        match fault["detail"].as_str() {
+                            Some(detail) => format!(" — {detail}"),
+                            None => String::new(),
+                        }
+                    ),
                     None => "an unreported position".to_string(),
                 };
                 format!(
-                    "{linked} of {total} entries linked, newest {digests} digests intact; {} fault(s), first at {first}, in {journal}",
+                    "{linked} of {total} entries linked, newest {digests} digests intact, through {closed} closed segment(s); {} fault(s), first at {first}, in {journal}; `skarbiec audit verify` lists every fault",
                     report.faults.len()
                 )
             };

@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use std::io::Write;
 
 use super::journal::{
-    acquire_append_lock, audit_path, digest_input, now_iso, open_for_append, sha256_hex, tail_hash,
+    acquire_append_lock, audit_path, digest_input, now_iso, open_for_append, rotate_if_due,
+    sha256_hex, tail_hash,
 };
 use super::reports::chain_report;
 
@@ -25,11 +26,11 @@ pub(super) fn start_epoch(flags: &HashMap<String, String>) -> Result<Value> {
         anyhow::bail!("audit journal is intact; refusing to create an unnecessary epoch");
     }
     let path = audit_path();
-    let previous_tail = tail_hash()?;
     let _lock = acquire_append_lock(&path)?;
-    if tail_hash()? != previous_tail {
-        anyhow::bail!("audit journal changed while preparing checkpoint; retry");
-    }
+    // The epoch line is chained as any other is: a segment due to close
+    // closes first, so the line lands in the segment it belongs to.
+    rotate_if_due(&path)?;
+    let previous_tail = tail_hash()?;
     let vault = crate::core::vault::Vault::open(crate::core::vault_path())?;
     let owner = vault
         .doc()

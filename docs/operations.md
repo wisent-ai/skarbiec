@@ -223,12 +223,12 @@ and `grant capability` cannot call placeholder text a usable credential.
 | Concern | Current owner and contract |
 | --- | --- |
 | Configuration | Operator-owned environment variables and owner-only files; the supported settings and defaults are listed above. There is no configuration file and no reload: an explicit variable wins over the built-in default, and each invocation reads the environment it was given |
-| State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl`. State documents use mode-0600 temporary files, `fsync`, and `rename`, so a reader sees the old document or the new one and never a partial write. Acquisition updates serialize through the owner-only `<vault>.acquisitions.json.advisory.lock` file and a kernel lock that is released when the process exits; the operator chooses the durable filesystem and its backups |
+| State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl` and keeps its closed segments in `<journal>.d/` beside it (see Audit segments below). State documents use mode-0600 temporary files, `fsync`, and `rename`, so a reader sees the old document or the new one and never a partial write. Acquisition updates serialize through the owner-only `<vault>.acquisitions.json.advisory.lock` file and a kernel lock that is released when the process exits; the operator chooses the durable filesystem and its backups |
 | Credentials | Values live in the vault only as per-recipient sealed ciphertext (items written before the cutover stay OpenPGP until `reseal`). Plaintext exists in exactly three places: Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that `route resolve --emit` writes on request. The keys live in the owner-only key file beside the vault, their secret halves sealed under the unlock phrase when one is configured. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `owner rotate`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `grant revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material, and backs the key file up apart from the vault |
 | Networking | `serve` binds only the IPv4 loopback address, on the port `--port` names; the unit declares it, and `serve` without `--port` or `--no-http` is refused. Every accepted connection is served on a thread of its own in the one `serve` process; no read, write, health or readiness request starts another program. No request line, header block, body, token file, name or detail is cut or refused for its length. When the system refuses a thread, that request is answered `503` with `error_code` `infra_down` and the system's own reason (`skarbiec could not start a thread for this request: …`). The one connection Skarbiec itself initiates outward is `breach check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
 | Browsers | No route answers a web page. Every request is refused `403` with the reason when its `Host` does not name a loopback host (`localhost` or a loopback IP, as a DNS-rebinding page's would not), when it carries `Origin`, or when it carries `Sec-Fetch-Site` other than `none`: browsers send those for requests a page makes, and a page could otherwise drive the unauthenticated operator routes with a cross-site `text/plain` POST. An operator `POST` (`/v1/operator/*`) is also refused `403` unless it declares `Content-Type: application/json`, a type no page can send across sites without a preflight Skarbiec never answers. Local programs (the CLI, the desktop app, Stado, Brama, Weles) send none of the browser headers and post JSON |
 | Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. The paid fleet audit service is the separate product skarbiec-web, priced in its own repository |
-| Observability | Skarbiec provides `/livez`, `/health` (journal and vault document; decrypts nothing), `/readyz` (that, and the canary decrypts), `status`, `keys check`, `audit list`, `audit epoch`, and `audit verify`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it. A line nothing can parse is reported as a `malformed` fault naming the line number and the parser's reason, and counted in the report's `malformed` field, while every other line is still linked and digested: one broken line never hides the entries after it. A line that parses but whose `at`, `op`, `prev` or `hash` is absent or not text — or an epoch start without a text `previous_tail`, `checkpoint` or `signed_checkpoint` — is also a `malformed` fault, whose detail names those fields; it is never read as empty and reported as a linkage, digest or epoch fault |
+| Observability | Skarbiec provides `/livez`, `/health` (journal and vault document; decrypts nothing), `/readyz` (that, and the canary decrypts), `status`, `keys check`, `audit list`, `audit epoch`, `audit rotate`, and `audit verify`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it. Every fault names the segment it is in (`000000.jsonl`, or the open file's name followed by `(open)`) and its line there. A line nothing can parse is reported as a `malformed` fault naming the line number and the parser's reason, and counted in the report's `malformed` field, while every other line is still linked and digested: one broken line never hides the entries after it. A line that parses but whose `at`, `op`, `prev` or `hash` is absent or not text — or an epoch start without a text `previous_tail`, `checkpoint` or `signed_checkpoint` — is also a `malformed` fault, whose detail names those fields; it is never read as empty and reported as a linkage, digest or epoch fault |
 | Upgrades | The operator pins a release tag and its published SHA-256, performs an atomic rollout, and retains the prior exact coordinate for rollback. A tag whose name disagrees with the version declared in `Cargo.toml` is refused before the first tagged artifact is built, and the publication workflow refuses to replace an existing asset, so changed bytes require a new tag |
 | Recovery | Skarbiec preserves the recovery recipient through owner rotation and supplies `recovery status` and `recovery drill`; the custodian stores the private half off-host and exercises it before an incident. If no secret half present on the machine opens the vault and no recovery key is available, the ciphertext is readable by no one — there is no cloud fallback and no vendor-held copy |
 | Owner rotation | `owner rotate` moves control with the ownership: every item the outgoing owner controlled becomes the new owner's, so retag, rotate and delete keep working. A vault rotated by a release before 0.4.8 left those items under the former owner, which nothing could write (`<id> is not owner-controlled`); `upgrade` reports them as `control.former_owner_items` and `upgrade --apply` moves every item a former owner (a recipient with `owner_until`) controls to the current owner. Items under the credential lifecycle or tagged `managed:weles` keep their controller, and no field, tag or revision changes |
@@ -252,11 +252,37 @@ Skarbiec owns:
   errors;
 - a hash-chained audit trail that reveals no secret values.
 
-GPG remains the external encryption and key-custody boundary; service tokens
-are 32 bytes read from `/dev/urandom` in-process, and SHA-256 journal hashing
-and timestamps run in-process too, so an audit entry cannot exhaust subprocess
-capacity. See the complete
+Skarbiec's own cryptography library is the encryption and key-custody
+boundary; service tokens are 32 bytes read from `/dev/urandom` in-process, and
+SHA-256 journal hashing and timestamps run in-process too, so an audit entry
+starts no other program. See the complete
 [security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
+
+### Audit segments
+
+The journal is one hash chain kept in segments. Every entry is appended to
+the open file, the path `SKARBIEC_AUDIT_FILE` names. The first append of a
+new UTC day, or `skarbiec audit rotate`, closes it: the file is renamed into
+`<journal>.d/` as the next numbered segment (`000000.jsonl`, `000001.jsonl`,
+…), made read-only, and never written again. Closing renames and does not
+copy, so a journal written before segments existed becomes `000000.jsonl`
+as it is, at any size, at the first append of the next day.
+
+The chain runs across the boundary. The first line of every new open file is
+`audit-segment-closed`: its `prev` is the closed segment's last hash, and its
+`extra` names the segment, its length in bytes and that last hash. `audit
+verify`, `doctor` and `audit list` read every closed segment in order and
+then the open file, one line at a time. A closed segment cut, extended,
+emptied or replaced no longer matches the line that closed it and is a
+`segment` fault naming it; a numbered segment missing from the directory, or
+a file in it that is not one, is refused naming it, since the chain cannot
+be followed without it.
+
+Only the open file is hot state. The closed segments can be kept on other
+storage or archived as they are, as long as the directory holds every one
+of them when the chain is verified. A close that stops after the rename and
+before its line is written is completed by the next append, which writes the
+`audit-segment-closed` line first.
 
 ### Signing material
 
