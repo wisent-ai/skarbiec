@@ -4,7 +4,9 @@
 
 pub mod aes;
 pub mod chacha;
+pub mod field;
 pub mod hmac;
 pub mod ocb;
 pub mod sha;
 pub mod wipe;
+pub mod x25519;
