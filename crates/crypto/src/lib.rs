@@ -3,7 +3,9 @@
 //! protect against.
 
 pub mod aes;
+pub mod bignum;
 pub mod chacha;
+pub mod ecdsa;
 pub mod ed25519;
 pub mod field;
 pub mod gcm;
@@ -12,6 +14,7 @@ pub mod inflate;
 pub mod ocb;
 pub mod openpgp;
 pub mod random;
+pub mod rsa;
 pub mod sealed;
 pub mod sha;
 pub mod tls;
