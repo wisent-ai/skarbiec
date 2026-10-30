@@ -91,9 +91,10 @@ It does not protect against:
 - someone who can read the process's memory while it runs: secrets are
   zeroed when dropped, but a running vault holds them while it uses them;
 - side channels beyond timing: the code takes no branch and makes no table
-  lookup on secret data (AES is computed as a bitsliced circuit, field
-  arithmetic in constant time), but power, electromagnetic and cache-sharing
-  attacks on the host are out of scope;
+  lookup on secret data (the AES S-box is computed per byte as an inverse in
+  GF(2^8) by a fixed chain of multiplications, field arithmetic runs in
+  constant time), but power, electromagnetic and cache-sharing attacks on
+  the host are out of scope;
 - a weak operating-system random source;
 - a reader who obtained ciphertext and, later, a secret key: there is no
   forward secrecy for stored items, by design, since the owner must be able
