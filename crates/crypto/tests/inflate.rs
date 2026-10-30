@@ -69,8 +69,9 @@ fn deflate_from_gzip() {
     }
 }
 
-/// RFC 1950 section 9's Adler-32 of "Wikipedia" is the common reference
-/// value 0x11E60398.
+/// Adler-32 of the empty string is its initial value 1 (RFC 1950 section
+/// 8); every gpg and gzip stream above also checks it against zlib's own.
+/// "Wikipedia" is the widely published worked example, 0x11E60398.
 #[test]
 fn adler32_reference() {
     assert_eq!(adler32(b"Wikipedia"), 0x11e6_0398);
