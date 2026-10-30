@@ -1,0 +1,18 @@
+[package]
+name = "skarbiec-crypto"
+version = "0.1.0"
+edition = "2021"
+description = "Skarbiec's own cryptography: hashes, ciphers, X25519, Ed25519 and the OpenPGP subset its vaults were written in, with no dependency on any other crate or program."
+license-file = "../../LICENSE"
+repository = "https://github.com/wisent-ai/skarbiec"
+readme = "README.md"
+publish = false
+
+# No dependencies, by rule: see README.md, "Why nothing else".
+[dependencies]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+# Its own workspace, so it builds and tests alone from this directory.
+[workspace]
