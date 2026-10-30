@@ -38,6 +38,46 @@ fn round_trip_to_several_recipients() {
     ));
 }
 
+/// An entry naming a held key that does not unwrap, put before the genuine
+/// one for the same key, does not make the item read as forged: every entry
+/// for the key is tried.
+#[test]
+fn a_bogus_entry_before_the_genuine_one_is_passed_over() {
+    use skarbiec_crypto::chacha;
+    use skarbiec_crypto::hmac::hkdf_sha256;
+    use skarbiec_crypto::x25519::shared_secret;
+    let secret = [7u8; 32];
+    let public = public_key(&secret);
+    let content_key = [11u8; 32];
+    let ephemeral = [13u8; 32];
+    let ephemeral_public = public_key(&ephemeral);
+    let shared = shared_secret(&ephemeral, &public).expect("shared");
+    let mut salt = ephemeral_public.to_vec();
+    salt.extend_from_slice(&public);
+    let wrapping: [u8; 32] = hkdf_sha256(&salt, &shared, b"skarbiec-sealed-1 wrap", 32)
+        .expect("32")
+        .try_into()
+        .expect("32");
+    let genuine = chacha::seal(&wrapping, &[0u8; 12], &[], &content_key);
+    let mut out = MAGIC.to_vec();
+    out.push(2);
+    // First a bogus entry under the same key id, then the genuine one.
+    out.extend_from_slice(&key_id(&public));
+    out.extend_from_slice(&public_key(&[17u8; 32]));
+    out.extend_from_slice(&vec![0u8; genuine.len()]);
+    out.extend_from_slice(&key_id(&public));
+    out.extend_from_slice(&ephemeral_public);
+    out.extend_from_slice(&genuine);
+    let header = out.clone();
+    let nonce = [19u8; 12];
+    out.extend_from_slice(&nonce);
+    out.extend(chacha::seal(&content_key, &nonce, &header, b"held"));
+    match open(&out, &[secret]) {
+        Ok(plain) => assert_eq!(plain.expose(), b"held"),
+        Err(error) => panic!("the genuine entry was not tried: {error}"),
+    }
+}
+
 #[test]
 fn every_changed_byte_is_refused() {
     let secret = [5u8; 32];

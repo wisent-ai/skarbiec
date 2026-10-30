@@ -174,25 +174,33 @@ pub fn open_ocb_packet(body: &[u8], key: &[u8]) -> Result<Vec<u8>, Error> {
         }
         nonce
     };
+    // Sized for the whole plaintext up front, so it never reallocates and
+    // leaves no copy behind; every chunk's plaintext is wiped once copied.
     let mut out = Vec::with_capacity(chunks.len());
     let mut index = 0u64;
     for chunk in chunks.chunks(chunk_size + 16) {
         let mut aad = header.to_vec();
         aad.extend_from_slice(&index.to_be_bytes());
-        let plain = ocb
-            .open(&nonce_at(index), &aad, chunk)
-            .map_err(|_| Error::Integrity(format!("AEAD chunk {index} does not authenticate: the data was changed or this is not its key")))?;
+        let mut plain = match ocb.open(&nonce_at(index), &aad, chunk) {
+            Ok(plain) => plain,
+            Err(_) => {
+                wipe(&mut out);
+                return Err(Error::Integrity(format!("AEAD chunk {index} does not authenticate: the data was changed or this is not its key")));
+            }
+        };
         out.extend_from_slice(&plain);
+        wipe(&mut plain);
         index += 1;
     }
     let mut aad = header.to_vec();
     aad.extend_from_slice(&index.to_be_bytes());
     aad.extend_from_slice(&(out.len() as u64).to_be_bytes());
-    ocb.open(&nonce_at(index), &aad, final_tag).map_err(|_| {
-        Error::Integrity(
+    if ocb.open(&nonce_at(index), &aad, final_tag).is_err() {
+        wipe(&mut out);
+        return Err(Error::Integrity(
             "the AEAD final tag does not authenticate: the data was cut short or changed".into(),
-        )
-    })?;
+        ));
+    }
     Ok(out)
 }
 
@@ -231,29 +239,52 @@ fn open_seipd(body: &[u8], cipher: u8, key: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(out)
 }
 
-/// The literal data inside decrypted packets, through compression.
+/// Deflate's largest expansion: each 258-byte match takes at least two
+/// bits, so a valid stream never inflates past 1032 times its length (zlib's
+/// technical details state the same limit). One layer of compression is the
+/// most a message may hold, so its plaintext is bounded by this times the
+/// compressed bytes, and a stream that claims more is not deflate.
+pub const DEFLATE_MAX_RATIO: usize = 1032;
+
+/// The literal data inside decrypted packets, through at most one layer of
+/// compression: a compressed packet inside a compressed packet is refused,
+/// so a message cannot nest or multiply its expansion, and decompression
+/// stops at `DEFLATE_MAX_RATIO` times the compressed length.
 fn literal(decrypted: &[u8]) -> Result<Vec<u8>, Error> {
+    literal_at(decrypted, false)
+}
+
+fn literal_at(decrypted: &[u8], inside_compressed: bool) -> Result<Vec<u8>, Error> {
     for packet in packets(decrypted)? {
         match packet.tag {
+            8 if inside_compressed => {
+                return Err(malformed(
+                    "a compressed packet holds another compressed packet; OpenPGP writers \
+                     compress once, so this message was made to be refused",
+                ))
+            }
             8 => {
                 let (&algo, data) = packet
                     .body
                     .split_first()
                     .ok_or_else(|| malformed("the compressed packet is empty"))?;
-                let inner = match algo {
+                let limit = data.len().saturating_mul(DEFLATE_MAX_RATIO);
+                let mut inner = match algo {
                     0 => data.to_vec(),
                     1 => {
-                        crate::inflate::inflate(data)
+                        crate::inflate::inflate(data, limit)
                             .map_err(|e| malformed(e.to_string()))?
                             .0
                     }
-                    2 => crate::inflate::zlib_decompress(data)
+                    2 => crate::inflate::zlib_decompress(data, limit)
                         .map_err(|e| malformed(e.to_string()))?,
                     other => {
                         return Err(Error::Unsupported(format!("compression algorithm {other}")))
                     }
                 };
-                return literal(&inner);
+                let out = literal_at(&inner, true);
+                wipe(&mut inner);
+                return out;
             }
             11 => {
                 let mut r = Reader::new(&packet.body);
@@ -417,4 +448,42 @@ pub fn seal_with_passphrase(passphrase: &[u8], plaintext: &[u8]) -> std::io::Res
     let mut out = write_packet(3, &skesk);
     out.extend(write_packet(18, &seipd));
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{literal, write_packet};
+
+    fn literal_packet(text: &[u8]) -> Vec<u8> {
+        let mut body = vec![b'b', 0];
+        body.extend_from_slice(&[0, 0, 0, 0]);
+        body.extend_from_slice(text);
+        write_packet(11, &body)
+    }
+
+    fn stored(inner: &[u8]) -> Vec<u8> {
+        let mut body = vec![0u8];
+        body.extend_from_slice(inner);
+        write_packet(8, &body)
+    }
+
+    #[test]
+    fn one_layer_of_compression_opens_and_a_second_is_refused() {
+        let once = stored(&literal_packet(b"value"));
+        assert_eq!(literal(&once).expect("one layer opens"), b"value");
+        let twice = stored(&once);
+        let error = literal(&twice)
+            .expect_err("a second layer is refused")
+            .to_string();
+        assert!(
+            error.contains("a compressed packet holds another compressed packet"),
+            "{error}"
+        );
+        // Thousands of layers are refused at the second, without recursing.
+        let mut deep = literal_packet(b"x");
+        for _ in 0..20_000 {
+            deep = stored(&deep);
+        }
+        assert!(literal(&deep).is_err());
+    }
 }

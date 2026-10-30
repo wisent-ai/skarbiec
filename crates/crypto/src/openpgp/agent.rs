@@ -66,13 +66,31 @@ impl Sexp {
     }
 }
 
+/// The largest count RFC 4880's one-byte coded count states (0xff), and so
+/// the most gpg-agent writes: (16 + 15) << (15 + 6).
+pub const MAX_S2K_COUNT: u64 = 65_011_712;
+
+/// How deep a key S-expression may nest. gpg-agent's keys nest about five
+/// lists deep; past this the file is refused rather than recursed into.
+const MAX_DEPTH: usize = 32;
+
+fn too_deep() -> Error {
+    malformed(format!(
+        "a key S-expression nests more than {MAX_DEPTH} lists deep; gpg-agent's keys nest about \
+         five, so this file was not written by it"
+    ))
+}
+
 /// Parse the advanced (text) S-expression syntax gpg-agent writes: lists,
 /// bare tokens, `"quoted"` strings and `#hex#` blobs.
 pub fn parse_sexp(text: &[u8]) -> Result<Sexp, Error> {
-    fn value(text: &[u8], at: &mut usize) -> Result<Sexp, Error> {
+    fn value(text: &[u8], at: &mut usize, depth: usize) -> Result<Sexp, Error> {
         skip(text, at);
         match text.get(*at) {
             Some(b'(') => {
+                if depth >= MAX_DEPTH {
+                    return Err(too_deep());
+                }
                 *at += 1;
                 let mut items = Vec::new();
                 loop {
@@ -83,7 +101,7 @@ pub fn parse_sexp(text: &[u8]) -> Result<Sexp, Error> {
                             return Ok(Sexp::List(items));
                         }
                         None => return Err(malformed("a key S-expression list is not closed")),
-                        _ => items.push(value(text, at)?),
+                        _ => items.push(value(text, at, depth + 1)?),
                     }
                 }
             }
@@ -144,21 +162,24 @@ pub fn parse_sexp(text: &[u8]) -> Result<Sexp, Error> {
         }
     }
     let mut at = 0;
-    value(text, &mut at)
+    value(text, &mut at, 0)
 }
 
 /// Parse the canonical S-expression form (`(3:abc…)`).
 pub fn parse_canonical(data: &[u8]) -> Result<Sexp, Error> {
-    fn value(data: &[u8], at: &mut usize) -> Result<Sexp, Error> {
+    fn value(data: &[u8], at: &mut usize, depth: usize) -> Result<Sexp, Error> {
         match data.get(*at) {
             Some(b'(') => {
+                if depth >= MAX_DEPTH {
+                    return Err(too_deep());
+                }
                 *at += 1;
                 let mut items = Vec::new();
                 while data.get(*at) != Some(&b')') {
                     if *at >= data.len() {
                         return Err(malformed("a canonical S-expression list is not closed"));
                     }
-                    items.push(value(data, at)?);
+                    items.push(value(data, at, depth + 1)?);
                 }
                 *at += 1;
                 Ok(Sexp::List(items))
@@ -169,24 +190,27 @@ pub fn parse_canonical(data: &[u8]) -> Result<Sexp, Error> {
                     *at += 1;
                 }
                 let len: usize = std::str::from_utf8(&data[start..*at])
-                    .expect("digits")
-                    .parse()
-                    .map_err(|_| malformed("a canonical length is too large"))?;
+                    .ok()
+                    .and_then(|digits| digits.parse().ok())
+                    .ok_or_else(|| malformed("a canonical length is too large"))?;
                 if data.get(*at) != Some(&b':') {
                     return Err(malformed("a canonical length has no colon"));
                 }
                 *at += 1;
+                let end = at
+                    .checked_add(len)
+                    .ok_or_else(|| malformed("a canonical length is too large"))?;
                 let bytes = data
-                    .get(*at..*at + len)
+                    .get(*at..end)
                     .ok_or_else(|| malformed("a canonical value is cut short"))?;
-                *at += len;
+                *at = end;
                 Ok(Sexp::Atom(bytes.to_vec()))
             }
             _ => Err(malformed("a canonical S-expression has an unexpected byte")),
         }
     }
     let mut at = 0;
-    value(data, &mut at)
+    value(data, &mut at, 0)
 }
 
 fn decode_hex(hex: &[u8]) -> Result<Vec<u8>, Error> {
@@ -379,6 +403,14 @@ fn unprotect(ecc: &Sexp, passphrase: &[u8]) -> Result<Vec<u8>, Error> {
         .ok_or_else(|| malformed("the S2K count is not a number"))?;
     if count < 256 {
         count = (16 + (count & 15)) << ((count >> 4) + 6);
+    }
+    // RFC 4880's coded count reaches 65,011,712 at most, the most gpg-agent
+    // writes; a larger literal one would hash for as long as it says.
+    if count > MAX_S2K_COUNT {
+        return Err(malformed(format!(
+            "the S2K count is {count}, past the {MAX_S2K_COUNT} RFC 4880 can state; the key \
+             file was not written by gpg-agent"
+        )));
     }
     let nonce = params
         .atom(1)

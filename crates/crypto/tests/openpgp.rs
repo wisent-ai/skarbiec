@@ -149,6 +149,33 @@ fn keyboxd_database_and_fingerprints() {
     }
 }
 
+/// A database cut inside its header is refused, not indexed past its end,
+/// and every single-byte change of the real database is either read or
+/// refused with a cause: none panics, loops or allocates without bound.
+#[test]
+fn crafted_keyboxd_databases_are_refused() {
+    let real = bytes("pubring.db");
+    for length in [16, 18, 19, 20, 21, 99] {
+        let Err(error) = read_pubring_db(&real[..length]) else {
+            panic!("a database cut to {length} bytes was read");
+        };
+        let error = error.to_string();
+        assert!(!error.is_empty(), "{length} bytes");
+    }
+    let pages = real.len() / 4096;
+    for page in 0..pages {
+        let base = page * 4096 + if page == 0 { 100 } else { 0 };
+        for offset in 0..16 {
+            for value in [0x00u8, 0x01, 0x7f, 0xff] {
+                let mut changed = real.clone();
+                changed[base + offset] = value;
+                // Read or refused; either way it returns.
+                let _outcome = read_pubring_db(&changed).map(|keys| keys.len());
+            }
+        }
+    }
+}
+
 #[test]
 fn armored_public_keys_match_the_database_and_verify() {
     let stored = stored_keys();
@@ -204,6 +231,36 @@ fn agent_key_files() {
             l.uid
         );
     }
+}
+
+/// A key file that states an S2K count past what RFC 4880 can code is
+/// refused before any hashing, and one nested far deeper than gpg-agent
+/// writes is refused without recursing into it.
+#[test]
+fn crafted_agent_key_files_are_refused() {
+    let file = text("79E8078C36DD38F98299FC076FF93136EB1B7EBF.key");
+    assert!(
+        file.contains("\"48628736\""),
+        "the fixture states its count"
+    );
+    let endless = file.replace("\"48628736\"", "\"1152921504606846976\"");
+    let Err(error) = read_key_file(&endless, Some(b"fixture phrase")) else {
+        panic!("a key file with a count past RFC 4880's was read");
+    };
+    let error = error.to_string();
+    assert!(
+        error.contains("past the 65011712 RFC 4880 can state"),
+        "{error}"
+    );
+    let deep = format!("Key: {}{}", "(".repeat(100_000), ")".repeat(100_000));
+    let Err(error) = read_key_file(&deep, None) else {
+        panic!("a key file nested 100,000 lists deep was read");
+    };
+    let error = error.to_string();
+    assert!(error.contains("nests more than"), "{error}");
+    let canonical = format!("{}{}", "(".repeat(100_000), ")".repeat(100_000));
+    assert!(skarbiec_crypto::openpgp::agent::parse_canonical(canonical.as_bytes()).is_err());
+    assert!(skarbiec_crypto::openpgp::agent::parse_canonical(b"(18446744073709551615:x)").is_err());
 }
 
 #[test]

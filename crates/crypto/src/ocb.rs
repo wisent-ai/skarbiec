@@ -55,7 +55,10 @@ impl std::fmt::Display for OcbError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NonceLength(n) => write!(formatter, "an OCB nonce is 1 to 15 bytes, not {n}"),
-            Self::TagLength(n) => write!(formatter, "an OCB tag is 1 to 16 bytes, not {n}"),
+            Self::TagLength(n) => write!(
+                formatter,
+                "an OCB tag is 16 bytes (or the 12 and 8 RFC 7253 also defines), not {n}"
+            ),
             Self::TooShort => write!(formatter, "the OCB ciphertext is shorter than its tag"),
             Self::Forged => write!(
                 formatter,
@@ -68,8 +71,11 @@ impl std::fmt::Display for OcbError {
 impl std::error::Error for OcbError {}
 
 impl<'a> Ocb<'a> {
+    /// OCB with a tag of `tag_len` bytes: 16, as everything Skarbiec seals
+    /// and opens uses, or the 12 and 8 RFC 7253 also defines, for its
+    /// vectors. Any shorter tag is refused.
     pub fn new(aes: &'a Aes, tag_len: usize) -> Result<Self, OcbError> {
-        if !(1..=16).contains(&tag_len) {
+        if !matches!(tag_len, 8 | 12 | 16) {
             return Err(OcbError::TagLength(tag_len));
         }
         let mut l_star = [0u8; 16];

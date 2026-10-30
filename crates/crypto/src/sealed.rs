@@ -150,32 +150,46 @@ pub fn recipients(data: &[u8]) -> Result<Vec<String>, OpenError> {
 }
 
 /// Open `data` with whichever of `secrets` (X25519 scalars) it is sealed to.
+/// Every entry naming a held key is tried before the item is called forged:
+/// an entry that does not unwrap (a key-id collision, or one put before the
+/// genuine entry) does not hide the one that does.
 pub fn open(data: &[u8], secrets: &[[u8; 32]]) -> Result<Secret, OpenError> {
     let parsed = parse(data)?;
+    let mut matched = false;
     for secret in secrets {
         let public = x25519::public_key(secret);
         let id = key_id(&public);
         for (_, ephemeral, wrapped) in parsed.recipients.iter().filter(|(rid, _, _)| *rid == id) {
+            matched = true;
             let Some(mut shared) = x25519::shared_secret(secret, ephemeral) else {
                 continue;
             };
             let mut salt = ephemeral.to_vec();
             salt.extend_from_slice(&public);
             let mut wrapping = hkdf_sha256(&salt, &shared, WRAP_INFO, 32).expect("32 bytes");
-            let wrapping_key: [u8; 32] = wrapping.as_slice().try_into().expect("32");
+            let mut wrapping_key: [u8; 32] = wrapping.as_slice().try_into().expect("32");
             wipe(&mut shared);
             wipe(&mut wrapping);
-            let mut content = chacha::open(&wrapping_key, &[0u8; 12], &[], wrapped)
-                .map_err(|_| OpenError::Forged)?;
-            let content_key: [u8; 32] = content
-                .as_slice()
-                .try_into()
-                .map_err(|_| OpenError::Forged)?;
+            let unwrapped = chacha::open(&wrapping_key, &[0u8; 12], &[], wrapped);
+            wipe(&mut wrapping_key);
+            let Ok(mut content) = unwrapped else {
+                continue;
+            };
+            let Ok(mut content_key) = <[u8; 32]>::try_from(content.as_slice()) else {
+                wipe(&mut content);
+                continue;
+            };
             wipe(&mut content);
-            return chacha::open(&content_key, &parsed.nonce, parsed.header, parsed.body)
-                .map(Secret::new)
-                .map_err(|_| OpenError::Forged);
+            let opened = chacha::open(&content_key, &parsed.nonce, parsed.header, parsed.body);
+            wipe(&mut content_key);
+            match opened {
+                Ok(plain) => return Ok(Secret::new(plain)),
+                Err(_) => continue,
+            }
         }
+    }
+    if matched {
+        return Err(OpenError::Forged);
     }
     Err(OpenError::NoKey(
         parsed.recipients.iter().map(|(id, _, _)| hex(id)).collect(),

@@ -35,8 +35,18 @@ pub fn equal(a: &[u8], b: &[u8]) -> bool {
 }
 
 /// Bytes that are zeroed when dropped: a key, a shared secret, a plaintext.
-#[derive(Clone, PartialEq, Eq)]
+/// A copy (`clone`) is itself a `Secret`, zeroed when it is dropped; two are
+/// compared in constant time, never with a comparison that stops early.
+#[derive(Clone)]
 pub struct Secret(Vec<u8>);
+
+impl PartialEq for Secret {
+    fn eq(&self, other: &Self) -> bool {
+        equal(&self.0, &other.0)
+    }
+}
+
+impl Eq for Secret {}
 
 impl Secret {
     pub fn new(bytes: Vec<u8>) -> Self {

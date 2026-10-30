@@ -47,7 +47,7 @@ fn zlib_from_gnupg() {
         let expected = read(&format!("{input}.bin"));
         for level in LEVELS {
             let packet = read(&format!("{input}.{level}.gpg"));
-            let inner = zlib_decompress(zlib_in_packet(&packet)).expect("inflates");
+            let inner = zlib_decompress(zlib_in_packet(&packet), LIMIT).expect("inflates");
             // Inside is a literal data packet; its body ends the stream.
             assert!(
                 inner.ends_with(&expected),
@@ -63,7 +63,7 @@ fn deflate_from_gzip() {
         let expected = read(&format!("{input}.bin"));
         for level in LEVELS {
             let member = read(&format!("{input}.{level}.gz"));
-            let (out, _) = inflate(deflate_in_gzip(&member)).expect("inflates");
+            let (out, _) = inflate(deflate_in_gzip(&member), LIMIT).expect("inflates");
             assert_eq!(out, expected, "{input} at level {level}");
         }
     }
@@ -82,7 +82,7 @@ fn adler32_reference() {
 fn damaged_streams_are_refused() {
     let packet = read("text.6.gpg");
     let zlib = zlib_in_packet(&packet);
-    let short = zlib_decompress(&zlib[..zlib.len() / 2]).expect_err("truncated");
+    let short = zlib_decompress(&zlib[..zlib.len() / 2], LIMIT).expect_err("truncated");
     assert_eq!(
         short.to_string(),
         "the compressed data is damaged: it ends in the middle of a block"
@@ -91,23 +91,57 @@ fn damaged_streams_are_refused() {
     let last = wrong_sum.len() - 1;
     wrong_sum[last] ^= 1;
     assert_eq!(
-        zlib_decompress(&wrong_sum)
+        zlib_decompress(&wrong_sum, LIMIT)
             .expect_err("bad Adler-32")
             .to_string(),
         "the compressed data is damaged: the zlib Adler-32 does not match the data"
     );
     let mut wrong_method = zlib.to_vec();
     wrong_method[0] = 0x77;
-    assert!(zlib_decompress(&wrong_method)
+    assert!(zlib_decompress(&wrong_method, LIMIT)
         .expect_err("method")
         .to_string()
         .contains("not deflate (8)"));
     assert_eq!(
-        zlib_decompress(&[]).expect_err("empty").to_string(),
+        zlib_decompress(&[], LIMIT).expect_err("empty").to_string(),
         "the compressed data is damaged: the zlib header is missing"
     );
     assert_eq!(
-        inflate(&[0x07]).expect_err("reserved").to_string(),
+        inflate(&[0x07], LIMIT).expect_err("reserved").to_string(),
         "the compressed data is damaged: a block has the reserved type 3"
     );
 }
+
+/// A stream that inflates past its limit is refused at the limit, not
+/// grown: a fixed-Huffman block of one literal then back-references of 258
+/// bytes at distance 1, each a few bits, asks for far more than its size.
+#[test]
+fn a_stream_past_its_limit_is_refused() {
+    // Fixed codes (BTYPE 01), final block: literal 'a', then length 258
+    // (symbol 285, code 11000101) at distance 1 (code 00000), repeated.
+    let mut bits: Vec<u8> = vec![1, 1, 0];
+    let push = |bits: &mut Vec<u8>, code: u32, width: u32| {
+        for i in (0..width).rev() {
+            bits.push(((code >> i) & 1) as u8);
+        }
+    };
+    push(&mut bits, 0x30 + u32::from(b'a'), 8);
+    for _ in 0..4000 {
+        push(&mut bits, 0b1100_0101, 8);
+        push(&mut bits, 0, 5);
+    }
+    push(&mut bits, 0, 7);
+    let mut stream = vec![0u8; bits.len().div_ceil(8)];
+    for (i, bit) in bits.iter().enumerate() {
+        stream[i / 8] |= bit << (i % 8);
+    }
+    let (out, _) = inflate(&stream, 2_000_000).expect("inflates within a large limit");
+    assert_eq!(out.len(), 1 + 4000 * 258);
+    assert_eq!(
+        inflate(&stream, 100_000).expect_err("past the limit").to_string(),
+        "the compressed data is damaged: the stream inflates past 100000 bytes, the most this reader takes"
+    );
+}
+
+/// The limit the tests open real streams with: far above any of them.
+const LIMIT: usize = 1 << 24;

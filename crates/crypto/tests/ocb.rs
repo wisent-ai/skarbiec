@@ -132,6 +132,12 @@ fn ocb_refusals_name_the_length() {
     let aes = Aes::new(&[0u8; 16]).expect("key");
     assert_eq!(Ocb::new(&aes, 0).err(), Some(OcbError::TagLength(0)));
     assert_eq!(Ocb::new(&aes, 17).err(), Some(OcbError::TagLength(17)));
+    for short in [1, 4, 7, 15] {
+        assert_eq!(
+            Ocb::new(&aes, short).err(),
+            Some(OcbError::TagLength(short))
+        );
+    }
     let ocb = Ocb::new(&aes, 16).expect("tag");
     assert_eq!(
         ocb.seal(&[0u8; 16], &[], b"x").err(),

@@ -187,7 +187,10 @@ fn mac_data(associated: &[u8], ciphertext: &[u8]) -> Vec<u8> {
 /// by the 16-byte tag.
 pub fn seal(key: &[u8; 32], nonce: &[u8; 12], associated: &[u8], plaintext: &[u8]) -> Vec<u8> {
     let mut one_time = poly1305_key(key, nonce);
-    let mut out = plaintext.to_vec();
+    // Room for the tag from the start: the buffer holds plaintext before it
+    // is encrypted, and growing it would leave a copy of that behind.
+    let mut out = Vec::with_capacity(plaintext.len() + 16);
+    out.extend_from_slice(plaintext);
     chacha20_xor(key, 1, nonce, &mut out);
     let tag = poly1305(&one_time, &mac_data(associated, &out));
     out.extend_from_slice(&tag);

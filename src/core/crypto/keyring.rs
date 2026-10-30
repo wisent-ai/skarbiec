@@ -274,21 +274,23 @@ fn thirty_two(bytes: &[u8], what: &str) -> Result<[u8; 32]> {
         .with_context(|| format!("{what} is {} bytes, not 32", bytes.len()))
 }
 
-/// Unlock keys this process derived, by phrase digest, salt and count: the
-/// derivation is deliberately slow, and every secret half in one key file is
-/// sealed under the same salt, so a process derives each key once.
+/// Unlock keys this process derived, by a salted tag of the phrase, the salt
+/// and the count: the derivation is deliberately slow, and every secret half
+/// in one key file is sealed under the same salt, so a process derives each
+/// key once. The tag is HMAC-SHA256 of the phrase under the salt, so the
+/// cache holds no unsalted digest a table could reverse.
 type Derived = Vec<([u8; 32], Vec<u8>, u64, Secret)>;
 static DERIVED: Mutex<Derived> = Mutex::new(Vec::new());
 
 fn unlock_key(phrase: &[u8], salt: &[u8], count: u64) -> Secret {
-    let digest = skarbiec_crypto::sha::sha256(phrase);
+    let digest = skarbiec_crypto::hmac::hmac_sha256(salt, phrase);
     // A cache a panicking thread left behind is only a cache: derive again.
     let mut derived = match DERIVED.lock() {
         Ok(derived) => derived,
         Err(poisoned) => poisoned.into_inner(),
     };
     if let Some((_, _, _, key)) = derived.iter().find(|(held, held_salt, held_count, _)| {
-        *held == digest && held_salt == salt && *held_count == count
+        skarbiec_crypto::wipe::equal(held, &digest) && held_salt == salt && *held_count == count
     }) {
         return key.clone();
     }

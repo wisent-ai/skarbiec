@@ -179,15 +179,26 @@ fn dynamic_codes(bits: &mut Bits<'_>) -> Result<(Huffman, Huffman), InflateError
     ))
 }
 
-/// Inflate a raw deflate stream (RFC 1951). Bytes after its last block are
-/// returned as the second value, so a wrapper can read its trailer.
-pub fn inflate(data: &[u8]) -> Result<(Vec<u8>, usize), InflateError> {
+/// Inflate a raw deflate stream (RFC 1951) to at most `limit` bytes. Bytes
+/// after its last block are returned as the second value, so a wrapper can
+/// read its trailer. A stream that would inflate past `limit` is refused
+/// rather than grown: a few kilobytes of back-references can otherwise ask
+/// for gigabytes.
+pub fn inflate(data: &[u8], limit: usize) -> Result<(Vec<u8>, usize), InflateError> {
     let mut bits = Bits {
         data,
         at: 0,
         bit: 0,
     };
     let mut out: Vec<u8> = Vec::new();
+    let over = |grown: usize| -> Result<(), InflateError> {
+        if grown > limit {
+            return Err(damaged(format!(
+                "the stream inflates past {limit} bytes, the most this reader takes"
+            )));
+        }
+        Ok(())
+    };
     loop {
         let last = bits.take(1)? == 1;
         match bits.take(2)? {
@@ -207,6 +218,7 @@ pub fn inflate(data: &[u8]) -> Result<(Vec<u8>, usize), InflateError> {
                 let body = data
                     .get(bits.at..bits.at + usize::from(length))
                     .ok_or_else(|| damaged("a stored block is shorter than its length"))?;
+                over(out.len() + body.len())?;
                 out.extend_from_slice(body);
                 bits.at += usize::from(length);
             }
@@ -219,7 +231,10 @@ pub fn inflate(data: &[u8]) -> Result<(Vec<u8>, usize), InflateError> {
                 loop {
                     let symbol = literal.decode(&mut bits)?;
                     match symbol {
-                        0..=255 => out.push(symbol as u8),
+                        0..=255 => {
+                            over(out.len() + 1)?;
+                            out.push(symbol as u8)
+                        }
                         256 => break,
                         257..=285 => {
                             let index = usize::from(symbol - 257);
@@ -236,6 +251,7 @@ pub fn inflate(data: &[u8]) -> Result<(Vec<u8>, usize), InflateError> {
                                     "a match reaches before the start of the data",
                                 ));
                             }
+                            over(out.len() + length)?;
                             let start = out.len() - back;
                             for k in 0..length {
                                 out.push(out[start + k]);
@@ -269,8 +285,9 @@ pub fn adler32(data: &[u8]) -> u32 {
     (b << 16) | a
 }
 
-/// Inflate a zlib stream (RFC 1950): header, deflate data, Adler-32.
-pub fn zlib_decompress(data: &[u8]) -> Result<Vec<u8>, InflateError> {
+/// Inflate a zlib stream (RFC 1950): header, deflate data, Adler-32, to at
+/// most `limit` bytes.
+pub fn zlib_decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, InflateError> {
     let (cmf, flags) = match data {
         [cmf, flags, ..] => (*cmf, *flags),
         _ => return Err(damaged("the zlib header is missing")),
@@ -287,7 +304,7 @@ pub fn zlib_decompress(data: &[u8]) -> Result<Vec<u8>, InflateError> {
     if flags & 0x20 != 0 {
         return Err(damaged("the zlib stream needs a preset dictionary"));
     }
-    let (out, used) = inflate(&data[2..])?;
+    let (out, used) = inflate(&data[2..], limit)?;
     let trailer = data
         .get(2 + used..2 + used + 4)
         .ok_or_else(|| damaged("the zlib Adler-32 trailer is missing"))?;

@@ -58,7 +58,9 @@ impl<'a> Database<'a> {
             1 => 65_536,
             n => n,
         };
-        let reserved = usize::from(file[20]);
+        let reserved = usize::from(*file.get(20).ok_or_else(|| {
+            malformed("the key database is shorter than an SQLite header (100 bytes)")
+        })?);
         if page_size < 512 || page_size <= reserved {
             return Err(malformed("the key database has an impossible page size"));
         }
@@ -123,7 +125,12 @@ impl<'a> Database<'a> {
     fn leaf_payload(&self, page: &[u8], cell: usize) -> Result<Vec<u8>, Error> {
         let (size, a) = varint(page, cell)?;
         let (_, b) = varint(page, cell + a)?;
-        let size = size as usize;
+        // A row cannot hold more than the whole file; a size past it is a
+        // crafted database and is refused before anything is allocated.
+        let size = usize::try_from(size)
+            .ok()
+            .filter(|size| *size <= self.file.len())
+            .ok_or_else(|| malformed("a database row states a size larger than the file"))?;
         let start = cell + a + b;
         let u = self.usable;
         let x = u - 35;
@@ -144,7 +151,15 @@ impl<'a> Database<'a> {
             .to_vec();
         if local < size {
             let mut next = be32(page, start + local)?;
+            // Each overflow page is visited at most once: a chain longer than
+            // the file's pages loops back on itself.
+            let pages = self.file.len() / self.page_size;
+            let mut visited = 0usize;
             while payload.len() < size {
+                visited += 1;
+                if visited > pages {
+                    return Err(malformed("a database row's overflow pages loop"));
+                }
                 let overflow = self.page(next)?;
                 next = be32(overflow, 0)?;
                 let take = (size - payload.len()).min(u - 4);

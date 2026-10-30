@@ -139,6 +139,15 @@ pub(super) fn dispatch(
             // and the keyring directly, never the HTTP API — the API is the
             // first thing that stops working, and a diagnosis that needs the
             // patient healthy is not a diagnosis.
+            if let Some(flag) = flags
+                .keys()
+                .find(|flag| flag.as_str() != "require-readable")
+            {
+                return Err(crate::cli::args::Usage(format!(
+                    "keys check takes only --require-readable; it was given --{flag}"
+                ))
+                .into());
+            }
             // A host that holds no vault has nothing to open: it is said, and
             // a delivery's probe passes there, while a vault that is gone but
             // kept beside is still the refusal naming the copy.

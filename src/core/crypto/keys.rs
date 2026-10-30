@@ -162,8 +162,9 @@ pub fn key_file() -> std::path::PathBuf {
     keyring::path()
 }
 
-/// Add every public key an armored key block holds to this vault's key file.
-pub fn import_key(armored: &str) -> Result<()> {
+/// Add every public key an armored key block holds to this vault's key file;
+/// answers each key's fingerprint and whether the file changed for it.
+pub fn import_key(armored: &str) -> Result<Vec<(String, bool)>> {
     let keys = split_keys(armored)?
         .into_iter()
         .map(|(packets, _)| NewKey {
@@ -171,8 +172,7 @@ pub fn import_key(armored: &str) -> Result<()> {
             secret: None,
         })
         .collect();
-    keyring::add(&keyring::path(), keys)?;
-    Ok(())
+    keyring::add(&keyring::path(), keys)
 }
 
 /// A recipient's armored public key, for sharing the vault.
@@ -180,4 +180,15 @@ pub fn export_public_key(fingerprint: &str) -> Result<String> {
     let keyring = keyring::load()?;
     let key = keyring.require(fingerprint)?;
     Ok(armor(&key.packets, "PGP PUBLIC KEY BLOCK"))
+}
+
+/// The public keys `fingerprints` name, in one armored block; refused
+/// naming the first the key file lacks.
+pub fn export_public_keys(fingerprints: &[String]) -> Result<String> {
+    let keyring = keyring::load()?;
+    let mut packets = Vec::new();
+    for fingerprint in fingerprints {
+        packets.extend_from_slice(&keyring.require(fingerprint)?.packets);
+    }
+    Ok(armor(&packets, "PGP PUBLIC KEY BLOCK"))
 }

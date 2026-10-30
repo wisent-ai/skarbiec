@@ -136,6 +136,9 @@ says "keys import" "a read with no key file names keys import"
 WANT=refused run keys check --require-readable
 says "keys check --require-readable" "the pre-switch probe fails while no key here opens the vault"
 says "keys import" "the pre-switch probe names keys import"
+WANT=refused run keys check --require-readble
+says "keys check takes only --require-readable" "keys check refuses a flag it does not take, naming it"
+says "--require-readble" "the refusal names the mistyped flag"
 
 # A host that holds no vault (a delivery reaches every host): both pre-switch
 # steps pass and say so, writing nothing; a vault that is gone but kept
