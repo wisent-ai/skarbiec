@@ -15,8 +15,9 @@ pub mod signature;
 
 pub use execution::in_flight::{agent_refusal, agent_waits, note_agent_waits};
 pub use execution::{
-    daemon_footprints, daemon_memory_limit_bytes, executor_status, human_size,
-    keyring_lock_holders, recover_daemons, recycle_oversized_daemons, DAEMON_MEMORY_LIMIT_SETTING,
+    daemon_footprints, daemon_memory_limit_bytes, deadline_seconds, executor_status, human_size,
+    keyring_lock_holders, recover_daemons, recycle_oversized_daemons, serving,
+    DAEMON_MEMORY_LIMIT_SETTING,
 };
 pub use keys::{
     encrypted_to, export_public_key, fingerprint_for, fingerprint_of_armored, generate_key,

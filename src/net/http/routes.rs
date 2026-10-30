@@ -8,7 +8,7 @@ use std::io::BufReader;
 use std::net::TcpStream;
 use wisent_errors::Code;
 
-use super::readiness::readiness_check;
+use super::readiness::{health_check, readiness_check};
 use super::request::{browser_refusal, credential_status_item, is_mutation, read_body, read_line};
 use super::{
     detail_text, load, presented_identity, request_field, request_id, request_json, unidentified,
@@ -84,15 +84,19 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             &json!({"ok": true, "service": "skarbiec"}),
         );
     }
+    // `/health` decrypts nothing and waits on no gpg run: it says whether the
+    // journal and the vault can be used and how the gpg queue stands, so it
+    // answers while every decrypt waits. `/readyz` also proves the key
+    // material by decrypting the canaries, and its canary waits in the gpg
+    // queue like any read, for as long as its caller does.
     if method == "GET" && matches!(path.as_str(), "/health" | "/readyz") {
-        let readiness = readiness_check();
-        let (crypto_active, gpg_active) = crate::core::crypto::executor_status();
-        let crypto = json!({
-            "active": crypto_active,
-            "gpg_active": gpg_active,
-            "gpg_waiting_on_agent": crate::core::crypto::agent_waits(),
-        });
-        match readiness {
+        let verdict = if path == "/health" {
+            health_check().map(|()| None)
+        } else {
+            readiness_check().map(Some)
+        };
+        let crypto = crypto_status();
+        match verdict {
             Err(error) => write_response(
                 &mut stream,
                 unavailable_line,
@@ -107,16 +111,13 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "crypto": crypto,
                 }),
             ),
-            Ok(canaries) => write_response(
-                &mut stream,
-                ok_line,
-                &json!({
-                    "ok": true,
-                    "service": "skarbiec",
-                    "canaries": canaries,
-                    "crypto": crypto,
-                }),
-            ),
+            Ok(canaries) => {
+                let mut answer = json!({"ok": true, "service": "skarbiec", "crypto": crypto});
+                if let Some(canaries) = canaries {
+                    answer["canaries"] = json!(canaries);
+                }
+                write_response(&mut stream, ok_line, &answer)
+            }
         }?;
         return Ok(());
     }
@@ -311,4 +312,24 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         return crate::net::bond::handle_enroll(&mut stream, &headers, &body);
     }
     write_response(&mut stream, missing_line, &json!({"error": "not found"}))
+}
+
+/// The cryptographic children and the gpg queue, as `/health` and
+/// `/readyz` report them. Reading it runs no gpg.
+fn crypto_status() -> Value {
+    let status = crate::core::crypto::executor_status();
+    let deadline = match crate::core::crypto::deadline_seconds() {
+        Ok(seconds) => json!(seconds),
+        Err(error) => json!(format!("{error:#}")),
+    };
+    json!({
+        "active": status.active,
+        "gpg_active": status.gpg_active,
+        "gpg_capacity": status.gpg_capacity,
+        "gpg_capacity_unread": status.gpg_capacity_unread,
+        "gpg_queued": status.gpg_queued,
+        "gpg_oldest_wait_seconds": status.gpg_oldest_wait.map(|wait| wait.as_secs_f64()),
+        "gpg_deadline_seconds": deadline,
+        "gpg_waiting_on_agent": crate::core::crypto::agent_waits(),
+    })
 }

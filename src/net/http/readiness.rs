@@ -1,6 +1,8 @@
-// What `/health` proves: the audit journal is writable and one deterministic
-// canary item still opens with the key material on this host. The monitor
-// that re-proves it also keeps the GnuPG daemons under their memory ceiling,
+// What `/health` and `/readyz` prove. `/health`: the audit journal is
+// writable and the vault document opens, with no gpg run, so it answers
+// while every decrypt waits. `/readyz`: that, and one deterministic canary
+// item still opens with the key material on this host. The monitor that
+// re-proves it also keeps the GnuPG daemons under their memory ceiling,
 // because a keyboxd nobody recycles is what took the vault's host down.
 
 use anyhow::{Context, Result};
@@ -47,11 +49,20 @@ fn canary_item_ids(vault: &Vault) -> Result<Vec<String>> {
     Ok(canaries)
 }
 
-/// What `/health` proves, or the one thing it will not wait for.
+/// What `/health` proves: the audit journal takes an entry and the vault
+/// document opens. Nothing here runs gpg, so the answer never waits behind
+/// the decrypt queue; the queue itself is reported beside it.
+pub(super) fn health_check() -> Result<()> {
+    crate::runtime::audit::probe().context("audit journal is not writable")?;
+    load().context("vault is unreadable")?;
+    Ok(())
+}
+
+/// What `/readyz` proves, or the one thing it will not wait for.
 ///
 /// The canary decrypt runs `gpg`, and a `gpg` whose keyring lock another
 /// process holds waits on that lock for as long as the holder keeps it, so a
-/// `/health` that decrypted behind a held lock would accept its connection
+/// `/readyz` that decrypted behind a held lock would accept its connection
 /// and never answer, leaving every reader with no cause to act on. The lock files
 /// name their holder, so when a `gpg` child of this process is in flight and
 /// a keyring lock is held, the check answers with the holders — pid, host,
@@ -61,13 +72,13 @@ fn canary_item_ids(vault: &Vault) -> Result<Vec<String>> {
 /// interval is the same wedge seen from inside this process: when every
 /// child in flight is in that state the check answers with those children —
 /// pid, arguments, since when, where they stopped — and the repair to run,
-/// instead of decrypting a canary behind them. Nothing here is a clock: a
-/// held lock and a run that stood a pass interval are measured states of
-/// the host.
+/// instead of decrypting a canary behind them. Otherwise the canary waits
+/// its turn in the gpg queue like any read, and leaves it when its caller
+/// does or its deadline passes.
 pub(super) fn readiness_check() -> Result<Vec<String>> {
     crate::runtime::audit::probe().context("audit journal is not writable")?;
     let vault = load().context("vault is unreadable")?;
-    let (_, gpg_in_flight) = crate::core::crypto::executor_status();
+    let gpg_in_flight = crate::core::crypto::executor_status().gpg_active;
     if let Some(in_flight) = std::num::NonZeroUsize::new(gpg_in_flight) {
         let holders = crate::core::crypto::keyring_lock_holders();
         if !holders.is_empty() {

@@ -53,13 +53,37 @@ impl RequestPool {
     }
 
     /// Serve `stream` on a thread of its own. When the system refuses a
-    /// thread, the caller is answered with the system's own reason.
+    /// thread, the caller is answered with the system's own reason. Every
+    /// gpg run the request starts is tied to this connection, so a caller
+    /// that closes it leaves no decrypt running for nobody.
     pub(super) fn submit(&self, stream: TcpStream) {
         let answer = stream.try_clone();
         let lost = self.lost_sender.clone();
         let started = std::thread::Builder::new()
             .name("skarbiec-http".to_owned())
             .spawn(move || {
+                let _serving = match crate::core::crypto::serving(&stream) {
+                    Ok(serving) => serving,
+                    Err(error) => {
+                        let mut stream = stream;
+                        let refusal = json!({
+                            "error": format!(
+                                "skarbiec could not keep a copy of this connection to watch it ({error}), so a \
+                                 decrypt for this request could outlive it and was not started; the process \
+                                 is out of file descriptors: retry once fewer requests are open, or raise the \
+                                 service's open-file limit"
+                            ),
+                            "error_code": Code::InfraDown.as_str(),
+                            "retryable": true,
+                        });
+                        if let Err(failure) =
+                            write_response(&mut stream, "HTTP/1.1 503 Service Unavailable", &refusal)
+                        {
+                            eprintln!("watch request connection failed: {error}; write refusal response failed: {failure:#}");
+                        }
+                        return;
+                    }
+                };
                 let Err(error) = handle(stream) else {
                     return;
                 };

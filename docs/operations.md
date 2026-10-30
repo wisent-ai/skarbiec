@@ -19,6 +19,7 @@ is and how to install it; this page covers running one.
 | `SKARBIEC_MCP_OUT_DIR` | Required absolute directory for mode-0600 MCP route-resolution output |
 | `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
 | `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB` | Required for the daemon ceiling: physical footprint above which `skarbiec maintain` replaces `keyboxd` or `gpg-agent`. No default; without it `maintain` and `doctor` report the setting as missing |
+| `SKARBIEC_GPG_DEADLINE_SECONDS` | Optional: how long one request's `gpg` run may wait for its turn and run, in whole seconds counted from when the request arrived. Unset, a run is bounded by its caller's connection alone. A value that is not a whole number above zero is refused naming the setting, its value and how to fix it |
 
 Every override is read one way: only an unset or blank variable is absent.
 A path override is taken as the operating system hands it over, so a path that
@@ -92,10 +93,30 @@ or `... is a leftover copy and is not used` when a file lies at the default
 path, which it leaves untouched. A Stado config that cannot be read fails the
 check naming the file. Whether the route answers is the `endpoint` check's.
 
-Cryptographic children run without a concurrency cap. Each running `gpg`
+`gpg` runs wait their turn, in arrival order, for one of as many slots as the
+host's available parallelism (what the operating system reports; when it
+cannot say, nothing caps them and `/health` says why in
+`crypto.gpg_capacity_unread`). One gpg-agent and one keyboxd answer every
+decrypt of a keyring, so runs beyond that do not finish sooner; uncapped,
+each request spawned its own `gpg --decrypt` and a burst of callers that gave
+up and asked again left hundreds of children waiting on one agent. Every
+`gpg` run an HTTP request starts is tied to that request's connection: when
+the caller closes it, the run leaves the queue, or its child is ended, at
+once, and nothing runs for nobody. With `SKARBIEC_GPG_DEADLINE_SECONDS` set,
+a run whose deadline passes first is ended the same way and the caller is
+answered 503 with `gpg … waited <time> for one of the <n> gpg runs this host
+runs at once and its deadline (<s>s, SKARBIEC_GPG_DEADLINE_SECONDS=<s>)
+passed first, with <k> gpg run(s) queued ahead of it and <m> running`, or
+`gpg … was ended after <time> because its deadline … passed before gpg
+answered (gpg had said: …)`, each followed by the causes and the fix (`skarbiec
+maintain` replaces daemons that stopped answering; a longer deadline when
+decrypts are this slow). A command run in a shell has no connection and waits
+for gpg's own exit unless the setting is set. Each running `gpg`
 holds a shared permit; daemon recovery takes an exclusive permit after the
-children that are still progressing finish, so it cannot replace their
-daemons during a decryption. A child that stands where gpg waits on something
+children that are still progressing finish, starting no queued run while it
+waits, so it cannot replace their daemons during a decryption. A run about to
+start never waits on a recovery's drain except in the queue, where its caller
+can leave. A child that stands where gpg waits on something
 outside itself is not waited for: at `ENC_TO` (it asked gpg-agent for its key)
 or before any status (it is opening the keyring, behind a lock or a silent
 keyboxd). It waits on the wedge the recovery clears, and the recovery ends
@@ -109,7 +130,10 @@ database lock (`public-keys.d/pubring.db.lock`) is held by a live process
 that is not the one serving the keyboxd socket `gpgconf --list-dirs
 keyboxd-socket` names. keyboxd keeps that lock for as long as it has the
 database open, so a keyboxd that lost its socket keeps the database from
-every keyboxd gpg starts after it. When every child in flight is in one of
+every keyboxd gpg starts after it. The kernel names the process that
+listened on the socket; a keyboxd started with `--daemon` listens and then
+forks, so when that process no longer runs the holder is its child and is
+not judged orphaned. When every child in flight is in one of
 those states, a new `gpg` run is refused at once with each child and the
 lock named, instead of waiting out GnuPG's own lock retries, and `skarbiec
 maintain` replaces the daemons, ends the configured GnuPG program that kept
@@ -119,13 +143,22 @@ A lock held by anything else — the keyboxd that serves the socket, another
 host, a pid that is gone — is reported by `/readyz`, not treated as a wedge.
 Other cryptographic tools do not wait for a GnuPG slot.
 
-`/readyz` decrypts its canaries and therefore waits while daemon recovery
-holds the exclusive permit. It does not wait behind a held keyring lock: when
+`/health` runs no `gpg`: it proves the journal takes an entry and the vault
+document opens, and reports the queue beside it, so it answers while every
+decrypt waits. Its `crypto` object holds `gpg_active` (children running),
+`gpg_capacity`, `gpg_queued` (runs waiting their turn),
+`gpg_oldest_wait_seconds` (how long the run at the head of the queue has
+waited, null when none waits), `gpg_deadline_seconds` (the setting, null when
+unset, or its refusal) and `gpg_waiting_on_agent`. `/readyz` also decrypts
+its canaries; a canary waits its turn in the queue like any read and leaves
+it when its caller does. It does not wait behind a held keyring lock: when
 a `gpg` run of this vault is in flight and a keyring lock file names a holder,
 `/readyz` answers 503 with that holder — pid, host, what it runs now and since
 when — instead of accepting the connection and never answering. `/livez`
-and metadata-only routes do not
-decrypt canaries.
+and metadata-only routes do not decrypt canaries. The real test of the queue,
+the caller tie, the deadline and `/health` under load is
+`SKARBIEC=<binary> SKARBIEC_TEST_SOURCE_REVISION=<commit> bash
+tests/health/decrypt_pileup.sh`.
 
 A canary this host cannot open answers 503 with `stored item <id> cannot be
 decrypted` followed by gpg's own sentence: `gpg failed (<exit status>): …
@@ -170,8 +203,8 @@ and `grant capability` cannot call placeholder text a usable credential.
 | Networking | `serve` binds only the IPv4 loopback address, on the port `--port` names; the unit declares it, and `serve` without `--port` or `--no-http` is refused. Every accepted connection is served on a thread of its own, and no count caps concurrent cryptographic children either; a GnuPG daemon recovery waits for every running child that is still progressing. No request line, header block, body, token file, name or detail is cut or refused for its length. When the system refuses a thread, that request is answered `503` with `error_code` `infra_down` and the system's own reason (`skarbiec could not start a thread for this request: …`). The one connection Skarbiec itself initiates outward is `breach check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
 | Browsers | No route answers a web page. Every request is refused `403` with the reason when its `Host` does not name a loopback host (`localhost` or a loopback IP, as a DNS-rebinding page's would not), when it carries `Origin`, or when it carries `Sec-Fetch-Site` other than `none`: browsers send those for requests a page makes, and a page could otherwise drive the unauthenticated operator routes with a cross-site `text/plain` POST. An operator `POST` (`/v1/operator/*`) is also refused `403` unless it declares `Content-Type: application/json`, a type no page can send across sites without a preflight Skarbiec never answers. Local programs (the CLI, the desktop app, Stado, Brama, Weles) send none of the browser headers and post JSON |
 | Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. The paid fleet audit service is the separate product skarbiec-web, priced in its own repository |
-| Observability | Skarbiec provides `/livez`, `/readyz`, compatibility alias `/health`, `status`, `keys check`, `audit list`, `audit epoch`, and `audit verify`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it. A line nothing can parse is reported as a `malformed` fault naming the line number and the parser's reason, and counted in the report's `malformed` field, while every other line is still linked and digested: one broken line never hides the entries after it. A line that parses but whose `at`, `op`, `prev` or `hash` is absent or not text — or an epoch start without a text `previous_tail`, `checkpoint` or `signed_checkpoint` — is also a `malformed` fault, whose detail names those fields; it is never read as empty and reported as a linkage, digest or epoch fault |
-| GnuPG daemons | Every read and write runs `gpg`, which talks to the account's `gpg-agent` and `keyboxd` over sockets Skarbiec does not own. A daemon that wedges answers `keydb_search failed: Broken pipe` or drops a live decryption, and the vault then refuses items whose keys are present. A recoverable failure repairs those daemons and retries once, by itself; `keyring recover` performs the same repair on demand, for the case where a long-lived reader elsewhere — the HTTP listener, a browser host, an agent — is the one holding the wedge. It reports which daemons it signalled and what each running one held before it was replaced (`before`, in bytes, against `limit_bytes`; when the limit cannot be read, `limit_bytes` is null and `limit_error` says why), needs no unlock material, and restarts nothing: `gpg` starts its own daemons on the next call. `gpg` never stops them either, and `keyboxd` grows with every lookup it answers: on one always-on host it held 15 GiB after twelve days while `ps` reported 327 MiB, because the rest was compressed and swapped. The running service therefore measures both daemons' physical footprint on every readiness pass and replaces them, through the same serialized repair, when one stands above `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB`; the replacement is logged and journalled as `daemon-recycle` with the daemons and sizes it found. `doctor` reports the same measurement as `gpg_daemons`: `pass` names each running daemon, its pid and size against the ceiling; `fail` names the daemon over it and the two repairs, the service's next pass or `keyring recover`; a daemon that cannot be measured is also `fail`, with the reason. A process other than the daemons can keep the key database's lock, and `gpg` then waits on it for tens of minutes per read before `keydb_search failed: Operation timed out`. The same repair therefore considers the locks GnuPG keeps beside the key databases of this home (`public-keys.d/pubring.db.lock`, `pubring.kbx.lock`), with every `gpg` of the service drained first. A lock must name a positive process id and this host: a missing host, another host or an invalid pid is left alone with the reason, because a shared keyring may have a live owner elsewhere. For a lock belonging to this host, a pid that runs nothing here is treated as stale. GnuPG executable identities are the canonical paths decoded from the `pgmname` field in `gpgconf --list-components` records (`name:description:pgmname:`), not the empty trailing field or a basename. A different executable, an unreadable executable path or an unresolved configured path is left alone with the specific cause; none proves that a lock can safely be removed. A lock a configured GnuPG program held past gpg's own wait has that program ended with `TERM`, as a wedged daemon is. Each action is written to stderr as `skarbiec: keyring lock: <what was done>`, or `left <lock> alone: <why>` when ownership cannot be established. A read that still fails after its repair names, for each of those lock files, the pid and host it records, what that pid runs now and when the lock was taken: `<lock> is held by pid <pid> on <host> (running <command>), taken <time>`, or `not running on this host` for a lock its holder left behind |
+| Observability | Skarbiec provides `/livez`, `/health` (journal and vault document, with the gpg queue; runs no gpg), `/readyz` (that, and the canary decrypts), `status`, `keys check`, `audit list`, `audit epoch`, and `audit verify`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it. A line nothing can parse is reported as a `malformed` fault naming the line number and the parser's reason, and counted in the report's `malformed` field, while every other line is still linked and digested: one broken line never hides the entries after it. A line that parses but whose `at`, `op`, `prev` or `hash` is absent or not text — or an epoch start without a text `previous_tail`, `checkpoint` or `signed_checkpoint` — is also a `malformed` fault, whose detail names those fields; it is never read as empty and reported as a linkage, digest or epoch fault |
+| GnuPG daemons | Every read and write runs `gpg`, which talks to the account's `gpg-agent` and `keyboxd` over sockets Skarbiec does not own. A daemon that wedges answers `keydb_search failed: Broken pipe` or drops a live decryption, and the vault then refuses items whose keys are present. A recoverable failure repairs those daemons and retries once, by itself; `keyring recover` performs the same repair on demand, for the case where a long-lived reader elsewhere — the HTTP listener, a browser host, an agent — is the one holding the wedge. It reports which daemons it signalled and what each running one held before it was replaced (`before`, in bytes, against `limit_bytes`; when the limit cannot be read, `limit_bytes` is null and `limit_error` says why), needs no unlock material, and restarts nothing: `gpg` starts its own daemons on the next call. `gpg` never stops them either, and `keyboxd` grows with every lookup it answers: on one always-on host it held 15 GiB after twelve days while `ps` reported 327 MiB, because the rest was compressed and swapped. The running service therefore measures both daemons' physical footprint on every readiness pass and replaces them, through the same serialized repair, when one stands above `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB`; the replacement is logged and journalled as `daemon-recycle` with the daemons and sizes it found. `doctor` reports the same measurement as `gpg_daemons`: `pass` names each running daemon, its pid and size against the ceiling; `fail` names the daemon over it and the two repairs, the service's next pass or `keyring recover`; a daemon that cannot be measured is also `fail`, with the reason. A process other than the daemons can keep the key database's lock, and `gpg` then waits on it for tens of minutes per read before `keydb_search failed: Operation timed out`. The same repair therefore considers the locks GnuPG keeps beside the key databases of this home (`public-keys.d/pubring.db.lock`, `pubring.kbx.lock`), with every `gpg` of the service drained first. A lock must name a positive process id and this host: a missing host, another host or an invalid pid is left alone with the reason, because a shared keyring may have a live owner elsewhere. For a lock belonging to this host, a pid that runs nothing here is treated as stale. GnuPG executable identities are the canonical paths decoded from the `pgmname` field in `gpgconf --list-components` records (`name:description:pgmname:`), not the empty trailing field or a basename. A different executable, an unreadable executable path or an unresolved configured path is left alone with the specific cause; none proves that a lock can safely be removed. A lock a configured GnuPG program held past gpg's own wait has that program ended with `TERM`, as a wedged daemon is. Each action is written to stderr as `skarbiec: keyring lock: <what was done>`, or `left <lock> alone: <why>` when ownership cannot be established. A read that still fails after its repair names, for each of those lock files, the pid and host it records, what that pid runs now and when the lock was taken, before gpg's own failure: `gpg failed while these keyring locks were held: <lock> is held by pid <pid> on <host> (running <command>), taken <time>: <gpg's failure>`, or `not running on this host` for a lock its holder left behind. keyboxd holds its database lock for as long as it runs, so on a keyboxd home the serving keyboxd is named beside every failure; a key that is simply absent is still read as absent |
 | Upgrades | The operator pins a release tag and its published SHA-256, performs an atomic rollout, and retains the prior exact coordinate for rollback. A tag whose name disagrees with the version declared in `Cargo.toml` is refused before the first tagged artifact is built, and the publication workflow refuses to replace an existing asset, so changed bytes require a new tag |
 | Recovery | Skarbiec preserves the recovery recipient through owner rotation and supplies `recovery status` and `recovery drill`; the custodian stores the private half off-host and exercises it before an incident. If no secret half present on the machine opens the vault and no recovery key is available, the ciphertext is readable by no one — there is no cloud fallback and no vendor-held copy |
 | Owner rotation | `owner rotate` moves control with the ownership: every item the outgoing owner controlled becomes the new owner's, so retag, rotate and delete keep working. A vault rotated by a release before 0.4.8 left those items under the former owner, which nothing could write (`<id> is not owner-controlled`); `upgrade` reports them as `control.former_owner_items` and `upgrade --apply` moves every item a former owner (a recipient with `owner_until`) controls to the current owner. Items under the credential lifecycle or tagged `managed:weles` keep their controller, and no field, tag or revision changes |

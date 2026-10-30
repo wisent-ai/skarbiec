@@ -122,6 +122,18 @@ fn lives(pid: libc::pid_t) -> Result<bool, String> {
 /// it. None before the home is named, and for a lock that is absent, of
 /// another host, held by a process that is gone (GnuPG takes a stale lock
 /// over) or held by the socket's own server.
+///
+/// The kernel names as a socket's server the process that called `listen`
+/// on it. A keyboxd that gpg starts with `--daemon` listens and then forks:
+/// the process that listened exits and its child serves the socket and
+/// holds the lock. When the process that listened no longer runs, the
+/// server is that child and cannot be named, so the holder is not judged
+/// orphaned here; a run that waits behind a holder that truly lost the
+/// socket is still found standing by the next maintenance pass. Judged
+/// orphaned, every healthy keyboxd home looked wedged whenever a gpg run
+/// had not yet written its first status, and the maintenance pass replaced
+/// the daemons under every read in flight, each of which then started
+/// daemons of its own.
 pub(in crate::core::crypto::execution) fn orphaned_database_holder(
 ) -> Result<Option<String>, String> {
     let Some(named) = NAMED.get() else {
@@ -135,6 +147,7 @@ pub(in crate::core::crypto::execution) fn orphaned_database_holder(
     }
     let serving = match socket_server::peer_pid(&named.keyboxd_socket) {
         Ok(server) if server == pid => return Ok(None),
+        Ok(server) if !lives(server)? => return Ok(None),
         Ok(server) => format!("it is served by pid {server}"),
         Err(why) => why,
     };

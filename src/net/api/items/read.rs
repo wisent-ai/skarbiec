@@ -110,19 +110,36 @@ pub(super) fn locate(
     };
     let id = resolved.as_str();
     // An adopt candidate the provider has not confirmed is readable only by
-    // the adopt verification path, never by an ordinary read grant.
-    if field != "context"
-        && matches!(
-            crate::credential::managed_read(&vault, id, field, &consumer)?,
-            crate::credential::ManagedRead::Refused
-        )
-    {
-        http::write_response(
-            stream,
-            "HTTP/1.1 409 Conflict",
-            &json!({"error": "credential adoption is in flight; the staged candidate is not readable"}),
-        )?;
-        return Ok(None);
+    // the adopt verification path, never by an ordinary read grant. Telling
+    // that decrypts the item; a decrypt that fails or is ended answers the
+    // caller with why, as the read's own decrypt does, never a connection
+    // closed with no answer.
+    if field != "context" {
+        match crate::credential::managed_read(&vault, id, field, &consumer) {
+            Ok(crate::credential::ManagedRead::Refused) => {
+                http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": "credential adoption is in flight; the staged candidate is not readable"}),
+                )?;
+                return Ok(None);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let detail = format!("{error:#}");
+                eprintln!("item decryption failed: {id}: {detail}");
+                http::write_response(
+                    stream,
+                    "HTTP/1.1 503 Service Unavailable",
+                    &json!({
+                        "error": "item is stored but could not be decrypted",
+                        "error_code": Code::InfraDown.as_str(),
+                        "detail": http::detail_text(&detail),
+                    }),
+                )?;
+                return Ok(None);
+            }
+        }
     }
     let stored = vault
         .doc()

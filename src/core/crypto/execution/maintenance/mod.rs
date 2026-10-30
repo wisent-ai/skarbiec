@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use super::footprint::{daemon_footprints, daemon_memory_limit_bytes, DaemonFootprint};
 use super::in_flight;
-use super::limits::{GPG_LIMIT, GPG_RECOVERY_GENERATION};
+use super::limits::{GPG_LIMIT, GPG_RECOVERY, GPG_RECOVERY_GENERATION};
 use super::recovery::recover_gpg_daemons;
 
 /// The recovery generation after `generation`, wrapping at the end of `u64`:
@@ -81,18 +81,22 @@ pub fn recycle_oversized_daemons() -> Result<DaemonRecycle> {
 /// The daemon repair with the gpg capacity drained first: killing daemons
 /// beside a live decryption is what reports `Broken pipe` to a caller that
 /// asked for a credential. The generation advances because a recovery was
-/// attempted, the same rule [`super::run`] applies to its own. A generation
-/// lock a panicking holder poisoned is taken over: the counter is one number
-/// replaced whole, so nothing half-written can be behind it.
+/// attempted, the same rule [`super::run`] applies to its own. A recovery
+/// lock a panicking holder poisoned is taken over: it guards no data, only
+/// the order of recoveries.
 fn recover_exclusively() -> Result<()> {
-    let mut generation = match GPG_RECOVERY_GENERATION.lock() {
-        Ok(generation) => generation,
+    let _recovering = match GPG_RECOVERY.lock() {
+        Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
     let outcome = {
         let _exclusive = GPG_LIMIT.acquire_exclusive(in_flight::waiting_on_agent);
         recover_gpg_daemons()
     };
-    *generation = next_generation(*generation);
+    let generation = GPG_RECOVERY_GENERATION.load(std::sync::atomic::Ordering::Acquire);
+    GPG_RECOVERY_GENERATION.store(
+        next_generation(generation),
+        std::sync::atomic::Ordering::Release,
+    );
     outcome
 }
