@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Make the certificate chains tests/x509.rs reads, with OpenSSL 3 (any
-# release with `x509 -not_before`), into this directory as DER. The keys are
-# thrown away; the certificates are kept, so the test reads what a real CA
-# tool writes. Run again only to change what the chains state.
+# Make the certificate chains tests/x509.rs and tests/tls_live.rs read, with
+# OpenSSL 3 (any release with `x509 -not_before`), into this directory as
+# DER. The keys are thrown away except the two server leaves' (leaf-p384,
+# leaf-ed25519), kept as <name>.key.pem so `openssl s_server` can serve
+# those chains to the client under test; they are test keys and protect
+# nothing. Run again only to change what the chains state.
 #
 #   root-rsa      RSA 2048 root (sha256WithRSAEncryption)
 #   inter-p256    P-256 CA, pathlen 0, signed by root-rsa
@@ -53,4 +55,6 @@ ec leaf-under-notca P-256; cert leaf-under-notca "/CN=host.test" inter-notca sha
 ec inter-deep P-256; cert inter-deep "/O=Skarbiec test/CN=too deep" inter-p256 sha256 "$ca"
 ec leaf-deep P-256; cert leaf-deep "/CN=host.test" inter-deep sha256 "$server"
 ec leaf-critical P-256; cert leaf-critical "/CN=host.test" inter-p256 sha256 "$server\n1.3.6.1.4.1.99999.1=critical,ASN1:NULL"
+cp "$work/leaf-p384.key" leaf-p384.key.pem
+cp "$work/leaf-ed25519.key" leaf-ed25519.key.pem
 rm -f ./*.srl

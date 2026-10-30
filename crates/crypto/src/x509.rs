@@ -619,7 +619,7 @@ pub fn verify(key: &SubjectKey, algorithm: Algorithm, message: &[u8], signature:
 }
 
 /// An ECDSA signature's r and s from its DER SEQUENCE (RFC 5480 section 2.2).
-fn ecdsa_der(signature: &[u8]) -> Option<(&[u8], &[u8])> {
+pub(crate) fn ecdsa_der(signature: &[u8]) -> Option<(&[u8], &[u8])> {
     let (body, trailing) = expect(signature, SEQUENCE, "an ECDSA signature").ok()?;
     let (r, rest) = expect(body, INTEGER, "r").ok()?;
     let (s, rest) = expect(rest, INTEGER, "s").ok()?;
@@ -783,10 +783,12 @@ pub fn verify_server_chain(
                     issuer.subject_name()
                 ))
             }
-            Some(limit) if limit < below => return refuse(format!(
+            Some(limit) if limit < below => {
+                return refuse(format!(
                 "{} may have {limit} CA certificates below it (pathLenConstraint) and has {below}",
                 issuer.subject_name()
-            )),
+            ))
+            }
             Some(_) => {}
         }
         if issuer.key_cert_sign == Some(false) {
