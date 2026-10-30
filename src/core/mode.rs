@@ -10,8 +10,6 @@
 pub const OWNER_READ_WRITE: u32 = 0o600;
 /// Owner read, write and search (`S_IRWXU`): every private directory.
 pub const OWNER_ALL: u32 = 0o700;
-/// Owner execute or search (`S_IXUSR`).
-pub const OWNER_EXECUTE: u32 = 0o100;
 /// Every group and other bit (`S_IRWXG | S_IRWXO`): an owner-only file holds
 /// none of them.
 pub const GROUP_AND_OTHER: u32 = 0o077;

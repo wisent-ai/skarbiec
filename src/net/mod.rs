@@ -6,10 +6,12 @@
 pub mod api;
 pub mod bond;
 pub mod http;
+pub(crate) mod loopback;
 pub mod mcp;
 pub mod operator;
 pub mod owner;
 pub(crate) mod serve;
+pub(crate) mod stado_route;
 pub mod sync;
 
 use anyhow::Result;

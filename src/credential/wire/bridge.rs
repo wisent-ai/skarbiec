@@ -1,13 +1,12 @@
-// Talking to Weles: the one executable that is allowed to be the bridge, the
-// request that is handed to it, and the answer that is believed back.
+// Talking to Weles: the admission route this host's Stado resolver hands
+// Skarbiec for weles-admission, the bearer Skarbiec presents there, the
+// request that is sent, and the answer that is believed back. All of it in
+// process: no bridge program is started.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::{Read, Write};
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use super::super::common::{
     checked_bool, checked_code, checked_enum, checked_host, checked_uuid, safe_string,
@@ -16,43 +15,74 @@ use super::super::receipt::{
     checked_approval, checked_receipt, receipt_matches, DIRECTORY_IDENTITY_KEYS,
 };
 use super::super::{PROVIDER_EFFECTS, RESPONSE_PHASES, RESPONSE_STATUSES, ROLLBACK_STATUSES};
-use super::{BRIDGE_ENV, WIRE_VERSION};
+use super::{
+    ADMISSION_CONSUMER, ADMISSION_PATH, ADMISSION_SERVICE, TOKEN_ENV, TOKEN_FILE_ENV, WIRE_VERSION,
+};
 use crate::core::effective_uid;
 
-pub(in crate::credential) fn checked_bridge() -> Result<PathBuf> {
-    let configured = crate::core::env::text(BRIDGE_ENV)?;
-    let path = match configured.as_deref() {
-        Some(value) => Path::new(value.trim()).to_path_buf(),
-        None => fs::canonicalize(
-            std::env::current_exe().context("locate the installed Skarbiec executable")?,
+/// The bearer Skarbiec presents to Weles as its credential-operation caller:
+/// `WELES_TOKEN`, else the owner-only file `WELES_TOKEN_FILE` names, else
+/// `~/.stado/skarbiec-weles-credential-client-token`.
+fn admission_bearer() -> Result<String> {
+    if let Some(bearer) = crate::core::env::text(TOKEN_ENV)? {
+        return Ok(bearer.trim().to_string());
+    }
+    let (path, source) = match crate::core::env::path(TOKEN_FILE_ENV) {
+        Some(path) => (path, TOKEN_FILE_ENV),
+        None => (
+            crate::core::home_dir()
+                .join(".stado")
+                .join(format!("{ADMISSION_CONSUMER}-token")),
+            "the default bearer file",
+        ),
+    };
+    let remedy = format!(
+        "issue the {ADMISSION_CONSUMER} grant and write its bearer to {} (owner-only), or name \
+         another file with {TOKEN_FILE_ENV}",
+        path.display()
+    );
+    let metadata = fs::symlink_metadata(&path).with_context(|| {
+        format!(
+            "WELES_CREDENTIAL_BEARER_UNRESOLVED: {source} {} cannot be read; {remedy}",
+            path.display()
         )
-        .context("resolve the installed Skarbiec release")?
-        .parent()
-        .context("installed Skarbiec executable has no containing directory")?
-        .join("../share/skarbiec/weles-client/bin/weles-skarbiec-acquire-admission.mjs"),
-    };
-    let source = match configured {
-        Some(_) => BRIDGE_ENV,
-        None => "packaged Weles credential bridge",
-    };
-    if !path.is_absolute() {
-        bail!("{source} must be an absolute path");
-    }
-    let metadata = fs::symlink_metadata(&path)
-        .with_context(|| format!("inspect {source} executable {}; install a complete Skarbiec release or configure {BRIDGE_ENV}", path.display()))?;
-    // Group or other may not write it, and its owner must be able to run it.
-    let unsafe_bits = crate::core::mode::GROUP_AND_OTHER_WRITE;
-    let owner_execute = crate::core::mode::OWNER_EXECUTE;
-    let mode = metadata.permissions().mode();
+    })?;
     if !metadata.file_type().is_file()
-        || metadata.file_type().is_symlink()
         || metadata.uid() != effective_uid()
-        || (mode & unsafe_bits) != 0
-        || (mode & owner_execute) == 0
+        || metadata.permissions().mode() & crate::core::mode::GROUP_AND_OTHER != 0
     {
-        bail!("{source} must be an owner-controlled executable regular file");
+        bail!(
+            "WELES_CREDENTIAL_BEARER_UNRESOLVED: {source} {} must be a regular file this user \
+             owns that no other account can read (chmod 600 it); {remedy}",
+            path.display()
+        );
     }
-    fs::canonicalize(path).with_context(|| format!("canonicalize {source}"))
+    let text = fs::read_to_string(&path).with_context(|| {
+        format!(
+            "WELES_CREDENTIAL_BEARER_UNRESOLVED: read {source} {}; {remedy}",
+            path.display()
+        )
+    })?;
+    let bearer = text.trim();
+    if bearer.is_empty() || bearer.chars().any(char::is_whitespace) {
+        bail!(
+            "WELES_CREDENTIAL_BEARER_UNRESOLVED: {source} {} must hold exactly one bearer; {remedy}",
+            path.display()
+        );
+    }
+    Ok(bearer.to_string())
+}
+
+/// Where this host reaches Weles's credential-operation admission.
+fn admission_route() -> Result<std::net::SocketAddr> {
+    let url = crate::net::stado_route::route(ADMISSION_SERVICE, ADMISSION_CONSUMER).context(
+        "WELES_ENDPOINT_UNRESOLVED: Stado answered no route to Weles credential admission",
+    )?;
+    crate::net::loopback::loopback_authority(&url).with_context(|| {
+        format!(
+            "WELES_ENDPOINT_UNRESOLVED: the route Stado answered for {ADMISSION_SERVICE}, {url}"
+        )
+    })
 }
 
 pub(in crate::credential) fn sanitized_response(value: &Value) -> Result<Value> {
@@ -95,9 +125,9 @@ pub(in crate::credential) fn sanitized_response(value: &Value) -> Result<Value> 
     }))
 }
 
-// Bridge stderr is operator-facing diagnostics, never secret material: strip
-// control characters and collapse whitespace before it reaches an error
-// message, because a bridge writes progress lines. Nothing is cut.
+/// Text Weles wrote that reaches an error message: control characters become
+/// spaces and runs of whitespace one, so a multi-line answer reads as one
+/// line. Nothing is cut.
 pub(in crate::credential) fn sanitized_diagnostics(raw: &[u8]) -> String {
     String::from_utf8_lossy(raw)
         .chars()
@@ -114,65 +144,164 @@ pub(in crate::credential) fn sanitized_diagnostics(raw: &[u8]) -> String {
         .join(" ")
 }
 
-pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
-    let executable = checked_bridge()?;
-    let mut child = Command::new(&executable)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("start Weles credential acquisition bridge")?;
-    // Drain stderr concurrently so a chatty bridge cannot deadlock on a full
-    // pipe while we are still reading its stdout.
-    let mut errors = child.stderr.take().context("open Weles bridge stderr")?;
-    let diagnostics = std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        errors.read_to_end(&mut captured).map(|_bytes| captured)
-    });
-    child
-        .stdin
-        .take()
-        .context("open Weles bridge stdin")?
-        .write_all(&serde_json::to_vec(request)?)?;
-
-    let mut stdout = child.stdout.take().context("open Weles bridge stdout")?;
-    // Waiting for the bridge's answer and its exit is said on stderr: what
-    // runs, since when, and how it ended.
-    let (mut output, status) = stado_wait::blocking(
-        stado_wait::Kind::Process,
-        "the Weles credential-operation bridge",
-        executable.display(),
-        || -> std::io::Result<_> {
-            let mut output = Vec::new();
-            stdout.read_to_end(&mut output)?;
-            Ok((output, child.wait()?))
-        },
-    )
-    .context("wait for Weles credential acquisition bridge")?;
-    // A stderr that could not be read is said as such, so a failed bridge is
-    // never reported as one that gave no diagnostics.
-    let detail = match diagnostics.join() {
-        Ok(Ok(captured)) => sanitized_diagnostics(&captured),
-        Ok(Err(error)) => format!("its stderr could not be read: {error}"),
-        Err(panic) => format!(
-            "the thread reading its stderr panicked: {}",
-            crate::core::panic_reason(&*panic)
-        ),
+/// The answer for a request that never reached a Weles decision: the code and
+/// why, with `needs_configuration` when nothing at the provider can have
+/// changed and `operation_failed` with an unknown effect when it may have.
+fn admission_failure(request: &Value, code: &str, message: &str, effect_unknown: bool) -> Value {
+    let (status, effect) = if effect_unknown {
+        ("operation_failed", "unknown")
+    } else {
+        ("needs_configuration", "none")
     };
-    if !status.success() {
-        if detail.is_empty() {
-            bail!("Weles credential-operation bridge exited with {status} and no diagnostics");
+    json!({
+        "status": status,
+        "operation": request.get("operation"),
+        "provider": request.get("provider"),
+        "vaultItemId": request.get("credential_id"),
+        "actionLogId": request.get("action_log_id"),
+        "code": code,
+        "phase": "admission",
+        "retryable": false,
+        "providerEffect": effect,
+        "message": sanitized_diagnostics(message.as_bytes()),
+    })
+}
+
+/// Whether the request's provider, directory and field agree: an Entra
+/// password carries its directory, every other provider none.
+fn directory_agrees(request: &Value) -> bool {
+    let directory = request.get("directory").filter(|value| !value.is_null());
+    match request.get("provider").and_then(Value::as_str) {
+        Some("microsoft_entra") => {
+            request.get("field").and_then(Value::as_str) == Some("password")
+                && directory.is_some_and(|directory| {
+                    directory.get("provider").and_then(Value::as_str) == Some("microsoft_entra")
+                })
         }
-        bail!("Weles credential-operation bridge exited with {status}: {detail}");
+        _ => directory.is_none(),
     }
-    let parsed: Value = serde_json::from_slice(&output).with_context(|| {
-        if detail.is_empty() {
-            "Weles response is not JSON".to_string()
-        } else {
-            format!("Weles response is not JSON: {detail}")
+}
+
+/// Send one credential operation to Weles's admission and read its answer,
+/// or the admission failure naming why no answer came.
+fn admit(request: &Value) -> Result<Value> {
+    if !directory_agrees(request) {
+        return Ok(admission_failure(
+            request,
+            "ENTRA_IDENTITY_CONTRACT_MISMATCH",
+            &format!(
+                "Directory identity and password field must agree with provider {} for {}",
+                request["provider"], request["credential_id"]
+            ),
+            false,
+        ));
+    }
+    let address = match admission_route() {
+        Ok(address) => address,
+        Err(error) => {
+            return Ok(admission_failure(
+                request,
+                "WELES_ENDPOINT_UNRESOLVED",
+                &format!("{error:#}"),
+                false,
+            ))
         }
-    })?;
-    output.fill(b'\0');
+    };
+    let bearer = match admission_bearer() {
+        Ok(bearer) => bearer,
+        Err(error) => {
+            return Ok(admission_failure(
+                request,
+                "WELES_CREDENTIAL_BEARER_UNRESOLVED",
+                &format!("{error:#}"),
+                false,
+            ))
+        }
+    };
+    let mut body = serde_json::to_vec(request)?;
+    let authorization = format!("Bearer {bearer}");
+    let sent = crate::net::loopback::exchange(
+        address,
+        "POST",
+        ADMISSION_PATH,
+        &[
+            ("Authorization", authorization.as_str()),
+            ("Content-Type", "application/json"),
+            ("Accept", "application/json"),
+        ],
+        Some(&body),
+        "Weles credential admission",
+    );
+    body.fill(b'\0');
+    let mut reply = match sent {
+        Ok(reply) => reply,
+        // Sent and unanswered: whether Weles began the operation is unknown.
+        Err(error) => {
+            return Ok(admission_failure(
+                request,
+                "WELES_CREDENTIAL_TRANSPORT_FAILED",
+                &format!("Weles credential admission did not return a bound response: {error:#}"),
+                true,
+            ))
+        }
+    };
+    let parsed = serde_json::from_slice::<Value>(&reply.body);
+    reply.body.fill(b'\0');
+    let payload = match parsed {
+        Ok(payload) => payload,
+        Err(error) => {
+            return Ok(admission_failure(
+                request,
+                "WELES_CREDENTIAL_TRANSPORT_FAILED",
+                &format!(
+                    "Weles credential admission answered {} with a body that is not JSON: {error}",
+                    reply.status
+                ),
+                true,
+            ))
+        }
+    };
+    if (200..300).contains(&reply.code)
+        || payload
+            .get("status")
+            .is_some_and(|status| !status.is_null())
+    {
+        return Ok(payload);
+    }
+    // A refusal without an operation state: its own code and message, or
+    // its whole answer when it names no message.
+    let code = match payload.get("code").and_then(Value::as_str) {
+        Some(code) if !code.is_empty() => code.to_string(),
+        _ => "WELES_CREDENTIAL_ADMISSION_REFUSED".to_string(),
+    };
+    let detail = match payload.get("message").and_then(Value::as_str) {
+        Some(message) if !message.is_empty() => message.to_string(),
+        _ => format!("the answer named no message: {payload}"),
+    };
+    let effect_unknown = payload.get("providerEffect").and_then(Value::as_str) != Some("none");
+    Ok(admission_failure(
+        request,
+        &code,
+        &format!(
+            "Weles credential admission returned {}; {detail}",
+            reply.status
+        ),
+        effect_unknown,
+    ))
+}
+
+pub(in crate::credential) fn run_weles(request: &Value) -> Result<Value> {
+    let parsed = admit(request)?;
+    let dry_run = request.get("dry_run").and_then(Value::as_bool) == Some(true);
+    match parsed.get("status").and_then(Value::as_str) {
+        Some("operation_queued" | "operation_completed") if dry_run => {
+            bail!("Weles executed a credential operation submitted as a dry run")
+        }
+        Some("operation_plan") if !dry_run => {
+            bail!("Weles returned a plan for an executable credential operation")
+        }
+        _ => {}
+    }
     let response = sanitized_response(&parsed)?;
     let same_identity = response.get("operation").and_then(Value::as_str)
         == request.get("operation").and_then(Value::as_str)

@@ -22,7 +22,7 @@ use super::state::{
 use super::wire::request_payload;
 use super::EXPECTATION_MISMATCH;
 
-// The sealed directory block, exactly as the bridge accepts it on the wire.
+// The sealed directory block, exactly as Weles accepts it on the wire.
 pub(super) const DIRECTORY_KEYS: &[&str] = &[
     "provider",
     "tenant_id",
@@ -61,7 +61,7 @@ pub(super) fn checked_directory(block: &Value) -> Result<Value> {
 }
 
 // The wire block carries exactly the four canonical keys: sealed_at is
-// item-local bookkeeping and the bridge rejects it.
+// item-local bookkeeping and Weles rejects it.
 pub(super) fn wire_directory(sealed: &Value) -> Result<Value> {
     checked_directory(sealed)
 }

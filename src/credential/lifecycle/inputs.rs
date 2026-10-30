@@ -138,7 +138,7 @@ pub(super) fn read_submission<'a>(
         )?;
         // The item's own field decides whether it is eligible at all. A
         // provider contract that writes another name is refused here, before
-        // the operation lock, the record, or the bridge.
+        // the operation lock, the record, or Weles.
         enforce_field_contract(&vault, &credential_id, provider, field)?;
         (directory, field)
     };
