@@ -4,6 +4,7 @@
 
 pub mod aes;
 pub mod chacha;
+pub mod ed25519;
 pub mod field;
 pub mod hmac;
 pub mod ocb;
