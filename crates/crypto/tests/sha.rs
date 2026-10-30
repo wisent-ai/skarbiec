@@ -1,10 +1,11 @@
-//! SHA-1, SHA-256 and SHA-512 against every NIST CAVP byte-oriented vector:
-//! ShortMsg, LongMsg and the Monte Carlo test (FIPS 180-4, SHAVS).
+//! SHA-1, SHA-256, SHA-384 and SHA-512 against every NIST CAVP
+//! byte-oriented vector: ShortMsg, LongMsg and the Monte Carlo test
+//! (FIPS 180-4, SHAVS).
 
 mod common;
 
 use common::{hex, rsp, to_hex};
-use skarbiec_crypto::sha::{sha1, sha256, sha512, Digest, Sha1, Sha256, Sha512};
+use skarbiec_crypto::sha::{sha1, sha256, sha384, sha512, Digest, Sha1, Sha256, Sha512};
 
 fn messages(file: &str, hash: fn(&[u8]) -> Vec<u8>) -> usize {
     let records = rsp(file);
@@ -62,6 +63,9 @@ fn s256(m: &[u8]) -> Vec<u8> {
 fn s512(m: &[u8]) -> Vec<u8> {
     sha512(m).to_vec()
 }
+fn s384(m: &[u8]) -> Vec<u8> {
+    sha384(m).to_vec()
+}
 
 #[test]
 fn sha1_cavp() {
@@ -82,6 +86,13 @@ fn sha512_cavp() {
     messages("sha/SHA512ShortMsg.rsp", s512);
     messages("sha/SHA512LongMsg.rsp", s512);
     monte("sha/SHA512Monte.rsp", s512);
+}
+
+#[test]
+fn sha384_cavp() {
+    messages("sha/SHA384ShortMsg.rsp", s384);
+    messages("sha/SHA384LongMsg.rsp", s384);
+    monte("sha/SHA384Monte.rsp", s384);
 }
 
 /// A message fed in pieces of every size hashes as it does whole: the

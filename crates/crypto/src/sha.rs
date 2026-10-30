@@ -420,6 +420,59 @@ impl Digest for Sha512 {
     }
 }
 
+impl Sha512 {
+    /// SHA-512's padding, leaving the state for SHA-512 or SHA-384 to read.
+    fn pad(&mut self) {
+        let bits = self.length.wrapping_mul(8);
+        let mut tail = [0u8; 144];
+        tail[0] = 0x80;
+        let filled = self.filled;
+        let zeros = if filled < 112 {
+            111 - filled
+        } else {
+            239 - filled
+        };
+        tail[1 + zeros..17 + zeros].copy_from_slice(&bits.to_be_bytes());
+        self.absorb(&tail[..17 + zeros]);
+    }
+}
+
+/// SHA-384 (FIPS 180-4 section 6.5): SHA-512 from its own initial hash
+/// value, the output cut to 48 bytes. TLS 1.3 hashes its transcript with it
+/// for TLS_AES_256_GCM_SHA384, and certificates sign with ECDSA over it.
+pub struct Sha384(Sha512);
+
+impl Digest for Sha384 {
+    const OUTPUT: usize = 48;
+    const BLOCK: usize = 128;
+    fn new() -> Self {
+        Self(Sha512 {
+            state: [
+                0xcbbb9d5dc1059ed8,
+                0x629a292a367cd507,
+                0x9159015a3070dd17,
+                0x152fecd8f70e5939,
+                0x67332667ffc00b31,
+                0x8eb44a8768581511,
+                0xdb0c2e0d64f98fa7,
+                0x47b5481dbefa4fa4,
+            ],
+            buffer: [0; 128],
+            filled: 0,
+            length: 0,
+        })
+    }
+    fn update(&mut self, data: &[u8]) {
+        self.0.absorb(data);
+    }
+    fn finish_into(mut self, out: &mut [u8]) {
+        self.0.pad();
+        for (chunk, word) in out.chunks_mut(8).zip(self.0.state) {
+            chunk.copy_from_slice(&word.to_be_bytes());
+        }
+    }
+}
+
 /// SHA-1 of `data`.
 pub fn sha1(data: &[u8]) -> [u8; 20] {
     one_shot::<Sha1, 20>(data)
@@ -433,6 +486,11 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 /// SHA-512 of `data`.
 pub fn sha512(data: &[u8]) -> [u8; 64] {
     one_shot::<Sha512, 64>(data)
+}
+
+/// SHA-384 of `data`.
+pub fn sha384(data: &[u8]) -> [u8; 48] {
+    one_shot::<Sha384, 48>(data)
 }
 
 fn one_shot<D: Digest, const N: usize>(data: &[u8]) -> [u8; N] {

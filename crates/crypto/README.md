@@ -26,9 +26,10 @@ daemon behind.
 
 | Primitive | Standard | Checked against |
 | --- | --- | --- |
-| SHA-1, SHA-256, SHA-512 | FIPS 180-4 | NIST CAVP byte-oriented short, long and Monte Carlo vectors |
+| SHA-1, SHA-256, SHA-384, SHA-512 | FIPS 180-4 | NIST CAVP byte-oriented short, long and Monte Carlo vectors |
 | AES-128, AES-192, AES-256 | FIPS 197 | NIST CAVP ECB KAT and MMT vectors |
 | AES-CFB (OpenPGP) | SP 800-38A / RFC 4880 13.9 | NIST CAVP CFB128 KAT and MMT vectors |
+| AES-GCM (128- and 256-bit keys) | SP 800-38D | every case of the NIST CAVP gcmDecrypt128 and gcmDecrypt256 vectors, opened and sealed back, the FAIL cases refused |
 | AES key wrap | RFC 3394 | RFC 3394 section 4 |
 | OCB | RFC 7253 | RFC 7253 Appendix A |
 | HMAC-SHA256, HKDF-SHA256 | RFC 2104, RFC 5869 | RFC 4231, RFC 5869 Appendix A |
