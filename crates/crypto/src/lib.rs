@@ -11,6 +11,7 @@ pub mod inflate;
 pub mod ocb;
 pub mod openpgp;
 pub mod random;
+pub mod sealed;
 pub mod sha;
 pub mod wipe;
 pub mod x25519;
