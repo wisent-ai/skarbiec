@@ -54,12 +54,25 @@ pub fn current(vault: &Path) -> Result<Option<Value>> {
 }
 
 /// Add the standing fence, `{transaction, since}`, to a read's answer as
-/// `fence`; an answer while none stands carries no `fence` member.
-pub fn annotate(answer: &mut Value) -> Result<()> {
-    if let Some(fence) = current(&crate::core::vault_path())? {
-        answer["fence"] = fence;
+/// `fence`; an answer while none stands carries no `fence` member. A fence
+/// file that cannot be read is answered as `fence: {unreadable: why}` and
+/// the read still answers: only writes stop at a fence.
+pub fn annotate(answer: &mut Value) {
+    match current(&crate::core::vault_path()) {
+        Ok(Some(fence)) => answer["fence"] = fence,
+        Ok(None) => {}
+        Err(error) => answer["fence"] = json!({"unreadable": format!("{error:#}")}),
     }
-    Ok(())
+}
+
+/// Replace the vault at `vault` with `bytes` the way pull, mirror pull and
+/// backup restore do, under the vault's write lock, and only when no fence
+/// stands (or this thread passes it): a fence armed while the write waited
+/// is seen, and `fence arm` returns only once the write is done.
+pub fn replace_vault(vault: &Path, bytes: &[u8]) -> Result<()> {
+    let _write_lock = super::acquire_write_lock(vault)?;
+    check_write(vault)?;
+    super::atomic_write(vault, bytes)
 }
 
 /// Refuse a write to the vault at `vault` while a fence stands, unless this
@@ -140,13 +153,21 @@ pub fn command(
                     standing["transaction"].as_str().unwrap_or("?")
                 );
             }
+            // Under the vault's write lock, so a write already past its
+            // fence check finishes before the fence stands, and every later
+            // one sees it.
             let fence = json!({"transaction": transaction, "since": crate::core::clock::now_iso()});
             let path = path_for(&vault);
-            crate::core::vault::atomic_write(
-                &path,
-                serde_json::to_string_pretty(&fence)?.as_bytes(),
-            )
-            .with_context(|| format!("write the vault's write fence {}", path.display()))?;
+            {
+                let _write_lock = super::acquire_write_lock(&vault).context(
+                    "fence arm: a write to the vault is in progress; run fence arm again once it ends",
+                )?;
+                crate::core::vault::atomic_write(
+                    &path,
+                    serde_json::to_string_pretty(&fence)?.as_bytes(),
+                )
+                .with_context(|| format!("write the vault's write fence {}", path.display()))?;
+            }
             crate::runtime::audit::append("fence-arm", &fence)?;
             Ok(json!({"armed": true, "already": false, "fence": fence}))
         }

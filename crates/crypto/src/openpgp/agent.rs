@@ -292,7 +292,7 @@ pub fn key_file_public(file: &str) -> Result<(String, Vec<u8>), Error> {
     let start = file
         .find("Key:")
         .ok_or_else(|| malformed("the key file has no Key: field"))?;
-    let sexp = parse_sexp(file[start + 4..].as_bytes())?;
+    let sexp = parse_sexp(&file.as_bytes()[start + 4..])?;
     let ecc = sexp
         .find(b"ecc")
         .ok_or_else(|| Error::Unsupported("a key that is not elliptic-curve".into()))?;
@@ -316,9 +316,8 @@ pub fn read_key_file(file: &str, passphrase: Option<&[u8]>) -> Result<AgentKey, 
     let start = file
         .find("Key:")
         .ok_or_else(|| malformed("the key file has no Key: field"))?;
-    let rest = &file[start + 4..];
     // The value runs to the end of its balanced list.
-    let sexp = parse_sexp(rest.as_bytes())?;
+    let sexp = parse_sexp(&file.as_bytes()[start + 4..])?;
     let kind = sexp
         .atom(0)
         .ok_or_else(|| malformed("the key file's Key: is not a named list"))?;

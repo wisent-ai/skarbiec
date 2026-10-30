@@ -157,6 +157,24 @@ pub fn secret_key_present(fingerprint: &str) -> Result<bool> {
         .is_some_and(|key| key.holds_secret()))
 }
 
+/// Whether this host can sign as the key `fingerprint` names (an audit epoch
+/// checkpoint signs as the vault owner): `Err` says why not — no secret half,
+/// one that will not unlock, or one imported for decryption only.
+pub fn can_sign_as(fingerprint: &str) -> Result<std::result::Result<(), String>> {
+    let keyring = keyring::load()?;
+    let file = keyring::path();
+    let Some(key) = keyring.find(fingerprint) else {
+        return Ok(Err(format!(
+            "{} holds no key {fingerprint}",
+            file.display()
+        )));
+    };
+    Ok(key
+        .secret(&file)
+        .and_then(|secret| secret.signing_seed(fingerprint).map(drop))
+        .map_err(|why| format!("{why:#}")))
+}
+
 /// The key file a restore from backup has to bring back for this vault.
 pub fn key_file() -> std::path::PathBuf {
     keyring::path()

@@ -59,6 +59,8 @@ pub(super) fn read_line(reader: &mut BufReader<TcpStream>) -> Result<Option<Stri
 /// The request's body: the `content-length` bytes after the headers, or none
 /// without that header. `Ok(Err(reason))` is a body to refuse: bytes that are
 /// not UTF-8 are not replaced, so no value is ever stored other than as sent.
+/// The body is read as it arrives, never allocated from the header's word,
+/// so a length the client does not send costs nothing.
 pub(super) fn read_body(
     reader: &mut BufReader<TcpStream>,
     headers: &HashMap<String, String>,
@@ -66,9 +68,15 @@ pub(super) fn read_body(
     let Some(value) = headers.get("content-length") else {
         return Ok(Ok(String::new()));
     };
-    let length = value.parse::<usize>().context("invalid content-length")?;
-    let mut body = vec![Default::default(); length];
-    reader.read_exact(&mut body)?;
+    let length = value.parse::<u64>().context("invalid content-length")?;
+    let mut body = Vec::new();
+    reader.by_ref().take(length).read_to_end(&mut body)?;
+    if (body.len() as u64) < length {
+        return Ok(Err(format!(
+            "the request states a {length}-byte body and the connection closed after {}",
+            body.len()
+        )));
+    }
     Ok(String::from_utf8(body)
         .map_err(|error| format!("the request body is not UTF-8: {}", error.utf8_error())))
 }

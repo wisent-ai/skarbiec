@@ -247,8 +247,7 @@ fn leaf(
             // or half-written file at the primary path.
             let synced = std::fs::read(&mirror)
                 .with_context(|| format!("read synced vault {}", mirror.display()))?;
-            crate::core::vault::fence::check_write(&live)?;
-            crate::core::vault::atomic_write(&live, &synced)
+            crate::core::vault::fence::replace_vault(&live, &synced)
                 .context("put synced vault into place")?;
             let backup = backup.map(|path| path.display().to_string());
             crate::runtime::audit::append(

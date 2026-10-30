@@ -36,8 +36,9 @@ fn gnupg_home(flags: &HashMap<String, String>) -> PathBuf {
     crate::core::home_dir().join(".gnupg")
 }
 
-/// Every keyblock the GnuPG home's public keyring holds.
-fn keyblocks(home: &Path) -> Result<Vec<Vec<u8>>> {
+/// Every keyblock the GnuPG home's public keyring holds; `None` when the
+/// home holds no public keyring at all.
+fn keyblocks(home: &Path) -> Result<Option<Vec<Vec<u8>>>> {
     let database = home.join("public-keys.d").join("pubring.db");
     let keybox = home.join("pubring.kbx");
     let stored = if let Some(bytes) = read_bytes(&database)? {
@@ -51,15 +52,47 @@ fn keyblocks(home: &Path) -> Result<Vec<Vec<u8>>> {
         read_keybox(&bytes)
             .map_err(|error| anyhow::anyhow!("read the keybox {}: {error}", keybox.display()))?
     } else {
-        bail!(
-            "{} holds no public keyring (neither {} nor {}); name the GnuPG home that holds the \
-             vault's keys with --gnupg-home <dir>",
-            home.display(),
-            database.display(),
-            keybox.display()
-        );
+        return Ok(None);
     };
-    Ok(stored.into_iter().map(|key| key.keyblock).collect())
+    Ok(Some(stored.into_iter().map(|key| key.keyblock).collect()))
+}
+
+/// Whether this host's key file already serves the vault: every key in
+/// `wanted` is in it, and the vault's lowest live item opens with it (an
+/// empty vault has nothing to open). The failure, when there is one, names
+/// the missing keys or the item that would not open.
+fn served_by_key_file(wanted: &[String]) -> Result<std::result::Result<(), String>> {
+    let keyring = keyring::load()?;
+    let missing: Vec<&String> = wanted
+        .iter()
+        .filter(|fpr| keyring.find(fpr).is_none())
+        .collect();
+    if !missing.is_empty() {
+        return Ok(Err(format!(
+            "the key file lacks {}",
+            missing
+                .iter()
+                .map(|fpr| fpr.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    let Some(vault) = crate::core::vault::Vault::open_present(crate::core::vault_path())? else {
+        return Ok(Ok(()));
+    };
+    let mut ids: Vec<String> = vault
+        .list(false)
+        .iter()
+        .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    ids.sort();
+    match ids.first() {
+        None => Ok(Ok(())),
+        Some(id) => Ok(vault
+            .get_item(id)
+            .map(drop)
+            .map_err(|error| format!("its item {id} does not open with it: {error:#}"))),
+    }
 }
 
 fn read_bytes(path: &Path) -> Result<Option<Vec<u8>>> {
@@ -257,7 +290,37 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
             ),
         }));
     };
-    let blocks = keyblocks(&home)?;
+    // A host whose GnuPG home is gone, or never had one (a destination keyed
+    // with `owner key import`), has nothing to bring; that is no failure
+    // when the key file already holds every key and opens the vault, so the
+    // delivery that imports on every switch passes there.
+    let Some(blocks) = keyblocks(&home)? else {
+        let database = home.join("public-keys.d").join("pubring.db");
+        let keybox = home.join("pubring.kbx");
+        return match served_by_key_file(&wanted)? {
+            Ok(()) => Ok(json!({
+                "ok": true,
+                "from": home.display().to_string(),
+                "key_file": keyring::path().display().to_string(),
+                "keys": [],
+                "note": format!(
+                    "{} holds no public keyring, so there is nothing to import; this host's key \
+                     file already holds every key the vault names and opens it",
+                    home.display()
+                ),
+            })),
+            Err(why) => bail!(
+                "{} holds no public keyring (neither {} nor {}), and this host's key file {} does \
+                 not serve the vault: {why}; name the GnuPG home that holds the vault's keys with \
+                 --gnupg-home <dir>, or bring them with `skarbiec owner key import <file>` or the \
+                 key file from its backup",
+                home.display(),
+                database.display(),
+                keybox.display(),
+                keyring::path().display()
+            ),
+        };
+    };
     let files = agent_files(&home)?;
     let phrase = keyring::unlock_phrase()?;
     let mut found: HashMap<String, Vec<u8>> = HashMap::new();

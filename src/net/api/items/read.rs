@@ -268,6 +268,6 @@ pub(crate) fn handle_items_read(
         "field": field,
         "value": value,
     });
-    crate::core::vault::fence::annotate(&mut answer)?;
+    crate::core::vault::fence::annotate(&mut answer);
     http::write_response(stream, "HTTP/1.1 200 OK", &answer)
 }

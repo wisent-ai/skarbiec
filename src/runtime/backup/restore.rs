@@ -45,6 +45,8 @@ pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
             "would_lose": lost,
         }));
     }
+    // Refused before anything is kept aside; checked again under the lock
+    // when the backup is written.
     crate::core::vault::fence::check_write(&live)?;
     let bytes =
         std::fs::read(file).with_context(|| format!("read the backup {}", file.display()))?;
@@ -53,7 +55,7 @@ pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
     } else {
         None
     };
-    crate::core::vault::atomic_write(&live, &bytes).with_context(|| {
+    crate::core::vault::fence::replace_vault(&live, &bytes).with_context(|| {
         format!(
             "write the backup {} over {}",
             file.display(),

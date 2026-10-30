@@ -258,6 +258,24 @@ pub(super) fn dispatch(
                     vault_path().display(),
                 );
             }
+            // An audit epoch checkpoint signs as the owner: a host holding
+            // only the owner key's decryption half opens the vault but cannot
+            // start a new audit chain, which a move must know before it
+            // retires the source.
+            let owner_signs = match registry
+                .get(&owner)
+                .and_then(|entry| entry.get("fingerprint"))
+                .and_then(Value::as_str)
+                .filter(|fpr| !fpr.is_empty())
+            {
+                Some(fpr) => match crypto::can_sign_as(fpr)? {
+                    Ok(()) => json!({"signs": true}),
+                    Err(why) => json!({"signs": false, "why": why}),
+                },
+                None => {
+                    json!({"signs": false, "why": "the vault records no fingerprint for its owner"})
+                }
+            };
             Ok(Some(json!({
                 "vault": vault_path().display().to_string(),
                 // Named even when a secret half is present: this is the file
@@ -265,6 +283,7 @@ pub(super) fn dispatch(
                 // restore.
                 "key_file": key_file.display().to_string(),
                 "owner": owner,
+                "owner_signs": owner_signs,
                 "status": readable,
                 "canary_item": canary,
                 "canary_error": open_error,

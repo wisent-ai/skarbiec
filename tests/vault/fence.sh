@@ -55,6 +55,15 @@ WANT=ok run set fenced --type login
 WANT=ok run fence show
 [ "$(printf '%s' "$out" | jq -c .fence)" = null ] || fail "fence show on a vault with none answered a fence: $out"
 
+# A write in flight holds the vault's write lock; arm takes the same lock,
+# so it never answers armed while that write can still land after it.
+LOCK="${SKARBIEC_VAULT_FILE%.json}.write.lock"
+echo "$$" >"$LOCK"
+WANT=refused run fence arm --transaction "inflight-$RUN"
+says "a write to the vault is in progress" "arm while a write holds the vault's lock is refused, not armed under it"
+[ ! -e "${SKARBIEC_VAULT_FILE%.json}.fence.json" ] || fail "fence arm wrote a fence while a write held the lock"
+rm -f "$LOCK"
+
 T="move-$RUN"
 WANT=ok run fence arm --transaction "$T"
 SINCE=$(printf '%s' "$out" | jq -r .fence.since)
@@ -107,6 +116,23 @@ for route in /v1/items/read /v1/items/revision; do
   printf '%s' "$answer" | jq -e --arg t "$T" --arg s "$SINCE" '.fence.transaction == $t and .fence.since == $s' >/dev/null \
     || fail "$route did not carry the fence while it stands: $(printf '%s' "$answer" | jq -c 'del(.value)')"
 done
+
+# A fence file that cannot be read stops writes but not reads: the read
+# answers, carrying why the fence could not be read.
+FENCE="${SKARBIEC_VAULT_FILE%.json}.fence.json"
+cp "$FENCE" "$ROOT/fence.kept"
+printf 'not json' >"$FENCE"
+for route in /v1/items/read /v1/items/revision; do
+  answer=$(ask "$route")
+  printf '%s' "$answer" | jq -e '.fence.unreadable | test("not JSON")' >/dev/null \
+    || fail "$route did not answer with an unreadable fence named: $(printf '%s' "$answer" | jq -c 'del(.value)')"
+done
+login fifth
+WANT=refused run set fenced --type login --fence "$T"
+: >"$ROOT/stdin"
+says "is not JSON" "a write with an unreadable fence is refused naming the fence"
+cp "$ROOT/fence.kept" "$FENCE"
+echo "ok: an unreadable fence stops writes, and reads still answer naming it" >>"$REPORT"
 
 WANT=refused run fence lift --transaction "other-$RUN"
 says "the fence stands for transaction $T, not other-$RUN" "lift by another transaction is refused naming the standing one"

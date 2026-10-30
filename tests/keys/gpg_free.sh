@@ -176,6 +176,22 @@ cmp -s "$KEYS" "$ROOT/keys.first" || fail "a second keys import rewrote the key 
 echo "ok: keys import run again changes nothing" >>"$REPORT"
 SKARBIEC_UNLOCK="$PHRASE" WANT=ok run keys check --require-readable
 [ "$(printf '%s' "$out" | jq -r .status)" = readable ] || fail "the pre-switch probe did not open the vault once the keys were here: $out"
+printf '%s' "$out" | jq -e '.owner_signs.signs == true' >/dev/null || fail "keys check did not say the owner signs with a whole key: $out"
+
+# Once imported, the GnuPG home is not needed: a host whose home is gone (or
+# never had one) passes the import a delivery runs on every switch, writing
+# nothing, while a key file that does not serve the vault is still refused.
+GONE="$ROOT/gnupg-gone"
+SKARBIEC_UNLOCK="$PHRASE" WANT=ok run keys import --gnupg-home "$GONE"
+printf '%s' "$out" | jq -e '(.keys | length) == 0 and (.note | test("nothing to import"))' >/dev/null \
+  || fail "keys import with no GnuPG home and a complete key file did not say there is nothing to import: $out"
+cmp -s "$KEYS" "$ROOT/keys.first" || fail "keys import with no GnuPG home rewrote the key file"
+mv "$KEYS" "$ROOT/keys.aside"
+WANT=refused run keys import --gnupg-home "$GONE"
+says "holds no public keyring" "with no GnuPG home and no key file, keys import is refused naming the home"
+says "owner key import" "the refusal names how else to bring the keys"
+mv "$ROOT/keys.aside" "$KEYS"
+echo "ok: keys import with the GnuPG home gone passes on a key file that serves the vault, and refuses one that does not" >>"$REPORT"
 
 # --- unlock and key file refusals --------------------------------------------
 WANT=refused run get login-a --field password
@@ -280,6 +296,10 @@ rm -f "$ROOT/owner.sec" "$ROOT/sealing.clear"
   SKARBIEC_KEYS_FILE="$ROOT/split.keys.json" WANT=ok run get login-a --field password
   [ "$out" = "second-$RUN" ] || fail "the decryption half alone did not open the owner's item"
   echo "ok: the decryption half alone opens the owner's items" >>"$REPORT"
+  SKARBIEC_KEYS_FILE="$ROOT/split.keys.json" WANT=ok run keys check --require-readable
+  printf '%s' "$out" | jq -e '.status == "readable" and .owner_signs.signs == false and (.owner_signs.why | test("only the decryption half"))' >/dev/null \
+    || fail "keys check did not say the owner cannot sign with the decryption half alone: $out"
+  echo "ok: keys check names that a decryption-only owner key cannot sign" >>"$REPORT"
   # Signing is what an audit epoch does once a journal is broken: a journal
   # of its own, broken on purpose, so the signature is what decides.
   cp "$SKARBIEC_AUDIT_FILE" "$ROOT/split-audit.jsonl"

@@ -13,8 +13,8 @@ mod messages;
 pub mod signature;
 
 pub use keys::{
-    export_public_key, export_public_keys, fingerprint_for, fingerprint_of_armored, generate_key,
-    import_key, key_file, key_validity, secret_key_present,
+    can_sign_as, export_public_key, export_public_keys, fingerprint_for, fingerprint_of_armored,
+    generate_key, import_key, key_file, key_validity, secret_key_present,
 };
 pub use messages::{
     clearsign, decrypt, encrypt_to, encrypted_to, format_of, holder_of, random_token,

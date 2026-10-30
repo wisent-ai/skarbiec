@@ -79,7 +79,15 @@ host is not given is imported for decryption only: the answer marks it
 `decryption only` and names the signing half it left in GnuPG. Such a host
 opens and reseals every item sealed to the key; signing as it (an audit
 epoch checkpoint) is refused naming the key and `SKARBIEC_UNLOCK_FILE`, and
-importing again with the phrase configured adds the signing half.
+importing again with the phrase configured adds the signing half; `keys
+check` says so too, as `owner_signs: {signs: false, why}`, so a host that
+holds the owner key for decryption only is found before it has to sign.
+
+A GnuPG home that holds no public keyring (gone after the first import, or
+never there on a host keyed with `owner key import`) is nothing to import:
+`keys import` answers so and exits 0 when the key file already holds every
+key the vault names and opens its lowest live item, and otherwise is refused
+naming the home, what the key file lacks, and how to bring it.
 
 The key file is read only when it is a regular file of this account with no
 permission bit beyond owner read and write; anything else is refused naming
@@ -275,6 +283,11 @@ While it stands every write is refused with `the vault is moving (transaction
 T, since S); retry after it`, except one made with `--fence <T>` (the move's
 own steps); `/v1/items/read` and `/v1/items/revision` answers carry `fence`.
 `skarbiec fence lift --transaction <T>` ends it; `fence show` prints it.
+`arm` takes the vault's write lock, so a write already under way finishes
+before the fence stands (arm is refused while one holds the lock; run it
+again), and pull, mirror pull and backup restore check the fence under the
+same lock. A fence file that cannot be read stops every write, and reads
+still answer, carrying `fence: {unreadable: <why>}`.
 
 ### Audit segments
 
