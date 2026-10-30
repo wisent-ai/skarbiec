@@ -90,10 +90,13 @@ const RSA_MAX_EXPONENT_BYTES: usize = 32;
 /// intermediates, plus the leaf.
 const MAX_CHAIN: usize = 9;
 
-/// One DER element (X.690 section 8.1, definite lengths in their shortest
-/// form as section 10.1 requires): its tag, its contents, the whole
+/// A DER element as `element` reads it: its tag, its contents, the whole
 /// element, and what follows it.
-fn element(data: &[u8]) -> Result<(u8, &[u8], &[u8], &[u8]), CertError> {
+type Element<'a> = (u8, &'a [u8], &'a [u8], &'a [u8]);
+
+/// One DER element (X.690 section 8.1, definite lengths in their shortest
+/// form as section 10.1 requires).
+fn element(data: &[u8]) -> Result<Element<'_>, CertError> {
     let Some((&tag, rest)) = data.split_first() else {
         return refuse("a DER element ends before its tag");
     };

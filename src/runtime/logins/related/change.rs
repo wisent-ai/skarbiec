@@ -8,7 +8,6 @@
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
-use std::process::Command;
 
 use crate::core::items::domain_matches;
 
@@ -17,16 +16,12 @@ const CHANGE_URL: &str =
     "https://raw.githubusercontent.com/apple/password-manager-resources/main/quirks/change-password-URLs.json";
 
 fn listed() -> Result<Map<String, Value>> {
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", CHANGE_URL]))
-        .context("curl the Password Manager Resources change-password pages")?;
-    if !response.status.success() {
-        bail!(
-            "the change-password pages of Password Manager Resources at {CHANGE_URL} could not be read ({}): {}",
-            response.status,
-            String::from_utf8_lossy(&response.stderr).trim()
-        );
-    }
-    match serde_json::from_slice(&response.stdout)
+    let body = crate::net::https::get(
+        CHANGE_URL,
+        &[],
+        "the change-password pages of Password Manager Resources",
+    )?;
+    match serde_json::from_slice(&body)
         .with_context(|| format!("the change-password pages at {CHANGE_URL} are not JSON"))?
     {
         Value::Object(sites) => Ok(sites),

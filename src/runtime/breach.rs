@@ -7,7 +7,6 @@ use crate::cli::args::OrUsage;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::process::Command;
 
 use crate::core::{crypto, schema, vault::Vault, vault_path};
 
@@ -73,18 +72,13 @@ pub(crate) fn lookup(candidate: &str) -> Result<Lookup> {
     let hash = crypto::sha1_hex_upper(candidate)?;
     let (prefix, suffix) = hash.split_at(PREFIX_WIDTH_SAMPLE.len());
     let url = format!("https://api.pwnedpasswords.com/range/{prefix}");
-    // No deadline of its own: the range API answers or curl says why, and
-    // that sentence is the reason the check could not be made.
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", &url]))
-        .context("curl range api")?;
-    if !response.status.success() {
-        return Ok(Lookup::Unreachable(format!(
-            "curl {url} {}: {}",
-            response.status,
-            String::from_utf8_lossy(&response.stderr).trim()
-        )));
-    }
-    let body = String::from_utf8_lossy(&response.stdout);
+    // No deadline of its own: the range API answers or the exchange says
+    // why, and that sentence is the reason the check could not be made.
+    let body = match crate::net::https::get(&url, &[], "the Have I Been Pwned range API") {
+        Ok(body) => body,
+        Err(error) => return Ok(Lookup::Unreachable(format!("{error:#}"))),
+    };
+    let body = String::from_utf8_lossy(&body);
     Ok(Lookup::Answered(body.lines().find_map(|line| {
         let (line_suffix, count) = line.trim().split_once(':')?;
         if line_suffix.eq_ignore_ascii_case(suffix) {

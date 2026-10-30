@@ -16,7 +16,7 @@ pub enum Hash {
 
 impl Hash {
     /// Bytes of its output.
-    pub fn len(self) -> usize {
+    pub fn output_len(self) -> usize {
         match self {
             Hash::Sha256 => 32,
             Hash::Sha384 => 48,
@@ -25,7 +25,7 @@ impl Hash {
 
     /// The hash of `data`.
     pub fn digest(self, data: &[u8]) -> Vec<u8> {
-        let mut out = vec![0u8; self.len()];
+        let mut out = vec![0u8; self.output_len()];
         match self {
             Hash::Sha256 => {
                 let mut hash = Sha256::new();
@@ -43,7 +43,7 @@ impl Hash {
 
     /// HMAC of `message` under `key` with this hash.
     pub fn hmac(self, key: &[u8], message: &[u8]) -> Vec<u8> {
-        let mut out = vec![0u8; self.len()];
+        let mut out = vec![0u8; self.output_len()];
         match self {
             Hash::Sha256 => hmac_into::<Sha256>(key, message, &mut out),
             Hash::Sha384 => hmac_into::<Sha384>(key, message, &mut out),
@@ -54,7 +54,7 @@ impl Hash {
     /// HKDF-Extract (RFC 5869 section 2.2). An empty salt is the hash's
     /// length of zeros, as RFC 5869 and RFC 8446 7.1 state.
     pub fn extract(self, salt: &[u8], ikm: &[u8]) -> Vec<u8> {
-        let zeros = vec![0u8; self.len()];
+        let zeros = vec![0u8; self.output_len()];
         let salt = if salt.is_empty() { &zeros } else { salt };
         self.hmac(salt, ikm)
     }
@@ -62,7 +62,10 @@ impl Hash {
     /// HKDF-Expand (RFC 5869 section 2.3) to `length` bytes, at most 255
     /// blocks of the hash, which every TLS label stays within.
     pub fn expand(self, prk: &[u8], info: &[u8], length: usize) -> Vec<u8> {
-        assert!(length <= 255 * self.len(), "HKDF-Expand beyond 255 blocks");
+        assert!(
+            length <= 255 * self.output_len(),
+            "HKDF-Expand beyond 255 blocks"
+        );
         let mut okm = Vec::with_capacity(length);
         let mut previous: Vec<u8> = Vec::new();
         let mut counter = 1u8;
@@ -104,7 +107,7 @@ impl Hash {
     /// Derive-Secret (RFC 8446 section 7.1): a label expanded over the hash
     /// of the transcript so far.
     pub fn derive_secret(self, secret: &[u8], label: &str, transcript_hash: &[u8]) -> Vec<u8> {
-        self.expand_label(secret, label, transcript_hash, self.len())
+        self.expand_label(secret, label, transcript_hash, self.output_len())
     }
 }
 
@@ -148,7 +151,7 @@ impl Schedule {
     /// From the (EC)DHE shared secret: the early secret with no PSK, the
     /// handshake secret, and the master secret.
     pub fn new(hash: Hash, shared: &[u8]) -> Self {
-        let zeros = vec![0u8; hash.len()];
+        let zeros = vec![0u8; hash.output_len()];
         let empty = hash.digest(&[]);
         let early = hash.extract(&[], &zeros);
         let derived = hash.derive_secret(&early, "derived", &empty);
@@ -189,12 +192,12 @@ impl Schedule {
     pub fn finished(&self, base: &[u8], transcript_hash: &[u8]) -> Vec<u8> {
         let key = self
             .hash
-            .expand_label(base, "finished", &[], self.hash.len());
+            .expand_label(base, "finished", &[], self.hash.output_len());
         self.hash.hmac(&key, transcript_hash)
     }
 }
 
 /// The next application traffic secret (RFC 8446 section 7.2).
 pub fn update_traffic_secret(hash: Hash, secret: &[u8]) -> Vec<u8> {
-    hash.expand_label(secret, "traffic upd", &[], hash.len())
+    hash.expand_label(secret, "traffic upd", &[], hash.output_len())
 }

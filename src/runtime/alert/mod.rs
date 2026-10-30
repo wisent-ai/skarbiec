@@ -6,16 +6,14 @@
 // webhook address is itself a secret that lets anyone post to the channel.
 // Which item and field is this host's choice, kept beside the vault file in
 // `<vault file>.alert`, never in the vault document replicas receive. The
-// address reaches curl only on its standard input, as curl configuration,
-// never in an argument a process list shows; the message names what failed
-// and never a value.
+// The address is posted to in process, over Skarbiec's own TLS client, and
+// is never in an argument a process list shows nor in an error, which names
+// the item; the message names what failed and never a value.
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use crate::cli::args::{OrUsage, Usage};
 use crate::core::{vault::Vault, vault_path};
@@ -73,7 +71,7 @@ fn configured() -> Result<Option<(String, String)>> {
 }
 
 /// The webhook address `id`'s `field` holds, refused unless it is https and
-/// can be written as one curl configuration line.
+/// free of quotes, backslashes, whitespace and control characters.
 fn address(id: &str, field: &str) -> Result<String> {
     let payload = Vault::open(vault_path())?.get_item(id)?;
     let url = crate::core::schema::field(&payload, field)?
@@ -164,41 +162,24 @@ pub(crate) fn send(text: &str) -> Result<Option<Value>> {
     };
     let url = address(&item, &field)?;
     let body = json!({"text": text, "content": text}).to_string();
-    let mut child = Command::new("curl")
-        .args([
-            "-sS",
-            "--fail-with-body",
-            "-K",
-            "-",
-            "-H",
-            "Content-Type: application/json",
-            "--data",
-            &body,
-        ])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("start curl, which posts the alert")?;
-    child
-        .stdin
-        .take()
-        .context("curl was started without a standard input")?
-        .write_all(format!("url = \"{url}\"\n").as_bytes())
-        .context("hand the webhook address to curl")?;
-    let output = stado_wait::blocking(
-        stado_wait::Kind::Process,
-        "curl posting an alert",
-        &item,
-        || child.wait_with_output(),
+    // Any error the exchange gives carries the address, which is a secret:
+    // its own text is replaced with the item's name and the kind of fault.
+    let reply = crate::net::https::exchange(
+        "POST",
+        &url,
+        &[("Content-Type", "application/json")],
+        Some(body.as_bytes()),
+        "posting an alert",
     )
-    .context("wait for curl")?;
-    if !output.status.success() {
+    .map_err(|error| {
+        let reason = format!("{:#}", error).replace(&url, "<the webhook address>");
+        anyhow::anyhow!("the alert could not be posted to the webhook {item} keeps: {reason}")
+    })?;
+    if !(200..300).contains(&reply.code) {
         bail!(
-            "the webhook {item} keeps refused the alert ({}): {} {}",
-            output.status,
-            String::from_utf8_lossy(&output.stdout).trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
+            "the webhook {item} keeps refused the alert ({}): {}",
+            reply.status,
+            String::from_utf8_lossy(&reply.body[..reply.body.len().min(512)]).trim()
         );
     }
     crate::runtime::audit::append("alert-sent", &json!({"item": item}))?;

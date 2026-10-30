@@ -1,18 +1,16 @@
 // One HTTPS call to a provider's API signed in with a secret the vault keeps,
 // for the commands that rotate a provider's token through its own API
-// (rotate --with gitlab, --with cloudflare). The header carrying the secret reaches
-// curl on its standard input (`-H @-`), never in an argument a process list
-// shows, and a refusal names the method, the path, curl's status and the
-// provider's own answer.
+// (rotate --with gitlab, --with cloudflare). The call is made in process
+// over Skarbiec's own TLS client, so the header carrying the secret is in no
+// argument a process list shows, and a refusal names the method, the
+// address, the provider's status and its own answer.
 
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::io::Write;
-use std::process::{Command, Stdio};
 
 /// A request: `header` is the whole header line carrying the secret, such as
-/// `Authorization: Bearer <token>`; `form` fields are sent url-encoded and
-/// `json` as the body, at most one of them.
+/// `Authorization: Bearer <token>`; `form` fields (`name=value`) are sent
+/// url-encoded and `json` as the body, at most one of them.
 pub(crate) struct Call<'a> {
     pub(crate) method: &'a str,
     pub(crate) url: &'a str,
@@ -23,50 +21,35 @@ pub(crate) struct Call<'a> {
 
 /// Make the call and answer the provider's JSON.
 pub(crate) fn call(request: &Call) -> Result<Value> {
-    let mut command = Command::new("curl");
-    command.args(["-sS", "--fail-with-body", "-X", request.method, "-H", "@-"]);
-    for field in request.form {
-        command.args(["--data-urlencode", field]);
-    }
-    if let Some(body) = request.json {
-        command.args([
-            "-H",
-            "Content-Type: application/json",
-            "--data",
-            &body.to_string(),
-        ]);
-    }
-    let mut child = command
-        .arg(request.url)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("start curl, which talks to the provider")?;
-    child
-        .stdin
-        .take()
-        .context("curl was started without a standard input")?
-        .write_all(format!("{}\n", request.header).as_bytes())
-        .context("hand the header to curl")?;
-    let output = stado_wait::blocking(
-        stado_wait::Kind::Process,
-        "curl talking to a provider",
-        request.url,
-        || child.wait_with_output(),
-    )
-    .context("wait for curl")?;
-    let body = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() {
-        bail!(
-            "{} {} ({}): {} {}",
-            request.method,
-            request.url,
-            output.status,
-            body.trim(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
+    let Some((name, value)) = request.header.split_once(':') else {
+        bail!("the header for {} is not `Name: value`", request.url);
+    };
+    let mut headers = vec![(name.trim(), value.trim())];
+    let body = match (request.form, request.json) {
+        ([], None) => None,
+        ([], Some(json)) => {
+            headers.push(("Content-Type", "application/json"));
+            Some(json.to_string().into_bytes())
+        }
+        (fields, None) => {
+            let mut form = form_urlencoded::Serializer::new(String::new());
+            for field in fields {
+                let (name, value) = field.split_once('=').unwrap_or((field, ""));
+                form.append_pair(name, value);
+            }
+            headers.push(("Content-Type", "application/x-www-form-urlencoded"));
+            Some(form.finish().into_bytes())
+        }
+        (_, Some(_)) => bail!(
+            "a call to {} names both form fields and a JSON body; a request carries one",
+            request.url
+        ),
+    };
+    let what = "a provider's API";
+    let reply =
+        crate::net::https::exchange(request.method, request.url, &headers, body.as_deref(), what)?;
+    crate::net::https::ensure_success(&reply, request.method, request.url, what)?;
+    let body = String::from_utf8_lossy(&reply.body);
     // A DELETE answered 204 carries no body: nothing to read, and no failure.
     if body.trim().is_empty() {
         return Ok(Value::Null);

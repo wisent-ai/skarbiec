@@ -15,7 +15,7 @@ fn cases(file: &str) -> (usize, usize) {
     let (mut opened, mut refused) = (0, 0);
     let mut tag_bits = 128usize;
     let mut record: Vec<(String, String)> = Vec::new();
-    let mut check = |record: &Vec<(String, String)>, tag_bits: usize| {
+    let check = |record: &Vec<(String, String)>, tag_bits: usize| {
         let get = |name: &str| {
             record
                 .iter()

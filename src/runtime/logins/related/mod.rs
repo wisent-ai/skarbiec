@@ -9,7 +9,6 @@
 
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::process::Command;
 
 use crate::core::items::domain_matches;
 
@@ -21,16 +20,13 @@ pub(crate) const SHARED_URL: &str =
     "https://raw.githubusercontent.com/apple/password-manager-resources/main/quirks/shared-credentials.json";
 
 fn groups() -> Result<Vec<Value>> {
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", SHARED_URL]))
-        .context("curl the Password Manager Resources shared credentials")?;
-    if !response.status.success() {
-        bail!(
-            "the shared credentials of Password Manager Resources at {SHARED_URL} could not be read ({}): {}; no site was added",
-            response.status,
-            String::from_utf8_lossy(&response.stderr).trim()
-        );
-    }
-    match serde_json::from_slice(&response.stdout)
+    let body = crate::net::https::get(
+        SHARED_URL,
+        &[],
+        "the shared credentials of Password Manager Resources",
+    )
+    .context("no site was added")?;
+    match serde_json::from_slice(&body)
         .with_context(|| format!("the shared credentials at {SHARED_URL} are not JSON"))?
     {
         Value::Array(groups) => Ok(groups),

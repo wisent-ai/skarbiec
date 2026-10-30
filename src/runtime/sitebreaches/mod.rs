@@ -10,7 +10,6 @@
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::process::Command;
 
 use crate::core::items::{domain_matches, item_domains};
 use crate::core::{vault::Vault, vault_path};
@@ -38,22 +37,13 @@ pub fn dispatch(
 
 fn breaches() -> Result<Vec<Value>> {
     // The API refuses a request that names no user agent.
-    let response = stado_wait::output(Command::new("curl").args([
-        "-sS",
-        "--fail",
-        "-A",
-        "skarbiec",
+    let body = crate::net::https::get(
         BREACHES_URL,
-    ]))
-    .context("curl the Have I Been Pwned breach list")?;
-    if !response.status.success() {
-        bail!(
-            "the Have I Been Pwned breach list at {BREACHES_URL} could not be read ({}): {}; no login was judged",
-            response.status,
-            String::from_utf8_lossy(&response.stderr).trim()
-        );
-    }
-    match serde_json::from_slice(&response.stdout)
+        &[("User-Agent", "skarbiec")],
+        "the Have I Been Pwned breach list",
+    )
+    .context("no login was judged")?;
+    match serde_json::from_slice(&body)
         .with_context(|| format!("the breach list at {BREACHES_URL} is not JSON"))?
     {
         Value::Array(rows) => Ok(rows),

@@ -6,6 +6,7 @@
 pub mod api;
 pub mod bond;
 pub mod http;
+pub(crate) mod https;
 pub(crate) mod loopback;
 pub mod mcp;
 pub mod operator;

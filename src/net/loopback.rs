@@ -39,18 +39,18 @@ pub(crate) fn loopback_authority(url: &str) -> Result<SocketAddr> {
     Ok(address)
 }
 
-/// Send one request to `address` and read its reply. `headers` are sent as
-/// given after Host; the body, when there is one, is sent with its length.
-pub(crate) fn exchange(
-    address: SocketAddr,
+/// The head of one HTTP/1.1 request to `host`: `headers` as given after
+/// Host, and the body's length when there is one; refused when a header
+/// would break the request.
+pub(crate) fn request_head(
     method: &str,
     path: &str,
+    host: &str,
     headers: &[(&str, &str)],
     body: Option<&[u8]>,
     what: &str,
-) -> Result<Reply> {
-    let mut request =
-        format!("{method} {path} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n");
+) -> Result<String> {
+    let mut request = format!("{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n");
     for (name, value) in headers {
         if value.contains(['\r', '\n']) || name.contains(['\r', '\n', ':']) {
             bail!("{what}: header {name} holds a line break, which would end the request early");
@@ -61,6 +61,20 @@ pub(crate) fn exchange(
         request.push_str(&format!("Content-Length: {}\r\n", body.len()));
     }
     request.push_str("\r\n");
+    Ok(request)
+}
+
+/// Send one request to `address` and read its reply. `headers` are sent as
+/// given after Host; the body, when there is one, is sent with its length.
+pub(crate) fn exchange(
+    address: SocketAddr,
+    method: &str,
+    path: &str,
+    headers: &[(&str, &str)],
+    body: Option<&[u8]>,
+    what: &str,
+) -> Result<Reply> {
+    let request = request_head(method, path, &address.to_string(), headers, body, what)?;
     stado_wait::blocking(stado_wait::Kind::Network, what, address, || {
         let mut stream = TcpStream::connect(address)?;
         stream.write_all(request.as_bytes())?;
@@ -74,7 +88,7 @@ pub(crate) fn exchange(
 }
 
 /// The reply on `reader`, read to the end its headers state.
-fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
+pub(crate) fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
     let invalid = |detail: String| std::io::Error::new(std::io::ErrorKind::InvalidData, detail);
     let mut status = String::new();
     if reader.read_line(&mut status)? == 0 {

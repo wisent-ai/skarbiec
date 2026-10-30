@@ -100,6 +100,10 @@ impl std::fmt::Display for TlsError {
                 write!(f, "the TLS connection failed reading or writing: {error}")
             }
             TlsError::Record(error) => error.fmt(f),
+            TlsError::Alert(70, _) => f.write_str(
+                "the server ended the TLS connection with alert 70 (protocol_version): it speaks \
+                 TLS 1.2 or older; this client speaks TLS 1.3 only, so the server must enable TLS 1.3",
+            ),
             TlsError::Alert(code, name) => write!(
                 f,
                 "the server ended the TLS connection with alert {code} ({name}): it refused \
@@ -408,9 +412,12 @@ fn certificate_verify(
     signature: &[u8],
 ) -> Result<bool, TlsError> {
     let pss = |hash: HashAlg| match key {
-        SubjectKey::Rsa { modulus, exponent } => {
-            Ok(RsaKey::new(modulus, exponent).verify_pss(hash, content, signature, hash.len()))
-        }
+        SubjectKey::Rsa { modulus, exponent } => Ok(RsaKey::new(modulus, exponent).verify_pss(
+            hash,
+            content,
+            signature,
+            hash.output_len(),
+        )),
         _ => Err(()),
     };
     let checked = match (scheme, key) {

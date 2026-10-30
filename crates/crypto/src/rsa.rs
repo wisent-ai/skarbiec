@@ -14,7 +14,8 @@ pub enum HashAlg {
 }
 
 impl HashAlg {
-    pub fn len(self) -> usize {
+    /// Bytes of its output.
+    pub fn output_len(self) -> usize {
         match self {
             HashAlg::Sha256 => 32,
             HashAlg::Sha384 => 48,
@@ -31,7 +32,7 @@ impl HashAlg {
     }
 
     fn digest_parts(self, parts: &[&[u8]]) -> Vec<u8> {
-        let mut out = vec![0u8; self.len()];
+        let mut out = vec![0u8; self.output_len()];
         match self {
             HashAlg::Sha256 => {
                 let mut hash = Sha256::new();
@@ -109,7 +110,7 @@ impl PublicKey {
             return false;
         };
         let info = hash.digest_info();
-        let t_len = info.len() + hash.len();
+        let t_len = info.len() + hash.output_len();
         if em.len() < t_len + 11 {
             return false;
         }
@@ -140,7 +141,7 @@ impl PublicKey {
         if high.iter().any(|byte| *byte != 0) {
             return false;
         }
-        let h_len = hash.len();
+        let h_len = hash.output_len();
         if em_len < h_len + salt_len + 2 || em.last() != Some(&0xbc) {
             return false;
         }
@@ -170,7 +171,7 @@ impl PublicKey {
 
 /// MGF1 (RFC 8017 B.2.1) of `seed` to `length` bytes.
 fn mgf1(hash: HashAlg, seed: &[u8], length: usize) -> Vec<u8> {
-    let mut out = Vec::with_capacity(length + hash.len());
+    let mut out = Vec::with_capacity(length + hash.output_len());
     let mut counter = 0u32;
     while out.len() < length {
         out.extend(hash.digest_parts(&[seed, &counter.to_be_bytes()]));
