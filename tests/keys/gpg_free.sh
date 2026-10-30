@@ -334,6 +334,39 @@ no_keys_in "$ROOT/replica" "a replica pull"
 kill "$SERVE"
 SERVE=
 
+# --- carrying every public key a vault seals to -------------------------------
+# export names every recipient's and the recovery key with their public
+# halves; import on a host holding none adds them all without a vault there,
+# a second import adds nothing, and a secret key block is refused.
+WANT=ok run owner key export
+printf '%s' "$out" >"$ROOT/export.json"
+jq -e --arg o "$OWNER_FPR" --arg m "$MEMBER_FPR" '
+  (.keys | map(.fingerprint | ascii_upcase)) as $f
+  | ($f | index($o | ascii_upcase)) != null and ($f | index($m | ascii_upcase)) != null
+  and (.keys | map(.uids) | flatten | index("recovery")) != null
+  and (.public_keys | startswith("-----BEGIN PGP PUBLIC KEY BLOCK-----"))' "$ROOT/export.json" >/dev/null \
+  || fail "owner key export did not name the owner, member and recovery keys with one public block: $out"
+jq -r .public_keys "$ROOT/export.json" >"$ROOT/export.asc"
+mkdir -p "$ROOT/other-host"
+(
+  export SKARBIEC_VAULT_FILE="$ROOT/other-host/vault.json"
+  cp "$ROOT/export.asc" "$ROOT/stdin"
+  WANT=ok run owner key import /dev/stdin
+  : >"$ROOT/stdin"
+  [ "$(printf '%s' "$out" | jq '.imported | length')" = "$(jq '.keys | length' "$ROOT/export.json")" ] \
+    || fail "owner key import on a host with no keys did not add every exported key: $out"
+  WANT=ok run owner key import "$ROOT/export.asc"
+  [ "$(printf '%s' "$out" | jq '.imported | length')" = 0 ] || fail "a second owner key import added keys again: $out"
+  gpg --homedir "$GHOME" --batch --pinentry-mode loopback --passphrase "$PHRASE" --armor --export-secret-keys "$MEMBER_FPR" >"$ROOT/secret.asc"
+  WANT=refused run owner key import "$ROOT/secret.asc"
+  says "this is a secret key block" "owner key import refuses a secret key block"
+  rm -f "$ROOT/secret.asc"
+  WANT=ok run owner key show "$OWNER"
+  printf '%s' "$out" | jq -e '.secret_key_present == false and (.key_file | endswith("vault.keys.json"))' >/dev/null \
+    || fail "owner key show on the other host did not name a public-only key and its key file: $out"
+)
+echo "ok: owner key export and import carry every public key a vault seals to" >>"$REPORT"
+
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"
 echo "PASS: $REPORT"

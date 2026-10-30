@@ -45,6 +45,7 @@ pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
             "would_lose": lost,
         }));
     }
+    crate::core::vault::fence::check_write(&live)?;
     let bytes =
         std::fs::read(file).with_context(|| format!("read the backup {}", file.display()))?;
     let kept = if present {

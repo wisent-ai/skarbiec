@@ -167,6 +167,9 @@ impl Vault {
             bail!(refusal);
         }
         let _write_lock = acquire_write_lock(&self.path)?;
+        // Under the write lock, so a fence armed after the vault was read
+        // still holds this write back.
+        super::fence::check_write(&self.path)?;
         if let Some(text) = crate::core::read_present(&self.path, "persisted vault")? {
             let persisted: Value =
                 serde_json::from_str(&text).context("parse persisted vault under write lock")?;

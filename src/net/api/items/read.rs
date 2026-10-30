@@ -260,16 +260,14 @@ pub(crate) fn handle_items_read(
         "http-item-read",
         &json!({"item": id, "requested": requested, "field": field, "consumer": consumer}),
     )?;
-    http::write_response(
-        stream,
-        "HTTP/1.1 200 OK",
-        &json!({
-            "id": requested,
-            "item": id,
-            "item_uid": item_uid,
-            "revision": revision,
-            "field": field,
-            "value": value,
-        }),
-    )
+    let mut answer = json!({
+        "id": requested,
+        "item": id,
+        "item_uid": item_uid,
+        "revision": revision,
+        "field": field,
+        "value": value,
+    });
+    crate::core::vault::fence::annotate(&mut answer)?;
+    http::write_response(stream, "HTTP/1.1 200 OK", &answer)
 }

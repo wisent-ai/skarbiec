@@ -277,6 +277,7 @@ fn now() -> String {
 
 mod document;
 pub(crate) use document::VaultChangedConcurrently;
+pub mod fence;
 mod items;
 mod managed;
 mod recipients;

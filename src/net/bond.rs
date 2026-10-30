@@ -226,6 +226,7 @@ pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
             }
         }
     }
+    crate::core::vault::fence::check_write(&live)?;
     crate::core::vault::atomic_write(&live, serde_json::to_string_pretty(&doc)?.as_bytes())
         .with_context(|| format!("install pulled vault at {}", live.display()))?;
     crate::runtime::audit::append(

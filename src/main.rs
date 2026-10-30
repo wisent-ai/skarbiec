@@ -138,7 +138,13 @@ fn run() -> Result<()> {
             return cli::help::print_command(&command);
         }
     }
-    let (flags, positionals) = parse_args(&rest);
+    let (mut flags, positionals) = parse_args(&rest);
+    // `--fence T` lets this invocation's writes pass a write fence armed for
+    // transaction T (a vault move's own steps); every command takes it, so it
+    // is taken out before any command sees its flags.
+    if let Some(transaction) = flags.remove("fence") {
+        core::vault::fence::pass(&transaction);
+    }
     if net::owner::dispatch(&command, &flags, &positionals)? {
         return Ok(());
     }
@@ -158,6 +164,7 @@ fn run() -> Result<()> {
             }
         }
         "vaults" => emit(&runtime::vaults::inventory()?),
+        "fence" => emit(&core::vault::fence::command(&flags, &positionals)?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
         "get" => cmd_get(&flags, &positionals),
         "set" => cmd_set_json(&flags, &positionals),

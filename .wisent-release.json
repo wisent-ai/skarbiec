@@ -49,6 +49,10 @@
           "release/build.sh"
         ]
       },
+      "tests": [
+        { "name": "serve-one-process", "argv": ["bash", "tests/release/journey.sh", "serve-one-process"] },
+        { "name": "vault-fence", "argv": ["bash", "tests/release/journey.sh", "vault-fence"] }
+      ],
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
         "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
@@ -90,6 +94,10 @@
           "release/build.sh"
         ]
       },
+      "tests": [
+        { "name": "serve-one-process", "argv": ["bash", "tests/release/journey.sh", "serve-one-process"] },
+        { "name": "vault-fence", "argv": ["bash", "tests/release/journey.sh", "vault-fence"] }
+      ],
       "env": {
         "SKARBIEC_EXTENSION_UPDATE_ORIGIN": "https://stado.wisent.com"
       },

@@ -35,15 +35,13 @@ pub(crate) fn handle_items_revision(
     else {
         return Ok(());
     };
-    http::write_response(
-        stream,
-        "HTTP/1.1 200 OK",
-        &json!({
-            "id": requested,
-            "item": item,
-            "item_uid": item_uid,
-            "revision": revision,
-            "field": field,
-        }),
-    )
+    let mut answer = json!({
+        "id": requested,
+        "item": item,
+        "item_uid": item_uid,
+        "revision": revision,
+        "field": field,
+    });
+    crate::core::vault::fence::annotate(&mut answer)?;
+    http::write_response(stream, "HTTP/1.1 200 OK", &answer)
 }

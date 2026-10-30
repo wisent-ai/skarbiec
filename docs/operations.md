@@ -58,7 +58,10 @@ The keys live in the **key file**, owner-only JSON beside the vault
 (`SKARBIEC_KEYS_FILE` overrides it): each key's public half, and the secret
 half of the keys this host holds. `init`, `owner key mint` and `recipient
 add` without `--import` write new keys there; `recipient add --import`,
-`recipient rekey` and `enroll` add public halves. A host that held its keys
+`recipient rekey`, `enroll` and `owner key import <file>` add public halves.
+`owner key export` prints every public key the vault seals to as one armored
+block, so a destination host can take them all with `owner key import` before
+the vault moves there. A host that held its keys
 in GnuPG brings them over once with `skarbiec keys import`, which reads the
 GnuPG home's own files (`public-keys.d/pubring.db` or `pubring.kbx`, and
 `private-keys-v1.d/<keygrip>.key`) without running anything:
@@ -263,6 +266,15 @@ boundary; service tokens are 32 bytes read from `/dev/urandom` in-process, and
 SHA-256 journal hashing and timestamps run in-process too, so an audit entry
 starts no other program. See the complete
 [security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
+
+### Moving a vault: the write fence
+
+`skarbiec fence arm --transaction <T>` holds every write to the vault while it
+is moved, recording `{transaction, since}` in `<vault without .json>.fence.json`.
+While it stands every write is refused with `the vault is moving (transaction
+T, since S); retry after it`, except one made with `--fence <T>` (the move's
+own steps); `/v1/items/read` and `/v1/items/revision` answers carry `fence`.
+`skarbiec fence lift --transaction <T>` ends it; `fence show` prints it.
 
 ### Audit segments
 
