@@ -7,6 +7,7 @@ pub mod chacha;
 pub mod ed25519;
 pub mod field;
 pub mod hmac;
+pub mod inflate;
 pub mod ocb;
 pub mod sha;
 pub mod wipe;
