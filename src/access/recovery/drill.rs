@@ -25,7 +25,7 @@ pub(super) fn help() -> Value {
 
 pub(super) fn dispatch(
     command: &str,
-    _flags: &HashMap<String, String>,
+    flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match command {
@@ -139,7 +139,17 @@ pub(super) fn dispatch(
             // and the keyring directly, never the HTTP API — the API is the
             // first thing that stops working, and a diagnosis that needs the
             // patient healthy is not a diagnosis.
-            let vault = load()?;
+            // A host that holds no vault has nothing to open: it is said, and
+            // a delivery's probe passes there, while a vault that is gone but
+            // kept beside is still the refusal naming the copy.
+            let Some(vault) = crate::core::vault::Vault::open_present(vault_path())? else {
+                return Ok(Some(json!({
+                    "vault": vault_path().display().to_string(),
+                    "key_file": crypto::key_file().display().to_string(),
+                    "status": "no vault",
+                    "note": "this host holds no vault at this path, so there is nothing to open",
+                })));
+            };
             let owner = vault.owner_uid().to_string();
             let recovery = vault.recovery_fpr().to_string();
             let mut recipients = Vec::new();
@@ -222,12 +232,29 @@ pub(super) fn dispatch(
             } else {
                 "unreadable"
             };
+            let key_file = crypto::key_file();
+            // A delivery's pre-switch probe asks this to fail, not to report:
+            // the candidate opens nothing here, so it must not replace what
+            // serves this vault now.
+            if let (true, Some(id), Some(error)) = (
+                crate::cli::args::flag_set(flags, "require-readable"),
+                canary.as_deref(),
+                open_error.as_deref(),
+            ) {
+                anyhow::bail!(
+                    "keys check --require-readable: no key in {} opens {}'s item {id}: {error}; \
+                     bring the key it is sealed to with `skarbiec keys import` (or the key file \
+                     from its backup) before this binary serves the vault",
+                    key_file.display(),
+                    vault_path().display(),
+                );
+            }
             Ok(Some(json!({
                 "vault": vault_path().display().to_string(),
                 // Named even when a secret half is present: this is the file
                 // an operator has to back up apart from the vault, not only
                 // restore.
-                "key_file": crypto::key_file().display().to_string(),
+                "key_file": key_file.display().to_string(),
                 "owner": owner,
                 "status": readable,
                 "canary_item": canary,

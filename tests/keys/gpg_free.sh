@@ -133,6 +133,26 @@ echo "fixture: owner $OWNER_FPR, member $MEMBER_FPR, saved version $OLD_STAMP" >
 WANT=refused run get login-a --field password
 says "$KEYS" "a read with no key file names the key file"
 says "keys import" "a read with no key file names keys import"
+WANT=refused run keys check --require-readable
+says "keys check --require-readable" "the pre-switch probe fails while no key here opens the vault"
+says "keys import" "the pre-switch probe names keys import"
+
+# A host that holds no vault (a delivery reaches every host): both pre-switch
+# steps pass and say so, writing nothing; a vault that is gone but kept
+# beside is still refused naming the copy.
+NOVAULT="$ROOT/novault/vault.json"
+mkdir -p "$ROOT/novault"
+SKARBIEC_VAULT_FILE="$NOVAULT" WANT=ok run keys import --gnupg-home "$GHOME"
+printf '%s' "$out" | jq -e '(.keys | length) == 0 and (.note | test("holds no vault"))' >/dev/null \
+  || fail "keys import on a host with no vault did not say there is nothing to import: $out"
+SKARBIEC_VAULT_FILE="$NOVAULT" WANT=ok run keys check --require-readable
+[ "$(printf '%s' "$out" | jq -r .status)" = "no vault" ] || fail "keys check on a host with no vault did not say so: $out"
+[ -z "$(ls -A "$ROOT/novault")" ] || fail "the steps on a host with no vault wrote $(ls -A "$ROOT/novault")"
+cp "$SKARBIEC_VAULT_FILE" "$NOVAULT.pre-pull-kept"
+SKARBIEC_VAULT_FILE="$NOVAULT" WANT=refused run keys check --require-readable
+says "$NOVAULT.pre-pull-kept" "a vault that is gone but kept beside is refused naming the copy"
+rm -rf "$ROOT/novault"
+echo "ok: a host with no vault passes both pre-switch steps and writes nothing" >>"$REPORT"
 
 WANT=refused run keys import --gnupg-home "$GHOME"
 says "SKARBIEC_UNLOCK_FILE" "importing a protected key without a phrase names the unlock file"
@@ -146,6 +166,13 @@ SKARBIEC_UNLOCK="$PHRASE" WANT=ok run keys import --gnupg-home "$GHOME"
 [ -n "$(find "$KEYS" -perm 600)" ] || fail "the key file is not mode 0600: $(ls -l "$KEYS")"
 jq -e '[.keys[].secret.sealed] | all' "$KEYS" >/dev/null || fail "a secret half was written unsealed under a configured phrase"
 echo "ok: keys import wrote an owner-only key file with sealed secret halves" >>"$REPORT"
+cp "$KEYS" "$ROOT/keys.first"
+SKARBIEC_UNLOCK="$PHRASE" WANT=ok run keys import --gnupg-home "$GHOME"
+printf '%s' "$out" | jq -e '[.keys[].changed] | any | not' >/dev/null || fail "a second keys import changed keys it already held: $out"
+cmp -s "$KEYS" "$ROOT/keys.first" || fail "a second keys import rewrote the key file"
+echo "ok: keys import run again changes nothing" >>"$REPORT"
+SKARBIEC_UNLOCK="$PHRASE" WANT=ok run keys check --require-readable
+[ "$(printf '%s' "$out" | jq -r .status)" = readable ] || fail "the pre-switch probe did not open the vault once the keys were here: $out"
 
 # --- unlock and key file refusals --------------------------------------------
 WANT=refused run get login-a --field password
@@ -215,6 +242,52 @@ SKARBIEC_KEYS_FILE="$ROOT/member.keys.json" WANT=ok run get login-b --field pass
 [ "$out" = "note-$RUN" ] || fail "the member could not read its shared item after reseal"
 SKARBIEC_KEYS_FILE="$ROOT/member.keys.json" WANT=refused run get login-a --field password
 says "no key held here is a recipient" "the member still cannot read what was not shared"
+
+# --- a key whose signing half alone is protected ------------------------------
+# Its holder keeps the signing half under a passphrase this host is not given,
+# and the decryption half in the clear: import brings the decryption half,
+# says the signing half was left, reads the owner's items, and refuses to
+# sign as the key naming the unlock file.
+SPLIT="$GHOME.split"
+cp -R "$GHOME" "$SPLIT"
+gpgconf --homedir "$SPLIT" --kill all >>"$REPORT" 2>&1 || true
+grips=$(gpg --homedir "$SPLIT" --list-keys --with-keygrip --with-colons "$OWNER_FPR" | awk -F: '/^grp/{print $10}')
+SIGNING_GRIP=$(printf '%s\n' "$grips" | sed -n 1p)
+SEALING_GRIP=$(printf '%s\n' "$grips" | sed -n 2p)
+cp "$SPLIT/private-keys-v1.d/$SEALING_GRIP.key" "$ROOT/sealing.clear"
+gpg --homedir "$SPLIT" --batch --pinentry-mode loopback --passphrase '' --export-secret-keys "$OWNER_FPR" >"$ROOT/owner.sec" \
+  || fail "gpg did not export the owner's secret key for the split fixture"
+rm "$SPLIT/private-keys-v1.d/$SIGNING_GRIP.key" "$SPLIT/private-keys-v1.d/$SEALING_GRIP.key"
+gpgconf --homedir "$SPLIT" --kill all >>"$REPORT" 2>&1 || true
+gpg --homedir "$SPLIT" --batch --pinentry-mode loopback --passphrase "split $RUN" --import "$ROOT/owner.sec" >>"$REPORT" 2>&1 \
+  || fail "gpg did not import the owner's secret key under a passphrase"
+gpgconf --homedir "$SPLIT" --kill all >>"$REPORT" 2>&1 || true
+cp "$ROOT/sealing.clear" "$SPLIT/private-keys-v1.d/$SEALING_GRIP.key"
+grep -q "protected-private-key" "$SPLIT/private-keys-v1.d/$SIGNING_GRIP.key" || fail "the split fixture's signing half is not protected"
+if grep -q "protected-private-key" "$SPLIT/private-keys-v1.d/$SEALING_GRIP.key"; then fail "the split fixture's decryption half is protected"; fi
+rm -f "$ROOT/owner.sec" "$ROOT/sealing.clear"
+(
+  unset SKARBIEC_UNLOCK_FILE
+  export HOME="$ROOT/split-home"
+  mkdir -p "$HOME"
+  SKARBIEC_KEYS_FILE="$ROOT/split.keys.json" WANT=ok run keys import --gnupg-home "$SPLIT" --keys "$OWNER_FPR"
+  printf '%s' "$out" | jq -e --arg f "$OWNER_FPR" '.keys[] | select(.fingerprint == $f) | .secret_half == "decryption only" and (.signing_half | test("not imported"))' >/dev/null \
+    || fail "keys import of a key with only its signing half protected did not say it brought the decryption half: $out"
+  echo "ok: a protected signing half is left and named; the decryption half is imported" >>"$REPORT"
+  SKARBIEC_KEYS_FILE="$ROOT/split.keys.json" WANT=ok run get login-a --field password
+  [ "$out" = "second-$RUN" ] || fail "the decryption half alone did not open the owner's item"
+  echo "ok: the decryption half alone opens the owner's items" >>"$REPORT"
+  # Signing is what an audit epoch does once a journal is broken: a journal
+  # of its own, broken on purpose, so the signature is what decides.
+  cp "$SKARBIEC_AUDIT_FILE" "$ROOT/split-audit.jsonl"
+  printf '%s\n' '{"at":"split","op":"split","extra":null,"prev":"x","hash":"y"}' >>"$ROOT/split-audit.jsonl"
+  SKARBIEC_AUDIT_FILE="$ROOT/split-audit.jsonl" SKARBIEC_KEYS_FILE="$ROOT/split.keys.json" \
+    WANT=refused run audit epoch --reason "split key $RUN"
+  says "only the decryption half of key" "signing with a decryption-only key is refused"
+  says "SKARBIEC_UNLOCK_FILE" "the signing refusal names the unlock file"
+)
+gpgconf --homedir "$SPLIT" --kill all >>"$REPORT" 2>&1 || true
+rm -rf "$SPLIT"
 
 jq --arg b "$BACKUP" '.reseal = {"started_at": "an interrupted run", "backup": $b, "resealed": 3}' \
   "$SKARBIEC_VAULT_FILE" >"$ROOT/interrupted.json"

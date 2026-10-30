@@ -50,11 +50,7 @@ pub fn clearsign(signer: &str, payload: &str) -> Result<String> {
         )
     })?;
     let secret = key.secret(&keyring.path)?;
-    let seed: [u8; 32] = secret
-        .seed
-        .expose()
-        .try_into()
-        .context("an Ed25519 seed is 32 bytes")?;
+    let seed = secret.signing_seed(&key.fingerprint())?;
     let created = u32::try_from(crate::core::clock::epoch_seconds()?)
         .context("the clock is past what an OpenPGP signature can state (2106)")?;
     Ok(skarbiec_crypto::openpgp::signature::sign_cleartext(

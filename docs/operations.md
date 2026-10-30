@@ -70,7 +70,13 @@ skarbiec keys import --gnupg-home <dir> --keys <fingerprint,...>
 
 A key whose public half the GnuPG home lacks is refused naming it; a
 protected GnuPG key opens with the unlock phrase configured below, and one it
-does not open is refused saying so.
+does not open is refused saying so. A key whose decryption (Curve25519) half
+opens but whose signing (Ed25519) half is protected by a passphrase this
+host is not given is imported for decryption only: the answer marks it
+`decryption only` and names the signing half it left in GnuPG. Such a host
+opens and reseals every item sealed to the key; signing as it (an audit
+epoch checkpoint) is refused naming the key and `SKARBIEC_UNLOCK_FILE`, and
+importing again with the phrase configured adds the signing half.
 
 The key file is read only when it is a regular file of this account with no
 permission bit beyond owner read and write; anything else is refused naming

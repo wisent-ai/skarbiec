@@ -40,7 +40,10 @@ pub fn generate_key(uid: &str) -> Result<String> {
         &path,
         vec![NewKey {
             packets,
-            secret: Some(SecretHalf { seed, scalar }),
+            secret: Some(SecretHalf {
+                seed: Some(seed),
+                scalar,
+            }),
         }],
     )?;
     let (fingerprint, _) = added

@@ -119,16 +119,21 @@ fn point(key: &[u8; 32]) -> Vec<u8> {
     q
 }
 
-/// The secret half of a key from its two agent files, or why it is not here.
+/// The secret half of a key from its agent files, or why it is not here,
+/// and why its signing half was left behind when only that is protected.
+///
+/// The sealing (X25519) file opens what is sealed to the key and is
+/// required; without it nothing secret is imported. The signing (Ed25519)
+/// file is taken when it opens: one protected by a passphrase this host is
+/// not configured with is left in gpg's keeping, and the key is imported to
+/// open items only, which the second value names.
 fn secret_half(
     files: &HashMap<Vec<u8>, (PathBuf, String)>,
     ed25519: &[u8; 32],
     x25519: &[u8; 32],
     phrase: Option<&Secret>,
-) -> std::result::Result<Option<SecretHalf>, String> {
-    let (Some((signing_path, signing)), Some((sealing_path, sealing))) =
-        (files.get(&point(ed25519)), files.get(&point(x25519)))
-    else {
+) -> std::result::Result<Option<(SecretHalf, Option<String>)>, String> {
+    let Some((sealing_path, sealing)) = files.get(&point(x25519)) else {
         return Ok(None);
     };
     let open = |path: &Path, text: &str| {
@@ -155,22 +160,40 @@ fn secret_half(
             )
         })
     };
-    let signing = open(signing_path, signing)?;
-    let sealing = open(sealing_path, sealing)?;
-    let seed = signing
-        .ed25519_seed()
-        .map_err(|error| format!("{}: {error}", signing_path.display()))?;
-    let scalar = sealing
+    let scalar = open(sealing_path, sealing)?
         .x25519_secret()
         .map_err(|error| format!("{}: {error}", sealing_path.display()))?;
-    Ok(Some(SecretHalf {
-        seed: Secret::new(seed.to_vec()),
-        scalar: Secret::new(scalar.to_vec()),
-    }))
+    let (seed, signing_left) = match files.get(&point(ed25519)) {
+        None => (
+            None,
+            Some("its signing half is not in this GnuPG home".to_string()),
+        ),
+        Some((signing_path, signing)) => match open(signing_path, signing) {
+            Ok(opened) => (
+                Some(Secret::new(
+                    opened
+                        .ed25519_seed()
+                        .map_err(|error| format!("{}: {error}", signing_path.display()))?
+                        .to_vec(),
+                )),
+                None,
+            ),
+            Err(why) if is_protected(signing) => (None, Some(why)),
+            Err(why) => return Err(why),
+        },
+    };
+    Ok(Some((
+        SecretHalf {
+            seed,
+            scalar: Secret::new(scalar.to_vec()),
+        },
+        signing_left,
+    )))
 }
 
-/// The fingerprints to import: `--keys`, else every key the vault names.
-fn wanted(flags: &HashMap<String, String>) -> Result<Vec<String>> {
+/// The fingerprints to import: `--keys`, else every key the vault names;
+/// `None` when no keys are named and this host holds no vault to name them.
+fn wanted(flags: &HashMap<String, String>) -> Result<Option<Vec<String>>> {
     if let Some(listed) = flags.get("keys") {
         let keys: Vec<String> = listed
             .split(',')
@@ -186,11 +209,13 @@ fn wanted(flags: &HashMap<String, String>) -> Result<Vec<String>> {
             ))
             .into());
         }
-        return Ok(keys);
+        return Ok(Some(keys));
     }
-    let vault = crate::core::vault::Vault::open(crate::core::vault_path()).context(
-        "keys import reads which keys to bring from the vault; with no vault here, name them with --keys <fingerprint,...>",
-    )?;
+    let Some(vault) = crate::core::vault::Vault::open_present(crate::core::vault_path())
+        .context("keys import reads which keys to bring from the vault")?
+    else {
+        return Ok(None);
+    };
     let mut keys: Vec<String> = vault
         .section("recipients", "uid -> recipient")?
         .values()
@@ -204,7 +229,7 @@ fn wanted(flags: &HashMap<String, String>) -> Result<Vec<String>> {
     }
     keys.sort();
     keys.dedup();
-    Ok(keys)
+    Ok(Some(keys))
 }
 
 pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
@@ -218,7 +243,20 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
         .into());
     }
     let home = gnupg_home(flags);
-    let wanted = wanted(flags)?;
+    // A host without a vault names no key to bring: said, nothing written,
+    // so a delivery that imports on every host passes where none is held.
+    let Some(wanted) = wanted(flags)? else {
+        return Ok(json!({
+            "ok": true,
+            "from": home.display().to_string(),
+            "key_file": keyring::path().display().to_string(),
+            "keys": [],
+            "note": format!(
+                "this host holds no vault at {}, so it names no key to import; name keys with --keys <fingerprint,...> to import them anyway",
+                crate::core::vault_path().display()
+            ),
+        }));
+    };
     let blocks = keyblocks(&home)?;
     let files = agent_files(&home)?;
     let phrase = keyring::unlock_phrase()?;
@@ -253,17 +291,24 @@ pub fn run(flags: &HashMap<String, String>) -> Result<Value> {
                 home.display()
             );
         };
-        let (secret, state) =
+        let (secret, state, signing) =
             match secret_half(&files, &public.ed25519, &subkey.x25519, phrase.as_ref()) {
-                Ok(Some(half)) => (Some(half), "imported".to_string()),
-                Ok(None) => (None, "not on this host".to_string()),
+                Ok(Some((half, None))) => (Some(half), "imported", None),
+                Ok(Some((half, Some(why)))) => (Some(half), "decryption only", Some(why)),
+                Ok(None) => (None, "not on this host", None),
                 Err(why) => bail!("the secret half of {fpr}: {why}"),
             };
-        rows.push(json!({
+        let mut row = json!({
             "fingerprint": fpr,
             "user_ids": public.user_ids,
             "secret_half": state,
-        }));
+        });
+        if let Some(why) = signing {
+            row["signing_half"] = json!(format!(
+                "not imported: {why}; this host opens items sealed to the key and signs nothing as it"
+            ));
+        }
+        rows.push(row);
         to_add.push(NewKey { packets, secret });
     }
     let added = keyring::add(&target, to_add)?;

@@ -82,6 +82,19 @@ impl Vault {
         Ok(vault)
     }
 
+    /// The vault at `path`, or `None` when this host holds none: no file
+    /// there and no copy kept beside it. A vault that is gone but kept
+    /// beside is the refusal `open` gives, never a host without a vault.
+    pub fn open_present(path: PathBuf) -> Result<Option<Self>> {
+        if crate::core::unchosen_copy_refusal(&path).is_none()
+            && !crate::core::is_present(&path, "the vault file")?
+            && newest_kept_copy(&path)?.is_none()
+        {
+            return Ok(None);
+        }
+        Self::open(path).map(Some)
+    }
+
     pub fn open(path: PathBuf) -> Result<Self> {
         if let Some(refusal) = crate::core::unchosen_copy_refusal(&path) {
             bail!(refusal);

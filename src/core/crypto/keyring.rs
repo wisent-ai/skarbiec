@@ -53,10 +53,28 @@ pub(crate) fn path() -> PathBuf {
     path_for(&crate::core::vault_path())
 }
 
-/// A secret half as this process holds it once unlocked.
+/// A secret half as this process holds it once unlocked: the X25519 scalar
+/// that opens what is sealed to the key, and the Ed25519 seed that signs as
+/// it when the host holds that too. A key whose signing half its holder
+/// keeps protected elsewhere opens items here and signs nothing.
 pub(crate) struct SecretHalf {
-    pub seed: Secret,
+    pub seed: Option<Secret>,
     pub scalar: Secret,
+}
+
+impl SecretHalf {
+    /// The Ed25519 seed, or why this host cannot sign as `fingerprint`.
+    pub fn signing_seed(&self, fingerprint: &str) -> Result<[u8; 32]> {
+        match &self.seed {
+            Some(seed) => thirty_two(seed.expose(), "an Ed25519 seed"),
+            None => bail!(
+                "this host holds only the decryption half of key {fingerprint}; its signing half \
+                 was protected when it was imported. Write its passphrase to the owner-only file \
+                 SKARBIEC_UNLOCK_FILE names (default ~/.stado/skarbiec-unlock) and run `skarbiec \
+                 keys import` again, or sign on the host that holds it"
+            ),
+        }
+    }
 }
 
 /// A secret half as the file holds it.
@@ -318,17 +336,23 @@ fn unseal(
         )
     })?;
     let opened = Secret::new(opened);
-    if opened.expose().len() != 64 {
-        return Err(format!(
-            "the secret half of {fingerprint} in {} is {} bytes, not the 64 a seed and a scalar make",
-            file.display(),
-            opened.expose().len()
-        ));
+    // Sealed is the seed then the scalar, or the scalar alone for a key whose
+    // signing half was not imported.
+    match opened.expose().len() {
+        64 => Ok(SecretHalf {
+            seed: Some(Secret::new(opened.expose()[..32].to_vec())),
+            scalar: Secret::new(opened.expose()[32..].to_vec()),
+        }),
+        32 => Ok(SecretHalf {
+            seed: None,
+            scalar: Secret::new(opened.expose().to_vec()),
+        }),
+        other => Err(format!(
+            "the secret half of {fingerprint} in {} is {other} bytes, not the 64 a seed and a \
+             scalar make or the 32 of a scalar alone; import the key again",
+            file.display()
+        )),
     }
-    Ok(SecretHalf {
-        seed: Secret::new(opened.expose()[..32].to_vec()),
-        scalar: Secret::new(opened.expose()[32..].to_vec()),
-    })
 }
 
 fn parse_key(entry: &Value, index: usize, phrase: Option<&Secret>, file: &Path) -> Result<Key> {
@@ -369,7 +393,12 @@ fn parse_key(entry: &Value, index: usize, phrase: Option<&Secret>, file: &Path) 
                     data: field("data")?,
                 }),
                 _ => Some(Stored::Clear(SecretHalf {
-                    seed: Secret::new(thirty_two(&field("ed25519")?, "an Ed25519 seed")?.to_vec()),
+                    seed: match secret.get("ed25519") {
+                        None | Some(Value::Null) => None,
+                        Some(_) => Some(Secret::new(
+                            thirty_two(&field("ed25519")?, "an Ed25519 seed")?.to_vec(),
+                        )),
+                    },
                     scalar: Secret::new(
                         thirty_two(&field("x25519")?, "an X25519 scalar")?.to_vec(),
                     ),
@@ -393,12 +422,15 @@ fn parse_key(entry: &Value, index: usize, phrase: Option<&Secret>, file: &Path) 
     // A secret half that is not this key's would sign and open as someone
     // else: the seed and the scalar must give the public keys stored.
     if let Some(Ok(half)) = &unlocked {
-        let seed = thirty_two(half.seed.expose(), "an Ed25519 seed")?;
-        if skarbiec_crypto::ed25519::public_key(&seed) != public.ed25519 {
-            bail!(
-                "{what}: the secret half stored for {fingerprint} is not that key's (its Ed25519 \
-                 public key differs); the file was changed or written wrongly: import the key again"
-            );
+        if let Some(seed) = &half.seed {
+            let seed = thirty_two(seed.expose(), "an Ed25519 seed")?;
+            if skarbiec_crypto::ed25519::public_key(&seed) != public.ed25519 {
+                bail!(
+                    "{what}: the secret half stored for {fingerprint} is not that key's (its \
+                     Ed25519 public key differs); the file was changed or written wrongly: import \
+                     the key again"
+                );
+            }
         }
         let scalar = thirty_two(half.scalar.expose(), "an X25519 scalar")?;
         let opens = public
@@ -545,10 +577,13 @@ fn entry(key: &NewKey, fingerprint: &str, phrase: Option<&Secret>, salt: &[u8]) 
     entry.insert("public".into(), json!(base64_encode(&key.packets)));
     let secret = match (&key.secret, phrase) {
         (None, _) => Value::Null,
-        (Some(half), None) => json!({
-            "ed25519": hex(half.seed.expose()),
-            "x25519": hex(half.scalar.expose()),
-        }),
+        (Some(half), None) => match &half.seed {
+            Some(seed) => json!({
+                "ed25519": hex(seed.expose()),
+                "x25519": hex(half.scalar.expose()),
+            }),
+            None => json!({"ed25519": null, "x25519": hex(half.scalar.expose())}),
+        },
         (Some(half), Some(phrase)) => {
             let nonce: [u8; 12] = skarbiec_crypto::random::bytes(12)
                 .context("draw the nonce that seals a secret key")?
@@ -557,7 +592,10 @@ fn entry(key: &NewKey, fingerprint: &str, phrase: Option<&Secret>, salt: &[u8]) 
                 .context("a 12-byte nonce")?;
             let key = unlock_key(phrase.expose(), salt, UNLOCK_COUNT);
             let key: [u8; 32] = key.expose().try_into().context("a 32-byte unlock key")?;
-            let mut plain = half.seed.expose().to_vec();
+            let mut plain = match &half.seed {
+                Some(seed) => seed.expose().to_vec(),
+                None => Vec::new(),
+            };
             plain.extend_from_slice(half.scalar.expose());
             let plain = Secret::new(plain);
             let data = chacha::seal(&key, &nonce, &sealing_context(fingerprint), plain.expose());
@@ -615,12 +653,21 @@ pub(crate) fn add(path: &Path, keys: Vec<NewKey>) -> Result<Vec<(String, bool)>>
         }
         None => json!({"format": FORMAT, "keys": []}),
     };
-    // Each entry's fingerprint and whether it holds a secret half, kept in
-    // step with `entries` as keys are added below.
+    // Each entry's fingerprint and whether it holds its whole secret half
+    // (both the scalar and the seed), kept in step with `entries` as keys are
+    // added below. A sealed half this phrase cannot open is taken as whole:
+    // it is not replaced without the phrase it was written under.
     let mut held: Vec<(String, bool)> = read(path, phrase.as_ref())?
         .keys
         .iter()
-        .map(|key| (key.fingerprint(), key.holds_secret()))
+        .map(|key| {
+            let whole = match &key.unlocked {
+                None => false,
+                Some(Ok(half)) => half.seed.is_some(),
+                Some(Err(_)) => true,
+            };
+            (key.fingerprint(), whole)
+        })
         .collect();
     let salt = file_salt(&document)?;
     let entries = document
@@ -644,11 +691,18 @@ pub(crate) fn add(path: &Path, keys: Vec<NewKey>) -> Result<Vec<(String, bool)>>
         let fingerprint = public.fingerprint_hex();
         let at = held.iter().position(|(held, _)| *held == fingerprint);
         match at {
-            // A secret half arrives for a key held only publicly: the whole
-            // entry is written again with it.
-            Some(index) if key.secret.is_some() && !held[index].1 => {
+            // A secret half arrives, or a fuller one, for a key held only
+            // publicly or with only its decryption half: the whole entry is
+            // written again with it.
+            Some(index)
+                if key.secret.as_ref().is_some_and(|half| {
+                    !held[index].1
+                        && (half.seed.is_some()
+                            || entries[index].get("secret").is_none_or(Value::is_null))
+                }) =>
+            {
                 entries[index] = entry(&key, &fingerprint, phrase.as_ref(), &salt)?;
-                held[index].1 = true;
+                held[index].1 = key.secret.as_ref().is_some_and(|half| half.seed.is_some());
                 answers.push((fingerprint, true));
             }
             // The same key again: its public half is replaced when it
@@ -664,7 +718,10 @@ pub(crate) fn add(path: &Path, keys: Vec<NewKey>) -> Result<Vec<(String, bool)>>
             }
             None => {
                 entries.push(entry(&key, &fingerprint, phrase.as_ref(), &salt)?);
-                held.push((fingerprint.clone(), key.secret.is_some()));
+                held.push((
+                    fingerprint.clone(),
+                    key.secret.as_ref().is_some_and(|half| half.seed.is_some()),
+                ));
                 answers.push((fingerprint, true));
             }
         }
