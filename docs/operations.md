@@ -151,6 +151,17 @@ stado schedule create --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'
 ```
 Replication discovery distinguishes an absent vault from a failed filesystem inspection: an inaccessible vault fails the pass with its path and operating-system cause. If both a pull and its failure-audit write fail, the refusal retains the bond, source address, original pull cause and audit-write cause together.
 
+A run the schedule starts ends before the schedule fires again. Stado names
+the schedule to the run (`STADO_SCHEDULE_ID`, `STADO_SCHEDULE_CRON` and
+`STADO_SCHEDULE_NEXT_DUE_AT`, its next firing), and every network exchange
+the run makes, the alert webhook, a provider rotation, a list it reads, the
+resolver, ends by that moment: connect, TLS handshake, request and reply. A
+server that accepts and never answers fails the step with `the exchange did
+not end by the deadline from routine <id> period <cron> (its next firing,
+<time>)`. A run that names a schedule without its next firing is refused
+naming `STADO_SCHEDULE_NEXT_DUE_AT`. A command a person runs carries no
+schedule and waits until the server answers or the person interrupts it.
+
 Only the vault's owner publishes its mirror: a replica that pushed would
 replace the owner's ciphertext with its own copy, so a mirror existing never
 makes a host publish. `skarbiec mirror publish` records it in the mirror's own

@@ -9,7 +9,8 @@
 # a second arm of the same transaction answers already while another
 # transaction's arm is refused, that /v1/items/read and /v1/items/revision
 # carry the fence while it stands and nothing once it is lifted, that lift
-# by another transaction is refused, and that every flag the fence does not
+# by another transaction is refused, that of concurrent arms of different
+# transactions exactly one arms, and that every flag the fence does not
 # take is refused naming it. Every command and answer goes to report.txt.
 #
 # Usage: SKARBIEC=<binary under test> tests/vault/fence.sh
@@ -166,6 +167,36 @@ printf 'bad\nreason' >"$ROOT/reason"
 WANT=refused run fence arm --transaction "$T" --reason "$(cat "$ROOT/reason")"
 says "one line of text" "a reason holding a line break is refused"
 echo "ok: a fence with a reason keeps it and every refusal and read says it" >>"$REPORT"
+
+# Arms of different transactions at once: the standing fence is read under
+# the write lock, so exactly one arms and every other is refused (by the
+# lock or by the fence it then reads), never two fences answered armed.
+mkdir "$ROOT/race"
+ARMS=
+for n in 1 2 3 4 5 6 7 8; do
+  ("$BIN" fence arm --transaction "race-$n-$RUN" >"$ROOT/race/$n.out" 2>"$ROOT/race/$n.err" </dev/null || true) &
+  ARMS="$ARMS $!"
+done
+# Only the arms: serve also runs in the background.
+wait $ARMS
+armed=0
+for n in 1 2 3 4 5 6 7 8; do
+  printf 'race arm %s: %s %s\n' "$n" "$(cat "$ROOT/race/$n.out")" "$(cat "$ROOT/race/$n.err")" >>"$REPORT"
+  if jq -e '.armed == true and .already == false' "$ROOT/race/$n.out" >/dev/null 2>&1; then armed=$((armed + 1)); WON=$n; fi
+done
+[ "$armed" = 1 ] || fail "$armed of 8 concurrent arms of different transactions answered armed; exactly one may"
+WANT=ok run fence show
+printf '%s' "$out" | jq -e --arg t "race-$WON-$RUN" '.fence.transaction == $t' >/dev/null \
+  || fail "the fence standing is not the one arm that answered armed (race-$WON-$RUN): $out"
+echo "ok: of 8 concurrent arms exactly one armed, and its fence is the one standing" >>"$REPORT"
+# Lift takes the same lock, so it never removes a fence a write is checking.
+echo "$$" >"$LOCK"
+WANT=refused run fence lift --transaction "race-$WON-$RUN"
+says "a write to the vault is in progress" "lift while a write holds the vault's lock is refused"
+rm -f "$LOCK"
+WANT=ok run fence lift --transaction "race-$WON-$RUN"
+WANT=ok run fence lift --transaction "race-$WON-$RUN"
+printf '%s' "$out" | jq -e '.lifted == false' >/dev/null || fail "lift with no fence standing did not answer lifted false: $out"
 
 WANT=refused run fence arm
 says "need --transaction" "fence arm without a transaction is refused"

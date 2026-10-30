@@ -11,14 +11,18 @@
 //! /etc/pki/tls/certs/ca-bundle.crt). A server that speaks only TLS 1.2 is
 //! refused naming that, as is one whose chain does not lead to an anchor.
 //! An http:// address is dialled only on this host's loopback interface.
+//!
+//! A run a Stado schedule started ends every exchange by that schedule's
+//! next firing (`net::deadline`); a command a person runs waits until the
+//! server answers or the person interrupts it.
 
 use anyhow::{bail, Context, Result};
 use skarbiec_crypto::tls::handshake::{connect, Connection};
 use skarbiec_crypto::x509::Anchor;
 use std::io::{BufReader, Read};
-use std::net::TcpStream;
 use std::sync::OnceLock;
 
+use super::deadline::{self, Bounded};
 use super::loopback::{self, Reply};
 
 /// The trust bundles the operating systems keep, looked for in this order
@@ -141,7 +145,7 @@ fn now() -> Result<i64> {
 }
 
 /// Application data off a connection, as a byte stream.
-struct Plain<'a>(&'a mut Connection<TcpStream>, Vec<u8>, usize);
+struct Plain<'a>(&'a mut Connection<Bounded>, Vec<u8>, usize);
 
 impl Read for Plain<'_> {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
@@ -184,12 +188,13 @@ pub(crate) fn exchange(
     let head = loopback::request_head(method, &path, &authority, headers, body, what)?;
     let anchors = anchors().with_context(|| format!("{what}: {url}"))?;
     let now = now()?;
+    let held = deadline::Deadline::of_this_run()?;
     stado_wait::blocking(
         stado_wait::Kind::Network,
         what,
         &authority,
         || -> std::io::Result<Reply> {
-            let stream = TcpStream::connect((host.as_str(), port))?;
+            let stream = deadline::connect((host.as_str(), port), held.as_ref())?;
             let mut connection = connect(stream, &host, anchors, now, &["http/1.1"])
                 .map_err(std::io::Error::other)?;
             let mut request = head.as_bytes().to_vec();

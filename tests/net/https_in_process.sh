@@ -10,8 +10,10 @@
 # refusals: a trust bundle holding no root that signs those servers is
 # refused naming the untrusted chain, a bundle path that does not exist is
 # refused naming SSL_CERT_FILE, and a local server speaking only TLS 1.2
-# (openssl s_server) is refused naming TLS 1.3. Every command and answer goes
-# to report.txt.
+# (openssl s_server) is refused naming TLS 1.3, and the same server stopped
+# (it accepts and never answers) ends a scheduled run's exchange by the
+# schedule's next firing, refused naming the routine and its period. Every
+# command and answer goes to report.txt.
 #
 # Usage: SKARBIEC=<binary under test> tests/net/https_in_process.sh
 set -eu
@@ -99,6 +101,25 @@ SSL_CERT_FILE="$ROOT/tls12.pem" WANT=refused run alert test
 says "TLS 1.2 or older; this client speaks TLS 1.3 only" "a server speaking only TLS 1.2 is refused naming TLS 1.3"
 case "$said$out" in *"localhost:$PORT/hook"*) fail "the refusal printed the webhook address" ;; esac
 echo "ok: the refusal names the item, never the webhook address" >>"$REPORT"
+
+# A server that accepts and never answers: the TLS 1.2 server, stopped. Its
+# kernel still completes the connection from the listen backlog, and nothing
+# is ever sent back. A run a Stado schedule started ends by that schedule's
+# next firing, refused naming it; without one the command would wait.
+kill -STOP "$SERVER"
+LATER=$(($(date +%s) + 3))
+DUE=$(date -u -r "$LATER" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$LATER" +%Y-%m-%dT%H:%M:%SZ)
+START=$(date +%s)
+STADO_SCHEDULE_ID="maintain-$RUN" STADO_SCHEDULE_CRON='* * * * *' STADO_SCHEDULE_NEXT_DUE_AT="$DUE" \
+  SSL_CERT_FILE="$ROOT/tls12.pem" WANT=refused run alert test
+TOOK=$(($(date +%s) - START))
+says "deadline from routine maintain-$RUN period * * * * *" "an exchange with a silent server is refused naming the routine's period"
+[ "$TOOK" -le 30 ] || fail "the refusal came $TOOK s after the start, long past the schedule's next firing at $DUE"
+echo "ok: a silent server ends the scheduled exchange at the next firing ($TOOK s)" >>"$REPORT"
+STADO_SCHEDULE_ID="maintain-$RUN" STADO_SCHEDULE_CRON='* * * * *' \
+  SSL_CERT_FILE="$ROOT/tls12.pem" WANT=refused run alert test
+says "STADO_SCHEDULE_NEXT_DUE_AT" "a scheduled run with no next firing is refused naming the variable"
+kill -CONT "$SERVER"
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

@@ -150,21 +150,6 @@ pub fn command(
                     vault.display()
                 );
             }
-            if let Some(standing) = current(&vault)? {
-                if standing["transaction"].as_str() == Some(transaction) {
-                    return Ok(json!({"armed": true, "already": true, "fence": standing}));
-                }
-                bail!(
-                    "fence arm: the vault is already fenced for transaction {} since {}; one move \
-                     at a time — lift that one first (`skarbiec fence lift --transaction {}`)",
-                    standing["transaction"].as_str().unwrap_or("?"),
-                    standing["since"].as_str().unwrap_or("?"),
-                    standing["transaction"].as_str().unwrap_or("?")
-                );
-            }
-            // Under the vault's write lock, so a write already past its
-            // fence check finishes before the fence stands, and every later
-            // one sees it.
             let mut fence =
                 json!({"transaction": transaction, "since": crate::core::clock::now_iso()});
             if let Some(reason) = flags.get("reason") {
@@ -179,9 +164,25 @@ pub fn command(
             }
             let path = path_for(&vault);
             {
+                // Under the vault's write lock: a write already past its
+                // fence check finishes before the fence stands, every later
+                // one sees it, and of two arms at once the second reads the
+                // first's fence, so only one move holds the vault.
                 let _write_lock = super::acquire_write_lock(&vault).context(
                     "fence arm: a write to the vault is in progress; run fence arm again once it ends",
                 )?;
+                if let Some(standing) = current(&vault)? {
+                    if standing["transaction"].as_str() == Some(transaction) {
+                        return Ok(json!({"armed": true, "already": true, "fence": standing}));
+                    }
+                    bail!(
+                        "fence arm: the vault is already fenced for transaction {} since {}; one \
+                         move at a time — lift that one first (`skarbiec fence lift --transaction {}`)",
+                        standing["transaction"].as_str().unwrap_or("?"),
+                        standing["since"].as_str().unwrap_or("?"),
+                        standing["transaction"].as_str().unwrap_or("?")
+                    );
+                }
                 crate::core::vault::atomic_write(
                     &path,
                     serde_json::to_string_pretty(&fence)?.as_bytes(),
@@ -193,6 +194,15 @@ pub fn command(
         }
         (Some("lift"), 1) => {
             let transaction = transaction()?;
+            let path = path_for(&vault);
+            if !crate::core::is_present(&path, "the vault's write fence")? {
+                return Ok(json!({"lifted": false, "reason": "no fence stands on this vault"}));
+            }
+            // Under the write lock, as arm reads and writes it, so the fence
+            // checked is the one removed.
+            let _write_lock = super::acquire_write_lock(&vault).context(
+                "fence lift: a write to the vault is in progress; run fence lift again once it ends",
+            )?;
             let Some(standing) = current(&vault)? else {
                 return Ok(json!({"lifted": false, "reason": "no fence stands on this vault"}));
             };
@@ -203,7 +213,6 @@ pub fn command(
                     standing["transaction"].as_str().unwrap_or("?")
                 );
             }
-            let path = path_for(&vault);
             std::fs::remove_file(&path)
                 .with_context(|| format!("remove the vault's write fence {}", path.display()))?;
             crate::runtime::audit::append("fence-lift", &standing)?;

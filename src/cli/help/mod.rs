@@ -216,7 +216,11 @@ pub(crate) fn print_overview() {
     }
     println!(
         "\n`skarbiec <command> --help` prints one command's usage without running it.\n\
-         `skarbiec help` prints this inventory as JSON. Every command has a page under {}.",
+         `skarbiec help` prints this inventory as JSON. Every command has a page under {}.\n\
+         A command that asks a server off this host (breach, totp missing, sites --add-related \
+         and --change-pages, password rules --lookup, rotate, rotation run, alert, maintain) waits until \
+         the server answers or you interrupt it;\nrun by a Stado schedule, every exchange ends by \
+         that schedule's next firing (STADO_SCHEDULE_NEXT_DUE_AT), refused naming the schedule.",
         docs_url("")
     );
 }

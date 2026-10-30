@@ -2,11 +2,12 @@
 //! in process: the Stado resolver, and the adapters it listens on for the
 //! services Skarbiec calls. Only `http://` to a loopback address is spoken;
 //! a reply is read whole, as `Content-Length`, chunked transfer coding, or
-//! up to the close states its end.
+//! up to the close states its end. A run a Stado schedule started ends the
+//! exchange by that schedule's next firing (`net::deadline`).
 
 use anyhow::{bail, Context, Result};
-use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::SocketAddr;
 
 /// A reply: its status code, its status line as sent, and its body.
 pub(crate) struct Reply {
@@ -75,8 +76,9 @@ pub(crate) fn exchange(
     what: &str,
 ) -> Result<Reply> {
     let request = request_head(method, path, &address.to_string(), headers, body, what)?;
+    let held = super::deadline::Deadline::of_this_run()?;
     stado_wait::blocking(stado_wait::Kind::Network, what, address, || {
-        let mut stream = TcpStream::connect(address)?;
+        let mut stream = super::deadline::connect(address, held.as_ref())?;
         stream.write_all(request.as_bytes())?;
         if let Some(body) = body {
             stream.write_all(body)?;
@@ -87,7 +89,9 @@ pub(crate) fn exchange(
     .with_context(|| format!("{what}: {method} {path} at {address}"))
 }
 
-/// The reply on `reader`, read to the end its headers state.
+/// The reply on `reader`, read to the end its headers state. A body is read
+/// as it arrives, never allocated from the server's `Content-Length` or chunk
+/// size, so a length the server does not send costs nothing.
 pub(crate) fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
     let invalid = |detail: String| std::io::Error::new(std::io::ErrorKind::InvalidData, detail);
     let mut status = String::new();
@@ -103,7 +107,7 @@ pub(crate) fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
         .and_then(|code| code.parse::<u16>().ok())
         .filter(|_| status.starts_with("HTTP/1."))
         .ok_or_else(|| invalid(format!("the status line {status:?} is not HTTP/1.x")))?;
-    let mut length: Option<usize> = None;
+    let mut length: Option<u64> = None;
     let mut chunked = false;
     loop {
         let mut line = String::new();
@@ -146,7 +150,7 @@ pub(crate) fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
                 Some((digits, _extensions)) => digits.trim(),
                 None => line.trim(),
             };
-            let size = usize::from_str_radix(digits, 16)
+            let size = u64::from_str_radix(digits, 16)
                 .map_err(|_| invalid(format!("the chunk size {digits:?} is not hexadecimal")))?;
             if size == 0 {
                 // Trailers, up to the blank line that ends them.
@@ -158,9 +162,7 @@ pub(crate) fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
                 }
                 break;
             }
-            let start = body.len();
-            body.resize(start + size, 0);
-            reader.read_exact(&mut body[start..])?;
+            read_stated(&mut reader, size, &mut body, "a chunk")?;
             let mut end = [0u8; 2];
             reader.read_exact(&mut end)?;
             if &end != b"\r\n" {
@@ -168,12 +170,31 @@ pub(crate) fn read_reply(mut reader: impl BufRead) -> std::io::Result<Reply> {
             }
         }
     } else if let Some(length) = length {
-        body.resize(length, 0);
-        reader.read_exact(&mut body)?;
+        read_stated(&mut reader, length, &mut body, "the body")?;
     } else {
         reader.read_to_end(&mut body)?;
     }
     Ok(Reply { code, status, body })
+}
+
+/// Append the `stated` bytes `what` holds to `body`, as they arrive; refused
+/// when the connection closes before they all came.
+fn read_stated(
+    reader: &mut impl BufRead,
+    stated: u64,
+    body: &mut Vec<u8>,
+    what: &str,
+) -> std::io::Result<()> {
+    let got = reader.by_ref().take(stated).read_to_end(body)?;
+    if (got as u64) < stated {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            format!(
+                "the reply states {stated} bytes for {what} and the connection closed after {got}"
+            ),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -199,6 +220,24 @@ mod tests {
             (503, &b"{\"e\":1}"[..])
         );
         assert!(read_reply(&b"SSH-2.0-OpenSSH\r\n\r\n"[..]).is_err());
+        // A length the server never sends is refused once the connection
+        // closes, without allocating it first.
+        let Err(huge) =
+            read_reply(&b"HTTP/1.1 200 OK\r\nContent-Length: 1099511627776\r\n\r\n{}"[..])
+        else {
+            panic!("a body the server stops short of was read whole");
+        };
+        assert!(
+            huge.to_string()
+                .contains("1099511627776 bytes for the body"),
+            "{huge}"
+        );
+        let Err(chunk) = read_reply(
+            &b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffff\r\n{}"[..],
+        ) else {
+            panic!("a chunk the server stops short of was read whole");
+        };
+        assert!(chunk.to_string().contains("for a chunk"), "{chunk}");
         assert!(
             read_reply(&b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n"[..])
                 .is_err()

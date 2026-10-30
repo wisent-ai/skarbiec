@@ -5,6 +5,7 @@
 
 pub mod api;
 pub mod bond;
+pub(crate) mod deadline;
 pub mod http;
 pub(crate) mod https;
 pub(crate) mod loopback;
