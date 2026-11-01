@@ -65,7 +65,7 @@ jobs:
   # No `needs:`. This job is the floor, and a floor that waits on a
   # cross-repository check is not a floor.
   gates:
-    uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@7b0eb12f8e4a646bc1ae3438a42157ea13fdc63f
+    uses: wisent-ai/quality-control/.github/workflows/rust-gates.yml@90a668cc614a43e95289b4233e420f14a546353c
 
   evidence:
     needs: gates
@@ -156,8 +156,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
       - name: Refuse a tag that disagrees with the manifest
         # Every coordinate the tagged steps below write is spelled from
         # GITHUB_REF_NAME and from nothing else: the release, the archive
