@@ -164,8 +164,14 @@ SKARBIEC_UNLOCK="not the phrase" WANT=refused run keys import --gnupg-home "$GHO
 says "does not open" "importing a protected key with the wrong phrase says it does not open"
 [ ! -e "$KEYS" ] || fail "a refused import wrote $KEYS"
 
+# A key file of another kind that is not text (gpg-agent writes some with
+# binary values) holds no key the import reads; it is left out and named,
+# and does not stop the keys that are here.
+printf 'Created: 20260101T000000\nKey: (private-key (rsa (n #\377\376#)))\n' \
+  >"$GHOME/private-keys-v1.d/00000000000000000000000000000000000000FF.key"
 SKARBIEC_UNLOCK="$PHRASE" WANT=ok run keys import --gnupg-home "$GHOME"
 [ "$(printf '%s' "$out" | jq '.keys | length')" = 3 ] || fail "keys import did not bring the owner, recovery and member keys: $out"
+says "is not text" "a key file that is not text is named and left out"
 [ -n "$(find "$KEYS" -perm 600)" ] || fail "the key file is not mode 0600: $(ls -l "$KEYS")"
 jq -e '[.keys[].secret.sealed] | all' "$KEYS" >/dev/null || fail "a secret half was written unsealed under a configured phrase"
 echo "ok: keys import wrote an owner-only key file with sealed secret halves" >>"$REPORT"

@@ -83,6 +83,12 @@ importing again with the phrase configured adds the signing half; `keys
 check` says so too, as `owner_signs: {signs: false, why}`, so a host that
 holds the owner key for decryption only is found before it has to sign.
 
+Key files of `private-keys-v1.d` that hold no key this import reads (an RSA
+key, a card stub, a file gpg-agent wrote with binary values that is not text)
+are left out, each that is not text named on stderr as `<file> is not text,
+so it holds no key this import reads; left out`; they never stop the import
+of the keys that are there.
+
 A GnuPG home that holds no public keyring (gone after the first import, or
 never there on a host keyed with `owner key import`) is nothing to import:
 `keys import` answers so and exits 0 when the key file already holds every

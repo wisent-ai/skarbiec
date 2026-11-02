@@ -135,10 +135,19 @@ fn agent_files(home: &Path) -> Result<HashMap<Vec<u8>, (PathBuf, String)>> {
         if path.extension().and_then(|ext| ext.to_str()) != Some("key") {
             continue;
         }
-        let text = std::fs::read_to_string(&path)
+        let bytes = std::fs::read(&path)
             .with_context(|| format!("read gpg-agent key file {}", path.display()))?;
-        // A file of a kind this reads nothing from (an RSA key, a card stub)
-        // names no Curve25519 point and cannot be a vault key's.
+        // A file of a kind this reads nothing from (an RSA key, a card stub,
+        // one gpg-agent wrote with binary values that are not text) names no
+        // Curve25519 point this reads and cannot be a vault key's; one key
+        // of another kind in the home used to abort the import of every key.
+        let Ok(text) = String::from_utf8(bytes) else {
+            eprintln!(
+                "skarbiec: {} is not text, so it holds no key this import reads; left out",
+                path.display()
+            );
+            continue;
+        };
         if let Ok((_curve, q)) = key_file_public(&text) {
             files.insert(q, (path, text));
         }
