@@ -126,8 +126,12 @@ fn stado_document() -> Result<Option<serde_json::Value>, String> {
 }
 
 /// The vault Stado declares for this machine as `secrets.skarbiec.vault_file`,
-/// tilde-expanded; `None` when no config file or no declaration, and the
-/// cause when the config cannot be read.
+/// with a leading `~/` or `$HOME/` read under this account's home, as Stado
+/// reads it; `None` when no config file or no declaration, and the cause when
+/// the config cannot be read. `$HOME/` was taken literally, so a vault moved
+/// to an account declared that way was opened as `$HOME/...` relative to the
+/// working directory, and the capability broker's state paths disagreed with
+/// every client's (`uses different state paths`).
 pub fn stado_declared_vault() -> Result<Option<PathBuf>, String> {
     let Some(document) = stado_document()? else {
         return Ok(None);
@@ -142,10 +146,15 @@ pub fn stado_declared_vault() -> Result<Option<PathBuf>, String> {
     if declared.is_empty() {
         return Ok(None);
     }
-    Ok(Some(match declared.strip_prefix("~/") {
-        Some(rest) => home_dir().join(rest),
-        None => PathBuf::from(declared),
-    }))
+    Ok(Some(
+        match declared
+            .strip_prefix("~/")
+            .or_else(|| declared.strip_prefix("$HOME/"))
+        {
+            Some(rest) => home_dir().join(rest),
+            None => PathBuf::from(declared),
+        },
+    ))
 }
 
 /// Where a machine Stado makes a client of the vault owner reads the fleet
