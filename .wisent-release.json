@@ -17,8 +17,22 @@
         ]
       },
       "tests": [
-        { "name": "serve-one-process", "argv": ["bash", "tests/release/journey.sh", "serve-one-process"] },
-        { "name": "vault-fence", "argv": ["bash", "tests/release/journey.sh", "vault-fence"] }
+        {
+          "name": "serve-one-process",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "serve-one-process"
+          ]
+        },
+        {
+          "name": "vault-fence",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "vault-fence"
+          ]
+        }
       ],
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
@@ -36,8 +50,22 @@
         ]
       },
       "tests": [
-        { "name": "serve-one-process", "argv": ["bash", "tests/release/journey.sh", "serve-one-process"] },
-        { "name": "vault-fence", "argv": ["bash", "tests/release/journey.sh", "vault-fence"] }
+        {
+          "name": "serve-one-process",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "serve-one-process"
+          ]
+        },
+        {
+          "name": "vault-fence",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "vault-fence"
+          ]
+        }
       ],
       "env": {
         "SKARBIEC_EXTENSION_UPDATE_ORIGIN": "https://stado.wisent.com"
@@ -77,7 +105,9 @@
       ],
       "required": true,
       "secret_env": {},
-      "target": { "product": "skarbiec" }
+      "target": {
+        "product": "skarbiec"
+      }
     },
     {
       "name": "fleet-linux",
@@ -92,7 +122,17 @@
       ],
       "required": false,
       "secret_env": {},
-      "target": { "product": "skarbiec" }
+      "target": {
+        "product": "skarbiec"
+      }
     }
-  ]
+  ],
+  "inputs": {
+    "private-cargo-sources": {
+      "uri": "stado://sources/skarbiec/dependencies/private-cargo-sources/sha256/a817f09fbb7c1e80d692a783c28f8648d41fab1911a61d71cd5ae10d43bf2582/source.tar.gz",
+      "sha256": "a817f09fbb7c1e80d692a783c28f8648d41fab1911a61d71cd5ae10d43bf2582",
+      "mount": "private-cargo-sources",
+      "extract": true
+    }
+  }
 }
