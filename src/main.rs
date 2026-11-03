@@ -166,8 +166,11 @@ fn run() -> Result<()> {
         "vaults" => emit(&runtime::vaults::inventory()?),
         "fence" => emit(&core::vault::fence::command(&flags, &positionals)?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
-        "get" => cmd_get(&flags, &positionals),
-        "set" => cmd_set_json(&flags, &positionals),
+        // Storing a value and borrowing one are what a person uses Skarbiec
+        // for: each one that succeeded counts toward the GitHub star request.
+        "get" => cmd_get(&flags, &positionals).map(|()| cli::star::observe()),
+        "set" => cmd_set_json(&flags, &positionals).map(|()| cli::star::observe()),
+        "star" => cli::star::command(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
         "duplicates" => emit(&cmd_duplicates()?),
         "readers" => emit(&cmd_readers(&positionals)?),

@@ -14,4 +14,5 @@ pub(crate) mod prune;
 pub(crate) mod reads;
 pub(crate) mod rename;
 pub(crate) mod retag;
+pub(crate) mod star;
 pub(crate) mod tools;

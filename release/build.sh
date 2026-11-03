@@ -42,9 +42,12 @@ fi
 build_root="$output_dir/.build"
 stage="$output_dir/stage"
 mkdir -p "$build_root" "$stage/bin"
+# Through Stado's Cargo executor, which replaces the locked private Git
+# package (the onboarding runtime the GitHub star request runs on) with the
+# manifest's private-cargo-sources input: a worker holds no Git credential.
 SKARBIEC_RELEASE_URI="stado://releases/skarbiec/$version/$platform/release.tar.gz" \
 SKARBIEC_RELEASE_COMMIT="$commit" CARGO_TARGET_DIR="$build_root" \
-  cargo build --locked --release --bin skarbiec --manifest-path "$source_dir/Cargo.toml"
+  stado product cargo --manifest-path "$source_dir/Cargo.toml" build --locked --release --bin skarbiec
 install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
 install -m 0644 "$source_dir/LICENSE" "$stage/LICENSE"
 install -m 0644 "$source_dir/NOTICE" "$stage/NOTICE"
