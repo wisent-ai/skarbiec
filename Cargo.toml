@@ -38,6 +38,9 @@ skarbiec-crypto = { path = "crates/crypto" }
 # only 200, 400, 401, 403, 404, 409, 410 and 503, so no caller classifying its
 # replies can meet a 501 or a 505 either.
 wisent-errors = { git = "https://github.com/wisent-ai/wisent-errors", rev = "92da74a839b5d3202183f0a850745f6fc205ed12" }
+# Every word a person reads in the access-request dialog, in their language
+# (texts/ here; the lookup and the fleet's languages live there).
+wisent-texts = { git = "https://github.com/wisent-ai/wisent-texts", rev = "72677b3c7526b3bf62affbdc8fff206c52967b6c" }
 # Declared by repository without a revision, as the onboarding runtime
 # declares it, so Cargo.lock holds one stado-wait.
 stado-wait = { git = "https://github.com/wisent-ai/stado", package = "stado-wait" }

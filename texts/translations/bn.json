@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: প্রয়োগ হয়েছে, কিন্তু উত্তরে অবস্থা নেই: {answer}",
+  "request.approve": "অনুমোদন করুন",
+  "request.asks_for": "চাইছে: {seconds} সে., {uses} বার ব্যবহার (উদ্দেশ্য {purpose}, {target}-এর জন্য)",
+  "request.deny": "প্রত্যাখ্যান করুন",
+  "request.dual": "দুজন সিদ্ধান্তদাতা প্রয়োজন।",
+  "request.hours": "ঘণ্টা",
+  "request.how_long": "{summary}\n\nকত সময়ের জন্য?",
+  "request.how_many_hours": "কত ঘণ্টা?",
+  "request.how_many_uses": "কতবার ব্যবহার?",
+  "request.not_applied": "{id}: প্রয়োগ হয়নি: {error}",
+  "request.not_number": "{question}\n\n“{typed}” একটি ধনাত্মক পূর্ণসংখ্যা নয় ({cause})।",
+  "request.once": "একবার",
+  "request.standing_for": "স্থায়ী অ্যাক্সেস: {consumer}",
+  "request.summary": "অ্যাক্সেস অনুরোধ {id}\n\nকী: {action} {resource} ({kind}){bounds}\nকেন: {reason}\nকে: {who}{dual}",
+  "request.until_revoked": "বাতিল না হওয়া পর্যন্ত"
+}

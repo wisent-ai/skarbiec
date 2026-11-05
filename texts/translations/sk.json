@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: použité, ale odpoveď neuvádza stav ani fázu: {answer}",
+  "request.approve": "Schváliť",
+  "request.asks_for": "Žiada o: {seconds} s, {uses} použití (účel {purpose}, pre {target})",
+  "request.deny": "Zamietnuť",
+  "request.dual": "Vyžaduje dvoch rozhodujúcich.",
+  "request.hours": "Hodiny",
+  "request.how_long": "{summary}\n\nNa ako dlho?",
+  "request.how_many_hours": "Koľko hodín?",
+  "request.how_many_uses": "Koľko použití?",
+  "request.not_applied": "{id}: nepoužité: {error}",
+  "request.not_number": "{question}\n\n„{typed}“ nie je kladné celé číslo ({cause}).",
+  "request.once": "Raz",
+  "request.standing_for": "Trvalý prístup pre: {consumer}",
+  "request.summary": "Žiadosť o prístup {id}\n\nČo: {action} {resource} ({kind}){bounds}\nPrečo: {reason}\nKto: {who}{dual}",
+  "request.until_revoked": "Do odvolania"
+}

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: ተተግብሯል፣ ግን መልሱ ሁኔታ አይጠቅስም: {answer}",
+  "request.approve": "አጽድቅ",
+  "request.asks_for": "የሚጠይቀው: {seconds} ሰከንድ፣ {uses} አጠቃቀሞች (ዓላማ {purpose}፣ ለ {target})",
+  "request.deny": "ከልክል",
+  "request.dual": "ሁለት ወሳኞች ያስፈልጋሉ።",
+  "request.hours": "ሰዓታት",
+  "request.how_long": "{summary}\n\nለምን ያህል ጊዜ?",
+  "request.how_many_hours": "ስንት ሰዓት?",
+  "request.how_many_uses": "ስንት አጠቃቀም?",
+  "request.not_applied": "{id}: አልተተገበረም: {error}",
+  "request.not_number": "{question}\n\n“{typed}” አዎንታዊ ሙሉ ቁጥር አይደለም ({cause})።",
+  "request.once": "አንድ ጊዜ",
+  "request.standing_for": "ቋሚ መዳረሻ ለ: {consumer}",
+  "request.summary": "የመዳረሻ ጥያቄ {id}\n\nምን: {action} {resource} ({kind}){bounds}\nለምን: {reason}\nማን: {who}{dual}",
+  "request.until_revoked": "እስኪሰረዝ ድረስ"
+}

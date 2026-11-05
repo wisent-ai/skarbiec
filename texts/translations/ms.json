@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: digunakan, tetapi jawapan tidak menyatakan status atau keadaan: {answer}",
+  "request.approve": "Luluskan",
+  "request.asks_for": "Meminta: {seconds} saat, {uses} kali guna (tujuan {purpose}, untuk {target})",
+  "request.deny": "Tolak",
+  "request.dual": "Memerlukan dua pembuat keputusan.",
+  "request.hours": "Jam",
+  "request.how_long": "{summary}\n\nUntuk berapa lama?",
+  "request.how_many_hours": "Berapa jam?",
+  "request.how_many_uses": "Berapa kali guna?",
+  "request.not_applied": "{id}: tidak digunakan: {error}",
+  "request.not_number": "{question}\n\n“{typed}” bukan nombor bulat positif ({cause}).",
+  "request.once": "Sekali",
+  "request.standing_for": "Akses tetap untuk: {consumer}",
+  "request.summary": "Permintaan akses {id}\n\nApa: {action} {resource} ({kind}){bounds}\nKenapa: {reason}\nSiapa: {who}{dual}",
+  "request.until_revoked": "Sehingga dibatalkan"
+}

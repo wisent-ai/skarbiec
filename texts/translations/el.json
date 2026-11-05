@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: εφαρμόστηκε, αλλά η απάντηση δεν αναφέρει ούτε κατάσταση ούτε φάση: {answer}",
+  "request.approve": "Έγκριση",
+  "request.asks_for": "Ζητά: {seconds} δευτ., {uses} χρήσεις (σκοπός {purpose}, για {target})",
+  "request.deny": "Απόρριψη",
+  "request.dual": "Απαιτούνται δύο που αποφασίζουν.",
+  "request.hours": "Ώρες",
+  "request.how_long": "{summary}\n\nΓια πόσο καιρό;",
+  "request.how_many_hours": "Πόσες ώρες;",
+  "request.how_many_uses": "Πόσες χρήσεις;",
+  "request.not_applied": "{id}: δεν εφαρμόστηκε: {error}",
+  "request.not_number": "{question}\n\nΤο «{typed}» δεν είναι θετικός ακέραιος ({cause}).",
+  "request.once": "Μία φορά",
+  "request.standing_for": "Μόνιμη πρόσβαση για: {consumer}",
+  "request.summary": "Αίτημα πρόσβασης {id}\n\nΤι: {action} {resource} ({kind}){bounds}\nΓιατί: {reason}\nΠοιος: {who}{dual}",
+  "request.until_revoked": "Μέχρι ανάκληση"
+}

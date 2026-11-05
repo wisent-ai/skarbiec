@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: piemērots, bet atbilde nenorāda ne statusu, ne stāvokli: {answer}",
+  "request.approve": "Apstiprināt",
+  "request.asks_for": "Pieprasa: {seconds} s, {uses} lietojumi (mērķis {purpose}, priekš {target})",
+  "request.deny": "Noraidīt",
+  "request.dual": "Nepieciešami divi lēmēji.",
+  "request.hours": "Stundas",
+  "request.how_long": "{summary}\n\nUz cik ilgu laiku?",
+  "request.how_many_hours": "Cik stundas?",
+  "request.how_many_uses": "Cik lietojumi?",
+  "request.not_applied": "{id}: netika piemērots: {error}",
+  "request.not_number": "{question}\n\n“{typed}” nav pozitīvs vesels skaitlis ({cause}).",
+  "request.once": "Vienreiz",
+  "request.standing_for": "Pastāvīga piekļuve: {consumer}",
+  "request.summary": "Piekļuves pieprasījums {id}\n\nKas: {action} {resource} ({kind}){bounds}\nKāpēc: {reason}\nKurš: {who}{dual}",
+  "request.until_revoked": "Līdz atsaukšanai"
+}

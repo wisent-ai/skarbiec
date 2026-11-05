@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}៖ បានអនុវត្ត ប៉ុន្តែចម្លើយមិនបញ្ជាក់ស្ថានភាព៖ {answer}",
+  "request.approve": "អនុម័ត",
+  "request.asks_for": "ស្នើ៖ {seconds} វិនាទី, {uses} ដងប្រើ (គោលបំណង {purpose}, សម្រាប់ {target})",
+  "request.deny": "បដិសេធ",
+  "request.dual": "ត្រូវការអ្នកសម្រេចពីរនាក់។",
+  "request.hours": "ម៉ោង",
+  "request.how_long": "{summary}\n\nរយៈពេលប៉ុន្មាន?",
+  "request.how_many_hours": "ប៉ុន្មានម៉ោង?",
+  "request.how_many_uses": "ប្រើប៉ុន្មានដង?",
+  "request.not_applied": "{id}៖ មិនបានអនុវត្ត៖ {error}",
+  "request.not_number": "{question}\n\n“{typed}” មិនមែនជាចំនួនគត់វិជ្ជមានទេ ({cause})។",
+  "request.once": "ម្ដង",
+  "request.standing_for": "សិទ្ធិចូលអចិន្ត្រៃយ៍សម្រាប់៖ {consumer}",
+  "request.summary": "សំណើចូលប្រើ {id}\n\nអ្វី៖ {action} {resource} ({kind}){bounds}\nហេតុអ្វី៖ {reason}\nនរណា៖ {who}{dual}",
+  "request.until_revoked": "រហូតដល់ដកហូត"
+}

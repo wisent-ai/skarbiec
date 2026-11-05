@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: uygulandı, ancak yanıt ne durum ne de hal belirtiyor: {answer}",
+  "request.approve": "Onayla",
+  "request.asks_for": "İstiyor: {seconds} sn, {uses} kullanım (amaç {purpose}, hedef {target})",
+  "request.deny": "Reddet",
+  "request.dual": "İki karar verici gerektirir.",
+  "request.hours": "Saat",
+  "request.how_long": "{summary}\n\nNe kadar süreyle?",
+  "request.how_many_hours": "Kaç saat?",
+  "request.how_many_uses": "Kaç kullanım?",
+  "request.not_applied": "{id}: uygulanmadı: {error}",
+  "request.not_number": "{question}\n\n“{typed}” pozitif bir tam sayı değil ({cause}).",
+  "request.once": "Bir kez",
+  "request.standing_for": "Kalıcı erişim: {consumer}",
+  "request.summary": "Erişim isteği {id}\n\nNe: {action} {resource} ({kind}){bounds}\nNeden: {reason}\nKim: {who}{dual}",
+  "request.until_revoked": "İptal edilene kadar"
+}

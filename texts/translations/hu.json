@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: alkalmazva, de a válasz sem státuszt, sem állapotot nem nevez meg: {answer}",
+  "request.approve": "Jóváhagyás",
+  "request.asks_for": "Kéri: {seconds} mp, {uses} használat (cél {purpose}, ehhez: {target})",
+  "request.deny": "Elutasítás",
+  "request.dual": "Két döntéshozó szükséges.",
+  "request.hours": "Órák",
+  "request.how_long": "{summary}\n\nMennyi időre?",
+  "request.how_many_hours": "Hány óra?",
+  "request.how_many_uses": "Hány használat?",
+  "request.not_applied": "{id}: nem alkalmazva: {error}",
+  "request.not_number": "{question}\n\n„{typed}” nem pozitív egész szám ({cause}).",
+  "request.once": "Egyszer",
+  "request.standing_for": "Állandó hozzáférés ehhez: {consumer}",
+  "request.summary": "Hozzáférési kérelem {id}\n\nMit: {action} {resource} ({kind}){bounds}\nMiért: {reason}\nKi: {who}{dual}",
+  "request.until_revoked": "Visszavonásig"
+}

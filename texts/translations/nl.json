@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: toegepast, maar het antwoord noemt geen status of toestand: {answer}",
+  "request.approve": "Goedkeuren",
+  "request.asks_for": "Vraagt om: {seconds} s, {uses} keer gebruik (doel {purpose}, voor {target})",
+  "request.deny": "Weigeren",
+  "request.dual": "Vereist twee beslissers.",
+  "request.hours": "Uren",
+  "request.how_long": "{summary}\n\nVoor hoe lang?",
+  "request.how_many_hours": "Hoeveel uur?",
+  "request.how_many_uses": "Hoeveel keer gebruik?",
+  "request.not_applied": "{id}: niet toegepast: {error}",
+  "request.not_number": "{question}\n\n‘{typed}’ is geen positief geheel getal ({cause}).",
+  "request.once": "Eenmalig",
+  "request.standing_for": "Blijvende toegang voor: {consumer}",
+  "request.summary": "Toegangsverzoek {id}\n\nWat: {action} {resource} ({kind}){bounds}\nWaarom: {reason}\nWie: {who}{dual}",
+  "request.until_revoked": "Tot intrekking"
+}

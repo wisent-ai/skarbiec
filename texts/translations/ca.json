@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: aplicat, però la resposta no indica ni estat ni situació: {answer}",
+  "request.approve": "Aprova",
+  "request.asks_for": "Demana: {seconds} s, {uses} usos (finalitat {purpose}, per a {target})",
+  "request.deny": "Denega",
+  "request.dual": "Requereix dues persones que decideixin.",
+  "request.hours": "Hores",
+  "request.how_long": "{summary}\n\nPer quant de temps?",
+  "request.how_many_hours": "Quantes hores?",
+  "request.how_many_uses": "Quants usos?",
+  "request.not_applied": "{id}: no aplicat: {error}",
+  "request.not_number": "{question}\n\n«{typed}» no és un nombre enter positiu ({cause}).",
+  "request.once": "Una vegada",
+  "request.standing_for": "Accés permanent per a: {consumer}",
+  "request.summary": "Sol·licitud d'accés {id}\n\nQuè: {action} {resource} ({kind}){bounds}\nPer què: {reason}\nQui: {who}{dual}",
+  "request.until_revoked": "Fins que es revoqui"
+}

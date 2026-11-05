@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: хэрэгжсэн, гэхдээ хариулт төлөвийг заагаагүй: {answer}",
+  "request.approve": "Зөвшөөрөх",
+  "request.asks_for": "Хүсэлт: {seconds} сек, {uses} удаа ашиглах (зорилго {purpose}, {target}-д)",
+  "request.deny": "Татгалзах",
+  "request.dual": "Хоёр шийдвэр гаргагч шаардлагатай.",
+  "request.hours": "Цаг",
+  "request.how_long": "{summary}\n\nХэр удаан хугацаагаар?",
+  "request.how_many_hours": "Хэдэн цаг?",
+  "request.how_many_uses": "Хэдэн удаа ашиглах вэ?",
+  "request.not_applied": "{id}: хэрэгжээгүй: {error}",
+  "request.not_number": "{question}\n\n«{typed}» эерэг бүхэл тоо биш байна ({cause}).",
+  "request.once": "Нэг удаа",
+  "request.standing_for": "Байнгын хандалт: {consumer}",
+  "request.summary": "Хандалтын хүсэлт {id}\n\nЮу: {action} {resource} ({kind}){bounds}\nЯагаад: {reason}\nХэн: {who}{dual}",
+  "request.until_revoked": "Цуцлах хүртэл"
+}

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: колдонулду, бирок жоопто абал айтылган жок: {answer}",
+  "request.approve": "Бекитүү",
+  "request.asks_for": "Суроо: {seconds} сек, {uses} колдонуу (максаты {purpose}, {target} үчүн)",
+  "request.deny": "Четке кагуу",
+  "request.dual": "Эки чечим кабыл алуучу керек.",
+  "request.hours": "Саат",
+  "request.how_long": "{summary}\n\nКанча убакытка?",
+  "request.how_many_hours": "Канча саат?",
+  "request.how_many_uses": "Канча колдонуу?",
+  "request.not_applied": "{id}: колдонулган жок: {error}",
+  "request.not_number": "{question}\n\n«{typed}» оң бүтүн сан эмес ({cause}).",
+  "request.once": "Бир жолу",
+  "request.standing_for": "Туруктуу кирүү: {consumer}",
+  "request.summary": "Кирүү суроосу {id}\n\nЭмне: {action} {resource} ({kind}){bounds}\nЭмне үчүн: {reason}\nКим: {who}{dual}",
+  "request.until_revoked": "Жокко чыгарылганга чейин"
+}

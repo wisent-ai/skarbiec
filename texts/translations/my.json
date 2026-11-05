@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: သက်ရောက်ပြီး၊ သို့သော် အဖြေတွင် အခြေအနေ မဖော်ပြပါ: {answer}",
+  "request.approve": "အတည်ပြုရန်",
+  "request.asks_for": "တောင်းဆိုမှု: {seconds} စက္ကန့်၊ {uses} ကြိမ် အသုံးပြုမှု (ရည်ရွယ်ချက် {purpose}၊ {target} အတွက်)",
+  "request.deny": "ငြင်းပယ်ရန်",
+  "request.dual": "ဆုံးဖြတ်သူ နှစ်ဦး လိုအပ်သည်။",
+  "request.hours": "နာရီ",
+  "request.how_long": "{summary}\n\nမည်မျှကြာကြာ?",
+  "request.how_many_hours": "နာရီ မည်မျှ?",
+  "request.how_many_uses": "အသုံးပြုမှု မည်မျှ?",
+  "request.not_applied": "{id}: မသက်ရောက်ပါ: {error}",
+  "request.not_number": "{question}\n\n“{typed}” သည် အပေါင်း ကိန်းပြည့် မဟုတ်ပါ ({cause})။",
+  "request.once": "တစ်ကြိမ်",
+  "request.standing_for": "အမြဲတမ်း ဝင်ခွင့်: {consumer}",
+  "request.summary": "ဝင်ခွင့်တောင်းဆိုမှု {id}\n\nဘာလဲ: {action} {resource} ({kind}){bounds}\nဘာကြောင့်: {reason}\nဘယ်သူ: {who}{dual}",
+  "request.until_revoked": "ရုပ်သိမ်းသည်အထိ"
+}

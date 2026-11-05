@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: u zbatua, por përgjigjja nuk tregon as status as gjendje: {answer}",
+  "request.approve": "Mirato",
+  "request.asks_for": "Kërkon: {seconds} s, {uses} përdorime (qëllimi {purpose}, për {target})",
+  "request.deny": "Refuzo",
+  "request.dual": "Kërkon dy vendimmarrës.",
+  "request.hours": "Orë",
+  "request.how_long": "{summary}\n\nPër sa kohë?",
+  "request.how_many_hours": "Sa orë?",
+  "request.how_many_uses": "Sa përdorime?",
+  "request.not_applied": "{id}: nuk u zbatua: {error}",
+  "request.not_number": "{question}\n\n“{typed}” nuk është numër i plotë pozitiv ({cause}).",
+  "request.once": "Një herë",
+  "request.standing_for": "Qasje e përhershme për: {consumer}",
+  "request.summary": "Kërkesë për qasje {id}\n\nÇfarë: {action} {resource} ({kind}){bounds}\nPse: {reason}\nKush: {who}{dual}",
+  "request.until_revoked": "Deri në revokim"
+}

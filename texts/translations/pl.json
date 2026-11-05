@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: zastosowano, ale odpowiedź nie podaje statusu ani stanu: {answer}",
+  "request.approve": "Zatwierdź",
+  "request.asks_for": "Prosi o: {seconds} s, {uses} użyć (cel {purpose}, dla {target})",
+  "request.deny": "Odmów",
+  "request.dual": "Wymaga dwóch osób.",
+  "request.hours": "Godziny",
+  "request.how_long": "{summary}\n\nNa jak długo?",
+  "request.how_many_hours": "Ile godzin?",
+  "request.how_many_uses": "Ile użyć?",
+  "request.not_applied": "{id}: nie zastosowano: {error}",
+  "request.not_number": "{question}\n\n„{typed}” nie jest liczbą dodatnią ({cause}).",
+  "request.once": "Raz",
+  "request.standing_for": "Stały dostęp dla: {consumer}",
+  "request.summary": "Prośba o dostęp {id}\n\nCo: {action} {resource} ({kind}){bounds}\nDlaczego: {reason}\nKto: {who}{dual}",
+  "request.until_revoked": "Do odwołania"
+}

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: پلی شو، خو ځواب حالت نه ښيي: {answer}",
+  "request.approve": "منظور کړئ",
+  "request.asks_for": "غواړي: {seconds} ثانیې، {uses} کارونې (موخه {purpose}، د {target} لپاره)",
+  "request.deny": "رد کړئ",
+  "request.dual": "دوه پرېکړه کوونکي پکار دي.",
+  "request.hours": "ساعتونه",
+  "request.how_long": "{summary}\n\nد څومره وخت لپاره؟",
+  "request.how_many_hours": "څو ساعته؟",
+  "request.how_many_uses": "څو کارونې؟",
+  "request.not_applied": "{id}: پلی نه شو: {error}",
+  "request.not_number": "{question}\n\n«{typed}» مثبت بشپړ عدد نه دی ({cause}).",
+  "request.once": "یو ځل",
+  "request.standing_for": "دایمي لاسرسی د: {consumer}",
+  "request.summary": "د لاسرسي غوښتنه {id}\n\nڅه: {action} {resource} ({kind}){bounds}\nولې: {reason}\nڅوک: {who}{dual}",
+  "request.until_revoked": "تر لغوه کېدو"
+}

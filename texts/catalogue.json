@@ -1,0 +1,20 @@
+{
+  "product": "skarbiec",
+  "texts": {
+    "request.approve": {"en": "Approve", "for": "button of the access-request dialog that grants the request"},
+    "request.deny": {"en": "Deny", "for": "button of the access-request dialog that refuses the request"},
+    "request.once": {"en": "Once", "for": "lifetime button: the grant is used one time"},
+    "request.until_revoked": {"en": "Until revoked", "for": "lifetime button: the grant lasts until someone revokes it"},
+    "request.hours": {"en": "Hours", "for": "lifetime button: the decider types a number of hours"},
+    "request.asks_for": {"en": "Asks for: {seconds} s, {uses} uses (purpose {purpose}, for {target})", "places": ["seconds", "uses", "purpose", "target"], "for": "what a capability request asks: seconds, number of uses, its stated purpose and target"},
+    "request.standing_for": {"en": "Standing grant for: {consumer}", "places": ["consumer"], "for": "a request for lasting access by a named consumer"},
+    "request.dual": {"en": "Needs two deciders.", "for": "the request must be approved by two different people"},
+    "request.summary": {"en": "Access request {id}\n\nWhat: {action} {resource} ({kind}){bounds}\nWhy: {reason}\nWho: {who}{dual}", "places": ["id", "action", "resource", "kind", "bounds", "reason", "who", "dual"], "for": "the whole dialog text describing one access request; keep the line breaks"},
+    "request.not_number": {"en": "{question}\n\n“{typed}” is not a positive whole number ({cause}).", "places": ["question", "typed", "cause"], "for": "the question asked again after the decider typed something that is not a whole number above zero"},
+    "request.how_long": {"en": "{summary}\n\nFor how long?", "places": ["summary"], "for": "the request description followed by the question how long to grant it"},
+    "request.how_many_hours": {"en": "How many hours?", "for": "question asking for a number of hours"},
+    "request.how_many_uses": {"en": "How many uses?", "for": "question asking for a number of uses"},
+    "request.not_applied": {"en": "{id}: not applied: {error}", "places": ["id", "error"], "for": "the decision could not be applied; the cause follows"},
+    "request.applied_unnamed": {"en": "{id}: applied, but the answer names neither status nor state: {answer}", "places": ["id", "answer"], "for": "the decision was applied but the vault's answer did not say its outcome"}
+  }
+}

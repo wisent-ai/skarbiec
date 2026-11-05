@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: tillämpad, men svaret anger varken status eller tillstånd: {answer}",
+  "request.approve": "Godkänn",
+  "request.asks_for": "Begär: {seconds} s, {uses} användningar (syfte {purpose}, för {target})",
+  "request.deny": "Neka",
+  "request.dual": "Kräver två beslutsfattare.",
+  "request.hours": "Timmar",
+  "request.how_long": "{summary}\n\nHur länge?",
+  "request.how_many_hours": "Hur många timmar?",
+  "request.how_many_uses": "Hur många användningar?",
+  "request.not_applied": "{id}: inte tillämpad: {error}",
+  "request.not_number": "{question}\n\n”{typed}” är inte ett positivt heltal ({cause}).",
+  "request.once": "En gång",
+  "request.standing_for": "Stående åtkomst för: {consumer}",
+  "request.summary": "Åtkomstbegäran {id}\n\nVad: {action} {resource} ({kind}){bounds}\nVarför: {reason}\nVem: {who}{dual}",
+  "request.until_revoked": "Tills återkallad"
+}

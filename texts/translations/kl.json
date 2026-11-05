@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: atuutilersinneqarpoq, kisianni akissutip qanoq innera taanngilaa: {answer}",
+  "request.approve": "Akuerineq",
+  "request.asks_for": "Qinnutigaa: sekundit {seconds}, atuinerit {uses} (siunertaa {purpose}, {target} pillugu)",
+  "request.deny": "Itigartitsineq",
+  "request.dual": "Aalajangiisut marluk pisariaqarput.",
+  "request.hours": "Nalunaaquttap akunneri",
+  "request.how_long": "{summary}\n\nQanoq sivisutigisumik?",
+  "request.how_many_hours": "Nalunaaquttap akunneri qassit?",
+  "request.how_many_uses": "Atuinerit qassit?",
+  "request.not_applied": "{id}: atuutilersinneqanngilaq: {error}",
+  "request.not_number": "{question}\n\n“{typed}” kisitsisinngorlugu tamakkiisutut ilaasutut naammanngilaq ({cause}).",
+  "request.once": "Ataasiarluni",
+  "request.standing_for": "Iserfissaq ataavartoq: {consumer}",
+  "request.summary": "Iserfissamik qinnut {id}\n\nSuna: {action} {resource} ({kind}){bounds}\nSooq: {reason}\nKina: {who}{dual}",
+  "request.until_revoked": "Atorunnaarsinneqarnissaata tungaanut"
+}

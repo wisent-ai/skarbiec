@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: ນຳໃຊ້ແລ້ວ, ແຕ່ຄຳຕອບບໍ່ລະບຸສະຖານະ: {answer}",
+  "request.approve": "ອະນຸມັດ",
+  "request.asks_for": "ຮ້ອງຂໍ: {seconds} ວິນາທີ, {uses} ຄັ້ງ (ຈຸດປະສົງ {purpose}, ສຳລັບ {target})",
+  "request.deny": "ປະຕິເສດ",
+  "request.dual": "ຕ້ອງການຜູ້ຕັດສິນສອງຄົນ.",
+  "request.hours": "ຊົ່ວໂມງ",
+  "request.how_long": "{summary}\n\nດົນປານໃດ?",
+  "request.how_many_hours": "ຈັກຊົ່ວໂມງ?",
+  "request.how_many_uses": "ຈັກຄັ້ງ?",
+  "request.not_applied": "{id}: ບໍ່ໄດ້ນຳໃຊ້: {error}",
+  "request.not_number": "{question}\n\n“{typed}” ບໍ່ແມ່ນຈຳນວນເຕັມບວກ ({cause}).",
+  "request.once": "ຄັ້ງດຽວ",
+  "request.standing_for": "ສິດເຂົ້າເຖິງຖາວອນສຳລັບ: {consumer}",
+  "request.summary": "ຄຳຮ້ອງຂໍເຂົ້າເຖິງ {id}\n\nຫຍັງ: {action} {resource} ({kind}){bounds}\nເປັນຫຍັງ: {reason}\nໃຜ: {who}{dual}",
+  "request.until_revoked": "ຈົນກວ່າຈະຖອນ"
+}

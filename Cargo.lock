@@ -868,6 +868,7 @@ dependencies = [
  "time",
  "wisent-errors",
  "wisent-onboarding-client",
+ "wisent-texts",
  "zip",
 ]
 
@@ -1351,6 +1352,15 @@ dependencies = [
  "thiserror",
  "time",
  "uuid",
+]
+
+[[package]]
+name = "wisent-texts"
+version = "1.0.0"
+source = "git+https://github.com/wisent-ai/wisent-texts?rev=72677b3c7526b3bf62affbdc8fff206c52967b6c#72677b3c7526b3bf62affbdc8fff206c52967b6c"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
