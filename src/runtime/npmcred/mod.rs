@@ -21,7 +21,9 @@ const TOKEN_KEY: &str = ":_authToken=";
 pub(crate) fn npmrc() -> Result<PathBuf> {
     match crate::core::env::path("NPM_CONFIG_USERCONFIG") {
         Some(file) => Ok(file),
-        None => Ok(crate::core::env::path("HOME").context("HOME names no directory where npm keeps ~/.npmrc")?.join(".npmrc")),
+        None => Ok(crate::core::env::path("HOME")
+            .context("HOME names no directory where npm keeps ~/.npmrc")?
+            .join(".npmrc")),
     }
 }
 
@@ -37,7 +39,9 @@ impl Signin {
     /// The environment variable the token is read from, when the line
     /// names one as npm expands it.
     pub(crate) fn reference(&self) -> Option<&str> {
-        self.token.strip_prefix("${").and_then(|rest| rest.strip_suffix('}'))
+        self.token
+            .strip_prefix("${")
+            .and_then(|rest| rest.strip_suffix('}'))
     }
 }
 
@@ -69,7 +73,9 @@ pub(crate) fn status() -> Result<Value> {
     let entries: Vec<Value> = found
         .iter()
         .map(|signin| match signin.reference() {
-            Some(name) => json!({"entry": signin.registry, "kept": "environment", "variable": name}),
+            Some(name) => {
+                json!({"entry": signin.registry, "kept": "environment", "variable": name})
+            }
             None => json!({"entry": signin.registry, "kept": "plain text"}),
         })
         .collect();

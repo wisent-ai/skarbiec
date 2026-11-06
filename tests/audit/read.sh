@@ -38,13 +38,14 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
-  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\n\n' "$*" "$status" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT"
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$status" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 field() {
   echo "$out" | jq -e -r "$@"
@@ -85,8 +86,8 @@ echo "ok: --op $operation returns only that operation" >>"$REPORT"
 
 zero=$(printf '' | wc -c | tr -d ' ')
 WANT=refused run audit list --limit "$zero"
-case "$out" in
-  *"--limit must be at least one"*) echo "ok: a zero limit is refused" >>"$REPORT" ;;
+case "$said" in
+  *"--limit must be a whole number of at least one"*) echo "ok: a zero limit is refused" >>"$REPORT" ;;
   *) fail "a zero limit was not refused by name" ;;
 esac
 
@@ -95,18 +96,18 @@ WANT=ok run audit verify
 echo "ok: audit verify finds the chain unbroken" >>"$REPORT"
 
 WANT=refused run audit
-case "$out" in
+case "$said" in
   *"audit needs a subcommand"*) echo "ok: the group without a subcommand is refused" >>"$REPORT" ;;
   *) fail "audit without a subcommand was not refused by name" ;;
 esac
 WANT=refused run audit sideways
-case "$out" in
+case "$said" in
   *"unknown audit command: sideways"*) echo "ok: an unknown subcommand is refused" >>"$REPORT" ;;
   *) fail "an unknown audit subcommand was not refused by name" ;;
 esac
 WANT=refused run audit epoch
 WANT=refused run audit epoch --reason "audit-test-$RUN"
-case "$out" in
+case "$said" in
   *"audit journal is intact"*) echo "ok: an epoch over an intact chain is refused" >>"$REPORT" ;;
   *) fail "an epoch over an intact chain was not refused by name" ;;
 esac

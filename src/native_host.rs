@@ -113,7 +113,10 @@ fn list_logins(select: Select) -> Result<Value> {
         let username = read_text(id, "username")?;
         if let Select::Text(text) = select {
             let found = |held: &str| held.to_lowercase().contains(text);
-            if !(found(name) || found(username.as_str()) || domains.iter().any(|domain| found(domain.as_str()))) {
+            if !(found(name)
+                || found(username.as_str())
+                || domains.iter().any(|domain| found(domain.as_str())))
+            {
                 continue;
             }
         }
@@ -200,9 +203,16 @@ pub fn run() -> Result<()> {
             },
             // Every login whose name, username or sites hold the text, for a
             // site the login names under another address.
-            Some("search") => match request.get("text").and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty()) {
+            Some("search") => match request
+                .get("text")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+            {
                 Some(text) => list_logins(Select::Text(&text.to_lowercase())),
-                None => Ok(json!({"ok": false, "error": "text required: what the login's name, username or site holds"})),
+                None => Ok(
+                    json!({"ok": false, "error": "text required: what the login's name, username or site holds"}),
+                ),
             },
             Some("fill") => match request.get("id").and_then(Value::as_str) {
                 Some(id) => fill_login(id),

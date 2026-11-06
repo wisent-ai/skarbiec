@@ -42,29 +42,13 @@ fi
 build_root="$output_dir/.build"
 stage="$output_dir/stage"
 mkdir -p "$build_root" "$stage/bin"
+# Through Stado's Cargo executor, which replaces the locked private Git
+# package (the onboarding runtime the GitHub star request runs on) with the
+# manifest's private-cargo-sources input: a worker holds no Git credential.
 SKARBIEC_RELEASE_URI="stado://releases/skarbiec/$version/$platform/release.tar.gz" \
 SKARBIEC_RELEASE_COMMIT="$commit" CARGO_TARGET_DIR="$build_root" \
-  cargo build --locked --release --bin skarbiec --manifest-path "$source_dir/Cargo.toml"
+  stado product cargo --manifest-path "$source_dir/Cargo.toml" build --locked --release --bin skarbiec
 install -m 0755 "$build_root/release/skarbiec" "$stage/bin/skarbiec"
-install -m 0755 "$source_dir/release/launch.sh" "$stage/bin/start"
-bridge_input=${WISENT_INPUT_WELES_CLIENT_DIR:?WISENT_INPUT_WELES_CLIENT_DIR is required}
-# The native pin-input archive retains its input-name prefix.
-bridge_package="$bridge_input/weles-client"
-bridge_stage="$stage/share/skarbiec/weles-client"
-if [[ ! -f "$bridge_package/bin/weles-skarbiec-acquire-admission.mjs" ]]; then
-  printf 'Skarbiec build input weles-client is missing its bridge: %s/bin/weles-skarbiec-acquire-admission.mjs; pin the Weles Client source with stado release catalog pin-input --name weles-client\n' "$bridge_package" >&2
-  exit 1
-fi
-package_name=$(npm pkg get name --prefix "$bridge_package")
-if [[ "$package_name" != '"@wisent-ai/weles-client"' ]]; then
-  printf 'Skarbiec build input weles-client has unexpected package identity: %s at %s\n' "$package_name" "$bridge_package" >&2
-  exit 1
-fi
-mkdir -p "$bridge_stage"
-cp -R "$bridge_package/bin" "$bridge_package/src" "$bridge_stage/"
-install -m 0644 "$bridge_package/package.json" "$bridge_stage/package.json"
-install -m 0644 "$bridge_package/LICENSE" "$bridge_stage/LICENSE"
-chmod 0755 "$bridge_stage/bin/weles-skarbiec-acquire-admission.mjs"
 install -m 0644 "$source_dir/LICENSE" "$stage/LICENSE"
 install -m 0644 "$source_dir/NOTICE" "$stage/NOTICE"
 

@@ -25,7 +25,7 @@ mod service;
 pub(crate) use service::survive_accept;
 
 use pool::RequestPool;
-use readiness::maintenance_pass;
+use readiness::readiness_check;
 
 /// The API answers on the loopback interface only.
 const LOOPBACK: std::net::Ipv4Addr = std::net::Ipv4Addr::LOCALHOST;
@@ -50,7 +50,10 @@ pub(crate) fn presented_bearer(
     headers: &HashMap<String, String>,
     consumer: &str,
 ) -> Result<String, String> {
-    match headers.get("authorization").and_then(|value| value.strip_prefix("Bearer ")) {
+    match headers
+        .get("authorization")
+        .and_then(|value| value.strip_prefix("Bearer "))
+    {
         Some(bearer) if !bearer.is_empty() => Ok(bearer.to_string()),
         _ => Err(format!(
             "the request from {consumer} carries no bearer: send Authorization: Bearer <token>"
@@ -71,14 +74,19 @@ pub(crate) fn presented_identity(
 
 /// The 401 a request answers when it presents no identity, naming what it lacks.
 pub(crate) fn unidentified(stream: &mut TcpStream, reason: &str) -> Result<()> {
-    write_response(stream, "HTTP/1.1 401 Unauthorized", &json!({"error": reason}))
+    write_response(
+        stream,
+        "HTTP/1.1 401 Unauthorized",
+        &json!({"error": reason}),
+    )
 }
 
 /// Operator-facing failure text, length-capped.
 ///
-/// A gpg failure names key ids and recipient uids, which is exactly what an
-/// operator needs to see and is not secret material. The cap keeps a runaway
-/// message out of a JSON body; the full text stays in the process log.
+/// A refusal to open an item names key ids and recipient uids, which is
+/// exactly what an operator needs to see and is not secret material. The cap
+/// keeps a runaway message out of a JSON body; the full text stays in the
+/// process log.
 pub(crate) use super::{detail_text, request_field, request_id, request_json};
 
 pub(crate) fn write_response(
@@ -177,14 +185,14 @@ pub fn dispatch(
             };
             service::serve(http, flags).map(Some)
         }
-        // One pass of the work `serve` no longer loops on: the GnuPG daemon
-        // ceiling, the readiness proof, and one pull of every pulled bond.
-        // A Stado schedule pinned to the host runs it (`stado schedule create
-        // --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'`). Every
-        // step runs; any failure makes the pass fail with every reason.
+        // One pass of the work `serve` no longer loops on: the readiness
+        // proof and one pull of every pulled bond. A Stado schedule pinned
+        // to the host runs it (`stado schedule create --pinned-host HOST
+        // --cron '* * * * *' 'skarbiec maintain'`). Every step runs; any
+        // failure makes the pass fail with every reason.
         "maintain" => {
             let mut failures: Vec<String> = Vec::new();
-            let canaries = match maintenance_pass() {
+            let canaries = match readiness_check() {
                 Ok(canaries) => canaries,
                 Err(error) => {
                     failures.push(format!("readiness: {error:#}"));

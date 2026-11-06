@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: applicato, ma la risposta non indica né stato né condizione: {answer}",
+  "request.approve": "Approva",
+  "request.asks_for": "Richiede: {seconds} s, {uses} utilizzi (scopo {purpose}, per {target})",
+  "request.deny": "Rifiuta",
+  "request.dual": "Richiede due decisori.",
+  "request.hours": "Ore",
+  "request.how_long": "{summary}\n\nPer quanto tempo?",
+  "request.how_many_hours": "Quante ore?",
+  "request.how_many_uses": "Quanti utilizzi?",
+  "request.not_applied": "{id}: non applicato: {error}",
+  "request.not_number": "{question}\n\n«{typed}» non è un numero intero positivo ({cause}).",
+  "request.once": "Una volta",
+  "request.standing_for": "Accesso permanente per: {consumer}",
+  "request.summary": "Richiesta di accesso {id}\n\nCosa: {action} {resource} ({kind}){bounds}\nPerché: {reason}\nChi: {who}{dual}",
+  "request.until_revoked": "Fino a revoca"
+}

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: ulanyldy, emma jogapda ýagdaý görkezilmedi: {answer}",
+  "request.approve": "Tassykla",
+  "request.asks_for": "Soraýar: {seconds} sek, {uses} ulanyş (maksat {purpose}, {target} üçin)",
+  "request.deny": "Ret et",
+  "request.dual": "Iki karar beriji gerek.",
+  "request.hours": "Sagat",
+  "request.how_long": "{summary}\n\nNäçe wagtlyk?",
+  "request.how_many_hours": "Näçe sagat?",
+  "request.how_many_uses": "Näçe ulanyş?",
+  "request.not_applied": "{id}: ulanylmady: {error}",
+  "request.not_number": "{question}\n\n“{typed}” položitel bitin san däl ({cause}).",
+  "request.once": "Bir gezek",
+  "request.standing_for": "Hemişelik giriş: {consumer}",
+  "request.summary": "Giriş haýyşy {id}\n\nNäme: {action} {resource} ({kind}){bounds}\nNäme üçin: {reason}\nKim: {who}{dual}",
+  "request.until_revoked": "Ýatyrylýança"
+}

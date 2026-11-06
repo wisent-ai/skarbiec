@@ -18,7 +18,11 @@ use super::items::ensure_owner_mutation_allowed;
 
 const USAGE: &str = "usage: purge <id> --versions-before <iso8601> [--yes] | purge --all --versions-before <iso8601> [--yes]";
 
-pub(crate) fn purge_versions(flags: &HashMap<String, String>, positionals: &[String], before: &str) -> Result<Value> {
+pub(crate) fn purge_versions(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+    before: &str,
+) -> Result<Value> {
     let every = flag_set(flags, "all");
     let chosen: Option<&String> = match (positionals, every) {
         ([id], false) => Some(id),

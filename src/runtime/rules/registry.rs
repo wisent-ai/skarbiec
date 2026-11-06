@@ -8,7 +8,6 @@
 
 use anyhow::{bail, Context, Result};
 use serde_json::{json, Map, Value};
-use std::process::Command;
 
 use crate::core::items::{domain_matches, item_domains};
 use crate::core::{vault::Vault, vault_path};
@@ -21,16 +20,13 @@ const ATTRIBUTION: &str =
     "Password rules from Password Manager Resources (https://github.com/apple/password-manager-resources), MIT licence.";
 
 fn registry() -> Result<Map<String, Value>> {
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", RULES_URL]))
-        .context("curl the Password Manager Resources password rules")?;
-    if !response.status.success() {
-        bail!(
-            "the password rules of Password Manager Resources at {RULES_URL} could not be read ({}): {}; no rules were recorded",
-            response.status,
-            String::from_utf8_lossy(&response.stderr).trim()
-        );
-    }
-    match serde_json::from_slice(&response.stdout)
+    let body = crate::net::https::get(
+        RULES_URL,
+        &[],
+        "the password rules of Password Manager Resources",
+    )
+    .context("no rules were recorded")?;
+    match serde_json::from_slice(&body)
         .with_context(|| format!("the password rules at {RULES_URL} are not JSON"))?
     {
         Value::Object(sites) => Ok(sites),
@@ -42,7 +38,12 @@ fn registry() -> Result<Map<String, Value>> {
 /// them as `--set` would, naming the site they were found under.
 pub(super) fn lookup(id: &str) -> Result<Value> {
     let payload = Vault::open(vault_path())?.get_item(id)?;
-    let sites = payload.get("context").map(item_domains).into_iter().flatten().collect::<Vec<_>>();
+    let sites = payload
+        .get("context")
+        .map(item_domains)
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
     if sites.is_empty() {
         bail!("{id} names no site, so no site's rules can be looked up; `skarbiec sites {id} --add <domain>` names one");
     }
@@ -59,7 +60,9 @@ pub(super) fn lookup(id: &str) -> Result<Value> {
     let rules = entry
         .get("password-rules")
         .and_then(Value::as_str)
-        .with_context(|| format!("the entry for {listed} at {RULES_URL} holds no password-rules text"))?;
+        .with_context(|| {
+            format!("the entry for {listed} at {RULES_URL} holds no password-rules text")
+        })?;
     let mut answer = super::set(id, rules)?;
     answer["found_for"] = json!(listed);
     answer["password_rules"] = json!(rules.trim());

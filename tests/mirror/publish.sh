@@ -40,12 +40,17 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" &>/dev/stdout); then status=$?; got=ok; else status=$?; got=refused; fi
-  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\n\n' "$*" "$status" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" 2>"$ROOT/said"); then status=$?; got=ok; else status=$?; got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nexit: %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$status" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
+# A refusal is written on stderr, an answer on stdout: read the stream the
+# last command's result was written to.
 says() {
-  case "$out" in
+  local heard="$out"
+  if [ "$got" = refused ]; then heard="$said"; fi
+  case "$heard" in
     *"$1"*) echo "ok: $2" >>"$REPORT" ;;
     *) fail "$2: expected '$1' in the answer" ;;
   esac

@@ -71,8 +71,16 @@ pub fn dispatch(
         &json!({"paths": positionals, "fields": fields, "files_read": walk.files_read.len(), "found": walk.found.len()}),
     )?;
     if flag_set(flags, "refuse") && !walk.found.is_empty() {
-        let copies: Vec<String> =
-            walk.found.iter().map(|copy| format!("{}:{} holds {}'s {}", copy.file, copy.line, copy.item, copy.field)).collect();
+        let copies: Vec<String> = walk
+            .found
+            .iter()
+            .map(|copy| {
+                format!(
+                    "{}:{} holds {}'s {}",
+                    copy.file, copy.line, copy.item, copy.field
+                )
+            })
+            .collect();
         bail!("a vault value is in plain text: {}; remove each copy, or keep the value in the vault and read it through skarbiec exec or inject", copies.join("; "));
     }
     let found: Vec<Value> = walk
@@ -95,13 +103,26 @@ pub fn dispatch(
 
 /// The fields a scan looks for and the shortest value it compares, as
 /// --fields and --min-length state them.
-fn requested<'f>(flags: &'f HashMap<String, String>, usage: &str) -> Result<(Vec<&'f str>, Option<usize>)> {
-    let fields: Vec<&str> = flags.get("fields").or_usage(usage)?.split(',').map(str::trim).filter(|field| !field.is_empty()).collect();
+fn requested<'f>(
+    flags: &'f HashMap<String, String>,
+    usage: &str,
+) -> Result<(Vec<&'f str>, Option<usize>)> {
+    let fields: Vec<&str> = flags
+        .get("fields")
+        .or_usage(usage)?
+        .split(',')
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .collect();
     if fields.is_empty() {
         return Err(Usage(format!("--fields names no field; {usage}")).into());
     }
     let minimum = match flags.get("min-length") {
-        Some(given) => Some(given.parse::<usize>().with_context(|| format!("--min-length {given} is not a whole number"))?),
+        Some(given) => Some(
+            given
+                .parse::<usize>()
+                .with_context(|| format!("--min-length {given} is not a whole number"))?,
+        ),
         None => None,
     };
     Ok((fields, minimum))
@@ -115,11 +136,15 @@ fn values(fields: &[&str], minimum: Option<usize>) -> Result<(Vec<Held>, Vec<Val
     let mut unreadable = Vec::new();
     let mut below = Vec::new();
     for entry in vault.list(false) {
-        let Some(id) = entry.get("id").and_then(Value::as_str) else { continue };
+        let Some(id) = entry.get("id").and_then(Value::as_str) else {
+            continue;
+        };
         if entry.get("state").and_then(Value::as_str) != Some("active") {
             continue;
         }
-        let opened = vault.get_item(id).and_then(|payload| schema::fields(&payload).cloned());
+        let opened = vault
+            .get_item(id)
+            .and_then(|payload| schema::fields(&payload).cloned());
         let held_fields = match opened {
             Ok(held_fields) => held_fields,
             Err(error) => {
@@ -128,14 +153,22 @@ fn values(fields: &[&str], minimum: Option<usize>) -> Result<(Vec<Held>, Vec<Val
             }
         };
         for field in fields {
-            let Some(text) = held_fields.get(*field).and_then(Value::as_str).filter(|text| !text.is_empty()) else {
+            let Some(text) = held_fields
+                .get(*field)
+                .and_then(Value::as_str)
+                .filter(|text| !text.is_empty())
+            else {
                 continue;
             };
             if minimum.is_some_and(|minimum| text.chars().count() < minimum) {
                 below.push(json!({"item": id, "field": field}));
                 continue;
             }
-            held.push(Held { item: id.to_string(), field: field.to_string(), value: text.to_string() });
+            held.push(Held {
+                item: id.to_string(),
+                field: field.to_string(),
+                value: text.to_string(),
+            });
         }
     }
     Ok((held, unreadable, below))
@@ -147,17 +180,27 @@ fn visit(path: &Path, held: &[Held], walk: &mut Walk) {
     let shown = path.display().to_string();
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
-        Err(error) => return walk.unreadable.push(json!({"path": shown, "error": error.to_string()})),
+        Err(error) => {
+            return walk
+                .unreadable
+                .push(json!({"path": shown, "error": error.to_string()}))
+        }
     };
     if metadata.is_dir() {
         let entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
-            Err(error) => return walk.unreadable.push(json!({"path": shown, "error": error.to_string()})),
+            Err(error) => {
+                return walk
+                    .unreadable
+                    .push(json!({"path": shown, "error": error.to_string()}))
+            }
         };
         for entry in entries {
             match entry {
                 Ok(entry) => visit(&entry.path(), held, walk),
-                Err(error) => walk.unreadable.push(json!({"path": shown, "error": error.to_string()})),
+                Err(error) => walk
+                    .unreadable
+                    .push(json!({"path": shown, "error": error.to_string()})),
             }
         }
         return;
@@ -167,11 +210,18 @@ fn visit(path: &Path, held: &[Held], walk: &mut Walk) {
     }
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
-        Err(error) => return walk.unreadable.push(json!({"path": shown, "error": error.to_string()})),
+        Err(error) => {
+            return walk
+                .unreadable
+                .push(json!({"path": shown, "error": error.to_string()}))
+        }
     };
     for held_value in held {
         let needle = held_value.value.as_bytes();
-        if let Some(at) = bytes.windows(needle.len()).position(|window| window == needle) {
+        if let Some(at) = bytes
+            .windows(needle.len())
+            .position(|window| window == needle)
+        {
             // The line the copy starts on: the lines of everything before it.
             let line = bytes[..at].split(|byte| *byte == b'\n').count();
             walk.found.push(PlainCopy {

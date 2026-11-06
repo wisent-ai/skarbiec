@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: татбиқ шуд, аммо ҷавоб ҳолатро номбар намекунад: {answer}",
+  "request.approve": "Тасдиқ кардан",
+  "request.asks_for": "Дархост: {seconds} с, {uses} истифода (мақсад {purpose}, барои {target})",
+  "request.deny": "Рад кардан",
+  "request.dual": "Ду қароргиранда лозим аст.",
+  "request.hours": "Соат",
+  "request.how_long": "{summary}\n\nБарои чӣ қадар вақт?",
+  "request.how_many_hours": "Чанд соат?",
+  "request.how_many_uses": "Чанд истифода?",
+  "request.not_applied": "{id}: татбиқ нашуд: {error}",
+  "request.not_number": "{question}\n\n«{typed}» адади бутуни мусбат нест ({cause}).",
+  "request.once": "Як бор",
+  "request.standing_for": "Дастрасии доимӣ барои: {consumer}",
+  "request.summary": "Дархости дастрасӣ {id}\n\nЧӣ: {action} {resource} ({kind}){bounds}\nЧаро: {reason}\nКӣ: {who}{dual}",
+  "request.until_revoked": "То бекор шудан"
+}

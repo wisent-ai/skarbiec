@@ -8,8 +8,9 @@ use std::os::unix::net::UnixStream;
 
 use super::proof::{item_field, verify_proof, workload_public_key};
 use super::wire::{challenge_item, denied, denied_because, pending, reply};
-use crate::access::capability::state::{acquire_state_lock, load_state, now_epoch, save_entry};
+use crate::access::capability::state::{acquire_state_lock, load_state, save_entry};
 use crate::access::capability::{PROOF_DOMAIN, WIRE_VERSION};
+use crate::core::clock::epoch_seconds;
 use crate::core::schema::exact_token;
 use crate::core::{vault::Vault, vault_path};
 
@@ -58,14 +59,22 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         return reply(stream, super::super::status::observed()?, &[]);
     }
 
-    let (Some(version), Some(operation), Some(capability_id), Some(nonce), Some(workload_id), Some(proof)) = (
+    let (
+        Some(version),
+        Some(operation),
+        Some(capability_id),
+        Some(nonce),
+        Some(workload_id),
+        Some(proof),
+    ) = (
         text(&request, "version"),
         text(&request, "operation"),
         text(&request, "capability_id"),
         text(&request, "nonce"),
         text(&request, "workload_id"),
         text(&request, "proof"),
-    ) else {
+    )
+    else {
         return denied_because(stream, MALFORMED);
     };
     // The wire leaves authorization_id out for a capability issued without
@@ -92,7 +101,7 @@ pub(super) fn handle(stream: &mut UnixStream) -> Result<()> {
         return denied_because(stream, MALFORMED);
     }
 
-    let now = now_epoch()?;
+    let now = epoch_seconds()?;
     let _state_lock = acquire_state_lock()?;
     let mut state = load_state()?;
     let Some(record) = state["capabilities"].get(capability_id).cloned() else {

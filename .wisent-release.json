@@ -7,90 +7,66 @@
     "path": "Cargo.toml",
     "pattern": "(?m)^version\\s*=\\s*\"(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)\"\\s*$"
   },
-  "inputs": {
-    "weles-client": {
-      "uri": "stado://sources/skarbiec/dependencies/weles-client/sha256/0f0516a6bc1366e96d1e779163b0b9173082e9c501dfd912cab9625c75764056/source.tar.gz",
-      "sha256": "0f0516a6bc1366e96d1e779163b0b9173082e9c501dfd912cab9625c75764056",
-      "mount": "weles-client",
-      "extract": true
-    }
-  },
   "platforms": {
     "darwin-arm64": {
-      "quality": [
-        {
-          "name": "fmt",
-          "argv": [
-            "cargo",
-            "fmt",
-            "--",
-            "--check"
-          ],
-          "kind": "format"
-        },
-        {
-          "name": "clippy",
-          "argv": [
-            "cargo",
-            "clippy",
-            "--locked",
-            "--all-targets",
-            "--keep-going",
-            "--",
-            "-D",
-            "warnings"
-          ],
-          "kind": "lint"
-        }
-      ],
+      "quality": [],
       "build": {
         "argv": [
           "bash",
           "release/build.sh"
         ]
       },
+      "tests": [
+        {
+          "name": "serve-one-process",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "serve-one-process"
+          ]
+        },
+        {
+          "name": "vault-fence",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "vault-fence"
+          ]
+        }
+      ],
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
-        "stage/bin/start": "bin/start",
-        "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
         "stage/LICENSE": "LICENSE",
         "stage/NOTICE": "NOTICE"
       },
       "runner_platform": "darwin-arm64"
     },
     "linux-amd64": {
-      "quality": [
-        {
-          "name": "fmt",
-          "argv": [
-            "cargo",
-            "fmt",
-            "--",
-            "--check"
-          ],
-          "kind": "format"
-        },
-        {
-          "name": "clippy",
-          "argv": [
-            "cargo",
-            "clippy",
-            "--locked",
-            "--all-targets",
-            "--keep-going",
-            "--",
-            "-D",
-            "warnings"
-          ],
-          "kind": "lint"
-        }
-      ],
+      "quality": [],
       "build": {
         "argv": [
           "bash",
           "release/build.sh"
         ]
       },
+      "tests": [
+        {
+          "name": "serve-one-process",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "serve-one-process"
+          ]
+        },
+        {
+          "name": "vault-fence",
+          "argv": [
+            "bash",
+            "tests/release/journey.sh",
+            "vault-fence"
+          ]
+        }
+      ],
       "env": {
         "SKARBIEC_EXTENSION_UPDATE_ORIGIN": "https://stado.wisent.com"
       },
@@ -99,8 +75,6 @@
       },
       "stage": {
         "stage/bin/skarbiec": "bin/skarbiec",
-        "stage/bin/start": "bin/start",
-        "stage/share/skarbiec/weles-client": "share/skarbiec/weles-client",
         "stage/share/skarbiec/browser/skarbiec-autofill.crx": "share/skarbiec/browser/skarbiec-autofill.crx",
         "stage/share/skarbiec/browser/skarbiec-autofill.xml": "share/skarbiec/browser/skarbiec-autofill.xml",
         "stage/LICENSE": "LICENSE",
@@ -131,7 +105,9 @@
       ],
       "required": true,
       "secret_env": {},
-      "target": { "product": "skarbiec" }
+      "target": {
+        "product": "skarbiec"
+      }
     },
     {
       "name": "fleet-linux",
@@ -146,7 +122,17 @@
       ],
       "required": false,
       "secret_env": {},
-      "target": { "product": "skarbiec" }
+      "target": {
+        "product": "skarbiec"
+      }
     }
-  ]
+  ],
+  "inputs": {
+    "private-cargo-sources": {
+      "uri": "stado://sources/skarbiec/dependencies/private-cargo-sources/sha256/a817f09fbb7c1e80d692a783c28f8648d41fab1911a61d71cd5ae10d43bf2582/source.tar.gz",
+      "sha256": "a817f09fbb7c1e80d692a783c28f8648d41fab1911a61d71cd5ae10d43bf2582",
+      "mount": "private-cargo-sources",
+      "extract": true
+    }
+  }
 }

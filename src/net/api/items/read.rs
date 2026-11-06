@@ -32,11 +32,14 @@ pub(super) struct Located {
 }
 
 /// Check the request's grant for `read` of its item field and find the item
-/// that answers it. `None` means the refusal was already written.
+/// that answers it. `None` means the refusal was already written. A caller
+/// that answers the value (`reads_value`) is also held to the adopt check;
+/// one that answers only its version decrypts nothing.
 pub(super) fn locate(
     stream: &mut TcpStream,
     headers: &HashMap<String, String>,
     body: &str,
+    reads_value: bool,
 ) -> Result<Option<Located>> {
     let Some(parsed) = http::request_json(stream, body)? else {
         return Ok(None);
@@ -66,14 +69,13 @@ pub(super) fn locate(
     };
     let vault = http::load()?;
     if !grant::token_allows_field_action(
-            &vault,
-            &consumer,
-            &bearer,
-            crate::access::actions::Action::Read.as_str(),
-            id,
-            field,
-        )?
-    {
+        &vault,
+        &consumer,
+        &bearer,
+        crate::access::actions::Action::Read.as_str(),
+        id,
+        field,
+    )? {
         http::write_response(
             stream,
             "HTTP/1.1 403 Forbidden",
@@ -111,19 +113,37 @@ pub(super) fn locate(
     };
     let id = resolved.as_str();
     // An adopt candidate the provider has not confirmed is readable only by
-    // the adopt verification path, never by an ordinary read grant.
-    if field != "context"
-        && matches!(
-            crate::credential::managed_read(&vault, id, field, &consumer)?,
-            crate::credential::ManagedRead::Refused
-        )
-    {
-        http::write_response(
-            stream,
-            "HTTP/1.1 409 Conflict",
-            &json!({"error": "credential adoption is in flight; the staged candidate is not readable"}),
-        )?;
-        return Ok(None);
+    // the adopt verification path, never by an ordinary read grant. Telling
+    // that decrypts the item; a decrypt that fails or is ended answers the
+    // caller with why, as the read's own decrypt does, never a connection
+    // closed with no answer. A version answer carries no value, so it is not
+    // asked.
+    if reads_value && field != "context" {
+        match crate::credential::managed_read(&vault, id, field, &consumer) {
+            Ok(crate::credential::ManagedRead::Refused) => {
+                http::write_response(
+                    stream,
+                    "HTTP/1.1 409 Conflict",
+                    &json!({"error": "credential adoption is in flight; the staged candidate is not readable"}),
+                )?;
+                return Ok(None);
+            }
+            Ok(_) => {}
+            Err(error) => {
+                let detail = format!("{error:#}");
+                eprintln!("item decryption failed: {id}: {detail}");
+                http::write_response(
+                    stream,
+                    "HTTP/1.1 503 Service Unavailable",
+                    &json!({
+                        "error": "item is stored but could not be decrypted",
+                        "error_code": Code::InfraDown.as_str(),
+                        "detail": http::detail_text(&detail),
+                    }),
+                )?;
+                return Ok(None);
+            }
+        }
     }
     let stored = vault
         .doc()
@@ -203,7 +223,7 @@ pub(crate) fn handle_items_read(
         revision,
         field,
         consumer,
-    }) = locate(stream, headers, body)?
+    }) = locate(stream, headers, body, true)?
     else {
         return Ok(());
     };
@@ -240,16 +260,14 @@ pub(crate) fn handle_items_read(
         "http-item-read",
         &json!({"item": id, "requested": requested, "field": field, "consumer": consumer}),
     )?;
-    http::write_response(
-        stream,
-        "HTTP/1.1 200 OK",
-        &json!({
-            "id": requested,
-            "item": id,
-            "item_uid": item_uid,
-            "revision": revision,
-            "field": field,
-            "value": value,
-        }),
-    )
+    let mut answer = json!({
+        "id": requested,
+        "item": id,
+        "item_uid": item_uid,
+        "revision": revision,
+        "field": field,
+        "value": value,
+    });
+    crate::core::vault::fence::annotate(&mut answer);
+    http::write_response(stream, "HTTP/1.1 200 OK", &answer)
 }

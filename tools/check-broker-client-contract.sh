@@ -2,35 +2,50 @@
 # Does the desktop client ask /v1/operator/credential for an operation this
 # broker does not serve?
 #
-#   tools/check-broker-client-contract.sh <src/net/operator/routes.rs> <client directory or .swift file>
+#   tools/check-broker-client-contract.sh <src/net/operator/credential.rs> <client directory or .swift file>
 #
-# The broker's list is the array routes.rs checks the operation against
-# (`if ![...].contains(&operation.as_str())`). The client's operations are the
-# literal `"operation": "<name>"` entries in every Swift file of the client,
-# which is a directory since BackendClient became BackendClient/*.swift.
+# The broker's operations are the variants of the `Operation` enum that
+# credential.rs deserializes the request's `operation` into, in the
+# kebab-case its `#[serde(rename_all = "kebab-case")]` reads them by; that
+# enum is the only list the broker dispatches over. The client's operations
+# are the literal `"operation": "<name>"` entries in every Swift file of the
+# client, which is a directory since BackendClient became BackendClient/*.swift.
 # Exit 0: every client operation is served. 1: at least one is not, each named
 # with file, line and function. 2: an input is missing or the broker's list
 # cannot be found.
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
-  printf '%s\n' "usage: check-broker-client-contract.sh <src/net/operator/routes.rs> <client directory or .swift file>" >&2
+  printf '%s\n' "usage: check-broker-client-contract.sh <src/net/operator/credential.rs> <client directory or .swift file>" >&2
   exit 2
 fi
-routes="$1"
+operations="$1"
 client="$2"
-[ -f "$routes" ] || { printf '%s not found\n' "$routes" >&2; exit 2; }
+[ -f "$operations" ] || { printf '%s not found\n' "$operations" >&2; exit 2; }
 [ -e "$client" ] || { printf '%s not found\n' "$client" >&2; exit 2; }
 
-# The array literal ends at the line holding `.contains(&operation.as_str())`;
-# it starts at the `if ![` above it.
+# Every unit variant between `enum Operation {` and its closing brace, in
+# kebab-case. A rename_all other than kebab-case would name them differently,
+# so the attribute is required rather than assumed.
+if ! grep -q '#\[serde(rename_all = "kebab-case")\]' "$operations"; then
+  printf '%s\n' "$operations does not read its operations in kebab-case (#[serde(rename_all = \"kebab-case\")])" >&2
+  exit 2
+fi
 broker="$(awk '
-  /if[[:space:]]*![[:space:]]*\[/ { collecting = 1; text = "" }
-  collecting { text = text $0 }
-  collecting && /\.contains\(&operation\.as_str\(\)\)/ { print text; exit }
-' "$routes" | { grep -o '"[^"]*"' || true; } | tr -d '"' | sort -u)"
+  /enum[[:space:]]+Operation[[:space:]]*\{/ { collecting = 1; next }
+  collecting && /^[[:space:]]*\}/ { exit }
+  collecting && match($0, /^[[:space:]]*[A-Z][A-Za-z0-9]*[[:space:]]*,?[[:space:]]*$/) {
+    name = $0; gsub(/[[:space:],]/, "", name)
+    kebab = tolower(substr(name, 1, 1))
+    for (i = 2; i <= length(name); i++) {
+      c = substr(name, i, 1)
+      kebab = kebab (c ~ /[A-Z]/ ? "-" tolower(c) : c)
+    }
+    print kebab
+  }
+' "$operations" | sort -u)"
 if [ -z "$broker" ]; then
-  printf '%s\n' "no credential operation list found in $routes: expected if ![\"...\", ...].contains(&operation.as_str())" >&2
+  printf '%s\n' "no credential operation enum found in $operations: expected enum Operation { Variant, ... }" >&2
   exit 2
 fi
 

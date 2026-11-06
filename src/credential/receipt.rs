@@ -20,8 +20,8 @@ pub(super) const DIRECTORY_IDENTITY_KEYS: &[&str] =
 pub(super) fn approval_expired(expires_at: &str) -> Result<bool> {
     let now = zulu_seconds(&now_iso())
         .context("cannot read the current time to check the approval window")?;
-    let expires = zulu_seconds(expires_at)
-        .context("approval expiry is not an ISO 8601 zulu timestamp")?;
+    let expires =
+        zulu_seconds(expires_at).context("approval expiry is not an ISO 8601 zulu timestamp")?;
     Ok(expires <= now)
 }
 

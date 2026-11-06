@@ -26,7 +26,10 @@ pub(crate) fn merge_value(positionals: &[String]) -> Result<Value> {
         return Err(Usage(USAGE.to_string()).into());
     }
     if drops.contains(keep) {
-        return Err(Usage(format!("{keep} is both kept and dropped; name it once, as the item to keep")).into());
+        return Err(Usage(format!(
+            "{keep} is both kept and dropped; name it once, as the item to keep"
+        ))
+        .into());
     }
     let vault = Vault::open(vault_path())?;
     // Every item is checked before anything moves, so a refused one leaves
@@ -44,13 +47,22 @@ pub(crate) fn merge_value(positionals: &[String]) -> Result<Value> {
             .into_iter()
             .filter(|uid| !kept_readers.contains(uid))
             .collect();
-        let target = HashMap::from([("from".to_string(), drop.clone()), ("to".to_string(), keep.clone())]);
+        let target = HashMap::from([
+            ("from".to_string(), drop.clone()),
+            ("to".to_string(), keep.clone()),
+        ]);
         let mut moved = Vec::new();
         let mut not_moved = Vec::new();
         for consumer in grants_naming(&Vault::open(vault_path())?, drop) {
-            match crate::access::dispatch("grant", &target, &["retarget".to_string(), consumer.clone()]) {
+            match crate::access::dispatch(
+                "grant",
+                &target,
+                &["retarget".to_string(), consumer.clone()],
+            ) {
                 Ok(_) => moved.push(consumer),
-                Err(error) => not_moved.push(json!({"consumer": consumer, "error": format!("{error:#}")})),
+                Err(error) => {
+                    not_moved.push(json!({"consumer": consumer, "error": format!("{error:#}")}))
+                }
             }
         }
         // A grant that could not move would name a trashed item; the drop

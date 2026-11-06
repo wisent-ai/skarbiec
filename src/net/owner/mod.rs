@@ -105,7 +105,9 @@ pub(crate) fn dispatch(
     } else if command == "get" {
         positionals.first().or_usage(crate::cli::reads::GET_USAGE)?;
     } else if command == "set" {
-        positionals.first().or_usage(crate::cli::items::SET_JSON_USAGE)?;
+        positionals
+            .first()
+            .or_usage(crate::cli::items::SET_JSON_USAGE)?;
         let mut encoded = String::new();
         std::io::stdin().read_to_string(&mut encoded)?;
         body["payload"] = Value::String(encoded);
@@ -132,11 +134,13 @@ pub(crate) fn dispatch(
 const CAPABILITY_LEAF: &str = "capability";
 
 /// What `delete` takes, said when a forwarded one names no item.
-const DELETE_USAGE: &str = "usage: delete <id> | delete --tag <tag> [--yes] | delete --untouched-since <iso8601> [--yes]";
+const DELETE_USAGE: &str =
+    "usage: delete <id> | delete --tag <tag> [--yes] | delete --untouched-since <iso8601> [--yes]";
 
 /// `login get`: the noun and the leaf that pick a login by site.
 const LOGIN: &str = "login";
 const PICK_LEAF: &str = "get";
 
 /// What `login get` takes, said when a forwarded one names no site.
-const SITE_GET_USAGE: &str = "usage: login get <host or address> --field <field|one-time-code> [--username <name>]";
+const SITE_GET_USAGE: &str =
+    "usage: login get <host or address> --field <field|one-time-code> [--username <name>]";

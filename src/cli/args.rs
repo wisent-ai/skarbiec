@@ -81,7 +81,12 @@ pub(crate) fn flag_set(flags: &HashMap<String, String>, name: &str) -> bool {
 /// The arguments after `<noun> <verb>` when the invocation is that pair, so
 /// a module answering one verb of a noun several modules share says None to
 /// every other one and the next module is asked.
-pub(crate) fn verb<'a>(command: &str, positionals: &'a [String], noun: &str, verb: &str) -> Option<&'a [String]> {
+pub(crate) fn verb<'a>(
+    command: &str,
+    positionals: &'a [String],
+    noun: &str,
+    verb: &str,
+) -> Option<&'a [String]> {
     match positionals.split_first() {
         Some((first, rest)) if command == noun && first == verb => Some(rest),
         _ => None,
@@ -131,10 +136,15 @@ fn shape(value: &Value) -> Shape<'_> {
         Value::Bool(_) | Value::Number(_) => Shape::Line(value.to_string()),
         Value::Array(items) if items.is_empty() => Shape::Line("(none)".to_string()),
         Value::Object(fields) if fields.is_empty() => Shape::Line("(none)".to_string()),
-        Value::Object(fields) => {
-            Shape::Entries(fields.iter().map(|(key, field)| (format!("{key}:"), field)).collect())
+        Value::Object(fields) => Shape::Entries(
+            fields
+                .iter()
+                .map(|(key, field)| (format!("{key}:"), field))
+                .collect(),
+        ),
+        Value::Array(items) => {
+            Shape::Entries(items.iter().map(|item| ("-".to_string(), item)).collect())
         }
-        Value::Array(items) => Shape::Entries(items.iter().map(|item| ("-".to_string(), item)).collect()),
     }
 }
 

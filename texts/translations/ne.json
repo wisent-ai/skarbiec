@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: लागू भयो, तर उत्तरमा अवस्था छैन: {answer}",
+  "request.approve": "स्वीकृत गर्नुहोस्",
+  "request.asks_for": "माग: {seconds} से., {uses} पटक प्रयोग (उद्देश्य {purpose}, {target} का लागि)",
+  "request.deny": "अस्वीकार गर्नुहोस्",
+  "request.dual": "दुई निर्णयकर्ता चाहिन्छ।",
+  "request.hours": "घण्टा",
+  "request.how_long": "{summary}\n\nकति समयका लागि?",
+  "request.how_many_hours": "कति घण्टा?",
+  "request.how_many_uses": "कति पटक प्रयोग?",
+  "request.not_applied": "{id}: लागू भएन: {error}",
+  "request.not_number": "{question}\n\n“{typed}” धनात्मक पूर्णाङ्क होइन ({cause})।",
+  "request.once": "एक पटक",
+  "request.standing_for": "स्थायी पहुँच: {consumer}",
+  "request.summary": "पहुँच अनुरोध {id}\n\nके: {action} {resource} ({kind}){bounds}\nकिन: {reason}\nको: {who}{dual}",
+  "request.until_revoked": "रद्द नभएसम्म"
+}

@@ -50,7 +50,10 @@ pub fn dispatch(
 
 fn group(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
     let Some((verb, positionals)) = positionals.split_first() else {
-        return Err(crate::cli::args::Usage("recipient needs a subcommand; `skarbiec recipient help` lists them".to_string()).into());
+        return Err(crate::cli::args::Usage(
+            "recipient needs a subcommand; `skarbiec recipient help` lists them".to_string(),
+        )
+        .into());
     };
     if verb == "help" {
         return Ok(json!({
@@ -138,12 +141,18 @@ fn leaf(
         }
         "share" => {
             if let Some(tag) = flags.get("tag") {
-                let uid = positionals.first().or_usage("usage: share --tag <tag> <uid>")?;
+                let uid = positionals
+                    .first()
+                    .or_usage("usage: share --tag <tag> <uid>")?;
                 return tagged::share_tagged(tag, uid, flags).map(Some);
             }
             let mut args = positionals.iter();
-            let id = args.next().or_usage("usage: share <item-id> <uid> | share --tag <tag> <uid>")?;
-            let uid = args.next().or_usage("usage: share <item-id> <uid> | share --tag <tag> <uid>")?;
+            let id = args
+                .next()
+                .or_usage("usage: share <item-id> <uid> | share --tag <tag> <uid>")?;
+            let uid = args
+                .next()
+                .or_usage("usage: share <item-id> <uid> | share --tag <tag> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
             if vault.recipient_fpr(uid).is_none() {
                 return Ok(Some(
@@ -176,12 +185,18 @@ fn leaf(
         // because the value did not change.
         "revoke" => {
             if let Some(tag) = flags.get("tag") {
-                let uid = positionals.first().or_usage("usage: revoke --tag <tag> <uid>")?;
+                let uid = positionals
+                    .first()
+                    .or_usage("usage: revoke --tag <tag> <uid>")?;
                 return tagged::revoke_tagged(tag, uid).map(Some);
             }
             let mut args = positionals.iter();
-            let id = args.next().or_usage("usage: revoke <item-id> <uid> | revoke --tag <tag> <uid>")?;
-            let uid = args.next().or_usage("usage: revoke <item-id> <uid> | revoke --tag <tag> <uid>")?;
+            let id = args
+                .next()
+                .or_usage("usage: revoke <item-id> <uid> | revoke --tag <tag> <uid>")?;
+            let uid = args
+                .next()
+                .or_usage("usage: revoke <item-id> <uid> | revoke --tag <tag> <uid>")?;
             let mut vault = Vault::open(vault_path())?;
             item_meta(&vault, id)?;
             let readers = vault.item_recipient_uids(id)?;
@@ -255,7 +270,9 @@ fn leaf(
             }))
         }
         "recipient items" => {
-            let uid = positionals.first().or_usage("usage: recipient items <uid>")?;
+            let uid = positionals
+                .first()
+                .or_usage("usage: recipient items <uid>")?;
             reach::items_of(uid).map(Some)
         }
         "recipient export" => {

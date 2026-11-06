@@ -24,10 +24,17 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
     };
     let (fields, minimum) = super::requested(flags, USAGE)?;
     let (held, unreadable_items, below_minimum) = super::values(&fields, minimum)?;
-    let repo = std::env::current_dir().context("read the working directory")?.join(repo);
-    let log = stado_wait::output(
-        Command::new("git").arg("-C").arg(&repo).args(["log", "--all", "-p", "--no-color", "--no-ext-diff", "--format=commit %H"]),
-    )
+    let repo = std::env::current_dir()
+        .context("read the working directory")?
+        .join(repo);
+    let log = stado_wait::output(Command::new("git").arg("-C").arg(&repo).args([
+        "log",
+        "--all",
+        "-p",
+        "--no-color",
+        "--no-ext-diff",
+        "--format=commit %H",
+    ]))
     .context("run git log, which reads the repository's history")?;
     if !log.status.success() {
         bail!(
@@ -57,7 +64,12 @@ pub(super) fn run(flags: &HashMap<String, String>, positionals: &[String]) -> Re
         for copy in &held {
             let needle = copy.value.as_bytes();
             if line.windows(needle.len()).any(|window| window == needle) {
-                found.insert((commit.clone(), file.clone(), copy.item.clone(), copy.field.clone()));
+                found.insert((
+                    commit.clone(),
+                    file.clone(),
+                    copy.item.clone(),
+                    copy.field.clone(),
+                ));
             }
         }
     }

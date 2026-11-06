@@ -21,14 +21,19 @@ fn live_ids(vault: &Vault) -> Vec<String> {
 }
 
 pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
-    let copy = Vault::open(file.to_path_buf())
-        .with_context(|| format!("{} does not read as a Skarbiec vault; nothing was restored", file.display()))?;
+    let copy = Vault::open(file.to_path_buf()).with_context(|| {
+        format!(
+            "{} does not read as a Skarbiec vault; nothing was restored",
+            file.display()
+        )
+    })?;
     let restored = live_ids(&copy);
     let live = vault_path();
     let present = crate::core::is_present(&live, "live vault")?;
-    let current = match present {
-        true => live_ids(&Vault::open(live.clone())?),
-        false => Vec::new(),
+    let current = if present {
+        live_ids(&Vault::open(live.clone())?)
+    } else {
+        Vec::new()
     };
     let lost: Vec<&String> = current.iter().filter(|id| !restored.contains(id)).collect();
     if !confirmed {
@@ -40,13 +45,23 @@ pub(super) fn restore(file: &Path, confirmed: bool) -> Result<Value> {
             "would_lose": lost,
         }));
     }
-    let bytes = std::fs::read(file).with_context(|| format!("read the backup {}", file.display()))?;
-    let kept = match present {
-        false => None,
-        true => Some(keep_aside(&live)?),
+    // Refused before anything is kept aside; checked again under the lock
+    // when the backup is written.
+    crate::core::vault::fence::check_write(&live)?;
+    let bytes =
+        std::fs::read(file).with_context(|| format!("read the backup {}", file.display()))?;
+    let kept = if present {
+        Some(keep_aside(&live)?)
+    } else {
+        None
     };
-    crate::core::vault::atomic_write(&live, &bytes)
-        .with_context(|| format!("write the backup {} over {}", file.display(), live.display()))?;
+    crate::core::vault::fence::replace_vault(&live, &bytes).with_context(|| {
+        format!(
+            "write the backup {} over {}",
+            file.display(),
+            live.display()
+        )
+    })?;
     crate::runtime::audit::append(
         "vault-restored",
         &json!({"backup": file.display().to_string(), "kept_aside": kept, "lost": lost}),
@@ -67,8 +82,13 @@ fn keep_aside(live: &Path) -> Result<String> {
     let mut name = live.as_os_str().to_owned();
     name.push(format!(".pre-restore.{}", clock::now_stamp()));
     let aside = std::path::PathBuf::from(name);
-    let held = std::fs::read(live).with_context(|| format!("read the live vault {}", live.display()))?;
-    crate::core::vault::atomic_write(&aside, &held)
-        .with_context(|| format!("keep the live vault aside at {}; nothing was restored", aside.display()))?;
+    let held =
+        std::fs::read(live).with_context(|| format!("read the live vault {}", live.display()))?;
+    crate::core::vault::atomic_write(&aside, &held).with_context(|| {
+        format!(
+            "keep the live vault aside at {}; nothing was restored",
+            aside.display()
+        )
+    })?;
     Ok(aside.display().to_string())
 }

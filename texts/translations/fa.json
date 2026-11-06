@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: اعمال شد، اما پاسخ وضعیتی را نام نمی‌برد: {answer}",
+  "request.approve": "تأیید",
+  "request.asks_for": "درخواست: {seconds} ثانیه، {uses} بار استفاده (هدف {purpose}، برای {target})",
+  "request.deny": "رد",
+  "request.dual": "به دو تصمیم‌گیرنده نیاز دارد.",
+  "request.hours": "ساعت",
+  "request.how_long": "{summary}\n\nبرای چه مدت؟",
+  "request.how_many_hours": "چند ساعت؟",
+  "request.how_many_uses": "چند بار استفاده؟",
+  "request.not_applied": "{id}: اعمال نشد: {error}",
+  "request.not_number": "{question}\n\n«{typed}» عدد صحیح مثبت نیست ({cause}).",
+  "request.once": "یک بار",
+  "request.standing_for": "دسترسی دائمی برای: {consumer}",
+  "request.summary": "درخواست دسترسی {id}\n\nچه: {action} {resource} ({kind}){bounds}\nچرا: {reason}\nچه کسی: {who}{dual}",
+  "request.until_revoked": "تا لغو"
+}

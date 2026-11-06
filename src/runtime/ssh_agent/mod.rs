@@ -24,7 +24,8 @@ pub fn dispatch(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Option<Value>> {
-    const USAGE: &str = "usage: ssh add <item-id> | ssh add --tag <tag>  [--lifetime <seconds>] [--agent <socket>]";
+    const USAGE: &str =
+        "usage: ssh add <item-id> | ssh add --tag <tag>  [--lifetime <seconds>] [--agent <socket>]";
     let Some(rest) = crate::cli::args::verb(command, positionals, "ssh", "add") else {
         return Ok(None);
     };
@@ -86,7 +87,9 @@ fn add(id: &str, lifetime: Option<&String>, agent: Option<&String>) -> Result<Va
         .get(PRIVATE_KEY_FIELD)
         .and_then(Value::as_str)
         .filter(|text| !text.trim().is_empty())
-        .with_context(|| format!("{id} holds no {PRIVATE_KEY_FIELD} text, so there is no key to add"))?;
+        .with_context(|| {
+            format!("{id} holds no {PRIVATE_KEY_FIELD} text, so there is no key to add")
+        })?;
     let mut command = Command::new("ssh-add");
     if let Some(lifetime) = lifetime {
         command.args(["-t", lifetime.as_str()]);

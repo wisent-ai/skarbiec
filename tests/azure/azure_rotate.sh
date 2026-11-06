@@ -56,9 +56,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 present() {
   listed | jq -e --arg key "$1" 'any(.[]; .keyId == $key)' >/dev/null
@@ -102,14 +103,14 @@ done
 echo "ok: no Azure configuration is left beside the vault" >>"$REPORT"
 
 WANT=refused run rotate "$ITEM" --with azure --tenant "$TENANT" --years "$YEARS" --end-date "2999-01-01"
-case "$out" in *"give one"*) ;; *) fail "both --end-date and --years were not refused: $out" ;; esac
+case "$said" in *"give one"*) ;; *) fail "both --end-date and --years were not refused: output: $out stderr: $said" ;; esac
 WANT=refused run rotate "$ITEM" --with azure --tenant "$TENANT" --end-date "next-year"
-case "$out" in *"is not a day as YYYY-MM-DD"*) ;; *) fail "an end that is no day was not refused: $out" ;; esac
+case "$said" in *"is not a day as YYYY-MM-DD"*) ;; *) fail "an end that is no day was not refused: output: $out stderr: $said" ;; esac
 jq -n '{schema:"skarbiec.item.v2",kind:"note",fields:{text:"not a secret"},context:{}}' >"$ROOT/stdin"
 WANT=ok run set "note-$RUN" --type note
 : >"$ROOT/stdin"
 WANT=refused run rotate "note-$RUN" --with azure --tenant "$TENANT" --years "$YEARS"
-case "$out" in *"rotate --with azure replaces an oauth-client item"*) ;; *) fail "a note was not refused naming its kind: $out" ;; esac
+case "$said" in *"rotate --with azure replaces an oauth-client item"*) ;; *) fail "a note was not refused naming its kind: output: $out stderr: $said" ;; esac
 echo "ok: an end given twice, an end that is no day and a note are refused" >>"$REPORT"
 
 touch "$ROOT/passed"

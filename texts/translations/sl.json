@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: uveljavljeno, vendar odgovor ne navaja ne statusa ne stanja: {answer}",
+  "request.approve": "Odobri",
+  "request.asks_for": "Zahteva: {seconds} s, {uses} uporab (namen {purpose}, za {target})",
+  "request.deny": "Zavrni",
+  "request.dual": "Potrebna sta dva odločevalca.",
+  "request.hours": "Ure",
+  "request.how_long": "{summary}\n\nZa koliko časa?",
+  "request.how_many_hours": "Koliko ur?",
+  "request.how_many_uses": "Koliko uporab?",
+  "request.not_applied": "{id}: ni uveljavljeno: {error}",
+  "request.not_number": "{question}\n\n»{typed}« ni pozitivno celo število ({cause}).",
+  "request.once": "Enkrat",
+  "request.standing_for": "Trajni dostop za: {consumer}",
+  "request.summary": "Zahteva za dostop {id}\n\nKaj: {action} {resource} ({kind}){bounds}\nZakaj: {reason}\nKdo: {who}{dual}",
+  "request.until_revoked": "Do preklica"
+}

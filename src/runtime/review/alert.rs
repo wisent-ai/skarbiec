@@ -17,7 +17,12 @@ fn found(value: &Value) -> Option<String> {
         Value::Object(members) => {
             let lists: Vec<String> = members
                 .iter()
-                .filter_map(|(key, member)| member.as_array().filter(|rows| !rows.is_empty()).map(|rows| format!("{key}: {}", rows.len())))
+                .filter_map(|(key, member)| {
+                    member
+                        .as_array()
+                        .filter(|rows| !rows.is_empty())
+                        .map(|rows| format!("{key}: {}", rows.len()))
+                })
                 .collect();
             (!lists.is_empty()).then(|| lists.join(", "))
         }
@@ -27,7 +32,12 @@ fn found(value: &Value) -> Option<String> {
 
 /// Post the review's findings when it holds any, answering whether it did.
 pub(super) fn post(report: &Value) -> Value {
-    let failed: Vec<&str> = report["failed_sections"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    let failed: Vec<&str> = report["failed_sections"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
     let mut lines: Vec<String> = report["sections"]
         .as_object()
         .into_iter()
@@ -35,11 +45,19 @@ pub(super) fn post(report: &Value) -> Value {
         .filter(|(name, _)| !failed.contains(&name.as_str()))
         .filter_map(|(name, section)| found(section).map(|rows| format!("{name}: {rows}")))
         .collect();
-    lines.extend(failed.iter().map(|name| format!("{name} failed: {}", report["sections"][*name]["error"])));
+    lines.extend(
+        failed
+            .iter()
+            .map(|name| format!("{name} failed: {}", report["sections"][*name]["error"])),
+    );
     if lines.is_empty() {
         return json!({"posted": false, "reason": "the review found nothing"});
     }
-    let text = format!("skarbiec review held to {}: {}", report["before"], lines.join("; "));
+    let text = format!(
+        "skarbiec review held to {}: {}",
+        report["before"],
+        lines.join("; ")
+    );
     match crate::runtime::alert::send(&text) {
         Ok(Some(_)) => json!({"posted": true, "sections": lines.len()}),
         Ok(None) => json!({"posted": false, "reason": "no alert is set on this host"}),

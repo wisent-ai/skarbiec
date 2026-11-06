@@ -117,7 +117,7 @@
   "analyticsOwner": "Wisent product and design maintainers",
   "notes": [
     "primaryAction.kind is url, so target is the approved absolute URL: the install and update procedure the README links. Skarbiec ships no hosted service, so no signup, trial, or account URL may be used.",
-    "The fleet-level Hosted Hub is planned commercial work and is not part of this repository; it must not appear as an available capability, a price, or a waitlist unless a separately approved claim exists.",
+    "The paid fleet audit service is the separate product skarbiec-web, not part of this repository; it must not appear as a capability of the local core, a price, or a waitlist unless a separately approved claim exists.",
     "Weles is the optional reviewed browser workflow, not blanket authority to navigate providers, accept terms, or create credentials; describe it only within that boundary.",
     "Build and deploy settings for the generated site live in landing.config.json, never in this brief."
   ]

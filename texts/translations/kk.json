@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: қолданылды, бірақ жауап күйді атамайды: {answer}",
+  "request.approve": "Мақұлдау",
+  "request.asks_for": "Сұрайды: {seconds} с, {uses} пайдалану (мақсаты {purpose}, {target} үшін)",
+  "request.deny": "Бас тарту",
+  "request.dual": "Екі шешім қабылдаушы қажет.",
+  "request.hours": "Сағат",
+  "request.how_long": "{summary}\n\nҚанша уақытқа?",
+  "request.how_many_hours": "Неше сағат?",
+  "request.how_many_uses": "Неше пайдалану?",
+  "request.not_applied": "{id}: қолданылмады: {error}",
+  "request.not_number": "{question}\n\n«{typed}» оң бүтін сан емес ({cause}).",
+  "request.once": "Бір рет",
+  "request.standing_for": "Тұрақты қол жеткізу: {consumer}",
+  "request.summary": "Қол жеткізу сұрауы {id}\n\nНе: {action} {resource} ({kind}){bounds}\nНеге: {reason}\nКім: {who}{dual}",
+  "request.until_revoked": "Кері қайтарылғанша"
+}

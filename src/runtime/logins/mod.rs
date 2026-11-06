@@ -64,7 +64,9 @@ pub fn offered_nowhere() -> Result<Value> {
         };
         match vault.get_item(id) {
             Ok(payload) => {
-                let named = payload.get("context").is_some_and(|context| !item_domains(context).is_empty());
+                let named = payload
+                    .get("context")
+                    .is_some_and(|context| !item_domains(context).is_empty());
                 if !named {
                     nowhere.push(id.to_string());
                 }
@@ -84,7 +86,8 @@ pub fn offered_nowhere() -> Result<Value> {
 fn logins_for(positionals: &[String]) -> Result<Value> {
     let Some(site) = positionals.first().filter(|site| !site.trim().is_empty()) else {
         return Err(crate::cli::args::Usage(
-            "usage: login list <host or address>, such as github.com or https://github.com/login".to_string(),
+            "usage: login list <host or address>, such as github.com or https://github.com/login"
+                .to_string(),
         )
         .into());
     };
@@ -124,7 +127,10 @@ fn logins_for(positionals: &[String]) -> Result<Value> {
             continue;
         }
         let username = match schema::fields(&payload) {
-            Ok(fields) => fields.get("username").and_then(Value::as_str).map(str::to_string),
+            Ok(fields) => fields
+                .get("username")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             Err(error) => {
                 unreadable.push(json!({"item": id, "error": format!("{error:#}")}));
                 continue;

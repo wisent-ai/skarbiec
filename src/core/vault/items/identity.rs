@@ -119,7 +119,9 @@ impl Vault {
         let items = match self.doc.get("items") {
             None => &none,
             Some(Value::Object(items)) => items,
-            Some(other) => anyhow::bail!("the vault document's items section is {other}, not an object of items"),
+            Some(other) => anyhow::bail!(
+                "the vault document's items section is {other}, not an object of items"
+            ),
         };
         let ids: Vec<String> = items
             .iter()
@@ -266,27 +268,37 @@ impl Vault {
                     serde_json::from_str::<Value>(&plain).context("saved version is not JSON")
                 });
             let fields = match opened {
-                Ok(payload) => match payload.get("fields").and_then(Value::as_object) {
-                    Some(fields) => fields.clone(),
-                    None => {
-                        changes.push(json!({"at": at, "error": "the saved version holds no fields object"}));
-                        continue;
+                Ok(payload) => {
+                    match payload.get("fields").and_then(Value::as_object) {
+                        Some(fields) => fields.clone(),
+                        None => {
+                            changes.push(json!({"at": at, "error": "the saved version holds no fields object"}));
+                            continue;
+                        }
                     }
-                },
+                }
                 Err(error) => {
                     changes.push(json!({"at": at, "error": format!("{error:#}")}));
                     continue;
                 }
             };
             if let Some(before) = &previous {
-                let added: Vec<&String> = fields.keys().filter(|name| !before.contains_key(*name)).collect();
-                let removed: Vec<&String> = before.keys().filter(|name| !fields.contains_key(*name)).collect();
+                let added: Vec<&String> = fields
+                    .keys()
+                    .filter(|name| !before.contains_key(*name))
+                    .collect();
+                let removed: Vec<&String> = before
+                    .keys()
+                    .filter(|name| !fields.contains_key(*name))
+                    .collect();
                 let changed: Vec<&String> = fields
                     .iter()
                     .filter(|(name, value)| before.get(*name).is_some_and(|old| old != *value))
                     .map(|(name, _)| name)
                     .collect();
-                changes.push(json!({"at": at, "added": added, "removed": removed, "changed": changed}));
+                changes.push(
+                    json!({"at": at, "added": added, "removed": removed, "changed": changed}),
+                );
             }
             previous = Some(fields);
         }

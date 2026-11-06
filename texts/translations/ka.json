@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: გამოყენებულია, მაგრამ პასუხი მდგომარეობას არ ასახელებს: {answer}",
+  "request.approve": "დამტკიცება",
+  "request.asks_for": "ითხოვს: {seconds} წმ, {uses} გამოყენება (მიზანი {purpose}, {target}-ისთვის)",
+  "request.deny": "უარყოფა",
+  "request.dual": "საჭიროა ორი გადაწყვეტილების მიმღები.",
+  "request.hours": "საათები",
+  "request.how_long": "{summary}\n\nრა ვადით?",
+  "request.how_many_hours": "რამდენი საათი?",
+  "request.how_many_uses": "რამდენი გამოყენება?",
+  "request.not_applied": "{id}: არ გამოყენებულა: {error}",
+  "request.not_number": "{question}\n\n„{typed}“ არ არის დადებითი მთელი რიცხვი ({cause}).",
+  "request.once": "ერთხელ",
+  "request.standing_for": "მუდმივი წვდომა: {consumer}",
+  "request.summary": "წვდომის მოთხოვნა {id}\n\nრა: {action} {resource} ({kind}){bounds}\nრატომ: {reason}\nვინ: {who}{dual}",
+  "request.until_revoked": "გაუქმებამდე"
+}

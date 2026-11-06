@@ -3,8 +3,10 @@
 // credential goes through the same `credential rotate` lifecycle an operator
 // would start by hand; an owner-controlled item goes through the provider
 // its policy names with --with, as `skarbiec rotate <id> --with <provider>`.
-// A recurring trigger calls `rotation run`: on the Wisent fleet a Stado
-// schedule pinned to the vault owner, on a standalone host cron or launchd.
+// Every `skarbiec maintain` pass makes the same pass over the due policies,
+// so a vault whose maintenance is scheduled (on the Wisent fleet a Stado
+// schedule pinned to the vault owner, on a standalone host cron or launchd)
+// rotates on its own; `rotation run` is the same pass on demand.
 //
 // Policies live in the vault document under `rotation`, keyed by item id, so
 // they travel with the vault. A replica never runs them: its document is
@@ -22,6 +24,7 @@ use std::collections::HashMap;
 use crate::core::vault::Vault;
 
 use run::runs_here;
+pub(crate) use run::{maintain_pass, refused_items};
 
 /// The vault document section holding every policy.
 const SECTION: &str = "rotation";
@@ -48,7 +51,10 @@ pub(super) fn dispatch(flags: &HashMap<String, String>, positionals: &[String]) 
         "remove" => policy::remove(args),
         "providers" => {
             if !args.is_empty() || !flags.is_empty() {
-                return Err(crate::cli::args::Usage(format!("rotation providers takes no argument or flag; {USAGE}")).into());
+                return Err(crate::cli::args::Usage(format!(
+                    "rotation providers takes no argument or flag; {USAGE}"
+                ))
+                .into());
             }
             Ok(crate::runtime::rotate::providers())
         }
@@ -74,7 +80,9 @@ fn policies(vault: &Vault) -> Result<Map<String, Value>> {
     match vault.doc().get(SECTION) {
         None => Ok(Map::new()),
         Some(Value::Object(section)) => Ok(section.clone()),
-        Some(other) => anyhow::bail!("the vault's {SECTION} section is {other}, not an object of policies"),
+        Some(other) => {
+            anyhow::bail!("the vault's {SECTION} section is {other}, not an object of policies")
+        }
     }
 }
 
@@ -118,7 +126,11 @@ pub(crate) fn mark_due(ids: &[String], reason: &str) -> Result<Vec<String>> {
 /// Carry an item's rotation policy to its new id after a rename, so the
 /// schedule keeps rotating it; the caller saves. True when there was one.
 pub(crate) fn follow_rename(vault: &mut Vault, from: &str, to: &str) -> bool {
-    let Some(section) = vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) else {
+    let Some(section) = vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+    else {
         return false;
     };
     match section.remove(from) {

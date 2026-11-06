@@ -36,7 +36,9 @@ pub fn dispatch(
     let answer = match positionals {
         [verb, file] if verb == "check" => check(Path::new(file), flag_set(flags, "open"))?,
         [verb, file] if verb == "diff" => diff::diff(Path::new(file))?,
-        [verb, file] if verb == "restore" => restore::restore(Path::new(file), flag_set(flags, "yes"))?,
+        [verb, file] if verb == "restore" => {
+            restore::restore(Path::new(file), flag_set(flags, "yes"))?
+        }
         [verb, directory] if verb == "schedule" => scheduled::schedule(Path::new(directory))?,
         [verb] if verb == "schedule" => scheduled::current()?,
         [verb] if verb == "unschedule" => scheduled::unschedule()?,
@@ -84,8 +86,12 @@ fn make(directory: &Path) -> Result<Value> {
         ))
         .into());
     }
-    if !crate::core::file_type(directory, "the backup directory")?.is_some_and(|kind| kind.is_dir()) {
-        bail!("{} is not a directory here; nothing was copied", directory.display());
+    if !crate::core::file_type(directory, "the backup directory")?.is_some_and(|kind| kind.is_dir())
+    {
+        bail!(
+            "{} is not a directory here; nothing was copied",
+            directory.display()
+        );
     }
     let source = vault_path();
     // Read as a vault first: a file that does not open is not worth keeping.
@@ -95,15 +101,19 @@ fn make(directory: &Path) -> Result<Value> {
         None => bail!("the vault path {} names no file", source.display()),
     };
     let target: PathBuf = directory.join(format!("{name}.{}", clock::now_stamp()));
-    let mut input = File::open(&source).with_context(|| format!("open the vault file {}", source.display()))?;
+    let mut input =
+        File::open(&source).with_context(|| format!("open the vault file {}", source.display()))?;
     let mut output = OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(crate::core::vault::private_file_mode()?)
         .open(&target)
         .with_context(|| format!("create the backup {}", target.display()))?;
-    let bytes = std::io::copy(&mut input, &mut output).with_context(|| format!("copy the vault to {}", target.display()))?;
-    output.sync_all().with_context(|| format!("sync the backup {}", target.display()))?;
+    let bytes = std::io::copy(&mut input, &mut output)
+        .with_context(|| format!("copy the vault to {}", target.display()))?;
+    output
+        .sync_all()
+        .with_context(|| format!("sync the backup {}", target.display()))?;
     let held = describe(&target, false)?;
     crate::runtime::audit::append(
         "vault-backed-up",

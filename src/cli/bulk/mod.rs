@@ -22,7 +22,10 @@ pub(crate) fn delete_set(flags: &HashMap<String, String>) -> Option<Result<Value
     match (flags.get("tag"), flags.get("untouched-since")) {
         (Some(tag), None) => Some(delete_tagged(flags, tag)),
         (None, Some(moment)) => Some(delete_untouched(flags, moment)),
-        (Some(_), Some(_)) => Some(Err(Usage("delete takes --tag or --untouched-since, not both".to_string()).into())),
+        (Some(_), Some(_)) => Some(Err(Usage(
+            "delete takes --tag or --untouched-since, not both".to_string(),
+        )
+        .into())),
         (None, None) => None,
     }
 }
@@ -31,7 +34,10 @@ pub(crate) fn delete_tagged(flags: &HashMap<String, String>, tag: &str) -> Resul
     let mut vault = Vault::open(vault_path())?;
     let tagged = carrying(&vault, tag, false);
     if tagged.is_empty() {
-        return Err(Usage(format!("no live item carries the tag {tag}, so nothing was trashed")).into());
+        return Err(Usage(format!(
+            "no live item carries the tag {tag}, so nothing was trashed"
+        ))
+        .into());
     }
     if !flag_set(flags, "yes") {
         return Ok(json!({"ok": true, "confirmed": false, "tag": tag, "would_trash": tagged}));
@@ -47,8 +53,13 @@ pub(crate) fn delete_tagged(flags: &HashMap<String, String>, tag: &str) -> Resul
             grants.insert(id.clone(), json!(naming));
         }
     }
-    crate::runtime::audit::append("items-trashed-by-tag", &json!({"tag": tag, "items": tagged}))?;
-    Ok(json!({"ok": true, "confirmed": true, "tag": tag, "trashed": tagged, "grants_naming_them": grants}))
+    crate::runtime::audit::append(
+        "items-trashed-by-tag",
+        &json!({"tag": tag, "items": tagged}),
+    )?;
+    Ok(
+        json!({"ok": true, "confirmed": true, "tag": tag, "trashed": tagged, "grants_naming_them": grants}),
+    )
 }
 
 /// `delete --untouched-since <iso> [--yes]`: every live item no journal
@@ -57,7 +68,10 @@ pub(crate) fn delete_tagged(flags: &HashMap<String, String>, tag: &str) -> Resul
 /// every one checked before any moves. The trash keeps them, so `restore`
 /// brings back one a forgotten program still needed.
 pub(crate) fn delete_untouched(flags: &HashMap<String, String>, moment: &str) -> Result<Value> {
-    let listed = super::list::cmd_list(&HashMap::from([("untouched-since".to_string(), moment.to_string())]))?;
+    let listed = super::list::cmd_list(&HashMap::from([(
+        "untouched-since".to_string(),
+        moment.to_string(),
+    )]))?;
     let untouched: Vec<String> = listed
         .as_array()
         .into_iter()
@@ -65,10 +79,15 @@ pub(crate) fn delete_untouched(flags: &HashMap<String, String>, moment: &str) ->
         .filter_map(|item| item.get("id").and_then(Value::as_str).map(str::to_string))
         .collect();
     if untouched.is_empty() {
-        return Err(Usage(format!("every live item has been named in the journal since {moment}, so nothing was trashed")).into());
+        return Err(Usage(format!(
+            "every live item has been named in the journal since {moment}, so nothing was trashed"
+        ))
+        .into());
     }
     if !flag_set(flags, "yes") {
-        return Ok(json!({"ok": true, "confirmed": false, "untouched_since": moment, "would_trash": untouched}));
+        return Ok(
+            json!({"ok": true, "confirmed": false, "untouched_since": moment, "would_trash": untouched}),
+        );
     }
     let mut vault = Vault::open(vault_path())?;
     for id in &untouched {
@@ -82,8 +101,13 @@ pub(crate) fn delete_untouched(flags: &HashMap<String, String>, moment: &str) ->
             grants.insert(id.clone(), json!(naming));
         }
     }
-    crate::runtime::audit::append("items-trashed-untouched", &json!({"untouched_since": moment, "items": untouched}))?;
-    Ok(json!({"ok": true, "confirmed": true, "untouched_since": moment, "trashed": untouched, "grants_naming_them": grants}))
+    crate::runtime::audit::append(
+        "items-trashed-untouched",
+        &json!({"untouched_since": moment, "items": untouched}),
+    )?;
+    Ok(
+        json!({"ok": true, "confirmed": true, "untouched_since": moment, "trashed": untouched, "grants_naming_them": grants}),
+    )
 }
 
 /// `restore --tag <tag> [--yes]`: the trashed items carrying the tag, listed,
@@ -92,7 +116,10 @@ pub(crate) fn restore_tagged(flags: &HashMap<String, String>, tag: &str) -> Resu
     let mut vault = Vault::open(vault_path())?;
     let tagged = carrying(&vault, tag, true);
     if tagged.is_empty() {
-        return Err(Usage(format!("no trashed item carries the tag {tag}, so nothing was restored")).into());
+        return Err(Usage(format!(
+            "no trashed item carries the tag {tag}, so nothing was restored"
+        ))
+        .into());
     }
     if !flag_set(flags, "yes") {
         return Ok(json!({"ok": true, "confirmed": false, "tag": tag, "would_restore": tagged}));
@@ -103,7 +130,10 @@ pub(crate) fn restore_tagged(flags: &HashMap<String, String>, tag: &str) -> Resu
     for id in &tagged {
         vault.restore_item(id)?;
     }
-    crate::runtime::audit::append("items-restored-by-tag", &json!({"tag": tag, "items": tagged}))?;
+    crate::runtime::audit::append(
+        "items-restored-by-tag",
+        &json!({"tag": tag, "items": tagged}),
+    )?;
     Ok(json!({"ok": true, "confirmed": true, "tag": tag, "restored": tagged}))
 }
 

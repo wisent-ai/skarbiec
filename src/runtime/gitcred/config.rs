@@ -17,8 +17,12 @@ pub(crate) fn checked(host: &str) -> Result<&str> {
         Some((name, port)) => (name, Some(port)),
         None => (host, None),
     };
-    let name_ok = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
-    let port_ok = port.is_none_or(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()));
+    let name_ok = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    let port_ok =
+        port.is_none_or(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()));
     if !(name_ok && port_ok) {
         return Err(Usage(format!(
             "{host} is not a host as git names one: a name such as github.com, with a port after a colon when the forge uses one"
@@ -33,7 +37,8 @@ fn key(host: &str) -> String {
 }
 
 fn git(args: &[&str]) -> Result<std::process::Output> {
-    stado_wait::output(Command::new("git").args(args)).context("run git config, which keeps git's credential helpers")
+    stado_wait::output(Command::new("git").args(args))
+        .context("run git config, which keeps git's credential helpers")
 }
 
 /// Every forge the user's global git configuration asks a skarbiec binary
@@ -41,7 +46,12 @@ fn git(args: &[&str]) -> Result<std::process::Output> {
 /// when that program has moved away. git config answers nothing, and fails
 /// without a word, when no setting matches.
 pub(crate) fn configured() -> Result<Vec<(String, std::path::PathBuf)>> {
-    let found = git(&["config", "--global", "--get-regexp", r"^credential\..*\.helper$"])?;
+    let found = git(&[
+        "config",
+        "--global",
+        "--get-regexp",
+        r"^credential\..*\.helper$",
+    ])?;
     if !found.status.success() {
         if found.stdout.is_empty() && found.stderr.is_empty() {
             return Ok(Vec::new());
@@ -57,8 +67,12 @@ pub(crate) fn configured() -> Result<Vec<(String, std::path::PathBuf)>> {
         .lines()
         .filter_map(|line| {
             let (setting, helper) = line.split_once(' ')?;
-            let host = setting.strip_prefix("credential.https://")?.strip_suffix(".helper")?;
-            let program = helper.strip_prefix('!')?.strip_suffix(format!(" {}", crate::runtime::helper::invocation(super::TOOL)).as_str())?;
+            let host = setting
+                .strip_prefix("credential.https://")?
+                .strip_suffix(".helper")?;
+            let program = helper.strip_prefix('!')?.strip_suffix(
+                format!(" {}", crate::runtime::helper::invocation(super::TOOL)).as_str(),
+            )?;
             Some((host.to_string(), std::path::PathBuf::from(program)))
         })
         .collect())
@@ -66,8 +80,13 @@ pub(crate) fn configured() -> Result<Vec<(String, std::path::PathBuf)>> {
 
 pub fn setup(host: &str) -> Result<Value> {
     let host = checked(host)?;
-    let binary = std::env::current_exe().context("find this skarbiec binary's path for git to run")?;
-    let helper = format!("!{} {}", binary.display(), crate::runtime::helper::invocation(super::TOOL));
+    let binary =
+        std::env::current_exe().context("find this skarbiec binary's path for git to run")?;
+    let helper = format!(
+        "!{} {}",
+        binary.display(),
+        crate::runtime::helper::invocation(super::TOOL)
+    );
     let setting = key(host);
     let done = git(&["config", "--global", &setting, &helper])?;
     if !done.status.success() {

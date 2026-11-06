@@ -58,7 +58,10 @@ fn uri(id: &str) -> Result<Value> {
     // in to, else its id — each is the owner's own word for the account.
     let issuer = match context.and_then(display_name) {
         Some(name) => name.to_string(),
-        None => match context.map(item_domains).and_then(|domains| domains.into_iter().next()) {
+        None => match context
+            .map(item_domains)
+            .and_then(|domains| domains.into_iter().next())
+        {
             Some(site) => site,
             None => id.to_string(),
         },

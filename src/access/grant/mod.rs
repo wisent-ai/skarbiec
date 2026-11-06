@@ -56,7 +56,9 @@ pub fn dispatch(
     positionals: &[String],
 ) -> Result<Option<Value>> {
     match (command, positionals.split_first()) {
-        ("grant", Some((verb, rest))) if verb == "register" => register_catalog(flags, rest).map(Some),
+        ("grant", Some((verb, rest))) if verb == "register" => {
+            register_catalog(flags, rest).map(Some)
+        }
         ("grant", _) => group(flags, positionals),
         _ => Ok(None),
     }
@@ -113,7 +115,9 @@ fn register_catalog(flags: &HashMap<String, String>, positionals: &[String]) -> 
             let same_key = existing.get("workload_public_key").and_then(Value::as_str)
                 == Some(workload_public_key.as_str());
             if (!same_capabilities || !same_key) && !replace {
-                bail!("{consumer} differs from the acquisition catalog; pass --replace-capabilities");
+                bail!(
+                    "{consumer} differs from the acquisition catalog; pass --replace-capabilities"
+                );
             }
         }
         registrations.push((consumer.clone(), capabilities));

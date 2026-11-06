@@ -1,5 +1,5 @@
-// The wire contract with the Weles credential bridge: the accepted version,
-// the request key whitelist, response sanitization, the bridge invocation, and
+// The wire contract with Weles's credential admission: the accepted version,
+// the request key whitelist, response sanitization, the admission call, and
 // the per-provider contract each request must satisfy.
 
 use anyhow::{Context, Result};
@@ -17,9 +17,16 @@ pub(super) use providers::{
 };
 
 pub(super) const WIRE_VERSION: &str = "skarbiec.credential-operation.v3";
-pub(super) const BRIDGE_ENV: &str = "SKARBIEC_WELES_CREDENTIAL_COMMAND";
+/// The service Stado's directory names Weles's credential admission by, the
+/// consumer Skarbiec calls it as, and the route the requests go to.
+pub(super) const ADMISSION_SERVICE: &str = "weles-admission";
+pub(super) const ADMISSION_CONSUMER: &str = "skarbiec-weles-credential-client";
+pub(super) const ADMISSION_PATH: &str = "/api/v1/credential-operations";
+/// The bearer Skarbiec presents there, and the owner-only file holding it.
+pub(super) const TOKEN_ENV: &str = "WELES_TOKEN";
+pub(super) const TOKEN_FILE_ENV: &str = "WELES_TOKEN_FILE";
 
-// The bridge rejects any request key it does not know, so the submitted object
+// Weles rejects any request key it does not know, so the submitted object
 // is built by whitelist and local bookkeeping never leaves Skarbiec.
 pub(super) const WIRE_KEYS: &[&str] = &[
     "version",

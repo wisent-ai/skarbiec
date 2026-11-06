@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: toteutettu, mutta vastaus ei kerro tilaa eikä vaihetta: {answer}",
+  "request.approve": "Hyväksy",
+  "request.asks_for": "Pyytää: {seconds} s, {uses} käyttökertaa (tarkoitus {purpose}, kohteelle {target})",
+  "request.deny": "Hylkää",
+  "request.dual": "Vaatii kaksi päättäjää.",
+  "request.hours": "Tunnit",
+  "request.how_long": "{summary}\n\nKuinka pitkäksi aikaa?",
+  "request.how_many_hours": "Kuinka monta tuntia?",
+  "request.how_many_uses": "Kuinka monta käyttökertaa?",
+  "request.not_applied": "{id}: ei toteutettu: {error}",
+  "request.not_number": "{question}\n\n”{typed}” ei ole positiivinen kokonaisluku ({cause}).",
+  "request.once": "Kerran",
+  "request.standing_for": "Pysyvä käyttöoikeus kohteelle: {consumer}",
+  "request.summary": "Käyttöoikeuspyyntö {id}\n\nMitä: {action} {resource} ({kind}){bounds}\nMiksi: {reason}\nKuka: {who}{dual}",
+  "request.until_revoked": "Peruutukseen asti"
+}

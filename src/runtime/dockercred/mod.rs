@@ -39,15 +39,22 @@ pub(crate) const TOOL: &str = "docker";
 pub(crate) const USAGE: &str = "usage: helper setup docker <registry> --link <dir> | helper import docker <id> <registry> --link <dir> [--tags <tag,...>] | helper unset docker <registry> | helper answer docker get|store|erase|list  (Docker's credential helper; Docker writes the request on stdin)";
 
 /// setup, import and unset, the verb first.
-pub(crate) fn person(flags: &HashMap<String, String>, positionals: &[String]) -> Result<serde_json::Value> {
+pub(crate) fn person(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<serde_json::Value> {
     let link = || {
-        flags
-            .get("link")
-            .ok_or_else(|| Usage(format!("--link <dir> names a directory on PATH where Docker finds {PROGRAM}; {USAGE}")))
+        flags.get("link").ok_or_else(|| {
+            Usage(format!(
+                "--link <dir> names a directory on PATH where Docker finds {PROGRAM}; {USAGE}"
+            ))
+        })
     };
     match positionals {
         [action, registry] if action == "setup" => config::setup(registry, link()?),
-        [action, id, registry] if action == "import" => import::import(id, registry, link()?, flags.get("tags")),
+        [action, id, registry] if action == "import" => {
+            import::import(id, registry, link()?, flags.get("tags"))
+        }
         [action, registry] if action == "unset" => config::unset(registry),
         _ => Err(Usage(USAGE.to_string()).into()),
     }
@@ -84,7 +91,9 @@ pub fn run(positionals: &[String]) -> Result<()> {
         _ => return Err(Usage(USAGE.to_string()).into()),
     };
     let mut request = String::new();
-    std::io::stdin().read_to_string(&mut request).context("read Docker's request on stdin")?;
+    std::io::stdin()
+        .read_to_string(&mut request)
+        .context("read Docker's request on stdin")?;
     match action.as_str() {
         "get" => get(request.trim()),
         "store" => bail!("the vault keeps its own values, so docker login does not store into it; `skarbiec set <id> --type login` stores the registry's token in a login offered on the registry"),
@@ -99,27 +108,36 @@ fn get(server: &str) -> Result<()> {
         bail!("Docker's request names no registry");
     }
     let flags = HashMap::from([("field".to_string(), "username".to_string())]);
-    let chosen = match crate::runtime::dispatch("login", &flags, &["get".to_string(), server.to_string()]) {
-        Ok(Some(chosen)) => chosen,
-        Ok(None) => bail!("login get answered nothing"),
-        Err(error) => {
-            // Docker reads this exact sentence as "nothing here" and asks
-            // elsewhere; the reason goes to standard error for the person.
-            eprintln!("skarbiec: {error:#}");
-            println!("{NOT_FOUND}");
-            bail!("{NOT_FOUND} for {server}");
-        }
-    };
+    let chosen =
+        match crate::runtime::dispatch("login", &flags, &["get".to_string(), server.to_string()]) {
+            Ok(Some(chosen)) => chosen,
+            Ok(None) => bail!("login get answered nothing"),
+            Err(error) => {
+                // Docker reads this exact sentence as "nothing here" and asks
+                // elsewhere; the reason goes to standard error for the person.
+                eprintln!("skarbiec: {error:#}");
+                println!("{NOT_FOUND}");
+                bail!("{NOT_FOUND} for {server}");
+            }
+        };
     let item = chosen["item"].as_str().context("login get named no item")?;
-    let username = chosen["value"].as_str().context("login get answered no username")?;
+    let username = chosen["value"]
+        .as_str()
+        .context("login get answered no username")?;
     let payload = Vault::open(vault_path())?.get_item(item)?;
     let secret = schema::field(&payload, "password")?
         .as_str()
         .with_context(|| format!("{item}'s password is not text"))?
         .to_string();
-    crate::runtime::audit::append("docker-credential", &json!({"item": item, "registry": server}))?;
+    crate::runtime::audit::append(
+        "docker-credential",
+        &json!({"item": item, "registry": server}),
+    )?;
     let mut out = std::io::stdout().lock();
-    serde_json::to_writer(&mut out, &json!({"ServerURL": server, "Username": username, "Secret": secret}))?;
+    serde_json::to_writer(
+        &mut out,
+        &json!({"ServerURL": server, "Username": username, "Secret": secret}),
+    )?;
     out.flush().context("hand the credential to Docker")?;
     Ok(())
 }

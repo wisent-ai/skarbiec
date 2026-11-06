@@ -21,18 +21,30 @@ pub(super) fn import(flags: &HashMap<String, String>, positionals: &[String]) ->
     let [file, id] = positionals else {
         return Err(Usage(USAGE.to_string()).into());
     };
-    let path = std::env::current_dir().context("read the working directory")?.join(file);
+    let path = std::env::current_dir()
+        .context("read the working directory")?
+        .join(file);
     {
         let vault = Vault::open(vault_path())?;
-        if vault.doc().get("items").and_then(|items| items.get(id.as_str())).is_some() {
+        if vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(id.as_str()))
+            .is_some()
+        {
             bail!("{id} already exists; ssh import creates an item and never replaces one");
         }
     }
-    let private_key = std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+    let private_key =
+        std::fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
     // -P "" answers a passphrase prompt with nothing, so a key kept under a
     // passphrase is refused instead of asking on a terminal nobody watches.
-    let derived = stado_wait::output(Command::new("ssh-keygen").args(["-y", "-P", "", "-f"]).arg(&path))
-        .context("run ssh-keygen, which reads the public half of the key")?;
+    let derived = stado_wait::output(
+        Command::new("ssh-keygen")
+            .args(["-y", "-P", "", "-f"])
+            .arg(&path),
+    )
+    .context("run ssh-keygen, which reads the public half of the key")?;
     if !derived.status.success() {
         bail!(
             "ssh-keygen could not read {} ({}): {}; a key under a passphrase is stored without one after `ssh-keygen -p -f {}` takes it off",
@@ -42,7 +54,10 @@ pub(super) fn import(flags: &HashMap<String, String>, positionals: &[String]) ->
             path.display()
         );
     }
-    let public_key = String::from_utf8(derived.stdout).context("ssh-keygen printed a public key that is not UTF-8")?.trim().to_string();
+    let public_key = String::from_utf8(derived.stdout)
+        .context("ssh-keygen printed a public key that is not UTF-8")?
+        .trim()
+        .to_string();
     let mut fields = Map::new();
     fields.insert("private_key".to_string(), json!(private_key));
     fields.insert("public_key".to_string(), json!(public_key));
@@ -58,7 +73,10 @@ pub(super) fn import(flags: &HashMap<String, String>, positionals: &[String]) ->
     crate::cli::items::create_value(&write, id, &payload.to_string(), "ssh import")?;
     let stored = Vault::open(vault_path())?.get_item(id)?;
     if stored["fields"]["private_key"].as_str() != Some(private_key.as_str()) {
-        bail!("{id} was written but does not read back the key from {}; the file is left in place", path.display());
+        bail!(
+            "{id} was written but does not read back the key from {}; the file is left in place",
+            path.display()
+        );
     }
     let mut removed = Vec::new();
     if flag_set(flags, "remove") {
@@ -69,8 +87,13 @@ pub(super) fn import(flags: &HashMap<String, String>, positionals: &[String]) ->
             }
         }
     }
-    crate::runtime::audit::append("ssh-key-imported", &json!({"item": id, "from": path.display().to_string(), "removed": removed}))?;
-    Ok(json!({"ok": true, "item": id, "public_key": public_key, "from": path.display().to_string(), "removed": removed}))
+    crate::runtime::audit::append(
+        "ssh-key-imported",
+        &json!({"item": id, "from": path.display().to_string(), "removed": removed}),
+    )?;
+    Ok(
+        json!({"ok": true, "item": id, "public_key": public_key, "from": path.display().to_string(), "removed": removed}),
+    )
 }
 
 /// Delete one file; false when it was not there.
@@ -78,6 +101,8 @@ fn remove(path: &Path) -> Result<bool> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error).with_context(|| format!("remove {} after storing it", path.display())),
+        Err(error) => {
+            Err(error).with_context(|| format!("remove {} after storing it", path.display()))
+        }
     }
 }

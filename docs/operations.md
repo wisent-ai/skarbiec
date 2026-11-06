@@ -10,15 +10,15 @@ is and how to install it; this page covers running one.
 
 | Setting | Meaning |
 | --- | --- |
-| `SKARBIEC_VAULT_FILE` | Explicit local vault path. Otherwise Stado's `secrets.skarbiec.vault_file` selects the local owner; with only `secrets.skarbiec.url`, `get`, `list`, `set` and `status` use the fleet owner instead of a leftover client copy, and every other command, `init` included, refuses the default file naming the route (`this machine holds no Skarbiec vault: …`). A Stado config that is not JSON refuses the default file naming the config. Without either declaration, the default remains `~/.local/share/skarbiec/skarbiec.vault.json`. `tests/selection/unchosen_copy.sh` runs each of these cases. |
+| `SKARBIEC_VAULT_FILE` | Explicit local vault path. Otherwise Stado's `secrets.skarbiec.vault_file` selects the local owner; with only `secrets.skarbiec.url`, `get`, `list`, `set` and `status` use the fleet owner instead of a leftover client copy, and every other command, `init` included, refuses the default file naming the route (`this machine holds no Skarbiec vault: …`). A host whose config names neither but which publishes the canonical forward `~/.stado/forwards/skarbiec.local` (or `$STADO_FORWARDS_DIR/skarbiec.local`), the address Stado then reads the vault through, refuses the default file the same way, naming the forward; its `status` answers `holds_vault: false` with `owner_route`, `owner_route_declared_by` and `copy_present` (whether a leftover copy lies at the default path), and `doctor`'s `vault` check says the same. A Stado config that is not JSON refuses the default file naming the config. Without any declaration, the default remains `~/.local/share/skarbiec/skarbiec.vault.json`. `tests/selection/unchosen_copy.sh` runs each of these cases. |
 | `SKARBIEC_AUDIT_FILE` | Override the local append-only journal path |
-| `SKARBIEC_UNLOCK_FILE` | Owner-only file supplying a protected key's unlock phrase to a persistent service |
-| `SKARBIEC_UNLOCK` | Single-invocation unlock phrase, passed to `gpg` over stdin; prefer the file for services |
+| `SKARBIEC_KEYS_FILE` | The key file this vault's keys are read from and written to. Otherwise `<vault without .json>.keys.json` beside the vault file, so each vault on a host has its own keys and a copy of the vault file alone carries none |
+| `SKARBIEC_UNLOCK_FILE` | Owner-only file holding the unlock phrase the key file's secret halves are sealed under, for a persistent service |
+| `SKARBIEC_UNLOCK` | Single-invocation unlock phrase; prefer the file for services |
 | `SKARBIEC_MCP_CONSUMER` | Server-side consumer identity required to enable MCP route resolution |
 | `SKARBIEC_MCP_TOKEN_FILE` | Server-side compatibility grant file; never a tool argument |
 | `SKARBIEC_MCP_OUT_DIR` | Required absolute directory for mode-0600 MCP route-resolution output |
 | `SKARBIEC_READINESS_ITEMS` | Comma-separated additional item ids `/readyz` must decrypt |
-| `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB` | Required for the daemon ceiling: physical footprint above which `skarbiec maintain` replaces `keyboxd` or `gpg-agent`. No default; without it `maintain` and `doctor` report the setting as missing |
 
 Every override is read one way: only an unset or blank variable is absent.
 A path override is taken as the operating system hands it over, so a path that
@@ -26,28 +26,147 @@ is not UTF-8 is still that path and never the default file. A text override
 (`SKARBIEC_UNLOCK`, an MCP token) that is set but not UTF-8 is refused naming
 the variable. The default unlock file `~/.stado/skarbiec-unlock` is absent
 only when it does not exist; one that cannot be inspected is refused with its
-cause, and one with any permission bit beyond owner read and write is refused
-with `Skarbiec unlock file <path> must be mode 0600`.
+cause, one owned by another account is refused naming its owner, and one with
+any permission bit beyond owner read and write is refused with `Skarbiec unlock
+file <path> must be mode 0600 (it is <mode>), so no other account reads it:
+chmod 600 <path>`. The key file is held to the same rule.
 
-With an unlock phrase, `gpg` reads the phrase and the ciphertext from one
-standard input, the phrase up to its first line break and the message after
-it, so nothing is written to disk for a decryption and the phrase never
-reaches the command line. A phrase that holds a line break is refused with
-`the Skarbiec unlock phrase holds a line break; gpg reads a phrase only up to
-its first line break`.
+### Keys and cryptography
 
-`skarbiec serve` answers requests and nothing else. The recurring work is one
-command, `skarbiec maintain`: it replaces GnuPG daemons over their memory
-ceiling, proves readiness by decrypting the canary items, pulls every bond
-this vault pulls once, and, on the host that publishes the Git ciphertext
-mirror, pushes the mirror once. Every step runs; the command fails, naming
-every failed step, when any of them did. A Stado schedule pinned to the host
-runs it:
+Every cryptographic step runs inside the Skarbiec process, on Skarbiec's own
+library (`crates/crypto`), which depends on no other crate and runs no
+program: no `gpg`, `gpg-agent`, `keyboxd` or `openssl`. Every dependency is
+code that runs with the vault's secrets in reach and that someone else can
+change — a crate's next release, a maintainer account taken over, a build
+script, a transitive dependency nobody reviewed — so the vault depends on
+none: each primitive is a published standard checked against its published
+test vectors (`crates/crypto/README.md` lists them). The external programs
+went for a second reason: a vault that decrypted by running `gpg` depended on
+`gpg-agent` and `keyboxd` answering, and when they did not every read waited
+behind them. A function call leaves no daemon behind.
+
+New items are sealed in Skarbiec's own format (`-----BEGIN SKARBIEC
+SEALED-----`): a random content key under ChaCha20-Poly1305, wrapped for each
+recipient with X25519 and HKDF-SHA256. Items gpg wrote before (`-----BEGIN
+PGP MESSAGE-----`, ECDH over Curve25519 with AES-256 in OCB or in CFB with an
+MDC) are still read, in this process, until `skarbiec reseal` moves them.
+Recipients keep their identity: a recipient's key is the OpenPGP key it
+always was, named by the same fingerprint, and an item is sealed to that
+key's Curve25519 subkey.
+
+The keys live in the **key file**, owner-only JSON beside the vault
+(`SKARBIEC_KEYS_FILE` overrides it): each key's public half, and the secret
+half of the keys this host holds. `init`, `owner key mint` and `recipient
+add` without `--import` write new keys there; `recipient add --import`,
+`recipient rekey`, `enroll` and `owner key import <file>` add public halves.
+`owner key export` prints every public key the vault seals to as one armored
+block, so a destination host can take them all with `owner key import` before
+the vault moves there. A host that held its keys
+in GnuPG brings them over once with `skarbiec keys import`, which reads the
+GnuPG home's own files (`public-keys.d/pubring.db` or `pubring.kbx`, and
+`private-keys-v1.d/<keygrip>.key`) without running anything:
+
+```bash
+skarbiec keys import                         # every key the vault names, from ~/.gnupg
+skarbiec keys import --gnupg-home <dir> --keys <fingerprint,...>
+```
+
+A key whose public half the GnuPG home lacks is refused naming it; a
+protected GnuPG key opens with the unlock phrase configured below, and one it
+does not open is refused saying so. A key whose decryption (Curve25519) half
+opens but whose signing (Ed25519) half is protected by a passphrase this
+host is not given is imported for decryption only: the answer marks it
+`decryption only` and names the signing half it left in GnuPG. Such a host
+opens and reseals every item sealed to the key; signing as it (an audit
+epoch checkpoint) is refused naming the key and `SKARBIEC_UNLOCK_FILE`, and
+importing again with the phrase configured adds the signing half; `keys
+check` says so too, as `owner_signs: {signs: false, why}`, so a host that
+holds the owner key for decryption only is found before it has to sign.
+
+Key files of `private-keys-v1.d` that hold no key this import reads (an RSA
+key, a card stub, a file gpg-agent wrote with binary values that is not text)
+are left out, each that is not text named on stderr as `<file> is not text,
+so it holds no key this import reads; left out`; they never stop the import
+of the keys that are there.
+
+A GnuPG home that holds no public keyring (gone after the first import, or
+never there on a host keyed with `owner key import`) is nothing to import:
+`keys import` answers so and exits 0 when the key file already holds every
+key the vault names and opens its lowest live item, and otherwise is refused
+naming the home, what the key file lacks, and how to bring it.
+
+The key file is read only when it is a regular file of this account with no
+permission bit beyond owner read and write; anything else is refused naming
+the file, why, and the `chmod`/`chown` that fixes it. With an unlock phrase
+configured (`SKARBIEC_UNLOCK`, the file `SKARBIEC_UNLOCK_FILE` names, or the
+default `~/.stado/skarbiec-unlock`), each secret half is written sealed under
+it: iterated and salted SHA-256 (RFC 4880 section 3.7.1.3, 65,011,712 bytes)
+derives a key that seals the half with ChaCha20-Poly1305, bound to its
+fingerprint. A sealed half without a configured phrase, or with another
+phrase, is refused naming the key and the setting to fix; every other key
+still works.
+
+What the key file protects against, and what it does not:
+
+- Without an unlock phrase the secret halves are in the clear inside an
+  owner-only file. That protects them from other accounts on the host and
+  from anything that copies the vault file alone (a backup, the Git mirror,
+  a replica pull, an export, a placement move: none of them carries the key
+  file). It does not protect them from anyone who can read files as this
+  account, from root, or from a disk read outside the operating system (an
+  unencrypted disk image, a backup of the whole home directory). That is the
+  same protection the unprotected GnuPG key files had.
+- With an unlock phrase the halves at rest are sealed, so a copy of the key
+  file alone opens nothing; the phrase file is then what must be kept apart.
+  A running service holds the unlocked halves in memory while it runs.
+- Back the key file up apart from the vault: `keys check` names it. A vault
+  restored without its key file opens only with the recovery key.
+
+`skarbiec reseal` moves every stored ciphertext to the sealed format, once,
+on the vault owner:
+
+```bash
+skarbiec keys import          # once per host that opens the vault
+skarbiec reseal               # how many OpenPGP ciphertexts; refuses a key the key file lacks
+skarbiec reseal --apply       # reseal, keep <vault>.pre-reseal-<stamp>, prove every ciphertext opens
+skarbiec reseal --verify      # repeat the proof
+```
+
+`--apply` opens every OpenPGP current value, saved version and staged value
+and seals it again to the same recipients, refusing before anything is
+written when one does not open. It copies the vault file, owner-only, to
+`<vault>.pre-reseal-<stamp>`, writes once, and then opens every ciphertext
+again from the file on disk. Until that proof passes the vault records the
+run, and a second `--apply` is refused naming the copy; `--verify` repeats
+the proof once the missing key is imported, or `skarbiec backup restore
+<copy> --yes` puts the vault back. The copy is kept until the operator
+removes it. Every Skarbiec that opens the vault — the owner, each replica,
+each host a bond pulls to — runs a build that reads the sealed format before
+the owner reseals; an older build cannot open a sealed item.
+
+`skarbiec serve` is one process. It answers requests on its own threads and
+starts no other program for a read, a write, `/health`, `/readyz` or key
+work. The recurring work is one command, `skarbiec maintain`: it proves
+readiness by decrypting the canary items, pulls every bond this vault pulls
+once, and, on the host that publishes the Git ciphertext mirror, pushes the
+mirror once. Every step runs; the command fails, naming every failed step,
+when any of them did. A Stado schedule pinned to the host runs it:
 
 ```bash
 stado schedule create --pinned-host HOST --cron '* * * * *' 'skarbiec maintain'
 ```
 Replication discovery distinguishes an absent vault from a failed filesystem inspection: an inaccessible vault fails the pass with its path and operating-system cause. If both a pull and its failure-audit write fail, the refusal retains the bond, source address, original pull cause and audit-write cause together.
+
+A run the schedule starts ends before the schedule fires again. Stado names
+the schedule to the run (`STADO_SCHEDULE_ID`, `STADO_SCHEDULE_CRON` and
+`STADO_SCHEDULE_NEXT_DUE_AT`, its next firing), and every network exchange
+the run makes, the alert webhook, a provider rotation, a list it reads, the
+resolver, ends by that moment: connect, TLS handshake, request and reply. A
+server that accepts and never answers fails the step with `the exchange did
+not end by the deadline from routine <id> period <cron> (its next firing,
+<time>)`. A run that names a schedule without its next firing is refused
+naming `STADO_SCHEDULE_NEXT_DUE_AT`. A command a person runs carries no
+schedule and waits until the server answers or the person interrupts it.
 
 Only the vault's owner publishes its mirror: a replica that pushed would
 replace the owner's ciphertext with its own copy, so a mirror existing never
@@ -72,56 +191,47 @@ refs/remotes/origin/main, at <time>, and nothing published it since`) or when
 the mirror never pushed, and is `not_configured` on a host without a mirror.
 The desktop's Posture shows a failing `mirror` check as "Mirror failed" with
 that sentence. `mirror init` creates the mirror on branch `main`; `mirror push`
-and `mirror pull` without `--branch` use the branch the mirror has checked out.
+and `mirror pull` without `--branch` use the branch the mirror has checked out. `mirror pull` keeps the live vault as `<vault>.pre-pull-<stamp>` and renames the synced vault over it, so it never leaves the vault path empty. A vault file that is gone is refused naming the newest `<vault>.<suffix>` copy beside it that reads as a vault and `skarbiec backup restore <copy>`, not only `init`.
 
-Cryptographic children run without a concurrency cap. Each running `gpg`
-holds a shared permit; daemon recovery takes an exclusive permit after the
-children that are still progressing finish, so it cannot replace their
-daemons during a decryption. A child that stands where gpg waits on something
-outside itself is not waited for: at `ENC_TO` (it asked gpg-agent for its key)
-or before any status (it is opening the keyring, behind a lock or a silent
-keyboxd). It waits on the wedge the recovery clears, and the recovery ends
-every `gpg` child of this account's Skarbiec processes started against the
-daemons it replaced. Every healthy decrypt passes both points, so a child
-counts as waiting only when the previous `skarbiec maintain` pass saw the same
-child at the same status (records in `gpg-in-flight/stood.json`). A child that has written no status
-counts at once, before a pass, when it plainly cannot open the keyring: a lock file
-of this host names such a waiting child as its holder, or the keyboxd
-database lock (`public-keys.d/pubring.db.lock`) is held by a live process
-that is not the one serving the keyboxd socket `gpgconf --list-dirs
-keyboxd-socket` names. keyboxd keeps that lock for as long as it has the
-database open, so a keyboxd that lost its socket keeps the database from
-every keyboxd gpg starts after it. When every child in flight is in one of
-those states, a new `gpg` run is refused at once with each child and the
-lock named, instead of waiting out GnuPG's own lock retries, and `skarbiec
-maintain` replaces the daemons, ends the configured GnuPG program that kept
-the lock, and journals the refusal with the lock holders. A keyring lock
-that cannot be read while children are in flight is refused with its cause.
-A lock held by anything else — the keyboxd that serves the socket, another
-host, a pid that is gone — is reported by `/readyz`, not treated as a wedge.
-Other cryptographic tools do not wait for a GnuPG slot.
+On a machine Stado makes a client of the vault owner (`secrets.skarbiec.url`
+declared, or the canonical forward published, and no
+`secrets.skarbiec.vault_file`), `skarbiec doctor`'s `vault` check does not
+report a missing vault: it passes with `this host holds no vault: Stado reads
+the fleet vault through <declaration> (<route>); <default path> is not used`,
+or `... is a leftover copy and is not used` when a file lies at the default
+path, which it leaves untouched. A Stado config that cannot be read fails the
+check naming the file. Whether the route answers is the `endpoint` check's.
 
-`/readyz` decrypts its canaries and therefore waits while daemon recovery
-holds the exclusive permit. It does not wait behind a held keyring lock: when
-a `gpg` run of this vault is in flight and a keyring lock file names a holder,
-`/readyz` answers 503 with that holder — pid, host, what it runs now and since
-when — instead of accepting the connection and never answering. `/livez`
-and metadata-only routes do not
-decrypt canaries.
+On a machine Stado makes a client of the vault owner (`secrets.skarbiec.url`
+declared, or the canonical forward published, and no
+`secrets.skarbiec.vault_file`), `skarbiec doctor`'s `vault` check does not
+report a missing vault: it passes with `this host holds no vault: Stado reads
+the fleet vault through <declaration> (<route>); <default path> is not used`,
+or `... is a leftover copy and is not used` when a file lies at the default
+path, which it leaves untouched. A Stado config that cannot be read fails the
+check naming the file. Whether the route answers is the `endpoint` check's.
+
+`/health` decrypts nothing: it proves the journal takes an entry and the vault
+document opens. `/readyz` also opens its canary items with the keys this host
+holds. Both run in the serving process and wait on no other program.
+`/livez` and metadata-only routes do not decrypt canaries.
 
 A canary this host cannot open answers 503 with `stored item <id> cannot be
-decrypted` followed by gpg's own sentence: `gpg failed (<exit status>): …
-decryption failed: No secret key` when the item is sealed to a recipient
-whose secret half is not in this keyring. Daemon recovery does not repair
-that: compare the item's recipients with `skarbiec keys check`, or open the
-item with the recovery key. The real test is `SKARBIEC=<binary>
-SKARBIEC_TEST_SOURCE_REVISION=<commit> SKARBIEC_TEST_HTTP_PORT=<port> node
-tests/health/undecryptable.mjs`.
+decrypted` followed by the key file's own sentence: `no key held here is a
+recipient of this sealed item; it is sealed to key id(s) <ids>; the key file
+<path> holds the secret half of <n> key(s), none of them a recipient: import
+the recipient's key here (skarbiec keys import)` when the item is sealed to a
+recipient whose secret half this host does not hold, and the key and the
+setting to fix when a sealed secret half has no unlock phrase or another one.
+`skarbiec readers <id>` names each key the item is sealed to and whether this
+host holds it; `skarbiec keys check` names the key file to restore. The real
+test is `SKARBIEC=<binary> SKARBIEC_TEST_SOURCE_REVISION=<commit>
+SKARBIEC_TEST_HTTP_PORT=<port> node tests/health/undecryptable.mjs`.
 
-Run `skarbiec status` for the serving vault path and non-sensitive counts. Remote status also records `source.kind`, `source.route` and `source.endpoint`; `recovery_present_locally` describes the serving owner. A `stado://service/skarbiec?consumer=operator` route is resolved through Stado's declared directory; every wait and actual owner refusal stays on stderr, while credential stdout keeps its local shape.
+Run `skarbiec status` for the serving vault path and non-sensitive counts. Remote status also records `source.kind`, `source.route` and `source.endpoint`; `recovery_present_locally` describes the serving owner. A `stado://service/skarbiec?consumer=operator` route is resolved in process through this host's Stado resolver: Skarbiec reads the resolver's published `api_bind` (`~/.stado/resolver-state.json`, or `STADO_RESOLVER_STATE_FILE`) and asks `GET /v1/resolve/service/skarbiec` with the consumer named, then posts to the loopback adapter it answers; no Stado program is started. A resolver that has published no state, names no `api_bind`, does not answer, or does not admit the consumer is refused naming which and the step that repairs it. Every wait and actual owner refusal stays on stderr, while credential stdout keeps its local shape. Weles credential admission is reached the same way, as service `weles-admission` and consumer `skarbiec-weles-credential-client`; see the canonical [admission page](https://skarbiec.wisent.com/docs/credential-admission).
 The owner and client must carry the owner-item API contract. `get`, including roles, fields and `--revision`, and `set`, including metadata preservation and `--if-absent`, share their implementations with the operator API. An unavailable or older owner is refused rather than replaced with a copied vault. The graphical operator API returns configuration selection failures and the complete owner error chain in its JSON `error`; it does not drop the connection or replace the underlying cause with only the forwarding step. See the canonical [get contract](https://skarbiec.wisent.com/docs/cli/get).
 The real fleet journey is `node tests/vault/remote_owner.mjs`. Its environment must declare `SKARBIEC` (candidate executable), `SKARBIEC_TEST_SOURCE_REVISION` (full source revision), `SKARBIEC_TEST_STADO_CONFIG` (actual non-owner declaration), and `SKARBIEC_TEST_CLIENT_ENDPOINT` (the real non-owner operator listener). Before vault access, the executable's `version.commit` must match the declared revision and clean checkout; a source build with no embedded commit is refused. The returned candidate identity is retained with its binary hash. The journey proves that CLI and listener reach the same owner, that a second-forwarded read and write are refused without creating an item, and that ordinary owner item operations still work. It retains source-bound results under `target/real-tests/remote-owner` and purges only its uniquely created item. Client-copy preservation is checked even when the journey or cleanup fails; `clientCopyError`, `cleanupError` and the original `error` remain distinct in the retained report. Use `skarbiec keys check` for key diagnosis, `/livez` for liveness and `/readyz` (or `/health`) for readiness.
-Commands that are not forwarded, `init` among them, refuse the default vault on a machine Stado routes to the owner: `this machine holds no Skarbiec vault: Stado reads the fleet vault through secrets.skarbiec.url (<route>), so <path> is a copy and is neither read nor written`. The copy is not created or changed; naming it with `SKARBIEC_VAULT_FILE` still opens it, so its items can be moved out. A Stado config that cannot be read refuses the default vault with `<path> is the default vault and <cause>, ... repair the config, or name a vault with SKARBIEC_VAULT_FILE`. The real journey is `SKARBIEC=<binary> tests/vault/client_copy/refusal.sh`, which also runs the declared-vault and no-route fallback cases.
+Commands that are not forwarded, `init` among them, refuse the default vault on a machine Stado routes to the owner: `this machine holds no Skarbiec vault: Stado reads the fleet vault through secrets.skarbiec.url (<route>), so <path> is a copy and is neither read nor written`; where only the canonical forward declares the route, the sentence names the forward file instead of `secrets.skarbiec.url`. `init` is refused before it makes any key. The copy is not created or changed; naming it with `SKARBIEC_VAULT_FILE` still opens it, so its items can be moved out. A Stado config that cannot be read refuses the default vault with `<path> is the default vault and <cause>, ... repair the config, or name a vault with SKARBIEC_VAULT_FILE`. The real journey is `SKARBIEC=<binary> tests/selection/unchosen_copy.sh`, which also runs the declared-vault and no-route fallback cases.
 
 ### TOTP diagnostics
 
@@ -147,56 +257,19 @@ and `grant capability` cannot call placeholder text a usable credential.
 | Concern | Current owner and contract |
 | --- | --- |
 | Configuration | Operator-owned environment variables and owner-only files; the supported settings and defaults are listed above. There is no configuration file and no reload: an explicit variable wins over the built-in default, and each invocation reads the environment it was given |
-| State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl`. State documents use mode-0600 temporary files, `fsync`, and `rename`, so a reader sees the old document or the new one and never a partial write. Acquisition updates serialize through the owner-only `<vault>.acquisitions.json.advisory.lock` file and a kernel lock that is released when the process exits; the operator chooses the durable filesystem and its backups |
-| Credentials | Values live in the vault only as per-recipient GPG ciphertext. Plaintext exists in exactly three places: the `gpg` child process and Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that `route resolve --emit` writes on request. On the protected-key path the unlock phrase and the ciphertext reach `gpg` together over stdin, so nothing is staged on disk and the phrase never reaches argv. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `owner rotate`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `grant revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material |
-| Networking | `serve` binds only the IPv4 loopback address, on the port `--port` names; the unit declares it, and `serve` without `--port` or `--no-http` is refused. Every accepted connection is served on a thread of its own, and no count caps concurrent cryptographic children either; a GnuPG daemon recovery waits for every running child that is still progressing. No request line, header block, body, token file, name or detail is cut or refused for its length. When the system refuses a thread, that request is answered `503` with `error_code` `infra_down` and the system's own reason (`skarbiec could not start a thread for this request: …`). The one connection Skarbiec itself initiates outward is `breach check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
+| State | Three owner-only local files: the encrypted vault, the one-use acquisition state written beside it as `<vault>.acquisitions.json`, and the append-only audit journal, which defaults to `~/.local/state/skarbiec/audit.jsonl` and keeps its closed segments in `<journal>.d/` beside it (see Audit segments below). State documents use mode-0600 temporary files, `fsync`, and `rename`, so a reader sees the old document or the new one and never a partial write. Acquisition updates serialize through the owner-only `<vault>.acquisitions.json.advisory.lock` file and a kernel lock that is released when the process exits; the operator chooses the durable filesystem and its backups |
+| Credentials | Values live in the vault only as per-recipient sealed ciphertext (items written before the cutover stay OpenPGP until `reseal`). Plaintext exists in exactly three places: Skarbiec's own memory during a read or write, stdin when a value is stored, and the mode-0600 `<item>.env` file that `route resolve --emit` writes on request. The keys live in the owner-only key file beside the vault, their secret halves sealed under the unlock phrase when one is configured. Acquisition state stores only the SHA-256 hash of a one-use bearer, so the bearer itself cannot be recovered from disk. Scope is one exact consumer, item, and field; wildcards are refused. Rotation is `owner rotate`, which rewraps every current and historical ciphertext onto the new recipient set or fails without writing anything. Revocation is `revoke`, which re-encrypts the item to the remaining recipients, `grant revoke` for a compatibility grant, and automatic deletion of a one-use capability once it is consumed or expires. The operator protects owner, workload, unlock, and recovery private material, and backs the key file up apart from the vault |
+| Networking | `serve` binds only the IPv4 loopback address, on the port `--port` names; the unit declares it, and `serve` without `--port` or `--no-http` is refused. Every accepted connection is served on a thread of its own in the one `serve` process; no read, write, health or readiness request starts another program. No request line, header block, body, token file, name or detail is cut or refused for its length. When the system refuses a thread, that request is answered `503` with `error_code` `infra_down` and the system's own reason (`skarbiec could not start a thread for this request: …`). The one connection Skarbiec itself initiates outward is `breach check`, which sends the first five characters of a SHA-1 to `api.pwnedpasswords.com` and matches the returned suffixes locally. Ciphertext sync uses `git` against the remote the operator configures |
 | Browsers | No route answers a web page. Every request is refused `403` with the reason when its `Host` does not name a loopback host (`localhost` or a loopback IP, as a DNS-rebinding page's would not), when it carries `Origin`, or when it carries `Sec-Fetch-Site` other than `none`: browsers send those for requests a page makes, and a page could otherwise drive the unauthenticated operator routes with a cross-site `text/plain` POST. An operator `POST` (`/v1/operator/*`) is also refused `403` unless it declares `Content-Type: application/json`, a type no page can send across sites without a preflight Skarbiec never answers. Local programs (the CLI, the desktop app, Stado, Brama, Weles) send none of the browser headers and post JSON |
-| Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. Hosted Hub pricing is not published because that service is not shipped |
-| Observability | Skarbiec provides `/livez`, `/readyz`, compatibility alias `/health`, `status`, `keys check`, `audit list`, `audit epoch`, and `audit verify`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it. A line nothing can parse is reported as a `malformed` fault naming the line number and the parser's reason, and counted in the report's `malformed` field, while every other line is still linked and digested: one broken line never hides the entries after it. A line that parses but whose `at`, `op`, `prev` or `hash` is absent or not text — or an epoch start without a text `previous_tail`, `checkpoint` or `signed_checkpoint` — is also a `malformed` fault, whose detail names those fields; it is never read as empty and reported as a linkage, digest or epoch fault |
-| GnuPG daemons | Every read and write runs `gpg`, which talks to the account's `gpg-agent` and `keyboxd` over sockets Skarbiec does not own. A daemon that wedges answers `keydb_search failed: Broken pipe` or drops a live decryption, and the vault then refuses items whose keys are present. A recoverable failure repairs those daemons and retries once, by itself; `keyring recover` performs the same repair on demand, for the case where a long-lived reader elsewhere — the HTTP listener, a browser host, an agent — is the one holding the wedge. It reports which daemons it signalled and what each running one held before it was replaced (`before`, in bytes, against `limit_bytes`; when the limit cannot be read, `limit_bytes` is null and `limit_error` says why), needs no unlock material, and restarts nothing: `gpg` starts its own daemons on the next call. `gpg` never stops them either, and `keyboxd` grows with every lookup it answers: on one always-on host it held 15 GiB after twelve days while `ps` reported 327 MiB, because the rest was compressed and swapped. The running service therefore measures both daemons' physical footprint on every readiness pass and replaces them, through the same serialized repair, when one stands above `SKARBIEC_GPG_DAEMON_MEMORY_LIMIT_MB`; the replacement is logged and journalled as `daemon-recycle` with the daemons and sizes it found. `doctor` reports the same measurement as `gpg_daemons`: `pass` names each running daemon, its pid and size against the ceiling; `fail` names the daemon over it and the two repairs, the service's next pass or `keyring recover`; a daemon that cannot be measured is also `fail`, with the reason. A process other than the daemons can keep the key database's lock, and `gpg` then waits on it for tens of minutes per read before `keydb_search failed: Operation timed out`. The same repair therefore considers the locks GnuPG keeps beside the key databases of this home (`public-keys.d/pubring.db.lock`, `pubring.kbx.lock`), with every `gpg` of the service drained first. A lock must name a positive process id and this host: a missing host, another host or an invalid pid is left alone with the reason, because a shared keyring may have a live owner elsewhere. For a lock belonging to this host, a pid that runs nothing here is treated as stale. GnuPG executable identities are the canonical paths decoded from the `pgmname` field in `gpgconf --list-components` records (`name:description:pgmname:`), not the empty trailing field or a basename. A different executable, an unreadable executable path or an unresolved configured path is left alone with the specific cause; none proves that a lock can safely be removed. A lock a configured GnuPG program held past gpg's own wait has that program ended with `TERM`, as a wedged daemon is. Each action is written to stderr as `skarbiec: keyring lock: <what was done>`, or `left <lock> alone: <why>` when ownership cannot be established. A read that still fails after its repair names, for each of those lock files, the pid and host it records, what that pid runs now and when the lock was taken: `<lock> is held by pid <pid> on <host> (running <command>), taken <time>`, or `not running on this host` for a lock its holder left behind |
+| Cost | The Apache-2.0 local core has no license fee or hosted dependency; the operator bears its host, storage, network, and operations costs. The paid fleet audit service is the separate product skarbiec-web, priced in its own repository |
+| Observability | Skarbiec provides `/livez`, `/health` (journal and vault document; decrypts nothing), `/readyz` (that, and the canary decrypts), `status`, `keys check`, `audit list`, `audit epoch`, `audit rotate`, and `audit verify`. The journal is synchronously durable before an audited operation returns; a signed epoch checkpoint preserves a broken historical journal without rewriting it. Every fault names the segment it is in (`000000.jsonl`, or the open file's name followed by `(open)`) and its line there. A line nothing can parse is reported as a `malformed` fault naming the line number and the parser's reason, and counted in the report's `malformed` field, while every other line is still linked and digested: one broken line never hides the entries after it. A line that parses but whose `at`, `op`, `prev` or `hash` is absent or not text — or an epoch start without a text `previous_tail`, `checkpoint` or `signed_checkpoint` — is also a `malformed` fault, whose detail names those fields; it is never read as empty and reported as a linkage, digest or epoch fault |
 | Upgrades | The operator pins a release tag and its published SHA-256, performs an atomic rollout, and retains the prior exact coordinate for rollback. A tag whose name disagrees with the version declared in `Cargo.toml` is refused before the first tagged artifact is built, and the publication workflow refuses to replace an existing asset, so changed bytes require a new tag |
 | Recovery | Skarbiec preserves the recovery recipient through owner rotation and supplies `recovery status` and `recovery drill`; the custodian stores the private half off-host and exercises it before an incident. If no secret half present on the machine opens the vault and no recovery key is available, the ciphertext is readable by no one — there is no cloud fallback and no vendor-held copy |
 | Owner rotation | `owner rotate` moves control with the ownership: every item the outgoing owner controlled becomes the new owner's, so retag, rotate and delete keep working. A vault rotated by a release before 0.4.8 left those items under the former owner, which nothing could write (`<id> is not owner-controlled`); `upgrade` reports them as `control.former_owner_items` and `upgrade --apply` moves every item a former owner (a recipient with `owner_until`) controls to the current owner. Items under the credential lifecycle or tagged `managed:weles` keep their controller, and no field, tag or revision changes |
 
-Stale-lock removal remains GnuPG's operation on the next read or retry, not
-Skarbiec's `unlink`: a lock can be replaced between observing its recorded
-holder and removing its path. Skarbiec leaves that ownership decision to the
-keyring implementation; it never unlinks a lock based on a process snapshot.
-A present lock whose holder PID is absent is reported by readiness as an
-unreadable holder and by `keyring recover` as left alone: there is no process
-identity to verify, so recovery does not guess or remove the lock.
-Live-holder signals are bound to the inspected process lifetime: macOS uses
-one audit token for executable lookup and `SIGTERM`; Linux opens a pidfd before
-lookup and signals that handle. Identity acquisition, path lookup or signaling
-failure leaves the holder alone with the actual kernel error, never a PID-only retry. Daemon control uses this keyring's `gpgconf --kill` only: it never falls back to account-wide executable-name signals. Every failed daemon control remains in `keyring recover`'s unsuccessful receipt, with its operation, exit status and cause; one successful daemon control cannot hide another failure.
-
-The real recovery journey needs an isolated OS account, never a live vault host.
-It refuses existing GnuPG processes, checks encrypted values across recovery,
-and preserves foreign-host, missing-PID, invalid-PID and non-GnuPG locks with their diagnostics. It invokes `purge ITEM --yes --help` on its real encrypted item, requires byte-identical vault and audit files, then reads the original value again. A non-directory keyring must produce a failed recovery receipt naming the rejected control operation, followed by a successful read from the valid isolated keyring.
-The native identity case signals an owned pipe-reader process, verifies SIGTERM,
-then requires the dead identity to refuse another signal while a new reader lives.
-
-The candidate binary's `--version` release commit must equal the checkout
-revision; a source build without release identity is not qualified.
-
-Run these explicit tests on each supported OS in the authorized qualification stage:
-
-```sh
-SKARBIEC=/absolute/path/to/candidate \
-SKARBIEC_TEST_SOURCE_REVISION=<full-source-revision> \
-cargo test --test read-recovery -- --ignored
-```
-
-The source checkout must be clean and match that revision. Command arguments,
-exit statuses, stdout, stderr and lock before/after files remain under
-`target/real-tests/recovery/`; `report.json` is passed only after the real
-reads, ownership refusals and keyring cleanup succeed. The isolated keyring is
-removed; the encrypted test vault and audit remain as evidence. The journey is
-ignored by default because it exercises real GnuPG process ownership and recovery.
-
 The operator owns:
 
-- the OS account, file permissions, GPG keyring, and unlock material;
+- the OS account, file permissions, the key file, and unlock material;
 - an exact release tag and checksum, with deliberate rollout and rollback;
 - moving the recovery private half off the workload host and exercising
   `recovery drill`;
@@ -213,11 +286,56 @@ Skarbiec owns:
   errors;
 - a hash-chained audit trail that reveals no secret values.
 
-GPG remains the external encryption and key-custody boundary; service tokens
-are 32 bytes read from `/dev/urandom` in-process, and SHA-256 journal hashing
-and timestamps run in-process too, so an audit entry cannot exhaust subprocess
-capacity. See the complete
+Skarbiec's own cryptography library is the encryption and key-custody
+boundary; service tokens are 32 bytes read from `/dev/urandom` in-process, and
+SHA-256 journal hashing and timestamps run in-process too, so an audit entry
+starts no other program. See the complete
 [security model](https://skarbiec.wisent.com/docs/security) and [architecture](https://skarbiec.wisent.com/docs/architecture).
+
+### Moving a vault: the write fence
+
+`skarbiec fence arm --transaction <T>` holds every write to the vault while it
+is moved, recording `{transaction, since}` in `<vault without .json>.fence.json`.
+While it stands every write is refused with `the vault is moving (transaction
+T, since S); retry after it`, except one made with `--fence <T>` (the move's
+own steps); `/v1/items/read` and `/v1/items/revision` answers carry `fence`.
+`skarbiec fence lift --transaction <T>` ends it; `fence show` prints it.
+`arm` takes the vault's write lock, so a write already under way finishes
+before the fence stands (arm is refused while one holds the lock; run it
+again), and pull, mirror pull and backup restore check the fence under the
+same lock. A fence file that cannot be read stops every write, and reads
+still answer, carrying `fence: {unreadable: <why>}`.
+
+`fence arm --transaction <T> --reason <text>` keeps a reason with the fence,
+for the copy a move leaves behind held for good: arm, show and every read
+answer it as `fence.reason`, and a write is refused with `writes to this
+vault are held: <reason> (transaction T, since S)`.
+
+### Audit segments
+
+The journal is one hash chain kept in segments. Every entry is appended to
+the open file, the path `SKARBIEC_AUDIT_FILE` names. The first append of a
+new UTC day, or `skarbiec audit rotate`, closes it: the file is renamed into
+`<journal>.d/` as the next numbered segment (`000000.jsonl`, `000001.jsonl`,
+…), made read-only, and never written again. Closing renames and does not
+copy, so a journal written before segments existed becomes `000000.jsonl`
+as it is, at any size, at the first append of the next day.
+
+The chain runs across the boundary. The first line of every new open file is
+`audit-segment-closed`: its `prev` is the closed segment's last hash, and its
+`extra` names the segment, its length in bytes and that last hash. `audit
+verify`, `doctor` and `audit list` read every closed segment in order and
+then the open file, one line at a time. A closed segment cut, extended,
+emptied or replaced no longer matches the line that closed it and is a
+`segment` fault naming it; a numbered segment missing from the directory, or
+a file in it that is not one, is refused naming it, since the chain cannot
+be followed without it.
+
+Only the open file is hot state. The closed segments can be kept on other
+storage or archived as they are, as long as the directory holds every one
+of them when the chain is verified. A close that stops after the rename and
+before its line is written is completed by the next append, which writes the
+`audit-segment-closed` line first.
 
 ### Signing material
 

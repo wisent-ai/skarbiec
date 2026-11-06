@@ -25,14 +25,24 @@ const API: &str = "https://api.vercel.com";
 /// Replace `id`'s Vercel token, as `rotate <id> --with vercel` asks.
 pub(crate) fn rotate_item(flags: &HashMap<String, String>, id: &str) -> Result<Value> {
     let days = match flags.get("days") {
-        Some(days) => Some(days.parse::<i64>().map_err(|_| Usage(format!("--days {days} is not a whole number of days; {USAGE}")))?),
+        Some(days) => Some(days.parse::<i64>().map_err(|_| {
+            Usage(format!(
+                "--days {days} is not a whole number of days; {USAGE}"
+            ))
+        })?),
         None => None,
     };
     rotate(id, days)
 }
 
 fn vercel(method: &str, path: &str, token: &str, body: Option<&Value>) -> Result<Value> {
-    call(&Call { method, url: &format!("{API}{path}"), header: &format!("Authorization: Bearer {token}"), form: &[], json: body })
+    call(&Call {
+        method,
+        url: &format!("{API}{path}"),
+        header: &format!("Authorization: Bearer {token}"),
+        form: &[],
+        json: body,
+    })
 }
 
 fn held(id: &str) -> Result<String> {
@@ -40,22 +50,38 @@ fn held(id: &str) -> Result<String> {
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     let payload = vault.get_item(id)?;
     if payload["kind"] != json!(KIND) {
-        bail!("{id} is a {} item; rotate --with vercel replaces a {KIND} item's {FIELD}", payload["kind"]);
+        bail!(
+            "{id} is a {} item; rotate --with vercel replaces a {KIND} item's {FIELD}",
+            payload["kind"]
+        );
     }
-    payload["fields"][FIELD].as_str().filter(|value| !value.is_empty()).map(str::to_string).with_context(|| format!("{id} holds no {FIELD}"))
+    payload["fields"][FIELD]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .with_context(|| format!("{id} holds no {FIELD}"))
 }
 
 /// The milliseconds since the epoch `days` days from now, as Vercel's
 /// expiresAt takes them.
 fn ends(days: i64) -> i128 {
-    (time::OffsetDateTime::now_utc() + time::Duration::days(days) - time::OffsetDateTime::UNIX_EPOCH).whole_milliseconds()
+    (time::OffsetDateTime::now_utc() + time::Duration::days(days)
+        - time::OffsetDateTime::UNIX_EPOCH)
+        .whole_milliseconds()
 }
 
 fn rotate(id: &str, days: Option<i64>) -> Result<Value> {
     let old = held(id)?;
-    let current = vercel("GET", "/v5/user/tokens/current", &old, None).context("Vercel did not name the stored token; it may have ended or been deleted")?;
-    let old_id = current["token"]["id"].as_str().context("Vercel answered the current token without its id")?.to_string();
-    let name = current["token"]["name"].as_str().context("Vercel answered the current token without its name")?.to_string();
+    let current = vercel("GET", "/v5/user/tokens/current", &old, None)
+        .context("Vercel did not name the stored token; it may have ended or been deleted")?;
+    let old_id = current["token"]["id"]
+        .as_str()
+        .context("Vercel answered the current token without its id")?
+        .to_string();
+    let name = current["token"]["name"]
+        .as_str()
+        .context("Vercel answered the current token without its name")?
+        .to_string();
     let team = current["token"]["scopes"]
         .as_array()
         .into_iter()
@@ -71,8 +97,14 @@ fn rotate(id: &str, days: Option<i64>) -> Result<Value> {
         None => "/v3/user/tokens".to_string(),
     };
     let made = vercel("POST", &created_path, &old, Some(&body))?;
-    let new = made["bearerToken"].as_str().context("Vercel answered no bearerToken")?.to_string();
-    let new_id = made["token"]["id"].as_str().context("Vercel answered the new token without its id")?.to_string();
+    let new = made["bearerToken"]
+        .as_str()
+        .context("Vercel answered no bearerToken")?
+        .to_string();
+    let new_id = made["token"]["id"]
+        .as_str()
+        .context("Vercel answered the new token without its id")?
+        .to_string();
     let take_back = || vercel("DELETE", &format!("/v3/user/tokens/{new_id}"), &old, None);
     let revision = match crate::runtime::revise::fields(id, &[(FIELD, &new)]) {
         Ok(revision) => revision,
@@ -83,9 +115,13 @@ fn rotate(id: &str, days: Option<i64>) -> Result<Value> {
             };
         }
     };
-    let proved = vercel("GET", "/v2/user", &new, None).and_then(|_| vercel("DELETE", &format!("/v3/user/tokens/{old_id}"), &new, None));
+    let proved = vercel("GET", "/v2/user", &new, None)
+        .and_then(|_| vercel("DELETE", &format!("/v3/user/tokens/{old_id}"), &new, None));
     if let Err(error) = proved {
-        crate::runtime::audit::append("vercel-rotate-failed", &json!({"item": id, "name": name, "revision": revision}))?;
+        crate::runtime::audit::append(
+            "vercel-rotate-failed",
+            &json!({"item": id, "name": name, "revision": revision}),
+        )?;
         let undone = take_back();
         let restored = crate::runtime::revise::fields(id, &[(FIELD, &old)]);
         match (undone, restored) {
@@ -94,7 +130,10 @@ fn rotate(id: &str, days: Option<i64>) -> Result<Value> {
             (_, Err(undo)) => bail!("{error:#}; {id} keeps the new token at revision {revision}, as the old one could not be written back ({undo:#}); it is the saved version before it"),
         }
     }
-    crate::runtime::audit::append("vercel-token-rotated", &json!({"item": id, "name": name, "token_id": new_id, "revision": revision}))?;
+    crate::runtime::audit::append(
+        "vercel-token-rotated",
+        &json!({"item": id, "name": name, "token_id": new_id, "revision": revision}),
+    )?;
     Ok(json!({
         "ok": true,
         "item": id,

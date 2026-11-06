@@ -37,8 +37,9 @@ diff "$ROOT/listed.txt" "$ROOT/offered.txt" >>"$REPORT" || fail "the first word 
 offered "skarbiec sites my-login --" | grep -qx -- "--add-related" || fail "a dash after sites does not complete to --add-related"
 echo "ok: fish completes commands, prefixes and a command's own flags" >>"$REPORT"
 
-if out=$("$BIN" completion --shell tcsh &>/dev/stdout); then fail "--shell tcsh was not refused"; fi
-case "$out" in *"bash and fish"*) echo "ok: another shell is refused naming the ones written" >>"$REPORT" ;; *) fail "--shell tcsh refusal names no shells: $out" ;; esac
+if out=$("$BIN" completion --shell tcsh 2>"$ROOT/said"); then fail "--shell tcsh was not refused"; fi
+said=$(cat "$ROOT/said")
+case "$said" in *"bash and fish"*) echo "ok: another shell is refused naming the ones written" >>"$REPORT" ;; *) fail "--shell tcsh refusal names no shells: output: $out stderr: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

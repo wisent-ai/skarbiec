@@ -87,20 +87,25 @@ pub(crate) fn cmd_export(flags: &HashMap<String, String>, positionals: &[String]
 
 /// [`cmd_export`]'s answer, which `POST /v1/operator/items/export` also
 /// serves with an absolute path the desktop chose.
-pub(crate) fn export_value(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+pub(crate) fn export_value(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     let out = positionals
         .first()
         .or_else(|| flags.get("out"))
         .or_usage("usage: export <out-file> [--browser-csv | --bitwarden-csv | --canonical] [--encrypt-to <uid>] [--kind <kind>] [--tag <tag>] [--updated-before <iso8601>] [--match <text>] [--shared-with <uid>] [--pinned]")?;
     if flag_set(flags, "all") {
         return Err(super::args::Usage(
-            "export writes live items only; a trashed item does not open, so --all is refused".to_string(),
+            "export writes live items only; a trashed item does not open, so --all is refused"
+                .to_string(),
         )
         .into());
     }
     if flag_set(flags, "trashed") {
         return Err(super::args::Usage(
-            "export writes live items only; a trashed item does not open, so --trashed is refused".to_string(),
+            "export writes live items only; a trashed item does not open, so --trashed is refused"
+                .to_string(),
         )
         .into());
     }
@@ -133,9 +138,11 @@ pub(crate) fn export_value(flags: &HashMap<String, String>, positionals: &[Strin
     let bitwarden_csv = flag_set(flags, "bitwarden-csv");
     let canonical = flag_set(flags, "canonical");
     // Any two of the shapes named together is a contradiction.
-    if (browser_csv && bitwarden_csv) || (browser_csv && canonical) || (bitwarden_csv && canonical) {
+    if (browser_csv && bitwarden_csv) || (browser_csv && canonical) || (bitwarden_csv && canonical)
+    {
         return Err(super::args::Usage(
-            "--browser-csv, --bitwarden-csv and --canonical are shapes of the file; name one".to_string(),
+            "--browser-csv, --bitwarden-csv and --canonical are shapes of the file; name one"
+                .to_string(),
         )
         .into());
     }
@@ -146,7 +153,9 @@ pub(crate) fn export_value(flags: &HashMap<String, String>, positionals: &[Strin
     } else if canonical {
         serde_json::to_string(&Value::Array(canonical_rows))?
     } else {
-        serde_json::to_string(&Value::Array(rows.into_iter().map(|(_, payload)| payload).collect()))?
+        serde_json::to_string(&Value::Array(
+            rows.into_iter().map(|(_, payload)| payload).collect(),
+        ))?
     };
     // `--encrypt-to <uid>` seals the file to one registered recipient's key,
     // so what lands on disk opens only for them; without it the file is
@@ -169,7 +178,9 @@ pub(crate) fn export_value(flags: &HashMap<String, String>, positionals: &[Strin
         .join(out);
     crate::core::vault::atomic_write(&target, document.as_bytes())
         .with_context(|| format!("write export {}", target.display()))?;
-    Ok(json!({"ok": true, "exported": exported, "out": out, "browser_csv": browser_csv, "bitwarden_csv": bitwarden_csv, "canonical": canonical, "encrypted_to": encrypt_to}))
+    Ok(
+        json!({"ok": true, "exported": exported, "out": out, "browser_csv": browser_csv, "bitwarden_csv": bitwarden_csv, "canonical": canonical, "encrypted_to": encrypt_to}),
+    )
 }
 
 /// Report what this binary is, so a supervisor never has to identify a build by

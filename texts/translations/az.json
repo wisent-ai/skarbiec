@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: tətbiq edildi, lakin cavab vəziyyəti göstərmir: {answer}",
+  "request.approve": "Təsdiqlə",
+  "request.asks_for": "İstəyir: {seconds} san, {uses} istifadə (məqsəd {purpose}, üçün {target})",
+  "request.deny": "Rədd et",
+  "request.dual": "İki qərarverən tələb olunur.",
+  "request.hours": "Saat",
+  "request.how_long": "{summary}\n\nNə qədər müddətə?",
+  "request.how_many_hours": "Neçə saat?",
+  "request.how_many_uses": "Neçə istifadə?",
+  "request.not_applied": "{id}: tətbiq edilmədi: {error}",
+  "request.not_number": "{question}\n\n“{typed}” müsbət tam ədəd deyil ({cause}).",
+  "request.once": "Bir dəfə",
+  "request.standing_for": "Daimi giriş: {consumer}",
+  "request.summary": "Giriş sorğusu {id}\n\nNə: {action} {resource} ({kind}){bounds}\nNiyə: {reason}\nKim: {who}{dual}",
+  "request.until_revoked": "Ləğv edilənədək"
+}

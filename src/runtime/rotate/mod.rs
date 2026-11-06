@@ -30,7 +30,10 @@ pub(crate) struct Provider {
 impl Provider {
     /// The flags the provider takes besides --with, without their dashes.
     pub(crate) fn flags(&self) -> Vec<String> {
-        crate::cli::help::flags_in(self.usage).into_iter().filter(|flag| flag != WITH).collect()
+        crate::cli::help::flags_in(self.usage)
+            .into_iter()
+            .filter(|flag| flag != WITH)
+            .collect()
     }
 }
 
@@ -48,7 +51,11 @@ const PROVIDERS: &[Provider] = &[
 ];
 
 fn names() -> String {
-    PROVIDERS.iter().map(|provider| provider.name).collect::<Vec<_>>().join(", ")
+    PROVIDERS
+        .iter()
+        .map(|provider| provider.name)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Only a canonical provider name is an input to rotate, its API or a new policy.
@@ -56,7 +63,11 @@ fn names() -> String {
 pub(crate) fn provider(name: &str) -> Result<&'static Provider> {
     match PROVIDERS.iter().find(|provider| provider.name == name) {
         Some(provider) => Ok(provider),
-        None => Err(Usage(format!("--with {name} is not a provider this vault rotates through; it rotates through {}", names())).into()),
+        None => Err(Usage(format!(
+            "--with {name} is not a provider this vault rotates through; it rotates through {}",
+            names()
+        ))
+        .into()),
     }
 }
 
@@ -64,8 +75,15 @@ pub(crate) fn provider(name: &str) -> Result<&'static Provider> {
 /// is asked, and the provider refuses missing or wrong flags in its own words.
 pub(crate) fn run(provider: &Provider, flags: &HashMap<String, String>, id: &str) -> Result<Value> {
     let taken = provider.flags();
-    if let Some(stray) = flags.keys().find(|key| key.as_str() != WITH && !taken.contains(key)) {
-        return Err(Usage(format!("--with {} takes no --{stray}; {}", provider.name, provider.usage)).into());
+    if let Some(stray) = flags
+        .keys()
+        .find(|key| key.as_str() != WITH && !taken.contains(key))
+    {
+        return Err(Usage(format!(
+            "--with {} takes no --{stray}; {}",
+            provider.name, provider.usage
+        ))
+        .into());
     }
     let mut answer = (provider.run)(flags, id)?;
     answer["provider"] = json!(provider.name);
@@ -81,7 +99,11 @@ pub(crate) fn providers() -> Value {
     json!({"providers": listed})
 }
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     if command != "rotate" {
         return Ok(None);
     }
@@ -114,13 +136,22 @@ impl PolicyUpgrade {
 
     pub(crate) fn apply(&mut self, document: &mut Value) -> Result<()> {
         for change in &self.changes {
-            let saved = document.get_mut("rotation")
+            let saved = document
+                .get_mut("rotation")
                 .and_then(|policies| policies.get_mut(&change.item))
                 .and_then(|policy| policy.get_mut("submission"))
                 .and_then(|submission| submission.get_mut(WITH))
-                .with_context(|| format!("rotation policy {} no longer holds its planned provider", change.item))?;
+                .with_context(|| {
+                    format!(
+                        "rotation policy {} no longer holds its planned provider",
+                        change.item
+                    )
+                })?;
             if saved.as_str() != Some(change.from.as_str()) {
-                anyhow::bail!("rotation policy {} changed since its provider upgrade was planned", change.item);
+                anyhow::bail!(
+                    "rotation policy {} changed since its provider upgrade was planned",
+                    change.item
+                );
             }
             *saved = json!(change.to);
         }
@@ -140,15 +171,20 @@ pub(crate) fn policy_upgrade(document: &Value) -> Result<PolicyUpgrade> {
     let Some(section) = document.get("rotation") else {
         return Ok(plan);
     };
-    let policies = section.as_object().context("vault rotation section is not an object of policies")?;
+    let policies = section
+        .as_object()
+        .context("vault rotation section is not an object of policies")?;
     for (item, policy) in policies {
-        let submission = policy.get("submission").and_then(Value::as_object)
+        let submission = policy
+            .get("submission")
+            .and_then(Value::as_object)
             .with_context(|| format!("rotation policy {item} holds no submission object"))?;
         let Some(saved) = submission.get(WITH) else {
             continue;
         };
-        let saved = saved.as_str()
-            .with_context(|| format!("rotation policy {item} submission.with is not a provider name"))?;
+        let saved = saved.as_str().with_context(|| {
+            format!("rotation policy {item} submission.with is not a provider name")
+        })?;
         if PROVIDERS.iter().any(|provider| provider.name == saved) {
             continue;
         }

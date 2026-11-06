@@ -38,13 +38,22 @@ pub(in crate::runtime::doctor) fn developer_tokens_check() -> Value {
     }
     let mut problems = unread;
     if !plain.is_empty() {
-        problems.push(format!("tokens still kept in plain text, each moved into the vault by — {}", plain.join("; ")));
+        problems.push(format!(
+            "tokens still kept in plain text, each moved into the vault by — {}",
+            plain.join("; ")
+        ));
     }
     match (problems.is_empty(), files) {
         (false, _) => check(NAME, FAIL, problems.join("; ")),
-        (true, found) if found == std::iter::empty::<()>().count() => {
-            check(NAME, NOT_CONFIGURED, "no developer tool `skarbiec tool` knows keeps a token in a file here".into())
-        }
-        (true, found) => check(NAME, PASS, format!("{found} developer tool files hold no token in plain text")),
+        (true, found) if found == std::iter::empty::<()>().count() => check(
+            NAME,
+            NOT_CONFIGURED,
+            "no developer tool `skarbiec tool` knows keeps a token in a file here".into(),
+        ),
+        (true, found) => check(
+            NAME,
+            PASS,
+            format!("{found} developer tool files hold no token in plain text"),
+        ),
     }
 }

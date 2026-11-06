@@ -63,7 +63,7 @@ Skarbiec serves:
 - **recovery custodians** proving that an isolated recovery key can open a
   deterministic canary before an incident;
 - **self-hosting teams** synchronizing ciphertext while retaining their own
-  host, keyring, network, backup, and upgrade responsibilities.
+  host, key file, network, backup, and upgrade responsibilities.
 
 ## Product boundaries
 
@@ -75,7 +75,7 @@ server, managed browser boundary, and self-hosted ciphertext sync.
 
 It does **not** protect secrets from a host already compromised while the
 matching owner key is usable; encrypt item names and other vault metadata;
-replace OS permissions, GPG key custody, TLS, firewalling, backups, monitoring,
+replace OS permissions, custody of the key file, TLS, firewalling, backups, monitoring,
 or recovery drills; or provide automatic plaintext cloud fallback. The optional
 Weles path is a separate reviewed browser workflow—not blanket authority to
 navigate providers, accept terms, or create credentials.
@@ -170,7 +170,7 @@ their temporary vaults and keyrings after capture.
 At the failure boundary, authorization failures remain authorization failures.
 An item that exists but cannot be decrypted returns `infra_down` rather than
 masquerading as missing or dropping the connection. `keys check` reads the
-vault and keyring directly, so diagnosis does not depend on a healthy broker;
+vault and key file directly, so diagnosis does not depend on a healthy broker;
 when its canary item does not open, `canary_error` carries the decryption
 error, as it does for a failed `recovery drill`.
 
@@ -303,7 +303,7 @@ skarbiec request watch --local --by <uid>
   to act on.
 - `approve` has no defaults: `--ttl-seconds N` or `--until-revoked`, and
   `--uses N` for a capability. The decider must be a recipient with role
-  `owner` or `admin` whose secret key is in this host's keyring.
+  `owner` or `admin` whose secret key is in this host's key file.
 - An item tagged `dual-control` (or a request filed with `--dual-control`) is
   granted only after two different deciders approved it, within the narrower
   of their bounds.

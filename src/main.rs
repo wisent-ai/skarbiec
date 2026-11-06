@@ -14,20 +14,20 @@ mod net;
 mod onboarding;
 mod runtime;
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
 use cli::args::{emit, parse_args, OrUsage, Usage};
+use cli::generate::cmd_generate;
 use cli::items::{cmd_retag, cmd_set_json};
-use cli::rename::cmd_rename;
 use cli::list::cmd_list;
 use cli::reads::{
     cmd_delete, cmd_duplicates, cmd_get, cmd_history, cmd_purge, cmd_readers, cmd_reclaim,
     cmd_restore,
 };
-use cli::generate::cmd_generate;
+use cli::rename::cmd_rename;
 use cli::tools::{cmd_export, cmd_tags, cmd_version};
 use core::{crypto, items, vault::Vault};
 
@@ -44,6 +44,10 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
         .or_else(|| flags.get("owner"))
         .map(String::as_str)
         .or_usage("usage: init <owner-uid>")?;
+    // Refused before any key is made: an init a client host or an existing
+    // vault refuses must not leave new keys in the keyring.
+    let path = vault_path();
+    Vault::creatable(&path)?;
     let recovery_uid = format!("skarbiec-recovery <{owner}>");
     let owner_fpr = match crypto::fingerprint_for(owner)? {
         Some(fpr) => fpr,
@@ -53,7 +57,7 @@ pub(crate) fn cmd_init(flags: &HashMap<String, String>, positionals: &[String]) 
         Some(fpr) => fpr,
         None => crypto::generate_key(&recovery_uid)?,
     };
-    let vault = Vault::create(vault_path(), owner, &owner_fpr, &recovery_fpr)?;
+    let vault = Vault::create(path, owner, &owner_fpr, &recovery_fpr)?;
     Ok(
         json!({"ok": true, "vault": vault.path.display().to_string(), "owner_fpr": owner_fpr, "recovery_fpr": recovery_fpr}),
     )
@@ -77,7 +81,10 @@ fn run() -> Result<()> {
     // docker-credential-skarbiec, linked to this binary by `helper setup
     // docker`; started under that name, the words are Docker's protocol.
     let started_as = argv.next();
-    let program = started_as.as_deref().map(std::path::Path::new).and_then(std::path::Path::file_name);
+    let program = started_as
+        .as_deref()
+        .map(std::path::Path::new)
+        .and_then(std::path::Path::file_name);
     if program.and_then(std::ffi::OsStr::to_str) == Some(runtime::dockercred::PROGRAM) {
         return runtime::dockercred::run(&argv.collect::<Vec<_>>());
     }
@@ -131,7 +138,13 @@ fn run() -> Result<()> {
             return cli::help::print_command(&command);
         }
     }
-    let (flags, positionals) = parse_args(&rest);
+    let (mut flags, positionals) = parse_args(&rest);
+    // `--fence T` lets this invocation's writes pass a write fence armed for
+    // transaction T (a vault move's own steps); every command takes it, so it
+    // is taken out before any command sees its flags.
+    if let Some(transaction) = flags.remove("fence") {
+        core::vault::fence::pass(&transaction);
+    }
     if net::owner::dispatch(&command, &flags, &positionals)? {
         return Ok(());
     }
@@ -139,31 +152,25 @@ fn run() -> Result<()> {
     match command.as_str() {
         "version" | "--version" | "-V" => emit(&cmd_version()?),
         "status" => emit(&core::items::status_json()?),
-        "doctor" => match cli::args::flag_set(&flags, "alert") {
-            true => emit(&runtime::doctor::report_alerting(flags.get("tail").map(String::as_str))?),
-            false => emit(&runtime::doctor::report(flags.get("tail").map(String::as_str))?),
-        },
-        "keyring" if positionals.first().map(String::as_str) == Some("recover") => {
-            // Exit 0 only when the daemons were replaced: the receipt is
-            // printed either way, and a failed recovery fails the command
-            // with gpgconf's own cause, so a caller never reads success.
-            let receipt = runtime::doctor::recover_daemons()?;
-            emit(&receipt)?;
-            if receipt["recovered"] != json!(true) {
-                // The receipt itself is the cause when it carries no detail
-                // line: it was printed above, and its whole text says why.
-                let cause = match receipt["detail"].as_str() {
-                    Some(detail) => detail.to_string(),
-                    None => receipt.to_string(),
-                };
-                bail!("keyring recover: the GnuPG daemons were not replaced: {cause}");
+        "doctor" => {
+            if cli::args::flag_set(&flags, "alert") {
+                emit(&runtime::doctor::report_alerting(
+                    flags.get("tail").map(String::as_str),
+                )?)
+            } else {
+                emit(&runtime::doctor::report(
+                    flags.get("tail").map(String::as_str),
+                )?)
             }
-            Ok(())
         }
         "vaults" => emit(&runtime::vaults::inventory()?),
+        "fence" => emit(&core::vault::fence::command(&flags, &positionals)?),
         "init" => emit(&cmd_init(&flags, &positionals)?),
-        "get" => cmd_get(&flags, &positionals),
-        "set" => cmd_set_json(&flags, &positionals),
+        // Storing a value and borrowing one are what a person uses Skarbiec
+        // for: each one that succeeded counts toward the GitHub star request.
+        "get" => cmd_get(&flags, &positionals).map(|()| cli::star::observe()),
+        "set" => cmd_set_json(&flags, &positionals).map(|()| cli::star::observe()),
+        "star" => cli::star::command(&flags, &positionals),
         "list" => emit(&cmd_list(&flags)?),
         "duplicates" => emit(&cmd_duplicates()?),
         "readers" => emit(&cmd_readers(&positionals)?),
@@ -180,17 +187,29 @@ fn run() -> Result<()> {
         "reclaim" => emit(&cmd_reclaim(&positionals)?),
         "restore" => match flags.get("tag") {
             Some(tag) => emit(&cli::bulk::restore_tagged(&flags, tag)?),
-            None => emit(&cmd_restore(&positionals, flags.get("at").map(String::as_str))?),
+            None => emit(&cmd_restore(
+                &positionals,
+                flags.get("at").map(String::as_str),
+            )?),
         },
         "purge" => match (flags.get("trashed-before"), flags.get("versions-before")) {
             (Some(before), _) => emit(&cli::tools::cmd_purge_trash(&flags, &positionals, before)?),
-            (None, Some(before)) => emit(&cli::prune::purge_versions(&flags, &positionals, before)?),
-            (None, None) => emit(&cmd_purge(&positionals, cli::args::flag_set(&flags, "yes"))?),
+            (None, Some(before)) => {
+                emit(&cli::prune::purge_versions(&flags, &positionals, before)?)
+            }
+            (None, None) => emit(&cmd_purge(
+                &positionals,
+                cli::args::flag_set(&flags, "yes"),
+            )?),
         },
         "generate" => cmd_generate(&flags),
         "agent" => match cli::args::verb(&command, &positionals, "agent", "enrol") {
             Some(rest) => emit(&access::agent::enrol(rest)?),
-            None => Err(Usage(format!("agent {} is not a form of agent; usage: agent enrol <agent>", positionals.join(" "))).into()),
+            None => Err(Usage(format!(
+                "agent {} is not a form of agent; usage: agent enrol <agent>",
+                positionals.join(" ")
+            ))
+            .into()),
         },
         "import" => emit(&core::importer::run(&flags, &positionals)?),
         "migrate" => emit(&items::migrate_vault(&flags)?),
@@ -220,8 +239,6 @@ fn run() -> Result<()> {
             Some(answer) => emit(&answer),
             None => Ok(()),
         },
-        // The keyring command's one verb, refused naming it for any other.
-        "keyring" => Err(Usage(format!("keyring {} is not a form of keyring; usage: keyring recover", positionals.join(" "))).into()),
         other => {
             if let Some(v) = credential::dispatch(other, &flags, &positionals, &vault_path())? {
                 emit(&v)
@@ -236,7 +253,11 @@ fn run() -> Result<()> {
             } else if let Some(v) = core::inbox::dispatch(other, &flags, &positionals)? {
                 emit(&v)
             } else if let Some(usage) = cli::help::usage_of(other) {
-                Err(Usage(format!("{other} {} is not a form of {other}; usage: {usage}", positionals.join(" "))).into())
+                Err(Usage(format!(
+                    "{other} {} is not a form of {other}; usage: {usage}",
+                    positionals.join(" ")
+                ))
+                .into())
             } else {
                 Err(Usage(format!(
                     "unknown command: {other}; `skarbiec --help` lists every command"

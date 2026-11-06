@@ -37,9 +37,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 
 : >"$ROOT/stdin"
@@ -51,12 +52,13 @@ BINDINGS="$ROOT/bindings"
 WANT=ok run tool status vercel
 [ "$(printf '%s' "$out" | jq -r .file)" = "$AUTH" ] || fail "status does not name the auth.json the CLI reads: $out"
 printf '%s' "$out" | jq -e '.entries | any(.kept == "plain text")' >/dev/null || fail "status did not name the token as plain text: $out"
-case "$out" in *"$TOKEN"*) fail "status printed the token" ;; esac
+# The token must appear on neither stream.
+case "$out$said" in *"$TOKEN"*) fail "status printed the token" ;; esac
 echo "ok: status names the file and its plain-text token, never the token" >>"$REPORT"
 
 ITEM="vercel-cli-$RUN"
 WANT=ok run tool import vercel "$ITEM" --bindings "$BINDINGS"
-case "$out" in *"$TOKEN"*) fail "import printed the token" ;; esac
+case "$out$said" in *"$TOKEN"*) fail "import printed the token" ;; esac
 jq -e 'has("token") | not' "$AUTH" >/dev/null || fail "auth.json still holds the token"
 jq -e 'has("// Note")' "$AUTH" >/dev/null || fail "import dropped the other key"
 grep -qxF "VERCEL_TOKEN=$ITEM:token" "$BINDINGS" || fail "the bindings file does not bind VERCEL_TOKEN"
@@ -69,10 +71,10 @@ seen="$("$BIN" exec --env-from "$BINDINGS" -- sh -c 'printf "%s" "$VERCEL_TOKEN"
 echo "ok: import moves the token, keeps the other key, remembers the bindings file and exec gives it" >>"$REPORT"
 
 WANT=refused run tool import vercel "again-$RUN" --bindings "$BINDINGS"
-case "$out" in *"keeps no token"*) ;; *) fail "a file keeping no token was not refused: $out" ;; esac
+case "$said" in *"keeps no token"*) ;; *) fail "a file keeping no token was not refused: $said" ;; esac
 printf 'not json' >"$AUTH"
 WANT=refused run tool status vercel
-case "$out" in *"is not the JSON object the Vercel CLI writes"*) ;; *) fail "an auth.json that is not JSON was not refused naming it: $out" ;; esac
+case "$said" in *"is not the JSON object the Vercel CLI writes"*) ;; *) fail "an auth.json that is not JSON was not refused naming it: $said" ;; esac
 echo "ok: no token and an unreadable auth.json are refused" >>"$REPORT"
 
 touch "$ROOT/passed"

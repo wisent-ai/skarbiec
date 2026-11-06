@@ -41,7 +41,12 @@ pub fn dispatch(
     import(&source, prefix, bindings, flags).map(Some)
 }
 
-fn import(source: &PathBuf, prefix: &str, bindings: Option<PathBuf>, flags: &HashMap<String, String>) -> Result<Value> {
+fn import(
+    source: &PathBuf,
+    prefix: &str,
+    bindings: Option<PathBuf>,
+    flags: &HashMap<String, String>,
+) -> Result<Value> {
     let shown = source.display();
     let text = std::fs::read_to_string(source).with_context(|| format!("read {shown}"))?;
     let variables = dotenv::read(&text).with_context(|| format!("{shown}; nothing was stored"))?;
@@ -50,18 +55,39 @@ fn import(source: &PathBuf, prefix: &str, bindings: Option<PathBuf>, flags: &Has
     }
     let planned: Vec<(&dotenv::Variable, String)> = variables
         .iter()
-        .map(|variable| (variable, format!("{prefix}-{}", variable.name.to_lowercase().replace('_', "-"))))
+        .map(|variable| {
+            (
+                variable,
+                format!(
+                    "{prefix}-{}",
+                    variable.name.to_lowercase().replace('_', "-")
+                ),
+            )
+        })
         .collect();
     for (variable, id) in &planned {
-        if let Some((other, _)) = planned.iter().find(|(other, other_id)| other_id == id && other.name != variable.name) {
-            bail!("{} and {} would both be stored as {id}; rename one in {shown}; nothing was stored", variable.name, other.name);
+        if let Some((other, _)) = planned
+            .iter()
+            .find(|(other, other_id)| other_id == id && other.name != variable.name)
+        {
+            bail!(
+                "{} and {} would both be stored as {id}; rename one in {shown}; nothing was stored",
+                variable.name,
+                other.name
+            );
         }
     }
     let vault = Vault::open(vault_path())?;
     let taken: Vec<&str> = planned
         .iter()
         .map(|(_, id)| id.as_str())
-        .filter(|id| vault.doc().get("items").and_then(|items| items.get(*id)).is_some())
+        .filter(|id| {
+            vault
+                .doc()
+                .get("items")
+                .and_then(|items| items.get(*id))
+                .is_some()
+        })
         .collect();
     if !taken.is_empty() {
         bail!("{} already exist; env import never replaces an item. Choose another --prefix; nothing was stored", taken.join(", "));
@@ -77,22 +103,33 @@ fn import(source: &PathBuf, prefix: &str, bindings: Option<PathBuf>, flags: &Has
         .collect();
     let bindings_shown = bindings.as_ref().map(|path| path.display().to_string());
     if !flag_set(flags, "yes") {
-        return Ok(json!({"ok": true, "applied": false, "source": shown.to_string(), "items": listed, "bindings": bindings_shown}));
+        return Ok(
+            json!({"ok": true, "applied": false, "source": shown.to_string(), "items": listed, "bindings": bindings_shown}),
+        );
     }
     let mut stored: Vec<&str> = Vec::new();
     for (variable, id) in &planned {
         let mut fields = Map::new();
         fields.insert(FIELD.to_string(), json!(variable.value));
         let mut context = Map::new();
-        context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(variable.name));
+        context.insert(
+            crate::core::items::DISPLAY_NAME.to_string(),
+            json!(variable.name),
+        );
         let payload = schema::payload(KIND, fields, context)?;
         let mut write = HashMap::new();
         if let Some(tags) = flags.get("tags") {
             write.insert("tags".to_string(), tags.clone());
         }
-        crate::cli::items::create_value(&write, id, &payload.to_string(), "env import").with_context(|| {
-            format!("store {} (line {}) as {id}; stored before it: {}", variable.name, variable.line, stored.join(", "))
-        })?;
+        crate::cli::items::create_value(&write, id, &payload.to_string(), "env import")
+            .with_context(|| {
+                format!(
+                    "store {} (line {}) as {id}; stored before it: {}",
+                    variable.name,
+                    variable.line,
+                    stored.join(", ")
+                )
+            })?;
         stored.push(id);
     }
     if let Some(path) = &bindings {
@@ -103,8 +140,13 @@ fn import(source: &PathBuf, prefix: &str, bindings: Option<PathBuf>, flags: &Has
         for (variable, id) in &planned {
             body.push_str(&format!("{}={id}:{FIELD}\n", variable.name));
         }
-        crate::core::vault::atomic_write(path, body.as_bytes())
-            .with_context(|| format!("write the bindings {}; every item was stored: {}", path.display(), stored.join(", ")))?;
+        crate::core::vault::atomic_write(path, body.as_bytes()).with_context(|| {
+            format!(
+                "write the bindings {}; every item was stored: {}",
+                path.display(),
+                stored.join(", ")
+            )
+        })?;
         crate::runtime::bindings::remember(path)?;
     }
     crate::runtime::audit::append(

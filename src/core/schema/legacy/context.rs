@@ -28,20 +28,31 @@ pub(super) fn warn(context: &mut Map<String, Value>, why: String) {
 }
 
 /// Move the field `name` from the item, or else its metadata, into context.
-fn carry(source: &mut Map<String, Value>, metadata: &Map<String, Value>, context: &mut Map<String, Value>, name: &str) {
+fn carry(
+    source: &mut Map<String, Value>,
+    metadata: &Map<String, Value>,
+    context: &mut Map<String, Value>,
+    name: &str,
+) {
     if let Some(value) = take_alias(source, &[name]).or_else(|| metadata.get(name).cloned()) {
         context.insert(name.to_string(), value);
     }
 }
 
-pub(super) fn legacy_context(source: &mut Map<String, Value>, legacy_kind: &str) -> Map<String, Value> {
+pub(super) fn legacy_context(
+    source: &mut Map<String, Value>,
+    legacy_kind: &str,
+) -> Map<String, Value> {
     let mut context = Map::new();
     let metadata = match source.remove("metadata") {
         Some(Value::Object(metadata)) => metadata,
         // An item without metadata carries no context of its own.
         Some(Value::Null) | None => Map::new(),
         Some(other) => {
-            warn(&mut context, format!("legacy metadata was not an object and was kept whole: {other}"));
+            warn(
+                &mut context,
+                format!("legacy metadata was not an object and was kept whole: {other}"),
+            );
             context.insert("legacy_metadata".to_string(), other);
             Map::new()
         }
@@ -50,7 +61,10 @@ pub(super) fn legacy_context(source: &mut Map<String, Value>, legacy_kind: &str)
     context.insert("source_kind".to_string(), json!(legacy_kind));
     for (target, aliases) in [
         ("provider", &["provider"][..]),
-        ("account_ref", &["account_ref", "account_identifier", "account_email"][..]),
+        (
+            "account_ref",
+            &["account_ref", "account_identifier", "account_email"][..],
+        ),
         ("tenant_ref", &["tenant_ref", "tenant_id"][..]),
         ("request_id", &["_weles_request_id", "request_id"][..]),
         ("operation", &["_weles_operation", "operation"][..]),
@@ -59,7 +73,8 @@ pub(super) fn legacy_context(source: &mut Map<String, Value>, legacy_kind: &str)
         ("name", &["name"][..]),
         ("login_url", &["login_url", "dashboard_url"][..]),
     ] {
-        let value = take_alias(source, aliases).or_else(|| aliases.iter().find_map(|name| metadata.get(*name).cloned()));
+        let value = take_alias(source, aliases)
+            .or_else(|| aliases.iter().find_map(|name| metadata.get(*name).cloned()));
         for alias in aliases {
             context.remove(*alias);
         }

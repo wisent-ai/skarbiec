@@ -49,9 +49,9 @@ pub(super) fn share_tagged(tag: &str, uid: &str, flags: &HashMap<String, String>
             already.push(id.clone());
             continue;
         }
-        let payload = vault
-            .get_item(id)
-            .with_context(|| format!("{id} carries {tag} but will not open, so nothing was shared"))?;
+        let payload = vault.get_item(id).with_context(|| {
+            format!("{id} carries {tag} but will not open, so nothing was shared")
+        })?;
         let (kind, tags) = super::item_meta(&vault, id)?;
         recipients.push(uid.to_string());
         pending.push((id.clone(), kind, payload, recipients, tags));
@@ -69,7 +69,9 @@ pub(super) fn share_tagged(tag: &str, uid: &str, flags: &HashMap<String, String>
             &json!({"tag": tag, "uid": uid, "items": shared, "until": until}),
         )?;
     }
-    Ok(json!({"ok": true, "tag": tag, "uid": uid, "shared": shared, "already_shared": already, "until": until}))
+    Ok(
+        json!({"ok": true, "tag": tag, "uid": uid, "shared": shared, "already_shared": already, "until": until}),
+    )
 }
 
 /// `revoke --tag <tag> <uid>`: the inverse of `share --tag`. Every item
@@ -86,14 +88,20 @@ pub(super) fn revoke_tagged(tag: &str, uid: &str) -> Result<Value> {
     let mut readable = Vec::new();
     let mut not_reader = Vec::new();
     for id in tagged {
-        if vault.item_recipient_uids(&id)?.iter().any(|reader| reader == uid) {
+        if vault
+            .item_recipient_uids(&id)?
+            .iter()
+            .any(|reader| reader == uid)
+        {
             readable.push(id);
         } else {
             not_reader.push(id);
         }
     }
     if readable.is_empty() {
-        return Ok(json!({"ok": true, "tag": tag, "uid": uid, "revoked": readable, "not_a_reader": not_reader}));
+        return Ok(
+            json!({"ok": true, "tag": tag, "uid": uid, "revoked": readable, "not_a_reader": not_reader}),
+        );
     }
     let report = vault.withdraw_recipient(uid, &readable)?;
     vault.save()?;

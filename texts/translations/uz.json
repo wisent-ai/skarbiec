@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: qo‘llanildi, lekin javobda holat ko‘rsatilmagan: {answer}",
+  "request.approve": "Tasdiqlash",
+  "request.asks_for": "So‘raydi: {seconds} s, {uses} foydalanish (maqsad {purpose}, {target} uchun)",
+  "request.deny": "Rad etish",
+  "request.dual": "Ikki qaror qabul qiluvchi kerak.",
+  "request.hours": "Soat",
+  "request.how_long": "{summary}\n\nQancha muddatga?",
+  "request.how_many_hours": "Necha soat?",
+  "request.how_many_uses": "Necha marta foydalanish?",
+  "request.not_applied": "{id}: qo‘llanilmadi: {error}",
+  "request.not_number": "{question}\n\n“{typed}” musbat butun son emas ({cause}).",
+  "request.once": "Bir marta",
+  "request.standing_for": "Doimiy kirish: {consumer}",
+  "request.summary": "Kirish so‘rovi {id}\n\nNima: {action} {resource} ({kind}){bounds}\nNega: {reason}\nKim: {who}{dual}",
+  "request.until_revoked": "Bekor qilinguncha"
+}

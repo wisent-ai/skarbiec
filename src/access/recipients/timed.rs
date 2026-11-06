@@ -22,7 +22,10 @@ pub(super) fn checked(flags: &HashMap<String, String>) -> Result<Option<String>>
     };
     let now = clock::now_iso();
     if !clock::is_iso(until) {
-        return Err(crate::cli::args::Usage(format!("--until {until} is not a UTC time of the form {now}")).into());
+        return Err(crate::cli::args::Usage(format!(
+            "--until {until} is not a UTC time of the form {now}"
+        ))
+        .into());
     }
     if until.as_str() <= now.as_str() {
         bail!("--until {until} has already passed (it is {now}); name a moment ahead");
@@ -31,7 +34,12 @@ pub(super) fn checked(flags: &HashMap<String, String>) -> Result<Option<String>>
 }
 
 /// Record `--until` for one share, saving the vault, when the flag is given.
-pub(super) fn apply(vault: &mut Vault, item: &str, uid: &str, flags: &HashMap<String, String>) -> Result<Option<String>> {
+pub(super) fn apply(
+    vault: &mut Vault,
+    item: &str,
+    uid: &str,
+    flags: &HashMap<String, String>,
+) -> Result<Option<String>> {
     let Some(until) = checked(flags)? else {
         return Ok(None);
     };
@@ -54,7 +62,11 @@ pub(super) fn apply(vault: &mut Vault, item: &str, uid: &str, flags: &HashMap<St
 /// Forget the end of one share; the caller saves. A share revoked by hand
 /// has nothing left to expire.
 pub(super) fn forget(vault: &mut Vault, item: &str, uid: &str) {
-    let Some(section) = vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) else {
+    let Some(section) = vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+    else {
         return;
     };
     if let Some(readers) = section.get_mut(item).and_then(Value::as_object_mut) {
@@ -69,7 +81,11 @@ pub(super) fn forget(vault: &mut Vault, item: &str, uid: &str) {
 /// share that was to end still ends; the caller saves. True when there were
 /// any to carry.
 pub fn follow_rename(vault: &mut Vault, from: &str, to: &str) -> bool {
-    let Some(section) = vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) else {
+    let Some(section) = vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+    else {
         return false;
     };
     match section.remove(from) {
@@ -131,13 +147,20 @@ pub fn expire() -> Result<Value> {
     let mut revoked = Vec::new();
     let mut already_gone = Vec::new();
     let mut failed = Vec::new();
-    for row in rows(&vault, &now).into_iter().filter(|row| row["ended"] == json!(true)) {
+    for row in rows(&vault, &now)
+        .into_iter()
+        .filter(|row| row["ended"] == json!(true))
+    {
         let (Some(item), Some(uid)) = (row["item"].as_str(), row["uid"].as_str()) else {
             continue;
         };
         // A purged item has no readers left to revoke; any other failure to
         // read its recipients is reported and the share kept for next pass.
-        let present = vault.doc().get("items").and_then(|items| items.get(item)).is_some();
+        let present = vault
+            .doc()
+            .get("items")
+            .and_then(|items| items.get(item))
+            .is_some();
         let reads = if present {
             match vault.item_recipient_uids(item) {
                 Ok(readers) => readers.iter().any(|reader| reader == uid),
@@ -159,7 +182,9 @@ pub fn expire() -> Result<Value> {
                 forget(&mut vault, item, uid);
                 revoked.push(row);
             }
-            Err(error) => failed.push(json!({"item": item, "uid": uid, "error": format!("{error:#}")})),
+            Err(error) => {
+                failed.push(json!({"item": item, "uid": uid, "error": format!("{error:#}")}))
+            }
         }
     }
     if !revoked.is_empty() || !already_gone.is_empty() {
@@ -169,5 +194,7 @@ pub fn expire() -> Result<Value> {
             &json!({"revoked": revoked, "already_gone": already_gone}),
         )?;
     }
-    Ok(json!({"ok": failed.is_empty(), "revoked": revoked, "already_gone": already_gone, "failed": failed}))
+    Ok(
+        json!({"ok": failed.is_empty(), "revoked": revoked, "already_gone": already_gone, "failed": failed}),
+    )
 }

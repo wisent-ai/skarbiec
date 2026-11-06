@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: הוחל, אך התשובה אינה מציינת מצב: {answer}",
+  "request.approve": "אישור",
+  "request.asks_for": "מבקש: {seconds} שנ׳, {uses} שימושים (מטרה {purpose}, עבור {target})",
+  "request.deny": "דחייה",
+  "request.dual": "נדרשים שני מקבלי החלטות.",
+  "request.hours": "שעות",
+  "request.how_long": "{summary}\n\nלכמה זמן?",
+  "request.how_many_hours": "כמה שעות?",
+  "request.how_many_uses": "כמה שימושים?",
+  "request.not_applied": "{id}: לא הוחל: {error}",
+  "request.not_number": "{question}\n\n„{typed}” אינו מספר שלם חיובי ({cause}).",
+  "request.once": "פעם אחת",
+  "request.standing_for": "גישה קבועה עבור: {consumer}",
+  "request.summary": "בקשת גישה {id}\n\nמה: {action} {resource} ({kind}){bounds}\nלמה: {reason}\nמי: {who}{dual}",
+  "request.until_revoked": "עד לביטול"
+}

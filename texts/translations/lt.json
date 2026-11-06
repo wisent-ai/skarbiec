@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: pritaikyta, bet atsakyme nenurodyta nei būsena, nei padėtis: {answer}",
+  "request.approve": "Patvirtinti",
+  "request.asks_for": "Prašo: {seconds} s, {uses} panaudojimų (tikslas {purpose}, skirta {target})",
+  "request.deny": "Atmesti",
+  "request.dual": "Reikia dviejų sprendėjų.",
+  "request.hours": "Valandos",
+  "request.how_long": "{summary}\n\nKiek laiko?",
+  "request.how_many_hours": "Kiek valandų?",
+  "request.how_many_uses": "Kiek panaudojimų?",
+  "request.not_applied": "{id}: nepritaikyta: {error}",
+  "request.not_number": "{question}\n\n„{typed}“ nėra teigiamas sveikasis skaičius ({cause}).",
+  "request.once": "Vieną kartą",
+  "request.standing_for": "Nuolatinė prieiga: {consumer}",
+  "request.summary": "Prieigos užklausa {id}\n\nKą: {action} {resource} ({kind}){bounds}\nKodėl: {reason}\nKas: {who}{dual}",
+  "request.until_revoked": "Iki atšaukimo"
+}

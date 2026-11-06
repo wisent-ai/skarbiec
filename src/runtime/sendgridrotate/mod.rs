@@ -28,14 +28,22 @@ pub(crate) fn rotate_item(_flags: &HashMap<String, String>, id: &str) -> Result<
 }
 
 fn sendgrid(method: &str, path: &str, key: &str, body: Option<&Value>) -> Result<Value> {
-    call(&Call { method, url: &format!("{API}{path}"), header: &format!("Authorization: Bearer {key}"), form: &[], json: body })
+    call(&Call {
+        method,
+        url: &format!("{API}{path}"),
+        header: &format!("Authorization: Bearer {key}"),
+        form: &[],
+        json: body,
+    })
 }
 
 /// The key id a SendGrid key carries between its prefix and its secret.
 fn key_id(key: &str) -> Option<String> {
     let mut parts = key.split('.');
     match (parts.next(), parts.next(), parts.next(), parts.next()) {
-        (Some(PREFIX), Some(id), Some(secret), None) if !id.is_empty() && !secret.is_empty() => Some(id.to_string()),
+        (Some(PREFIX), Some(id), Some(secret), None) if !id.is_empty() && !secret.is_empty() => {
+            Some(id.to_string())
+        }
         _ => None,
     }
 }
@@ -45,9 +53,15 @@ fn held(id: &str) -> Result<(String, String)> {
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "rotate")?;
     let payload = vault.get_item(id)?;
     if payload["kind"] != json!(KIND) {
-        bail!("{id} is a {} item; rotate --with sendgrid replaces a {KIND} item's {FIELD}", payload["kind"]);
+        bail!(
+            "{id} is a {} item; rotate --with sendgrid replaces a {KIND} item's {FIELD}",
+            payload["kind"]
+        );
     }
-    let key = payload["fields"][FIELD].as_str().filter(|value| !value.is_empty()).with_context(|| format!("{id} holds no {FIELD}"))?;
+    let key = payload["fields"][FIELD]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .with_context(|| format!("{id} holds no {FIELD}"))?;
     let Some(key_id) = key_id(key) else {
         bail!("{id}'s {FIELD} is not a SendGrid API key, which reads {PREFIX}.<key id>.<secret>");
     };
@@ -58,11 +72,29 @@ fn rotate(id: &str) -> Result<Value> {
     let (old, old_id) = held(id)?;
     let current = sendgrid("GET", &format!("/api_keys/{old_id}"), &old, None)
         .context("SendGrid did not answer the key's own name and scopes; a key needs API Keys access to replace itself")?;
-    let name = current["name"].as_str().context("SendGrid answered the key without its name")?.to_string();
-    let scopes = current["scopes"].as_array().filter(|scopes| !scopes.is_empty()).context("SendGrid answered the key without its scopes")?.clone();
-    let made = sendgrid("POST", "/api_keys", &old, Some(&json!({"name": name, "scopes": scopes})))?;
-    let new = made["api_key"].as_str().context("SendGrid answered no api_key")?.to_string();
-    let new_id = made["api_key_id"].as_str().context("SendGrid answered no api_key_id")?.to_string();
+    let name = current["name"]
+        .as_str()
+        .context("SendGrid answered the key without its name")?
+        .to_string();
+    let scopes = current["scopes"]
+        .as_array()
+        .filter(|scopes| !scopes.is_empty())
+        .context("SendGrid answered the key without its scopes")?
+        .clone();
+    let made = sendgrid(
+        "POST",
+        "/api_keys",
+        &old,
+        Some(&json!({"name": name, "scopes": scopes})),
+    )?;
+    let new = made["api_key"]
+        .as_str()
+        .context("SendGrid answered no api_key")?
+        .to_string();
+    let new_id = made["api_key_id"]
+        .as_str()
+        .context("SendGrid answered no api_key_id")?
+        .to_string();
     let take_back = || sendgrid("DELETE", &format!("/api_keys/{new_id}"), &old, None);
     let revision = match crate::runtime::revise::fields(id, &[(FIELD, &new)]) {
         Ok(revision) => revision,
@@ -73,9 +105,13 @@ fn rotate(id: &str) -> Result<Value> {
             };
         }
     };
-    let proved = sendgrid("GET", "/scopes", &new, None).and_then(|_| sendgrid("DELETE", &format!("/api_keys/{old_id}"), &new, None));
+    let proved = sendgrid("GET", "/scopes", &new, None)
+        .and_then(|_| sendgrid("DELETE", &format!("/api_keys/{old_id}"), &new, None));
     if let Err(error) = proved {
-        crate::runtime::audit::append("sendgrid-rotate-failed", &json!({"item": id, "name": name, "revision": revision}))?;
+        crate::runtime::audit::append(
+            "sendgrid-rotate-failed",
+            &json!({"item": id, "name": name, "revision": revision}),
+        )?;
         let undone = take_back();
         let restored = crate::runtime::revise::fields(id, &[(FIELD, &old)]);
         match (undone, restored) {
@@ -84,7 +120,10 @@ fn rotate(id: &str) -> Result<Value> {
             (_, Err(undo)) => bail!("{error:#}; {id} keeps the new key at revision {revision}, as the old one could not be written back ({undo:#}); it is the saved version before it"),
         }
     }
-    crate::runtime::audit::append("sendgrid-key-rotated", &json!({"item": id, "name": name, "key_id": new_id, "revision": revision}))?;
+    crate::runtime::audit::append(
+        "sendgrid-key-rotated",
+        &json!({"item": id, "name": name, "key_id": new_id, "revision": revision}),
+    )?;
     Ok(json!({
         "ok": true,
         "item": id,

@@ -82,6 +82,19 @@ impl Vault {
         Ok(vault)
     }
 
+    /// The vault at `path`, or `None` when this host holds none: no file
+    /// there and no copy kept beside it. A vault that is gone but kept
+    /// beside is the refusal `open` gives, never a host without a vault.
+    pub fn open_present(path: PathBuf) -> Result<Option<Self>> {
+        if crate::core::unchosen_copy_refusal(&path).is_none()
+            && !crate::core::is_present(&path, "the vault file")?
+            && newest_kept_copy(&path)?.is_none()
+        {
+            return Ok(None);
+        }
+        Self::open(path).map(Some)
+    }
+
     pub fn open(path: PathBuf) -> Result<Self> {
         if let Some(refusal) = crate::core::unchosen_copy_refusal(&path) {
             bail!(refusal);
@@ -108,8 +121,8 @@ impl Vault {
                 path.display()
             )
         })?;
-        let base_generation = document_generation(&doc)
-            .with_context(|| format!("vault file {}", path.display()))?;
+        let base_generation =
+            document_generation(&doc).with_context(|| format!("vault file {}", path.display()))?;
         // Who writes as the owner and which key recovers the vault are read
         // once, here: a document naming neither is refused, never read as an
         // owner called "" that items would then be written and controlled by.
@@ -154,11 +167,14 @@ impl Vault {
             bail!(refusal);
         }
         let _write_lock = acquire_write_lock(&self.path)?;
+        // Under the write lock, so a fence armed after the vault was read
+        // still holds this write back.
+        super::fence::check_write(&self.path)?;
         if let Some(text) = crate::core::read_present(&self.path, "persisted vault")? {
             let persisted: Value =
                 serde_json::from_str(&text).context("parse persisted vault under write lock")?;
-            let persisted_generation = document_generation(&persisted)
-                .context("the persisted vault under write lock")?;
+            let persisted_generation =
+                document_generation(&persisted).context("the persisted vault under write lock")?;
             if persisted_generation != self.base_generation {
                 return Err(VaultChangedConcurrently {
                     loaded: self.base_generation,
@@ -175,13 +191,19 @@ impl Vault {
                 .checked_add(NonZeroU64::MIN.get())
                 .context("vault generation overflow")?,
         };
-        let document = self.doc.as_object_mut().context("vault document is not an object")?;
+        let document = self
+            .doc
+            .as_object_mut()
+            .context("vault document is not an object")?;
         let loaded = document.insert("generation".to_string(), json!(next_generation.get()));
         let mut encoded = serde_json::to_vec_pretty(&self.doc)?;
         encoded.push(b'\n');
         if let Err(error) = atomic_write(&self.path, &encoded) {
             // The copy in memory goes back to the generation it was opened at.
-            let document = self.doc.as_object_mut().context("vault document is not an object")?;
+            let document = self
+                .doc
+                .as_object_mut()
+                .context("vault document is not an object")?;
             match loaded {
                 Some(loaded) => document.insert("generation".to_string(), loaded),
                 None => document.remove("generation"),
@@ -221,7 +243,10 @@ impl Vault {
 /// vault (the capability state, a lock) is not a copy and is passed over, so
 /// a vault that vanished is answered with the copy that brings it back.
 fn newest_kept_copy(path: &Path) -> Result<Option<PathBuf>> {
-    let (Some(directory), Some(name)) = (path.parent(), path.file_name().and_then(|name| name.to_str())) else {
+    let (Some(directory), Some(name)) = (
+        path.parent(),
+        path.file_name().and_then(|name| name.to_str()),
+    ) else {
         return Ok(None);
     };
     let prefix = format!("{name}.");
@@ -233,7 +258,10 @@ fn newest_kept_copy(path: &Path) -> Result<Option<PathBuf>> {
     let mut copies = Vec::new();
     for entry in entries {
         let entry = entry.with_context(|| format!("list {}", directory.display()))?;
-        let kept = entry.file_name().to_str().is_some_and(|file| file.starts_with(&prefix));
+        let kept = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|file| file.starts_with(&prefix));
         if !kept {
             continue;
         }

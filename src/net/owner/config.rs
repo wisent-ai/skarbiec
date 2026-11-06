@@ -1,6 +1,5 @@
 use anyhow::{bail, Context, Result};
 use serde_json::Value;
-use std::process::{Command, Stdio};
 
 pub(crate) fn selected() -> Result<Option<String>> {
     if std::env::var_os("SKARBIEC_VAULT_FILE").is_some() {
@@ -76,50 +75,8 @@ pub(super) fn resolve(route: &str) -> Result<String> {
         consumer = Some(value.into_owned());
     }
     let consumer = consumer.context("vault owner service route has no consumer")?;
-    // The Stado a product install places: `skarbiec serve` runs under a
-    // service unit whose PATH holds no ~/.stado/bin, where a bare `stado`
-    // is not found.
-    let stado = crate::core::home_dir()
-        .join(".stado")
-        .join("bin")
-        .join("stado");
-    let output = stado_wait::output(
-        Command::new(&stado)
-            .args([
-                "service",
-                "directory",
-                "connect",
-                service,
-                "--consumer",
-                &consumer,
-                "--no-verify",
-                "--json",
-            ])
-            .stdin(Stdio::null())
-            .stderr(Stdio::piped()),
-    )
-    .with_context(|| {
-        format!(
-            "resolve vault owner {route} through Stado service directory with {}",
-            stado.display()
-        )
-    })?;
-    if !output.status.success() {
-        bail!(
-            "Stado service directory refused vault owner {route}: {}; {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    if !output.stderr.is_empty() {
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
-    }
-    let answer: Value = serde_json::from_slice(&output.stdout)
-        .with_context(|| format!("Stado service directory returned invalid JSON for {route}"))?;
-    answer
-        .get("url")
-        .and_then(Value::as_str)
-        .filter(|url| !url.is_empty())
-        .map(str::to_string)
-        .with_context(|| format!("Stado service directory returned no resolved url for {route}"))
+    // This host's Stado resolver answers the adapter it reaches the owner
+    // through, asked in process: no Stado program is started.
+    crate::net::stado_route::route(service, &consumer)
+        .with_context(|| format!("resolve vault owner {route} through this host's Stado resolver"))
 }

@@ -45,14 +45,26 @@ fn read(id: &str) -> Result<Value> {
 /// Replace the notes with `given`; text that is only whitespace removes
 /// them. Called by the command line and by `POST /v1/operator/items/notes/set`.
 pub fn set(id: &str, given: &str) -> Result<Value> {
-    set_context_text(id, NOTES, given.trim_end_matches('\n'), "change the notes of", "notes-set")
+    set_context_text(
+        id,
+        NOTES,
+        given.trim_end_matches('\n'),
+        "change the notes of",
+        "notes-set",
+    )
 }
 
 /// Write one text member of an item's encrypted context as a new revision —
 /// its notes, the site's password rules — or remove it when `given` is only
 /// whitespace. `doing` names the change in a refusal and `operation` in the
 /// journal; the value itself is never journalled.
-pub fn set_context_text(id: &str, key: &str, given: &str, doing: &str, operation: &str) -> Result<Value> {
+pub fn set_context_text(
+    id: &str,
+    key: &str,
+    given: &str,
+    doing: &str,
+    operation: &str,
+) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     crate::cli::items::ensure_owner_mutation_allowed(&vault, id, doing)?;
     let mut payload = vault.get_item(id)?;
@@ -86,6 +98,9 @@ pub fn set_context_text(id: &str, key: &str, given: &str, doing: &str, operation
     };
     vault.set_item(id, &kind, &payload, &recipients, &tags)?;
     let revision = vault.item_revision(id)?;
-    crate::runtime::audit::append(operation, &json!({"item": id, "removed": removed, "revision": revision}))?;
+    crate::runtime::audit::append(
+        operation,
+        &json!({"item": id, "removed": removed, "revision": revision}),
+    )?;
     Ok(json!({"ok": true, "item": id, "removed": removed, "revision": revision}))
 }

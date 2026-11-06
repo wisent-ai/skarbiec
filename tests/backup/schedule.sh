@@ -36,13 +36,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 maintain() {
-  if out=$("$BIN" maintain </dev/null &>/dev/stdout); then got=ok; else got=failed; fi
-  printf '$ skarbiec maintain\nresult: %s\noutput: %s\n\n' "$got" "$out" >>"$REPORT"
+  if out=$("$BIN" maintain </dev/null 2>"$ROOT/said"); then got=ok; else got=failed; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec maintain\nresult: %s\noutput: %s\nstderr: %s\n\n' "$got" "$out" "$said" >>"$REPORT"
 }
 note() {
   printf '{"schema":"skarbiec.item.v2","kind":"note","fields":{"value":"%s"},"context":{}}' "$2" >"$ROOT/stdin"
@@ -61,7 +63,7 @@ WANT=ok run backup schedule
 echo "ok: schedule names the rolling copy, and schedule alone reads it back" >>"$REPORT"
 
 maintain
-case "$out" in *"scheduled backup:"*) fail "the backup step failed: $out" ;; esac
+case "$said" in *"scheduled backup:"*) fail "the backup step failed: output: $out stderr: $said" ;; esac
 cmp -s "$COPY" "$SKARBIEC_VAULT_FILE" || fail "maintain did not write the vault byte for byte to $COPY"
 [ "$(stat -f '%Lp' "$COPY")" = "600" ] || fail "the rolling copy is not owner-only"
 FIRST_INODE="$(stat -f '%i' "$COPY")"
@@ -76,9 +78,9 @@ echo "ok: a write to the vault makes the next pass refresh the copy" >>"$REPORT"
 
 mv "$DISK" "$ROOT/unplugged"
 maintain
-case "$out" in
+case "$said" in
   *"scheduled backup:"*"$DISK"*) echo "ok: a pass whose directory is gone fails naming it" >>"$REPORT" ;;
-  *) fail "a pass whose directory is gone did not fail naming it: $out" ;;
+  *) fail "a pass whose directory is gone did not fail naming it: output: $out stderr: $said" ;;
 esac
 mv "$ROOT/unplugged" "$DISK"
 
@@ -87,7 +89,7 @@ WANT=ok run backup unschedule
 WANT=ok run backup unschedule
 [ "$(printf '%s' "$out" | jq -r .unscheduled)" = false ] || fail "a second unschedule claimed to stop something"
 WANT=refused run backup schedule "relative-$RUN"
-case "$out" in *"absolute directory"*) ;; *) fail "a relative directory was not refused naming why: $out" ;; esac
+case "$said" in *"absolute directory"*) ;; *) fail "a relative directory was not refused naming why: output: $out stderr: $said" ;; esac
 echo "ok: unschedule stops it once, and a relative directory is refused" >>"$REPORT"
 
 touch "$ROOT/passed"

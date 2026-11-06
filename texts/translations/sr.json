@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: примењено, али одговор не наводи ни статус ни стање: {answer}",
+  "request.approve": "Одобри",
+  "request.asks_for": "Тражи: {seconds} с, {uses} коришћења (сврха {purpose}, за {target})",
+  "request.deny": "Одбиј",
+  "request.dual": "Потребна су два доносиоца одлуке.",
+  "request.hours": "Сати",
+  "request.how_long": "{summary}\n\nНа колико дуго?",
+  "request.how_many_hours": "Колико сати?",
+  "request.how_many_uses": "Колико коришћења?",
+  "request.not_applied": "{id}: није примењено: {error}",
+  "request.not_number": "{question}\n\n„{typed}” није позитиван цео број ({cause}).",
+  "request.once": "Једном",
+  "request.standing_for": "Трајни приступ за: {consumer}",
+  "request.summary": "Захтев за приступ {id}\n\nШта: {action} {resource} ({kind}){bounds}\nЗашто: {reason}\nКо: {who}{dual}",
+  "request.until_revoked": "До опозива"
+}

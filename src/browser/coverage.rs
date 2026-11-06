@@ -13,7 +13,11 @@ use crate::core::{schema, vault::Vault, vault_path};
 /// does not reach.
 pub(super) fn of(consumer: &str) -> Result<(bool, Vec<String>)> {
     let vault = Vault::open(vault_path())?;
-    let Some(grant) = vault.doc().get("tokens").and_then(|tokens| tokens.get(consumer)) else {
+    let Some(grant) = vault
+        .doc()
+        .get("tokens")
+        .and_then(|tokens| tokens.get(consumer))
+    else {
         return Ok((false, Vec::new()));
     };
     let reached: Vec<String> = grant
@@ -21,7 +25,12 @@ pub(super) fn of(consumer: &str) -> Result<(bool, Vec<String>)> {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .filter_map(|capability| capability.get("item").and_then(Value::as_str).map(str::to_string))
+        .filter_map(|capability| {
+            capability
+                .get("item")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
         .collect();
     let missing = vault
         .list(false)
@@ -43,7 +52,9 @@ pub(super) fn of(consumer: &str) -> Result<(bool, Vec<String>)> {
 pub fn cover_login(id: &str) -> Result<Value> {
     let token = super::HostPaths::of(&super::home_dir()?).token;
     if !super::present(&token)? {
-        return Ok(json!({"covered": false, "reason": "browser autofill is not connected on this machine"}));
+        return Ok(
+            json!({"covered": false, "reason": "browser autofill is not connected on this machine"}),
+        );
     }
     let payload = Vault::open(vault_path())?.get_item(id)?;
     let mut fields = vec!["context"];
@@ -59,7 +70,11 @@ pub fn cover_login(id: &str) -> Result<Value> {
             ("field".to_string(), field.to_string()),
             ("token-file".to_string(), token.display().to_string()),
         ]);
-        let positionals = ["ensure".to_string(), super::CONSUMER.to_string(), id.to_string()];
+        let positionals = [
+            "ensure".to_string(),
+            super::CONSUMER.to_string(),
+            id.to_string(),
+        ];
         match crate::access::dispatch("grant", &flags, &positionals) {
             Ok(_) => added.push(field),
             Err(error) => refused.push(json!({"field": field, "error": format!("{error:#}")})),
@@ -80,7 +95,9 @@ pub fn cover_all() -> Result<Value> {
     for id in &missing {
         logins.insert(id.clone(), cover_login(id)?);
     }
-    let covered = logins.values().all(|answer| answer["covered"] == json!(true));
+    let covered = logins
+        .values()
+        .all(|answer| answer["covered"] == json!(true));
     Ok(json!({"ok": covered, "logins": logins}))
 }
 

@@ -31,7 +31,9 @@ pub(super) fn ensure_section<'a>(
     doc: &'a mut Value,
     key: &str,
 ) -> Result<&'a mut serde_json::Map<String, Value>> {
-    let object = doc.as_object_mut().context("the vault document is not a JSON object")?;
+    let object = doc
+        .as_object_mut()
+        .context("the vault document is not a JSON object")?;
     match object.entry(key).or_insert_with(|| json!({})) {
         Value::Object(section) => Ok(section),
         other => bail!("the vault's {key} section is not a JSON object: {other}"),
@@ -49,9 +51,12 @@ mod emergency;
 /// implemented.
 struct Group {
     object: &'static str,
-    leaves: fn(&str, &HashMap<String, String>, &[String]) -> Result<Option<Value>>,
+    leaves: Leaves,
     help: fn() -> Value,
 }
+
+/// One module's leaf dispatch: the leaf, its flags and positionals.
+type Leaves = fn(&str, &HashMap<String, String>, &[String]) -> Result<Option<Value>>;
 
 const GROUPS: &[Group] = &[
     Group {
@@ -87,7 +92,11 @@ pub fn dispatch(
     Ok(None)
 }
 
-fn run_group(group: &Group, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
+fn run_group(
+    group: &Group,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
     let object = group.object;
     let Some((verb, positionals)) = positionals.split_first() else {
         return Err(crate::cli::args::Usage(format!(

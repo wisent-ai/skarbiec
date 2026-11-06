@@ -8,10 +8,16 @@ use std::collections::HashMap;
 
 use super::{check, FAIL, NOT_CONFIGURED, PASS};
 
-/// The vault, read as a file rather than asked over HTTP.
+/// The vault, read as a file rather than asked over HTTP. A host Stado makes
+/// a client of the vault owner holds no vault, and says where it reads the
+/// fleet vault instead of reporting a missing file; the `endpoint` check says
+/// whether that route answers.
 pub(super) fn vault_check() -> Value {
     let path = crate::core::vault_path();
     match crate::core::items::status_json() {
+        Ok(status) if status.get("holds_vault") == Some(&Value::Bool(false)) => {
+            client_check(&path, &status)
+        }
         Ok(status) => {
             let items = status.get("item_count").and_then(Value::as_u64);
             let grants = match status.get("token_count").and_then(Value::as_u64) {
@@ -35,6 +41,30 @@ pub(super) fn vault_check() -> Value {
     }
 }
 
+/// The vault check of a host that holds no vault: where Stado says it reads
+/// the fleet vault, and what the default path holds, as `status` answered.
+fn client_check(path: &std::path::Path, status: &Value) -> Value {
+    let declared_by = status["owner_route_declared_by"].as_str();
+    let (Some(declared_by), Some(route)) = (declared_by, status["owner_route"].as_str()) else {
+        let detail = format!("status says this host holds no vault but names no route: {status}");
+        return check("vault", FAIL, detail);
+    };
+    let copy = match status["copy_present"].as_bool() {
+        Some(true) => "is a leftover copy and is not used",
+        Some(false) => "is not used",
+        None => "is not used (status did not say whether a copy lies there)",
+    };
+    check(
+        "vault",
+        PASS,
+        format!(
+            "this host holds no vault: Stado reads the fleet vault through {declared_by} \
+             ({route}); {} {copy}",
+            path.display()
+        ),
+    )
+}
+
 /// The hash chain, split the way `audit verify` splits it: linkage over the
 /// whole journal, digests over the newest `tail` entries or over all of them.
 pub(super) fn audit_check(tail: Option<&str>) -> Value {
@@ -50,17 +80,28 @@ pub(super) fn audit_check(tail: Option<&str>) -> Value {
                 report.digests_verified,
                 &report.journal,
             );
+            let closed = report.segments;
             let detail = if report.intact {
-                format!("{linked} of {total} entries linked, newest {digests} digests intact, in {journal}")
+                format!("{linked} of {total} entries linked, newest {digests} digests intact, through {closed} closed segment(s) and the open file, in {journal}")
             } else {
-                // Each fault carries its line and the entry's instant, null
-                // for a line too malformed to state one; printed as recorded.
+                // Each fault carries its segment, line, kind and the entry's
+                // instant, null for a line too malformed to state one.
                 let first = match report.faults.first() {
-                    Some(fault) => format!("line {} ({})", fault["line"], fault["at"]),
+                    Some(fault) => format!(
+                        "{} line {} ({}): {}{}",
+                        fault["segment"].as_str().unwrap_or("?"),
+                        fault["line"],
+                        fault["at"],
+                        fault["fault"].as_str().unwrap_or("?"),
+                        match fault["detail"].as_str() {
+                            Some(detail) => format!(" — {detail}"),
+                            None => String::new(),
+                        }
+                    ),
                     None => "an unreported position".to_string(),
                 };
                 format!(
-                    "{linked} of {total} entries linked, newest {digests} digests intact; {} fault(s), first at {first}, in {journal}",
+                    "{linked} of {total} entries linked, newest {digests} digests intact, through {closed} closed segment(s); {} fault(s), first at {first}, in {journal}; `skarbiec audit verify` lists every fault",
                     report.faults.len()
                 )
             };

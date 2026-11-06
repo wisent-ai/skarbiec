@@ -33,14 +33,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" </dev/null 2>&1); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said" ;;
   esac
 }
 
@@ -54,7 +55,8 @@ case "$PUBLIC" in
   "ssh-$TYPE "*" $COMMENT") ;;
   *) fail "the answer is not an ssh-$TYPE public key with the comment: $PUBLIC" ;;
 esac
-case "$out" in *"PRIVATE KEY"*) fail "the answer carried the private key" ;; esac
+# The private key must appear on neither stream.
+case "$out$said" in *"PRIVATE KEY"*) fail "the answer carried the private key" ;; esac
 echo "ok: ssh new prints only the public key, with the comment" >>"$REPORT"
 
 WANT=ok run get "$KEY" --field private_key

@@ -33,9 +33,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 # Store a login with one username and password, replacing what it held.
 login() {
@@ -68,7 +69,8 @@ printf '%s' "$out" | jq -e '.saved_versions_checked == false and (.reused_retire
   || fail "health compared saved versions without --saved-versions"
 
 WANT=ok run health --saved-versions
-case "$out" in *"$P"*|*"$Q"*|*"keeper-$RUN-password"*) fail "health printed a password" ;; esac
+# A password must be in neither stream, so both are searched.
+case "$out$said" in *"$P"*|*"$Q"*|*"keeper-$RUN-password"*) fail "health printed a password" ;; esac
 printf '%s' "$out" >"$ROOT/health.json"
 jq -e '.saved_versions_checked and .ok == false' "$ROOT/health.json" >/dev/null || fail "health --saved-versions was ok with a retired value in use"
 jq -e --arg taker "$TAKER" --arg giver "$GIVER" '.reused_retired | any(.item == $taker and .retired_in == $giver and .field == "password")' "$ROOT/health.json" >/dev/null \

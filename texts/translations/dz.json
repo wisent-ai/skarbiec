@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: ལག་ལེན་འཐབ་ཡི་ དེ་འབདཝ་ད་ལན་ནང་གནས་སྟངས་མིན་འདུག: {answer}",
+  "request.approve": "ཆོག་མཆན་བྱིན།",
+  "request.asks_for": "ཞུ་བ: སྐར་ཆ་ {seconds}, ལག་ལེན་ {uses} (དམིགས་ཡུལ་ {purpose}, {target} གི་དོན་ལུ)",
+  "request.deny": "ཁས་མ་ལེན།",
+  "request.dual": "གྲོས་ཐག་གཅོད་མི་གཉིས་དགོ།",
+  "request.hours": "ཆུ་ཚོད།",
+  "request.how_long": "{summary}\n\nདུས་ཡུན་ག་དེ་ཅིག?",
+  "request.how_many_hours": "ཆུ་ཚོད་ག་དེམ་ཅིག?",
+  "request.how_many_uses": "ལག་ལེན་ག་དེམ་ཅིག?",
+  "request.not_applied": "{id}: ལག་ལེན་མ་འཐབ: {error}",
+  "request.not_number": "{question}\n\n“{typed}” འདི་ ཡོད་ཕྱོགས་ཀྱི་ཨང་ཆ་ཧྲིལ་པོ་མེན ({cause})།",
+  "request.once": "ཐེངས་གཅིག",
+  "request.standing_for": "རྟག་བརྟན་འཛུལ་སྤྱོད: {consumer}",
+  "request.summary": "འཛུལ་སྤྱོད་ཞུ་བ་ {id}\n\nག་ཅི: {action} {resource} ({kind}){bounds}\nག་ཅི་སྦེ: {reason}\nག་གིས: {who}{dual}",
+  "request.until_revoked": "ཆ་མེད་མ་བཏང་ཚུན་ཚོད།"
+}

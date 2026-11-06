@@ -35,9 +35,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 
 : >"$ROOT/stdin"
@@ -64,12 +65,13 @@ BINDINGS="$ROOT/bindings"
 WANT=ok run tool status twine
 printf '%s' "$out" | jq -e '[.entries[] | select(.kept == "plain text") | .entry] | (index("pypi") != null) and (index("testpypi") != null)' >/dev/null \
   || fail "status did not name both sections as plain text: $out"
-case "$out" in *"$MAIN"*|*"$TEST"*) fail "status printed a password" ;; esac
+# A password must appear on neither stream.
+case "$out$said" in *"$MAIN"*|*"$TEST"*) fail "status printed a password" ;; esac
 echo "ok: status names both sections keeping a password, never a value" >>"$REPORT"
 
 ITEM="pypi-$RUN"
 WANT=ok run tool import twine "$ITEM" --select pypi --bindings "$BINDINGS"
-case "$out" in *"$MAIN"*) fail "import printed the password" ;; esac
+case "$out$said" in *"$MAIN"*) fail "import printed the password" ;; esac
 if grep -q "$MAIN" "$PYPIRC"; then fail ".pypirc still holds the moved password"; fi
 grep -qF "password = $TEST" "$PYPIRC" || fail "import removed the other section's password"
 grep -qF "repository = https://test.pypi.org/legacy/" "$PYPIRC" || fail "import dropped an unrelated line"
@@ -85,11 +87,11 @@ echo "ok: exec --env-from gives twine its username and password" >>"$REPORT"
 
 cp "$PYPIRC" "$ROOT/pypirc-before-refusals"
 WANT=refused run tool import twine "none-$RUN" --select "nowhere-$RUN" --bindings "$BINDINGS"
-case "$out" in *"has no [nowhere-$RUN] section"*) ;; *) fail "a section .pypirc does not hold was not refused: $out" ;; esac
+case "$said" in *"has no [nowhere-$RUN] section"*) ;; *) fail "a section .pypirc does not hold was not refused: $said" ;; esac
 WANT=refused run tool import twine "again-$RUN" --select pypi --bindings "$BINDINGS"
-case "$out" in *"keeps no password"*) ;; *) fail "a section keeping no password was not refused: $out" ;; esac
+case "$said" in *"keeps no password"*) ;; *) fail "a section keeping no password was not refused: $said" ;; esac
 WANT=refused run tool import twine "clash-$RUN" --select testpypi --bindings "$BINDINGS"
-case "$out" in *"already binds TWINE_USERNAME"*) ;; *) fail "a variable bound to another item was not refused: $out" ;; esac
+case "$said" in *"already binds TWINE_USERNAME"*) ;; *) fail "a variable bound to another item was not refused: $said" ;; esac
 cmp -s "$PYPIRC" "$ROOT/pypirc-before-refusals" || fail "a refused import changed .pypirc"
 echo "ok: an unknown section, one without a password and a clashing binding are refused, .pypirc unchanged" >>"$REPORT"
 

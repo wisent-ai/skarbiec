@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: rakendatud, kuid vastus ei nimeta olekut ega seisundit: {answer}",
+  "request.approve": "Kinnita",
+  "request.asks_for": "Taotleb: {seconds} s, {uses} kasutust (eesmärk {purpose}, sihtkoht {target})",
+  "request.deny": "Keeldu",
+  "request.dual": "Vajab kahte otsustajat.",
+  "request.hours": "Tunnid",
+  "request.how_long": "{summary}\n\nKui kauaks?",
+  "request.how_many_hours": "Mitu tundi?",
+  "request.how_many_uses": "Mitu kasutust?",
+  "request.not_applied": "{id}: rakendamata: {error}",
+  "request.not_number": "{question}\n\n„{typed}” ei ole positiivne täisarv ({cause}).",
+  "request.once": "Üks kord",
+  "request.standing_for": "Püsiv juurdepääs: {consumer}",
+  "request.summary": "Juurdepääsutaotlus {id}\n\nMida: {action} {resource} ({kind}){bounds}\nMiks: {reason}\nKes: {who}{dual}",
+  "request.until_revoked": "Kuni tühistamiseni"
+}

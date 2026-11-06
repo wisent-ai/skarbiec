@@ -23,10 +23,7 @@ impl Answerable {
                 continue;
             };
             names.insert(id.to_string());
-            let held = vault
-                .doc()
-                .get("items")
-                .and_then(|items| items.get(id));
+            let held = vault.doc().get("items").and_then(|items| items.get(id));
             if let Some(held) = held {
                 for tag in crate::core::vault::entry_texts(id, held, "tags")? {
                     if let Some(role) = tag.strip_prefix("stado:role:") {

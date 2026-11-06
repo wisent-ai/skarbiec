@@ -57,11 +57,16 @@ fn request() -> Result<HashMap<String, String>> {
 }
 
 /// setup, import and unset, the verb first.
-pub(crate) fn person(flags: &HashMap<String, String>, positionals: &[String]) -> Result<serde_json::Value> {
+pub(crate) fn person(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<serde_json::Value> {
     match positionals {
         [action, host] if action == "setup" => config::setup(host),
         [action, host] if action == "unset" => config::unset(host),
-        [action, id, host] if action == "import" => import::import(id, host, flags.get("username"), flags.get("tags")),
+        [action, id, host] if action == "import" => {
+            import::import(id, host, flags.get("username"), flags.get("tags"))
+        }
         _ => Err(Usage(USAGE.to_string()).into()),
     }
 }
@@ -94,12 +99,17 @@ pub(crate) fn status() -> Result<serde_json::Value> {
             Ok(json!({"host": host, "program": program, "program_exists": present}))
         })
         .collect::<Result<Vec<serde_json::Value>>>()?;
-    let stored: Vec<serde_json::Value> = stored_hosts()?.iter().map(|(file, host)| json!({"file": file, "host": host})).collect();
+    let stored: Vec<serde_json::Value> = stored_hosts()?
+        .iter()
+        .map(|(file, host)| json!({"file": file, "host": host}))
+        .collect();
     Ok(json!({"forges": forges, "plain_sign_ins": stored}))
 }
 
 fn respond(asked: &HashMap<String, String>) -> Result<()> {
-    let protocol = asked.get("protocol").context("git's request names no protocol")?;
+    let protocol = asked
+        .get("protocol")
+        .context("git's request names no protocol")?;
     let host = asked.get("host").context("git's request names no host")?;
     if protocol != SECURE {
         bail!("git asks for a password to send over {protocol}://{host}; skarbiec answers only {SECURE}, where it is not sent in the clear");
@@ -112,7 +122,9 @@ fn respond(asked: &HashMap<String, String>) -> Result<()> {
     let chosen = crate::runtime::dispatch("login", &flags, &["get".to_string(), site.clone()])?
         .context("login get answered nothing")?;
     let item = chosen["item"].as_str().context("login get named no item")?;
-    let username = chosen["value"].as_str().context("login get answered no username")?;
+    let username = chosen["value"]
+        .as_str()
+        .context("login get answered no username")?;
     let payload = Vault::open(vault_path())?.get_item(item)?;
     let password = schema::field(&payload, "password")?
         .as_str()

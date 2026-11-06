@@ -22,7 +22,8 @@ fn store() -> PathBuf {
 fn read() -> Result<Vec<String>> {
     let path = store();
     match crate::core::read_present(&path, "known bindings files")? {
-        Some(text) => serde_json::from_str(&text).with_context(|| format!("{} is not a JSON list of bindings files", path.display())),
+        Some(text) => serde_json::from_str(&text)
+            .with_context(|| format!("{} is not a JSON list of bindings files", path.display())),
         None => Ok(Vec::new()),
     }
 }
@@ -30,12 +31,17 @@ fn read() -> Result<Vec<String>> {
 fn write(files: &[String]) -> Result<()> {
     let path = store();
     let body = serde_json::to_vec_pretty(files).context("render the known bindings files")?;
-    crate::core::vault::atomic_write(&path, &body).with_context(|| format!("write {}", path.display()))
+    crate::core::vault::atomic_write(&path, &body)
+        .with_context(|| format!("write {}", path.display()))
 }
 
 /// The file as it is recorded: absolute, from the working directory.
 fn absolute(file: &Path) -> Result<String> {
-    Ok(std::env::current_dir().context("read the working directory")?.join(file).display().to_string())
+    Ok(std::env::current_dir()
+        .context("read the working directory")?
+        .join(file)
+        .display()
+        .to_string())
 }
 
 /// Remember `file`; answers whether it was new.
@@ -54,9 +60,13 @@ pub(super) fn remember_value(file: &str) -> Result<Value> {
     let shown = absolute(Path::new(file))?;
     // A file that does not name a single binding is refused, so a typo is
     // not remembered as a file doctor then fails on.
-    crate::runtime::exec::bindings_in(&shown).with_context(|| format!("{shown} is not a bindings file exec --env-from reads"))?;
+    crate::runtime::exec::bindings_in(&shown)
+        .with_context(|| format!("{shown} is not a bindings file exec --env-from reads"))?;
     let added = remember(Path::new(&shown))?;
-    crate::runtime::audit::append("bindings-remembered", &json!({"file": shown, "added": added}))?;
+    crate::runtime::audit::append(
+        "bindings-remembered",
+        &json!({"file": shown, "added": added}),
+    )?;
     Ok(json!({"ok": true, "file": shown, "added": added}))
 }
 
@@ -66,7 +76,9 @@ pub(super) fn forget(file: &str) -> Result<Value> {
     let before = files.len();
     files.retain(|known| known != &shown);
     if files.len() == before {
-        bail!("{shown} is not a bindings file this host knows of; bindings list names those it does");
+        bail!(
+            "{shown} is not a bindings file this host knows of; bindings list names those it does"
+        );
     }
     write(&files)?;
     crate::runtime::audit::append("bindings-forgotten", &json!({"file": shown}))?;
@@ -101,13 +113,15 @@ pub(crate) fn rebound(text: &str, from: &str, to: &str) -> Option<String> {
     let mut changed = false;
     let lines: Vec<String> = text
         .lines()
-        .map(|line| match (line.trim_start().starts_with('#'), line.split_once(&old)) {
-            (false, Some((name, field))) => {
-                changed = true;
-                format!("{name}={to}:{field}")
-            }
-            _ => line.to_string(),
-        })
+        .map(
+            |line| match (line.trim_start().starts_with('#'), line.split_once(&old)) {
+                (false, Some((name, field))) => {
+                    changed = true;
+                    format!("{name}={to}:{field}")
+                }
+                _ => line.to_string(),
+            },
+        )
         .collect();
     let mut out = lines.join("\n");
     if text.ends_with('\n') {
@@ -118,9 +132,12 @@ pub(crate) fn rebound(text: &str, from: &str, to: &str) -> Option<String> {
 
 /// Rebind `from` to `to` in `file`; answers whether the file changed.
 pub(crate) fn rebind_file(file: &str, from: &str, to: &str) -> Result<bool> {
-    let text = std::fs::read_to_string(file).with_context(|| format!("read the bindings file {file}"))?;
+    let text =
+        std::fs::read_to_string(file).with_context(|| format!("read the bindings file {file}"))?;
     match rebound(&text, from, to) {
-        Some(out) => crate::core::vault::atomic_write(Path::new(file), out.as_bytes()).map(|_| true),
+        Some(out) => {
+            crate::core::vault::atomic_write(Path::new(file), out.as_bytes()).map(|_| true)
+        }
         None => Ok(false),
     }
 }

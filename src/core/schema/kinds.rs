@@ -28,15 +28,30 @@ pub(super) struct Field {
 }
 
 const fn required(name: &'static str, shape: Shape) -> Field {
-    Field { name, required: true, one_of: None, shape }
+    Field {
+        name,
+        required: true,
+        one_of: None,
+        shape,
+    }
 }
 
 const fn optional(name: &'static str, shape: Shape) -> Field {
-    Field { name, required: false, one_of: None, shape }
+    Field {
+        name,
+        required: false,
+        one_of: None,
+        shape,
+    }
 }
 
 const fn one_of(name: &'static str, set: &'static str, shape: Shape) -> Field {
-    Field { name, required: false, one_of: Some(set), shape }
+    Field {
+        name,
+        required: false,
+        one_of: Some(set),
+        shape,
+    }
 }
 
 /// What a login authenticates with; it needs at least one.
@@ -71,7 +86,10 @@ const IDENTITY: &[Field] = &[
 // root account to a browser flow; `host-account` keeps the two sets disjoint.
 // Both fields are required: a host account with only a username is not a
 // credential, and one with only a password cannot say who it is.
-const HOST_ACCOUNT: &[Field] = &[required("username", Shape::Text), required("password", Shape::Text)];
+const HOST_ACCOUNT: &[Field] = &[
+    required("username", Shape::Text),
+    required("password", Shape::Text),
+];
 const API_KEY: &[Field] = &[
     required("api_key", Shape::Text),
     optional("api_user", Shape::Text),
@@ -84,7 +102,10 @@ const ACCESS_KEY: &[Field] = &[
     optional("session_token", Shape::Text),
 ];
 const TOKEN: &[Field] = &[required("token", Shape::Text)];
-const OAUTH_CLIENT: &[Field] = &[required("client_id", Shape::Text), required("client_secret", Shape::Text)];
+const OAUTH_CLIENT: &[Field] = &[
+    required("client_id", Shape::Text),
+    required("client_secret", Shape::Text),
+];
 const PROXY: &[Field] = &[
     required("username", Shape::Text),
     required("password", Shape::Text),
@@ -107,6 +128,19 @@ const CERTIFICATE: &[Field] = &[
     optional("passphrase", Shape::Text),
 ];
 const SERVICE_ACCOUNT: &[Field] = &[required("credential_json", Shape::TextOrObject)];
+// A payment card: the number it is charged by, and what a checkout form asks
+// for beside it. `expiry` is the year and month it stops working, as YYYY-MM;
+// `security_code` is the code printed on the card and `pin` the one its owner
+// types at a terminal. A card is not a login: no trajectory types it into a
+// sign-in form, and a checkout reads it as one item.
+const PAYMENT_CARD: &[Field] = &[
+    required("number", Shape::Text),
+    optional("cardholder", Shape::Text),
+    optional("expiry", Shape::Text),
+    optional("security_code", Shape::Text),
+    optional("pin", Shape::Text),
+    optional("brand", Shape::Text),
+];
 const RECORD: &[Field] = &[required("value", Shape::Any)];
 
 /// What a kind declares about its fields.
@@ -135,6 +169,7 @@ pub(super) fn declared(kind: &str) -> Declared {
         "key-pair" => Declared::Fields(KEY_PAIR),
         "certificate" => Declared::Fields(CERTIFICATE),
         "service-account" => Declared::Fields(SERVICE_ACCOUNT),
+        "payment-card" => Declared::Fields(PAYMENT_CARD),
         // An operation record is one request and its outcome; a directory
         // seal is the standing statement of which principal an item speaks
         // for. They are separate kinds because they are separate families,

@@ -49,8 +49,8 @@ impl CapabilityListener {
             Err(error) => return Err(error).context("inspect capability socket path"),
         }
         let listener = UnixListener::bind(&path).context("bind the capability socket")?;
-        // Owner read and write only, as the C library names those bits.
-        let owner_only = u32::from(libc::S_IRUSR | libc::S_IWUSR);
+        // Owner read and write only.
+        let owner_only = crate::core::mode::OWNER_READ_WRITE;
         fs::set_permissions(&path, fs::Permissions::from_mode(owner_only))
             .context("restrict the capability socket to its owner")?;
         eprintln!("skarbiec capability broker listening on {socket}");

@@ -25,13 +25,17 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         }
         "/v1/operator/recipients" => access("recipient list", &no_flags, &none),
         // A public key only: no private material is ever exported.
-        "/v1/operator/recipients/export" => {
-            access("recipient export", &no_flags, &positionals(parsed, &["uid"])?)
-        }
+        "/v1/operator/recipients/export" => access(
+            "recipient export",
+            &no_flags,
+            &positionals(parsed, &["uid"])?,
+        ),
         // Item ids only, read from the envelope: nothing is decrypted.
-        "/v1/operator/recipients/items" => {
-            access("recipient items", &no_flags, &positionals(parsed, &["uid"])?)
-        }
+        "/v1/operator/recipients/items" => access(
+            "recipient items",
+            &no_flags,
+            &positionals(parsed, &["uid"])?,
+        ),
         "/v1/operator/browser-host" => crate::browser::host_status(),
         "/v1/operator/audit" => runtime(
             "audit list",
@@ -41,12 +45,23 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             ),
             &none,
         ),
-        "/v1/operator/audit/summary" => runtime("audit summary", &flags(parsed, &["since", "until"]), &none),
+        "/v1/operator/audit/summary" => {
+            runtime("audit summary", &flags(parsed, &["since", "until"]), &none)
+        }
         "/v1/operator/chain" => runtime("audit verify", &flags(parsed, &["tail"]), &none),
         "/v1/operator/policy" => access("policy get", &no_flags, &none),
         "/v1/operator/grants" => grant(
             "list",
-            &flags(parsed, &["item", "expired", "expiring-within", "dangling", "idle-since"]),
+            &flags(
+                parsed,
+                &[
+                    "item",
+                    "expired",
+                    "expiring-within",
+                    "dangling",
+                    "idle-since",
+                ],
+            ),
             &none,
         ),
         "/v1/operator/rotation" => rotation("list", &flags(parsed, &["due"]), &none),
@@ -67,7 +82,11 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         "/v1/operator/items/duplicates" => crate::cmd_duplicates(),
         // Without apply the upgrade only reports what it would change.
         "/v1/operator/upgrade" => crate::core::items::upgrade(&no_flags),
-        "/v1/operator/health" => runtime("health", &flags(parsed, &["field", "breached", "saved-versions"]), &none),
+        "/v1/operator/health" => runtime(
+            "health",
+            &flags(parsed, &["field", "breached", "saved-versions"]),
+            &none,
+        ),
         // Subjects, issuers and end dates, never the private key.
         "/v1/operator/certificates" => {
             runtime("certificates", &flags(parsed, &["expiring-before"]), &none)
@@ -75,9 +94,17 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         // Fingerprints and expiry moments, never a key.
         "/v1/operator/keys" => runtime("keys", &flags(parsed, &["expiring-before"]), &none),
         // Issuers and moments of the stored JSON Web Tokens, never a token.
-        "/v1/operator/items/token-expiry" => runtime("expiry", &flags(parsed, &["before"]), &["tokens".to_string()]),
+        "/v1/operator/items/token-expiry" => runtime(
+            "expiry",
+            &flags(parsed, &["before"]),
+            &["tokens".to_string()],
+        ),
         // Keys, grants and journal consumers for one item, never a value.
-        "/v1/operator/items/exposure" => runtime("exposure", &flags(parsed, &["since"]), &positionals(parsed, &["id"])?),
+        "/v1/operator/items/exposure" => runtime(
+            "exposure",
+            &flags(parsed, &["since"]),
+            &positionals(parsed, &["id"])?,
+        ),
         // Names, usernames and domains, never a password or a one-time code.
         "/v1/operator/items/logins-for" => {
             runtime("login", &no_flags, &verbed("list", parsed, &["site"])?)
@@ -90,24 +117,41 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             &positionals(parsed, &["id"])?,
         ),
         "/v1/operator/items/notes" => runtime("notes", &no_flags, &positionals(parsed, &["id"])?),
-        "/v1/operator/items/password-rules" => runtime("password", &no_flags, &verbed("rules", parsed, &["id"])?),
+        "/v1/operator/items/password-rules" => {
+            runtime("password", &no_flags, &verbed("rules", parsed, &["id"])?)
+        }
         // Where each item matched, never the value that did.
-        "/v1/operator/items/find" => runtime("find", &flags(parsed, &["notes"]), &positionals(parsed, &["text"])?),
+        "/v1/operator/items/find" => runtime(
+            "find",
+            &flags(parsed, &["notes"]),
+            &positionals(parsed, &["text"])?,
+        ),
         "/v1/operator/shares" => access("shares", &no_flags, &none),
         // The file lands on the machine the app runs on, at the absolute path
         // its save panel chose; a relative one would land in the serving
         // process's working directory, which nobody chose.
         "/v1/operator/items/export" => {
             let path = positionals(parsed, &["path"])?;
-            if !path.iter().all(|path| std::path::Path::new(path).is_absolute()) {
+            if !path
+                .iter()
+                .all(|path| std::path::Path::new(path).is_absolute())
+            {
                 anyhow::bail!("path must be absolute: the export is written where the app chose, not in the server's working directory");
             }
             crate::cli::tools::export_value(
                 &flags(
                     parsed,
                     &[
-                        "browser-csv", "bitwarden-csv", "canonical", "encrypt-to", "kind", "tag", "updated-before", "match",
-                        "shared-with", "pinned",
+                        "browser-csv",
+                        "bitwarden-csv",
+                        "canonical",
+                        "encrypt-to",
+                        "kind",
+                        "tag",
+                        "updated-before",
+                        "match",
+                        "shared-with",
+                        "pinned",
                     ],
                 ),
                 &path,
@@ -123,7 +167,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
             &flags(parsed, &["field"]),
             &verbed("check", parsed, &["id"])?,
         ),
-        "/v1/operator/items/expiry" => runtime("expiry", &flags(parsed, &["before"]), &["list".to_string()]),
+        "/v1/operator/items/expiry" => {
+            runtime("expiry", &flags(parsed, &["before"]), &["list".to_string()])
+        }
         "/v1/operator/items/pins" => crate::runtime::pins::list(),
         // The 2FA Directory's list of sites is downloaded; nothing leaves.
         "/v1/operator/items/codes-missing" => runtime("totp", &no_flags, &["missing".to_string()]),
@@ -133,7 +179,9 @@ pub(super) fn answer(path: &str, parsed: &Value) -> Result<Option<Value>> {
         "/v1/operator/items/password-age" => runtime(
             "password",
             &flags(parsed, &["set-before"]),
-            &std::iter::once("age".to_string()).chain(optional(parsed, "id")).collect::<Vec<_>>(),
+            &std::iter::once("age".to_string())
+                .chain(optional(parsed, "id"))
+                .collect::<Vec<_>>(),
         ),
         // One field of the login a site is signed in with, as `get` answers
         // one field: the forwarded `login get` of a host without the vault.

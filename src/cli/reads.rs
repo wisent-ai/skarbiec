@@ -12,7 +12,8 @@ use super::args::{emit, flag_set, OrUsage};
 use super::items::ensure_owner_mutation_allowed;
 use super::rename::grants_naming;
 
-pub(crate) const GET_USAGE: &str = "usage: get <id|role:<role>> [--field <field> | --revision] [--at <stamp>]";
+pub(crate) const GET_USAGE: &str =
+    "usage: get <id|role:<role>> [--field <field> | --revision] [--at <stamp>]";
 
 /// `delete <id>`: to the trash. The answer names the consumers whose grant
 /// names the item, and the AWS profiles and kubeconfig users on this machine
@@ -22,7 +23,9 @@ pub(crate) fn cmd_delete(positionals: &[String]) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     ensure_owner_mutation_allowed(&vault, id, "remove")?;
     vault.delete_item(id)?;
-    Ok(json!({"ok": true, "grants_naming_it": grants_naming(&vault, id), "read_here_by": crate::runtime::wiring::naming(id)}))
+    Ok(
+        json!({"ok": true, "grants_naming_it": grants_naming(&vault, id), "read_here_by": crate::runtime::wiring::naming(id)}),
+    )
 }
 
 pub(crate) fn cmd_reclaim(positionals: &[String]) -> Result<Value> {
@@ -193,8 +196,13 @@ pub(crate) fn cmd_readers(positionals: &[String]) -> Result<Value> {
 /// oldest first, with the stamp `restore <id> --at <at>` takes; it decrypts
 /// nothing. With `--changes` it opens each version and names the fields each
 /// one added, removed or changed, never their values.
-pub(crate) fn cmd_history(flags: &HashMap<String, String>, positionals: &[String]) -> Result<Value> {
-    let id = positionals.first().or_usage("usage: history <id> [--changes]")?;
+pub(crate) fn cmd_history(
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Value> {
+    let id = positionals
+        .first()
+        .or_usage("usage: history <id> [--changes]")?;
     let vault = Vault::open(vault_path())?;
     if flag_set(flags, "changes") {
         return vault.version_changes(id);

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: применено, но ответ не указывает ни статус, ни состояние: {answer}",
+  "request.approve": "Одобрить",
+  "request.asks_for": "Запрашивает: {seconds} с, {uses} использований (цель {purpose}, для {target})",
+  "request.deny": "Отклонить",
+  "request.dual": "Нужны двое принимающих решение.",
+  "request.hours": "Часы",
+  "request.how_long": "{summary}\n\nНа какой срок?",
+  "request.how_many_hours": "Сколько часов?",
+  "request.how_many_uses": "Сколько использований?",
+  "request.not_applied": "{id}: не применено: {error}",
+  "request.not_number": "{question}\n\n«{typed}» не является положительным целым числом ({cause}).",
+  "request.once": "Один раз",
+  "request.standing_for": "Постоянный доступ для: {consumer}",
+  "request.summary": "Запрос доступа {id}\n\nЧто: {action} {resource} ({kind}){bounds}\nЗачем: {reason}\nКто: {who}{dual}",
+  "request.until_revoked": "До отзыва"
+}

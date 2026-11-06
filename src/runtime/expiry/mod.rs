@@ -28,7 +28,10 @@ pub fn dispatch(
     let answer = match positionals {
         [verb, rest @ ..] if verb == "tokens" => crate::runtime::tokenexpiry::report(flags, rest)?,
         [verb, id] if verb == "set" => set(id, flags.get("on").or_usage(USAGE)?)?,
-        [verb] if verb == "set" => set_tagged(flags.get("tag").or_usage(USAGE)?, flags.get("on").or_usage(USAGE)?)?,
+        [verb] if verb == "set" => set_tagged(
+            flags.get("tag").or_usage(USAGE)?,
+            flags.get("on").or_usage(USAGE)?,
+        )?,
         [verb, id] if verb == "clear" => clear(id)?,
         [verb] if verb == "clear" => clear_tagged(flags.get("tag").or_usage(USAGE)?)?,
         [verb] if verb == "list" => list(flags.get("before"))?,
@@ -41,7 +44,11 @@ fn stamp(flag: &str, value: &str) -> Result<()> {
     if clock::is_iso(value) {
         return Ok(());
     }
-    Err(Usage(format!("--{flag} {value} is not a UTC time of the form {}", clock::now_iso())).into())
+    Err(Usage(format!(
+        "--{flag} {value} is not a UTC time of the form {}",
+        clock::now_iso()
+    ))
+    .into())
 }
 
 /// Record when one live item runs out; a date already past is allowed, since
@@ -65,14 +72,20 @@ pub fn set_tagged(tag: &str, on: &str) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     let tagged = crate::cli::bulk::carrying(&vault, tag, false);
     if tagged.is_empty() {
-        return Err(Usage(format!("no live item carries the tag {tag}, so no expiry was recorded")).into());
+        return Err(Usage(format!(
+            "no live item carries the tag {tag}, so no expiry was recorded"
+        ))
+        .into());
     }
     for id in &tagged {
         crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "set the expiry of")?;
     }
     record(&mut vault, &tagged, on)?;
     vault.save()?;
-    crate::runtime::audit::append("expiry-set-by-tag", &json!({"tag": tag, "items": tagged, "on": on}))?;
+    crate::runtime::audit::append(
+        "expiry-set-by-tag",
+        &json!({"tag": tag, "items": tagged, "on": on}),
+    )?;
     Ok(json!({"ok": true, "tag": tag, "items": tagged, "expires_at": on}))
 }
 
@@ -116,18 +129,32 @@ pub fn clear_tagged(tag: &str) -> Result<Value> {
     let mut vault = Vault::open(vault_path())?;
     let tagged = crate::cli::bulk::carrying(&vault, tag, false);
     if tagged.is_empty() {
-        return Err(Usage(format!("no live item carries the tag {tag}, so no expiry was cleared")).into());
+        return Err(Usage(format!(
+            "no live item carries the tag {tag}, so no expiry was cleared"
+        ))
+        .into());
     }
     for id in &tagged {
         crate::cli::items::ensure_owner_mutation_allowed(&vault, id, "clear the expiry of")?;
     }
-    let cleared: Vec<String> = match vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) {
-        Some(section) => tagged.iter().filter(|id| section.remove(id.as_str()).is_some()).cloned().collect(),
+    let cleared: Vec<String> = match vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+    {
+        Some(section) => tagged
+            .iter()
+            .filter(|id| section.remove(id.as_str()).is_some())
+            .cloned()
+            .collect(),
         None => Vec::new(),
     };
     if !cleared.is_empty() {
         vault.save()?;
-        crate::runtime::audit::append("expiry-cleared-by-tag", &json!({"tag": tag, "items": cleared}))?;
+        crate::runtime::audit::append(
+            "expiry-cleared-by-tag",
+            &json!({"tag": tag, "items": cleared}),
+        )?;
     }
     Ok(json!({"ok": true, "tag": tag, "cleared": cleared}))
 }
@@ -171,7 +198,11 @@ pub fn list(before: Option<&String>) -> Result<Value> {
 
 /// Carry a date to an item's new id after a rename; the caller saves.
 pub fn follow_rename(vault: &mut Vault, from: &str, to: &str) -> bool {
-    let Some(section) = vault.doc_mut().get_mut(SECTION).and_then(Value::as_object_mut) else {
+    let Some(section) = vault
+        .doc_mut()
+        .get_mut(SECTION)
+        .and_then(Value::as_object_mut)
+    else {
         return false;
     };
     match section.remove(from) {

@@ -78,11 +78,6 @@ pub(in crate::access) fn routes_path() -> PathBuf {
     state_path().with_file_name("capability-routes.json")
 }
 
-/// Now, by the one unsigned clock reader capabilities and grants share.
-pub(in crate::access::capability) fn now_epoch() -> Result<u64> {
-    crate::core::clock::epoch_seconds()
-}
-
 /// Write `bytes` to a file only its owner can read. The file is created
 /// owner-only, so the bytes are never readable by others between the write
 /// and a permission change, and a file that already existed is narrowed
@@ -114,7 +109,13 @@ pub(in crate::access) fn install_private_file(staging: &Path, path: &Path) -> Re
         .with_context(|| format!("{} has no directory to flush", path.display()))?;
     File::open(parent)
         .and_then(|directory| directory.sync_all())
-        .with_context(|| format!("flush the directory {} after installing {}", parent.display(), path.display()))
+        .with_context(|| {
+            format!(
+                "flush the directory {} after installing {}",
+                parent.display(),
+                path.display()
+            )
+        })
 }
 
 /// The capability state the journal replays to, without the capabilities
@@ -134,9 +135,8 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
             return Err(error).context("parse capability state");
         }
         let backup = path.with_extension(format!("json.corrupt-{}", std::process::id()));
-        fs::copy(&path, &backup).with_context(|| {
-            format!("back up corrupt capability state to {}", backup.display())
-        })?;
+        fs::copy(&path, &backup)
+            .with_context(|| format!("back up corrupt capability state to {}", backup.display()))?;
         save_state(&state).context("repair capability state from the values that replay")?;
         eprintln!(
             "skarbiec: capability state {} ends in bytes that do not parse ({error}); kept what \
@@ -145,7 +145,7 @@ pub(in crate::access::capability) fn load_state() -> Result<Value> {
             backup.display()
         );
     }
-    forget_stale(&mut state, now_epoch()?)?;
+    forget_stale(&mut state, crate::core::clock::epoch_seconds()?)?;
     Ok(state)
 }
 

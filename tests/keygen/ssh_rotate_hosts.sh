@@ -45,9 +45,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 # Whether the host's authorized_keys holds exactly this line.
 trusted() {
@@ -62,7 +63,8 @@ FIRST="$(printf '%s' "$out" | jq -r .public_key)"
 ssh -o BatchMode=yes "$HOST" "umask 077; mkdir -p ~/.ssh; printf '%s\n' '$FIRST' >> ~/.ssh/authorized_keys" || fail "could not put the first key on $HOST"
 
 WANT=ok run rotate "$ITEM" --with ssh --hosts "$HOST"
-case "$out" in *"PRIVATE KEY"*) fail "rotate printed a private key" ;; esac
+# The private key must appear on neither stream.
+case "$out$said" in *"PRIVATE KEY"*) fail "rotate printed a private key" ;; esac
 SECOND="$(printf '%s' "$out" | jq -r .public_key)"
 printf '%s' "$out" | jq -e --arg h "$HOST" '.ok and (.hosts | any(.host == $h and .retired_removed))' >/dev/null || fail "the answer does not say $HOST lost the retired line"
 trusted "$SECOND" || fail "$HOST does not trust the new key"
@@ -73,7 +75,7 @@ echo "ok: the host trusts only the new key and the vault holds it" >>"$REPORT"
 
 UNREACHABLE="nobody@unreachable-$$.invalid"
 WANT=refused run rotate "$ITEM" --with ssh --hosts "$HOST,$UNREACHABLE"
-case "$out" in *"$UNREACHABLE"*"taken back off every host"*) ;; *) fail "the refusal does not name the unreachable host and the rollback: $out" ;; esac
+case "$said" in *"$UNREACHABLE"*"taken back off every host"*) ;; *) fail "the refusal does not name the unreachable host and the rollback: $said" ;; esac
 WANT=ok run get "$ITEM" --field public_key
 [ "$out" = "$SECOND" ] || fail "a failed rotation changed the vault's key"
 trusted "$SECOND" || fail "a failed rotation took the vault's key off $HOST"

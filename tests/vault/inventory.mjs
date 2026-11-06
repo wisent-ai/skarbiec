@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
   rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -29,7 +30,13 @@ mkdirSync(runs, { recursive: true });
 const directory = mkdtempSync(join(runs, 'run-'));
 const home = join(directory, 'home');
 mkdirSync(home);
-const env = { ...process.env, HOME: home };
+// git under the isolated HOME finds no ~/.gitconfig and falls back to the
+// system credential.helper osxkeychain, which asks macOS to store a token in
+// a login keychain that HOME does not have and shows the person a "Keychain
+// Not Found" dialog. The real ~/.gitconfig is named and the system file left
+// out, so no git this journey starts can reach that helper.
+const env = { ...process.env, HOME: home,
+  GIT_CONFIG_GLOBAL: join(homedir(), '.gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
 delete env.SKARBIEC_VAULT_FILE;
 const report = { revision, binary, binarySha256: hash(readFileSync(binary)),
   fixtureSha256: hash(original), testSha256: hash(readFileSync(fileURLToPath(import.meta.url))),

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: ใช้แล้ว แต่คำตอบไม่ระบุสถานะ: {answer}",
+  "request.approve": "อนุมัติ",
+  "request.asks_for": "ขอ: {seconds} วินาที, {uses} ครั้ง (วัตถุประสงค์ {purpose}, สำหรับ {target})",
+  "request.deny": "ปฏิเสธ",
+  "request.dual": "ต้องมีผู้ตัดสินใจสองคน",
+  "request.hours": "ชั่วโมง",
+  "request.how_long": "{summary}\n\nนานเท่าใด?",
+  "request.how_many_hours": "กี่ชั่วโมง?",
+  "request.how_many_uses": "กี่ครั้ง?",
+  "request.not_applied": "{id}: ไม่ได้ใช้: {error}",
+  "request.not_number": "{question}\n\n“{typed}” ไม่ใช่จำนวนเต็มบวก ({cause})",
+  "request.once": "ครั้งเดียว",
+  "request.standing_for": "สิทธิ์เข้าถึงถาวรสำหรับ: {consumer}",
+  "request.summary": "คำขอเข้าถึง {id}\n\nอะไร: {action} {resource} ({kind}){bounds}\nเหตุผล: {reason}\nใคร: {who}{dual}",
+  "request.until_revoked": "จนกว่าจะเพิกถอน"
+}

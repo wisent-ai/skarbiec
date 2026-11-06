@@ -29,9 +29,12 @@ pub(super) fn import(id: &str, profile: &str, tags: Option<&String>) -> Result<V
     let original = config::read(&path)?;
     let lines: Vec<&str> = original.lines().collect();
     let header = format!("[{profile}]");
-    let range = config::section(&lines, &header).with_context(|| format!("{} has no [{profile}] section to import", path.display()))?;
-    let key = value(&lines, range.clone(), KEY_ID).with_context(|| format!("[{profile}] in {} keeps no {KEY_ID}", path.display()))?;
-    let secret = value(&lines, range.clone(), SECRET).with_context(|| format!("[{profile}] in {} keeps no {SECRET}", path.display()))?;
+    let range = config::section(&lines, &header)
+        .with_context(|| format!("{} has no [{profile}] section to import", path.display()))?;
+    let key = value(&lines, range.clone(), KEY_ID)
+        .with_context(|| format!("[{profile}] in {} keeps no {KEY_ID}", path.display()))?;
+    let secret = value(&lines, range.clone(), SECRET)
+        .with_context(|| format!("[{profile}] in {} keeps no {SECRET}", path.display()))?;
     let token = value(&lines, range.clone(), TOKEN);
 
     // The item, refusing an id that exists, as set --if-absent does.
@@ -42,25 +45,38 @@ pub(super) fn import(id: &str, profile: &str, tags: Option<&String>) -> Result<V
         fields.insert("session_token".to_string(), json!(token));
     }
     let mut context = serde_json::Map::new();
-    context.insert(crate::core::items::DISPLAY_NAME.to_string(), json!(format!("AWS profile {profile}")));
+    context.insert(
+        crate::core::items::DISPLAY_NAME.to_string(),
+        json!(format!("AWS profile {profile}")),
+    );
     let payload = crate::core::schema::payload("access-key", fields, context)?;
-    let mut write = std::collections::HashMap::from([("type".to_string(), "access-key".to_string())]);
+    let mut write =
+        std::collections::HashMap::from([("type".to_string(), "access-key".to_string())]);
     if let Some(tags) = tags {
         write.insert("tags".to_string(), tags.clone());
     }
     crate::cli::items::create_value(&write, id, &payload.to_string(), "helper import aws")?;
     let stored = crate::core::vault::Vault::open(crate::core::vault_path())?.get_item(id)?;
     if stored["fields"]["secret_access_key"] != json!(secret) {
-        bail!("{id} does not read back the key from [{profile}]; {} was left as it was", path.display());
+        bail!(
+            "{id} does not read back the key from [{profile}]; {} was left as it was",
+            path.display()
+        );
     }
 
     // The profile's key lines out; the header too when nothing else remains.
     let keys = [KEY_ID, SECRET, TOKEN];
-    let kept: Vec<usize> = range.clone().filter(|&index| {
-        let name = lines[index].split_once('=').map(|(name, _)| name.trim());
-        !name.is_some_and(|name| keys.contains(&name)) && !lines[index].trim().is_empty()
-    }).collect();
-    let header_at = range.start.checked_sub(std::iter::once(()).count()).context("the section has no header line")?;
+    let kept: Vec<usize> = range
+        .clone()
+        .filter(|&index| {
+            let name = lines[index].split_once('=').map(|(name, _)| name.trim());
+            !name.is_some_and(|name| keys.contains(&name)) && !lines[index].trim().is_empty()
+        })
+        .collect();
+    let header_at = range
+        .start
+        .checked_sub(std::iter::once(()).count())
+        .context("the section has no header line")?;
     let remaining: Vec<String> = lines
         .iter()
         .enumerate()
@@ -71,8 +87,13 @@ pub(super) fn import(id: &str, profile: &str, tags: Option<&String>) -> Result<V
     config::write(&path, &remaining)?;
     match config::setup(id, profile) {
         Ok(set) => {
-            crate::runtime::audit::append("aws-credential-import", &json!({"item": id, "profile": profile, "key": key, "credentials": path}))?;
-            Ok(json!({"ok": true, "item": id, "profile": profile, "key": key, "credentials": path, "config": set["config"], "line": set["line"]}))
+            crate::runtime::audit::append(
+                "aws-credential-import",
+                &json!({"item": id, "profile": profile, "key": key, "credentials": path}),
+            )?;
+            Ok(
+                json!({"ok": true, "item": id, "profile": profile, "key": key, "credentials": path, "config": set["config"], "line": set["line"]}),
+            )
         }
         Err(error) => {
             let restored = crate::core::vault::atomic_write(&path, original.as_bytes());

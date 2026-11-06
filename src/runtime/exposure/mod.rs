@@ -29,24 +29,42 @@ pub fn dispatch(
     };
     let since = flags.get("since");
     if let Some(moment) = since.filter(|moment| !clock::is_iso(moment)) {
-        return Err(Usage(format!("--since {moment} is not a UTC time of the form {}; {USAGE}", clock::now_iso())).into());
+        return Err(Usage(format!(
+            "--since {moment} is not a UTC time of the form {}; {USAGE}",
+            clock::now_iso()
+        ))
+        .into());
     }
     let readers = crate::cli::reads::cmd_readers(positionals)?;
-    let grants = crate::access::dispatch("grant", &HashMap::from([("item".to_string(), id.clone())]), &["list".to_string()])?
-        .context("grant list answered nothing")?;
+    let grants = crate::access::dispatch(
+        "grant",
+        &HashMap::from([("item".to_string(), id.clone())]),
+        &["list".to_string()],
+    )?
+    .context("grant list answered nothing")?;
     let mut journal_flags = HashMap::from([("item".to_string(), id.clone())]);
     if let Some(moment) = since {
         journal_flags.insert("since".to_string(), moment.clone());
     }
-    let journal = crate::runtime::dispatch("audit list", &journal_flags, &[])?.context("audit list answered nothing")?;
-    let entries = journal["entries"].as_array().context("audit list answered no entries")?;
+    let journal = crate::runtime::dispatch("audit list", &journal_flags, &[])?
+        .context("audit list answered nothing")?;
+    let entries = journal["entries"]
+        .as_array()
+        .context("audit list answered no entries")?;
     // Who the journal says acted on the item, and how: each consumer once,
     // with every operation it was named in.
     let mut acted: HashMap<String, BTreeSet<String>> = HashMap::new();
     for entry in entries {
-        let Some(consumer) = entry["extra"]["consumer"].as_str() else { continue };
-        let operation = entry["op"].as_str().context("a journal entry names no operation")?;
-        acted.entry(consumer.to_string()).or_default().insert(operation.to_string());
+        let Some(consumer) = entry["extra"]["consumer"].as_str() else {
+            continue;
+        };
+        let operation = entry["op"]
+            .as_str()
+            .context("a journal entry names no operation")?;
+        acted
+            .entry(consumer.to_string())
+            .or_default()
+            .insert(operation.to_string());
     }
     let mut acted: Vec<Value> = acted
         .into_iter()

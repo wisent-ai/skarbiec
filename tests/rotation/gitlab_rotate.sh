@@ -37,14 +37,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said; output: $out" ;;
   esac
 }
 # Whether GitLab answers for the token on standard input.
@@ -69,7 +70,8 @@ WANT=refused run rotate "note-$RUN" --with gitlab --url "$URL"
 names "rotate --with gitlab replaces the token a token item keeps"
 
 WANT=ok run rotate "$ITEM" --with gitlab --url "$URL"
-case "$out" in *"$OLD"*) fail "rotate printed the old token" ;; esac
+# Neither stream may carry the old token.
+case "$out$said" in *"$OLD"*) fail "rotate printed the old token" ;; esac
 WANT=ok run get "$ITEM" --field token
 NEW="$out"
 # The next run starts from the token GitLab now answers for.

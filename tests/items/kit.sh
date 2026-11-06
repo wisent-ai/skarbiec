@@ -32,8 +32,9 @@ fail() {
 }
 
 "$BIN" init "kit-owner-$RUN" >>"$REPORT" 2>&1 || fail "init was refused"
-kit=$("$BIN" kit 2>&1) || fail "kit was refused: $kit"
-printf '$ skarbiec kit\n%s\n\n' "$kit" >>"$REPORT"
+kit=$("$BIN" kit 2>"$ROOT/said") || fail "kit was refused: output: $kit stderr: $(cat "$ROOT/said")"
+said=$(cat "$ROOT/said")
+printf '$ skarbiec kit\noutput: %s\nstderr: %s\n\n' "$kit" "$said" >>"$REPORT"
 
 [ "$(printf '%s' "$kit" | jq -r .ok)" = true ] || fail "a fresh vault's kit is not complete: $(printf '%s' "$kit" | jq -c .missing)"
 [ "$(printf '%s' "$kit" | jq -r '.missing | length')" = "$(printf '%s' '[]' | jq length)" ] || fail "a fresh vault's kit names something missing"
@@ -52,10 +53,11 @@ echo "ok: a fresh vault's kit is complete and its page carries the file, both fi
 [ "$(printf '%s' "$kit" | jq -r .latest_backup)" = null ] || fail "a vault never backed up names a latest backup"
 case "$page" in *"Latest backup: not recorded"*) ;; *) fail "the page does not say no backup was made" ;; esac
 mkdir -p "$ROOT/copies"
-copy=$("$BIN" backup "$ROOT/copies" 2>&1) || fail "backup was refused: $copy"
+copy=$("$BIN" backup "$ROOT/copies" 2>"$ROOT/said") || fail "backup was refused: output: $copy stderr: $(cat "$ROOT/said")"
 made=$(printf '%s' "$copy" | jq -r .backup)
-kit=$("$BIN" kit 2>&1) || fail "kit was refused after a backup: $kit"
-printf '$ skarbiec kit (after backup)\n%s\n\n' "$kit" >>"$REPORT"
+kit=$("$BIN" kit 2>"$ROOT/said") || fail "kit was refused after a backup: output: $kit stderr: $(cat "$ROOT/said")"
+said=$(cat "$ROOT/said")
+printf '$ skarbiec kit (after backup)\noutput: %s\nstderr: %s\n\n' "$kit" "$said" >>"$REPORT"
 [ "$(printf '%s' "$kit" | jq -r .latest_backup.backup)" = "$made" ] || fail "the kit does not name the backup just made"
 case "$(printf '%s' "$kit" | jq -r .page)" in *"Latest backup: $made"*) ;; *) fail "the page does not name the backup just made" ;; esac
 echo "ok: the kit names the newest backup, or says none was made" >>"$REPORT"

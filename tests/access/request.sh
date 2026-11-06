@@ -45,7 +45,8 @@ mkdir -p "$ROOT" "$KEYRING"
 chmod go-rwx "$KEYRING"
 echo "revision: $(git rev-parse HEAD)$(git diff --quiet || echo ' (dirty)')" >"$REPORT"
 echo "binary: $BIN" >>"$REPORT"
-echo "version: $("$BIN" --version &>/dev/stdout)" >>"$REPORT"
+echo "version: $("$BIN" --version 2>"$ROOT/said")" >>"$REPORT"
+echo "version stderr: $(cat "$ROOT/said")" >>"$REPORT"
 echo "bounds: wide $WIDE_SECONDS s / $WIDE_USES uses, narrow $NARROW_SECONDS s / $NARROW_USES uses" >>"$REPORT"
 export GNUPGHOME="$KEYRING"
 export SKARBIEC_VAULT_FILE="$ROOT/vault.json"
@@ -59,17 +60,20 @@ fail() {
   false
 }
 
-# One command, standard output and standard error together in $out; WANT says
+# One command, standard output in $out and standard error in $said; WANT says
 # whether it had to succeed (ok) or be refused (refused).
 run() {
-  if out=$("$BIN" "$@" </dev/null &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
+# A success answers on standard output; a refusal says why on standard error.
 has() {
-  case "$out" in
+  if [ "$got" = ok ]; then seen=$out; else seen=$said; fi
+  case "$seen" in
     *"$*"*) echo "ok: output names: $*" >>"$REPORT" ;;
-    *) fail "expected output naming '$*', got: $out" ;;
+    *) fail "expected output naming '$*', got: output: $out stderr: $said" ;;
   esac
 }
 # The first request id the last answer names; an answer naming none fails.

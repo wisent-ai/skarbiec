@@ -33,14 +33,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said" ;;
   esac
 }
 # A public key line without its comment: its type and its key.
@@ -68,7 +69,8 @@ WANT=ok run get "$ITEM" --field private_key
 OLD_PRIVATE="$out"
 
 WANT=ok run rotate "$ITEM" --with ssh
-case "$out" in *"PRIVATE KEY"*) fail "rotate printed a private key" ;; esac
+# The private key must appear on neither stream.
+case "$out$said" in *"PRIVATE KEY"*) fail "rotate printed a private key" ;; esac
 NEW_PUBLIC="$(printf '%s' "$out" | jq -r .public_key)"
 [ "$(printf '%s' "$out" | jq -r .retired_public_key)" = "$OLD_PUBLIC" ] || fail "retired_public_key is not the old public key"
 [ "$NEW_PUBLIC" != "$OLD_PUBLIC" ] || fail "the public key did not change"

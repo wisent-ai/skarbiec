@@ -10,7 +10,7 @@
 // secrets, consumers and scopes are the cleartext map, and a command built to
 // be run across a fleet is the last place to widen that exposure.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
@@ -174,21 +174,26 @@ fn shared_owners(found: &[Value]) -> Vec<Value> {
 /// cannot be read is the inventory's error with its cause: an invented label
 /// would file this machine's vaults under a host that does not exist.
 pub(crate) fn hostname() -> Result<String> {
-    let output = stado_wait::output(&mut std::process::Command::new("hostname"))
-        .map_err(|error| anyhow::anyhow!("the hostname program could not run: {error}"))?;
-    if !output.status.success() {
+    // POSIX caps a host name at HOST_NAME_MAX (255) bytes; one more holds
+    // the terminating NUL gethostname writes.
+    let mut buffer = [0u8; 256];
+    // SAFETY: the buffer is valid for its whole length, which is passed.
+    let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
+    if status != 0 {
         anyhow::bail!(
-            "the hostname program ended with {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim()
+            "the kernel would not say this machine's host name (gethostname): {}",
+            std::io::Error::last_os_error()
         );
     }
-    let name = String::from_utf8(output.stdout).map_err(|error| {
-        anyhow::anyhow!("the hostname program answered a name that is not UTF-8: {error}")
+    let end = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .context("the host name the kernel answered fills its whole buffer, so it may be cut")?;
+    let name = std::str::from_utf8(&buffer[..end]).map_err(|error| {
+        anyhow::anyhow!("the kernel answered a host name that is not UTF-8: {error}")
     })?;
-    let name = name.trim();
     if name.is_empty() {
-        anyhow::bail!("the hostname program answered no name");
+        anyhow::bail!("the kernel answered an empty host name; set one (scutil --set HostName, or hostnamectl)");
     }
     Ok(name.to_string())
 }

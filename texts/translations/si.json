@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: යෙදුවා, නමුත් පිළිතුරේ තත්ත්වය නැත: {answer}",
+  "request.approve": "අනුමත කරන්න",
+  "request.asks_for": "ඉල්ලයි: තත්. {seconds}, භාවිත {uses} (අරමුණ {purpose}, {target} සඳහා)",
+  "request.deny": "ප්‍රතික්ෂේප කරන්න",
+  "request.dual": "තීරණ ගන්නන් දෙදෙනෙක් අවශ්‍යයි.",
+  "request.hours": "පැය",
+  "request.how_long": "{summary}\n\nකොපමණ කාලයකට?",
+  "request.how_many_hours": "පැය කීයද?",
+  "request.how_many_uses": "භාවිත කීයද?",
+  "request.not_applied": "{id}: යෙදුවේ නැත: {error}",
+  "request.not_number": "{question}\n\n“{typed}” ධන පූර්ණ සංඛ්‍යාවක් නොවේ ({cause}).",
+  "request.once": "එක් වරක්",
+  "request.standing_for": "ස්ථිර ප්‍රවේශය: {consumer}",
+  "request.summary": "ප්‍රවේශ ඉල්ලීම {id}\n\nකුමක්ද: {action} {resource} ({kind}){bounds}\nඇයි: {reason}\nකවුද: {who}{dual}",
+  "request.until_revoked": "අවලංගු කරන තුරු"
+}

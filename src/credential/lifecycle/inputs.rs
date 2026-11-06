@@ -91,9 +91,7 @@ pub(super) fn read_submission<'a>(
     exact_name("provider", provider)?;
     let named = match args.first() {
         Some(named) => named.as_str(),
-        None if acquire && generic_provider(provider) => {
-            generic_credential_id(provider)?
-        }
+        None if acquire && generic_provider(provider) => generic_credential_id(provider)?,
         None => bail!("{usage}"),
     };
     let (credential_id, role) = match named.strip_prefix("role:") {
@@ -140,7 +138,7 @@ pub(super) fn read_submission<'a>(
         )?;
         // The item's own field decides whether it is eligible at all. A
         // provider contract that writes another name is refused here, before
-        // the operation lock, the record, or the bridge.
+        // the operation lock, the record, or Weles.
         enforce_field_contract(&vault, &credential_id, provider, field)?;
         (directory, field)
     };

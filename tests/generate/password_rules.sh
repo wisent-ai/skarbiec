@@ -35,14 +35,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $out; stderr: $said" ;;
   esac
 }
 # Fails naming the first rule the value breaks: its length, one of every
@@ -75,7 +76,7 @@ WANT=ok run password rules "$LOGIN" --set "$RULES"
 WANT=ok run password rules "$LOGIN"
 [ "$(printf '%s' "$out" | jq -r .password_rules)" = "$RULES" ] || fail "password rules did not read back the rules set"
 WANT=ok run generate --rules-of "$LOGIN" --into "$LOGIN" --field password
-case "$out" in *'"password"'*) fail "generate --into printed a value: $out" ;; esac
+case "$out" in *'"password"'*) fail "generate --into printed a value: $out; stderr: $said" ;; esac
 WANT=ok run get "$LOGIN" --field password
 obey "$out" "the password written into the login"
 echo "ok: rules kept on a login shape the password generate --into writes, which is never printed" >>"$REPORT"

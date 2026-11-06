@@ -74,12 +74,19 @@ impl LegacyKind {
 fn fallback_payload(fallback: Value, context: Map<String, Value>) -> Result<(String, Value)> {
     let mut fields = Map::new();
     fields.insert("value".to_string(), fallback);
-    Ok(("stado-secret".to_string(), payload("stado-secret", fields, context)?))
+    Ok((
+        "stado-secret".to_string(),
+        payload("stado-secret", fields, context)?,
+    ))
 }
 
 pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value)> {
     if legacy.get("schema").and_then(Value::as_str) == Some(ITEM_SCHEMA) {
-        let kind = legacy.get("kind").and_then(Value::as_str).context("canonical payload has no kind")?.to_string();
+        let kind = legacy
+            .get("kind")
+            .and_then(Value::as_str)
+            .context("canonical payload has no kind")?
+            .to_string();
         validate_payload(&legacy, &kind)?;
         return Ok((kind, legacy));
     }
@@ -97,7 +104,10 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
     }
     let mut context = legacy_context(&mut source, legacy_kind);
     if wrapped {
-        warn(&mut context, "the legacy item was not an object; its whole value is kept as value".to_string());
+        warn(
+            &mut context,
+            "the legacy item was not an object; its whole value is kept as value".to_string(),
+        );
     }
     let written = LegacyKind::read(legacy_kind)?;
     let has = |source: &Map<String, Value>, name: &str| source.contains_key(name);
@@ -118,13 +128,17 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
     {
         fields::login(&mut source, &mut fields, &mut context);
         "login"
-    } else if matches!(written, LegacyKind::Api | LegacyKind::ApiKey | LegacyKind::AiCli)
-        || (written == LegacyKind::Credential && has(&source, "api_key"))
+    } else if matches!(
+        written,
+        LegacyKind::Api | LegacyKind::ApiKey | LegacyKind::AiCli
+    ) || (written == LegacyKind::Credential && has(&source, "api_key"))
         || (written == LegacyKind::PlatformAdmin && has(&source, "NAMECHEAP_API_KEY"))
     {
         fields::api_key(&mut source, &mut fields);
         "api-key"
-    } else if written == LegacyKind::AwsCredentials || (written == LegacyKind::Auth && has(&source, "access_key_id")) {
+    } else if written == LegacyKind::AwsCredentials
+        || (written == LegacyKind::Auth && has(&source, "access_key_id"))
+    {
         fields::access_key(&mut source, &mut fields);
         "access-key"
     } else if written == LegacyKind::Proxy {
@@ -135,7 +149,9 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
     {
         fields::key_pair(&mut source, &mut fields, &mut context);
         "key-pair"
-    } else if written == LegacyKind::Token || (written == LegacyKind::Secret && has(&source, "token")) {
+    } else if written == LegacyKind::Token
+        || (written == LegacyKind::Secret && has(&source, "token"))
+    {
         fields::token(&mut source, &mut fields);
         "token"
     } else if written == LegacyKind::OauthClient {
@@ -147,15 +163,26 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
     } else if written == LegacyKind::ServiceAccount {
         let read = serde_json::from_value::<LegacyServiceAccount>(Value::Object(source.clone()));
         let whole = |context: &mut Map<String, Value>, why: String| {
-            warn(context, format!("{why}; its whole record is kept as credential_json"));
+            warn(
+                context,
+                format!("{why}; its whole record is kept as credential_json"),
+            );
             Value::Object(source.clone())
         };
         let credential = match read {
-            Ok(LegacyServiceAccount { credential_json: Some(credential) }) => credential,
-            Ok(LegacyServiceAccount { credential_json: None }) => {
-                whole(&mut context, "the legacy service account named no credential_json".to_string())
-            }
-            Err(error) => whole(&mut context, format!("the legacy service account's credential cannot be read ({error})")),
+            Ok(LegacyServiceAccount {
+                credential_json: Some(credential),
+            }) => credential,
+            Ok(LegacyServiceAccount {
+                credential_json: None,
+            }) => whole(
+                &mut context,
+                "the legacy service account named no credential_json".to_string(),
+            ),
+            Err(error) => whole(
+                &mut context,
+                format!("the legacy service account's credential cannot be read ({error})"),
+            ),
         };
         fields.insert("credential_json".to_string(), credential);
         "service-account"
@@ -169,18 +196,30 @@ pub fn migrate_legacy(legacy_kind: &str, legacy: Value) -> Result<(String, Value
         fields::internal_authority(&mut source, &mut fields, &mut context);
         fields.extend(source.clone());
         "internal-authority"
-    } else if matches!(written, LegacyKind::Env | LegacyKind::Config | LegacyKind::Credential) {
+    } else if matches!(
+        written,
+        LegacyKind::Env | LegacyKind::Config | LegacyKind::Credential
+    ) {
         fields = source.clone();
-        context.insert("profile".to_string(), json!(LegacyKind::spelled(legacy_kind)));
+        context.insert(
+            "profile".to_string(),
+            json!(LegacyKind::spelled(legacy_kind)),
+        );
         "bundle"
     } else {
-        warn(&mut context, format!("legacy kind {legacy_kind:?} has no canonical kind; the item is kept whole"));
+        warn(
+            &mut context,
+            format!("legacy kind {legacy_kind:?} has no canonical kind; the item is kept whole"),
+        );
         return fallback_payload(fallback, context);
     };
     match payload(kind, fields, context.clone()) {
         Ok(value) => Ok((kind.to_string(), value)),
         Err(refusal) => {
-            warn(&mut context, format!("the {kind} fields were refused ({refusal:#}); the item is kept whole"));
+            warn(
+                &mut context,
+                format!("the {kind} fields were refused ({refusal:#}); the item is kept whole"),
+            );
             fallback_payload(fallback, context)
         }
     }

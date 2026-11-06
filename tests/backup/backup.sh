@@ -38,14 +38,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: output: $out stderr: $said" ;;
   esac
 }
 note() {
@@ -74,10 +75,12 @@ echo "ok: backup writes an owner-only, byte-identical copy and counts what it ho
 WANT=ok run backup check "$COPY" --open
 [ "$(printf '%s' "$out" | jq -c '[.ok, .holds.opened, (.holds.unreadable | length)]')" = "[true,true,0]" ] \
   || fail "check --open did not open every live item in the copy"
-if out=$(SKARBIEC_VAULT_FILE="$COPY" "$BIN" get "$KEPT" --field value </dev/null &>/dev/stdout); then
-  case "$out" in *"kept-value-$RUN"*) ;; *) fail "the copy did not read the note back: $out" ;; esac
+if out=$(SKARBIEC_VAULT_FILE="$COPY" "$BIN" get "$KEPT" --field value </dev/null 2>"$ROOT/said"); then
+  said=$(cat "$ROOT/said")
+  case "$out" in *"kept-value-$RUN"*) ;; *) fail "the copy did not read the note back: output: $out stderr: $said" ;; esac
 else
-  fail "the copy did not open as a vault: $out"
+  said=$(cat "$ROOT/said")
+  fail "the copy did not open as a vault: output: $out stderr: $said"
 fi
 echo "ok: check --open opens the copy, and the copy restores the note" >>"$REPORT"
 

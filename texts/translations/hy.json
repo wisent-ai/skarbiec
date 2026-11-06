@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}՝ կիրառվել է, բայց պատասխանը վիճակ չի նշում՝ {answer}",
+  "request.approve": "Հաստատել",
+  "request.asks_for": "Խնդրում է՝ {seconds} վ, {uses} օգտագործում (նպատակ {purpose}, {target}-ի համար)",
+  "request.deny": "Մերժել",
+  "request.dual": "Պահանջվում է երկու որոշում կայացնող։",
+  "request.hours": "Ժամեր",
+  "request.how_long": "{summary}\n\nԻնչքա՞ն ժամանակով։",
+  "request.how_many_hours": "Քանի՞ ժամ։",
+  "request.how_many_uses": "Քանի՞ օգտագործում։",
+  "request.not_applied": "{id}՝ չի կիրառվել՝ {error}",
+  "request.not_number": "{question}\n\n«{typed}»-ը դրական ամբողջ թիվ չէ ({cause})։",
+  "request.once": "Մեկ անգամ",
+  "request.standing_for": "Մշտական մուտք՝ {consumer}",
+  "request.summary": "Մուտքի հարցում {id}\n\nԻնչ՝ {action} {resource} ({kind}){bounds}\nԻնչու՝ {reason}\nՈվ՝ {who}{dual}",
+  "request.until_revoked": "Մինչև չեղարկումը"
+}

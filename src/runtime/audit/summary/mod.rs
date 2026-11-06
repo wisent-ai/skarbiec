@@ -22,7 +22,11 @@ pub(in crate::runtime::audit) fn summary(flags: &HashMap<String, String>) -> Res
     let until = flags.get("until");
     for (flag, moment) in [("since", Some(since)), ("until", until)] {
         if let Some(moment) = moment.filter(|moment| !clock::is_iso(moment)) {
-            return Err(Usage(format!("--{flag} {moment} is not a UTC time of the form {}", clock::now_iso())).into());
+            return Err(Usage(format!(
+                "--{flag} {moment} is not a UTC time of the form {}",
+                clock::now_iso()
+            ))
+            .into());
         }
     }
     let mut span = HashMap::from([("since".to_string(), since.clone())]);
@@ -43,7 +47,10 @@ pub(in crate::runtime::audit) fn summary(flags: &HashMap<String, String>) -> Res
             operations.entry(op).or_default().push(entry);
         }
         let extra = entry.get("extra");
-        if let Some(consumer) = extra.and_then(|extra| extra.get("consumer")).and_then(Value::as_str) {
+        if let Some(consumer) = extra
+            .and_then(|extra| extra.get("consumer"))
+            .and_then(Value::as_str)
+        {
             consumers.entry(consumer).or_default().push(entry);
         }
         // An entry names one item in `item`, or several in `items`.
@@ -76,7 +83,10 @@ pub(in crate::runtime::audit) fn summary(flags: &HashMap<String, String>) -> Res
 
 /// Counts as rows, the most frequent first and ties in name order.
 fn ranked(named: &BTreeMap<&str, Vec<&Value>>, key: &str) -> Vec<Value> {
-    let mut rows: Vec<(&str, usize)> = named.iter().map(|(name, entries)| (*name, entries.len())).collect();
+    let mut rows: Vec<(&str, usize)> = named
+        .iter()
+        .map(|(name, entries)| (*name, entries.len()))
+        .collect();
     rows.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
     rows.into_iter()
         .map(|(name, count)| json!({key: name, "count": count}))

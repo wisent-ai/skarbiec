@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}：已生效，但响应未说明状态：{answer}",
+  "request.approve": "批准",
+  "request.asks_for": "请求：{seconds} 秒，{uses} 次使用（用途 {purpose}，目标 {target}）",
+  "request.deny": "拒绝",
+  "request.dual": "需要两名决策人。",
+  "request.hours": "小时",
+  "request.how_long": "{summary}\n\n授权多长时间？",
+  "request.how_many_hours": "多少小时？",
+  "request.how_many_uses": "多少次使用？",
+  "request.not_applied": "{id}：未生效：{error}",
+  "request.not_number": "{question}\n\n“{typed}”不是正整数（{cause}）。",
+  "request.once": "一次",
+  "request.standing_for": "长期访问授权给：{consumer}",
+  "request.summary": "访问请求 {id}\n\n内容：{action} {resource}（{kind}）{bounds}\n原因：{reason}\n请求者：{who}{dual}",
+  "request.until_revoked": "直到撤销"
+}

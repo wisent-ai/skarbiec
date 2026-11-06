@@ -37,9 +37,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 # Whether Vercel takes one token; the token reaches curl as a header on its
 # standard input, and curl fails on Vercel's refusal.
@@ -65,7 +66,8 @@ for round in first second; do
       [ "$(printf '%s' "$out" | jq -r '.expires_at != null')" = true ] || fail "the token made with --days does not end: $out"
       ;;
   esac
-  case "$out" in *"$OLD"*) fail "rotate printed the old token" ;; esac
+  # The old token must be in neither stream, so both are searched.
+  case "$out$said" in *"$OLD"*) fail "rotate printed the old token" ;; esac
   named="$(printf '%s' "$out" | jq -r .name)"
   [ -z "$NAME" ] || [ "$named" = "$NAME" ] || fail "the $round rotation changed the token's name from $NAME to $named"
   NAME="$named"
@@ -82,9 +84,9 @@ jq -n '{schema:"skarbiec.item.v2",kind:"note",fields:{value:"not a token"},conte
 WANT=ok run set "note-$RUN" --type note
 : >"$ROOT/stdin"
 WANT=refused run rotate "note-$RUN" --with vercel
-case "$out" in *"rotate --with vercel replaces a token item"*) ;; *) fail "a note was not refused naming its kind: $out" ;; esac
+case "$said" in *"rotate --with vercel replaces a token item"*) ;; *) fail "a note was not refused naming its kind: output: $out stderr: $said" ;; esac
 WANT=refused run rotate "$ITEM" --with vercel --days "soon"
-case "$out" in *"not a whole number of days"*) ;; *) fail "a --days that is not a number was not refused: $out" ;; esac
+case "$said" in *"not a whole number of days"*) ;; *) fail "a --days that is not a number was not refused: output: $out stderr: $said" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

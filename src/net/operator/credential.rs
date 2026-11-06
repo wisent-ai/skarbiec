@@ -47,7 +47,7 @@ pub(super) fn answer(parsed: &Value) -> Result<Value> {
             &flags(parsed, &["field"]),
             &["get".to_string(), text(parsed, "item")?],
         )?
-        .context("get operation failed"),
+        .context("the credential dispatcher answered no `credential get`, so the console's get has no handler in this skarbiec; run `skarbiec credential get <item>` to see whether the command exists in it"),
         Operation::Set => {
             let mut call_flags = flags(
                 parsed,
@@ -59,11 +59,13 @@ pub(super) fn answer(parsed: &Value) -> Result<Value> {
             }
             let positionals = vec!["set".to_string(), text(parsed, "item")?];
             crate::core::values::dispatch("credential", &call_flags, &positionals)?
-                .context("set operation failed")
+                .context("the credential dispatcher answered no `credential set`, so the console's set has no handler in this skarbiec; run `skarbiec credential set <item>` to see whether the command exists in it")
         }
-        Operation::Totp => {
-            crate::runtime::totp::dispatch("totp", &flags(parsed, &[]), &["code".to_string(), text(parsed, "item")?])?
-                .context("totp operation failed")
-        }
+        Operation::Totp => crate::runtime::totp::dispatch(
+            "totp",
+            &flags(parsed, &[]),
+            &["code".to_string(), text(parsed, "item")?],
+        )?
+        .context("the totp dispatcher answered no `totp code`, so the console's code has no handler in this skarbiec; run `skarbiec totp code <item>` to see whether the command exists in it"),
     }
 }

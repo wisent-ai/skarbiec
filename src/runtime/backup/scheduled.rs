@@ -40,8 +40,12 @@ pub(super) fn schedule(directory: &Path) -> Result<Value> {
         ))
         .into());
     }
-    if !crate::core::file_type(directory, "the backup directory")?.is_some_and(|kind| kind.is_dir()) {
-        bail!("{} is not a directory here; nothing was scheduled", directory.display());
+    if !crate::core::file_type(directory, "the backup directory")?.is_some_and(|kind| kind.is_dir())
+    {
+        bail!(
+            "{} is not a directory here; nothing was scheduled",
+            directory.display()
+        );
     }
     let vault = vault_path();
     Vault::open(vault.clone())?;
@@ -56,7 +60,10 @@ pub(super) fn schedule(directory: &Path) -> Result<Value> {
     file.write_all(directory.as_os_str().as_encoded_bytes())
         .with_context(|| format!("write the backup schedule {}", path.display()))?;
     file.sync_all()?;
-    crate::runtime::audit::append("backup-scheduled", &json!({"directory": directory.display().to_string()}))?;
+    crate::runtime::audit::append(
+        "backup-scheduled",
+        &json!({"directory": directory.display().to_string()}),
+    )?;
     Ok(json!({
         "ok": true,
         "directory": directory.display().to_string(),
@@ -69,7 +76,10 @@ pub(super) fn unschedule() -> Result<Value> {
     let removed = match std::fs::remove_file(&path) {
         Ok(()) => true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => return Err(error).with_context(|| format!("remove the backup schedule {}", path.display())),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("remove the backup schedule {}", path.display()))
+        }
     };
     if removed {
         crate::runtime::audit::append("backup-unscheduled", &json!({}))?;
@@ -96,7 +106,9 @@ pub(super) fn scheduled_directory(vault: &Path) -> Result<Option<PathBuf>> {
     let path = marker(vault);
     match crate::core::read_present(&path, "backup schedule")? {
         None => Ok(None),
-        Some(text) if text.trim().is_empty() => bail!("the backup schedule {} names no directory", path.display()),
+        Some(text) if text.trim().is_empty() => {
+            bail!("the backup schedule {} names no directory", path.display())
+        }
         Some(text) => Ok(Some(PathBuf::from(text.trim()))),
     }
 }
@@ -108,7 +120,9 @@ pub fn scheduled_pass() -> Result<Option<Value>> {
     let Some(directory) = scheduled_directory(&vault)? else {
         return Ok(None);
     };
-    if !crate::core::file_type(&directory, "the scheduled backup directory")?.is_some_and(|kind| kind.is_dir()) {
+    if !crate::core::file_type(&directory, "the scheduled backup directory")?
+        .is_some_and(|kind| kind.is_dir())
+    {
         bail!(
             "the scheduled backup directory {} is not there — a disk unplugged, a folder moved; \
              reconnect it, or `skarbiec backup schedule <directory>` names another",
@@ -116,14 +130,20 @@ pub fn scheduled_pass() -> Result<Option<Value>> {
         );
     }
     let target = directory.join(rolling_name(&vault)?);
-    let current = std::fs::read(&vault).with_context(|| format!("read the vault file {}", vault.display()))?;
+    let current = std::fs::read(&vault)
+        .with_context(|| format!("read the vault file {}", vault.display()))?;
     match std::fs::read(&target) {
         Ok(kept) if kept == current => {
-            return Ok(Some(json!({"copy": target.display().to_string(), "refreshed": false})));
+            return Ok(Some(
+                json!({"copy": target.display().to_string(), "refreshed": false}),
+            ));
         }
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error).with_context(|| format!("read the rolling backup {}", target.display())),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("read the rolling backup {}", target.display()))
+        }
     }
     let staged = directory.join(format!("{}.writing", rolling_name(&vault)?));
     let mut output = OpenOptions::new()
@@ -133,13 +153,25 @@ pub fn scheduled_pass() -> Result<Option<Value>> {
         .mode(crate::core::vault::private_file_mode()?)
         .open(&staged)
         .with_context(|| format!("create {}", staged.display()))?;
-    output.write_all(&current).with_context(|| format!("write {}", staged.display()))?;
-    output.sync_all().with_context(|| format!("sync {}", staged.display()))?;
-    Vault::open(staged.clone()).with_context(|| format!("{} does not read back as a vault; the last copy is kept", staged.display()))?;
-    std::fs::rename(&staged, &target).with_context(|| format!("put {} in place of {}", staged.display(), target.display()))?;
+    output
+        .write_all(&current)
+        .with_context(|| format!("write {}", staged.display()))?;
+    output
+        .sync_all()
+        .with_context(|| format!("sync {}", staged.display()))?;
+    Vault::open(staged.clone()).with_context(|| {
+        format!(
+            "{} does not read back as a vault; the last copy is kept",
+            staged.display()
+        )
+    })?;
+    std::fs::rename(&staged, &target)
+        .with_context(|| format!("put {} in place of {}", staged.display(), target.display()))?;
     crate::runtime::audit::append(
         "vault-backed-up",
         &json!({"backup": target.display().to_string(), "bytes": current.len(), "scheduled": true}),
     )?;
-    Ok(Some(json!({"copy": target.display().to_string(), "refreshed": true})))
+    Ok(Some(
+        json!({"copy": target.display().to_string(), "refreshed": true}),
+    ))
 }

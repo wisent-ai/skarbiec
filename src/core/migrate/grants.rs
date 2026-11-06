@@ -147,9 +147,10 @@ pub(super) fn migrate_grants(
                     .get("field")
                     .and_then(Value::as_str)
                     .context("legacy acquisition scope has no field")?;
-                let action = match has_workload_key {
-                    true => Action::Acquire.as_str(),
-                    false => Action::Read.as_str(),
+                let action = if has_workload_key {
+                    Action::Acquire.as_str()
+                } else {
+                    Action::Read.as_str()
                 };
                 expand_capability(
                     action,

@@ -52,13 +52,14 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" 2>&1); then
+  if out=$("$BIN" "$@" 2>"$ROOT/said"); then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nexit: %s\nresult: %s\n\n' "$*" "$status" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 # The capability state the journal replays to: a snapshot replaces what was
 # read before it, a capability entry sets one record, a nonce entry one nonce.

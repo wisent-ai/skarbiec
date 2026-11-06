@@ -31,17 +31,25 @@ pub(super) fn read_config(file: &Path) -> Result<Map<String, Value>> {
     let Some(text) = crate::core::read_present(file, "Docker's config.json")? else {
         return Ok(Map::new());
     };
-    match serde_json::from_str(&text).with_context(|| format!("Docker's {} is not JSON", file.display()))? {
+    match serde_json::from_str(&text)
+        .with_context(|| format!("Docker's {} is not JSON", file.display()))?
+    {
         Value::Object(members) => Ok(members),
-        _ => bail!("Docker's {} is not a JSON object; nothing was changed", file.display()),
+        _ => bail!(
+            "Docker's {} is not a JSON object; nothing was changed",
+            file.display()
+        ),
     }
 }
 
 pub(super) fn write_config(file: &Path, members: Map<String, Value>) -> Result<()> {
-    let dir = file.parent().context("Docker's config.json has no directory")?;
+    let dir = file
+        .parent()
+        .context("Docker's config.json has no directory")?;
     std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let text = serde_json::to_string_pretty(&Value::Object(members))?;
-    crate::core::vault::atomic_write(file, text.as_bytes()).with_context(|| format!("write Docker's {}", file.display()))
+    crate::core::vault::atomic_write(file, text.as_bytes())
+        .with_context(|| format!("write Docker's {}", file.display()))
 }
 
 /// The program Docker runs, linked to this binary in `dir`; a link that is
@@ -49,19 +57,35 @@ pub(super) fn write_config(file: &Path, members: Map<String, Value>) -> Result<(
 /// anything else.
 fn link(dir: &str) -> Result<PathBuf> {
     let dir = Path::new(dir);
-    if !dir.is_absolute() || !crate::core::file_type(dir, "the --link directory")?.is_some_and(|kind| kind.is_dir()) {
-        return Err(Usage(format!("--link {} must be an existing directory named by an absolute path, one on PATH", dir.display())).into());
+    if !dir.is_absolute()
+        || !crate::core::file_type(dir, "the --link directory")?.is_some_and(|kind| kind.is_dir())
+    {
+        return Err(Usage(format!(
+            "--link {} must be an existing directory named by an absolute path, one on PATH",
+            dir.display()
+        ))
+        .into());
     }
-    let binary = std::env::current_exe().context("find this skarbiec binary's path for Docker to run")?;
+    let binary =
+        std::env::current_exe().context("find this skarbiec binary's path for Docker to run")?;
     let program = dir.join(PROGRAM);
     match std::fs::read_link(&program) {
         Ok(target) if target == binary => return Ok(program),
-        Ok(target) => bail!("{} already links to {}; remove it or name another directory", program.display(), target.display()),
+        Ok(target) => bail!(
+            "{} already links to {}; remove it or name another directory",
+            program.display(),
+            target.display()
+        ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
-            bail!("{} exists and is not a link; remove it or name another directory", program.display())
+            bail!(
+                "{} exists and is not a link; remove it or name another directory",
+                program.display()
+            )
         }
-        Err(error) => return Err(error).with_context(|| format!("read the link {}", program.display())),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read the link {}", program.display()))
+        }
     }
     std::os::unix::fs::symlink(&binary, &program)
         .with_context(|| format!("link {} to {}", program.display(), binary.display()))?;
@@ -75,12 +99,17 @@ pub(super) fn setup(registry: &str, dir: &str) -> Result<Value> {
     let mut members = read_config(&file)?;
     let helpers = members.entry(HELPERS).or_insert_with(|| json!({}));
     let Some(helpers) = helpers.as_object_mut() else {
-        bail!("{HELPERS} in Docker's {} is not an object; nothing was changed", file.display());
+        bail!(
+            "{HELPERS} in Docker's {} is not an object; nothing was changed",
+            file.display()
+        );
     };
     helpers.insert(registry.to_string(), json!(HELPER));
     write_config(&file, members)?;
     crate::runtime::audit::append("docker-credential-setup", &json!({"registry": registry}))?;
-    Ok(json!({"ok": true, "registry": registry, "program": program.display().to_string(), "config": file.display().to_string()}))
+    Ok(
+        json!({"ok": true, "registry": registry, "program": program.display().to_string(), "config": file.display().to_string()}),
+    )
 }
 
 /// Docker's config.json and the registries it sends to this vault, so doctor
@@ -107,7 +136,12 @@ pub(crate) fn plain_auths() -> Result<Vec<String>> {
         .and_then(Value::as_object)
         .into_iter()
         .flatten()
-        .filter(|(_, entry)| entry.get("auth").and_then(Value::as_str).is_some_and(|auth| !auth.is_empty()))
+        .filter(|(_, entry)| {
+            entry
+                .get("auth")
+                .and_then(Value::as_str)
+                .is_some_and(|auth| !auth.is_empty())
+        })
         .map(|(registry, _)| registry.clone())
         .collect())
 }
@@ -133,7 +167,10 @@ pub(super) fn unset(registry: &str) -> Result<Value> {
         .and_then(Value::as_object_mut)
         .and_then(|helpers| helpers.remove(registry));
     if removed.is_none() {
-        bail!("Docker's {} names no credential helper for {registry}; nothing was changed", file.display());
+        bail!(
+            "Docker's {} names no credential helper for {registry}; nothing was changed",
+            file.display()
+        );
     }
     write_config(&file, members)?;
     crate::runtime::audit::append("docker-credential-unset", &json!({"registry": registry}))?;

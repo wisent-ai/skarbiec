@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: 適用されましたが、応答に状態が示されていません: {answer}",
+  "request.approve": "承認",
+  "request.asks_for": "要求: {seconds} 秒、{uses} 回の使用（目的 {purpose}、対象 {target}）",
+  "request.deny": "拒否",
+  "request.dual": "2 人の承認者が必要です。",
+  "request.hours": "時間",
+  "request.how_long": "{summary}\n\n期間はどのくらいにしますか？",
+  "request.how_many_hours": "何時間ですか？",
+  "request.how_many_uses": "何回使用しますか？",
+  "request.not_applied": "{id}: 適用されませんでした: {error}",
+  "request.not_number": "{question}\n\n「{typed}」は正の整数ではありません（{cause}）。",
+  "request.once": "1回",
+  "request.standing_for": "常時アクセスの対象: {consumer}",
+  "request.summary": "アクセス要求 {id}\n\n内容: {action} {resource}（{kind}）{bounds}\n理由: {reason}\n要求者: {who}{dual}",
+  "request.until_revoked": "取り消すまで"
+}

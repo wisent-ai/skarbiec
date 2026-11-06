@@ -9,7 +9,6 @@
 
 use anyhow::{Context, Result};
 use serde_json::{json, Map, Value};
-use std::process::Command;
 
 use crate::core::items::{domain_matches, item_domains};
 use crate::core::{vault::Vault, vault_path};
@@ -24,19 +23,13 @@ const DIRECTORY_TOTP_URL: &str = "https://api.2fa.directory/v4/totp.json";
 const ATTRIBUTION: &str = "Data sourced from 2FA Directory (https://2fa.directory/) by 2factorauth (https://github.com/2factorauth/).";
 
 /// The directory's sites, domain -> entry; a refusal names the address and
-/// curl's own reason, because without it nothing can be said.
+/// why it could not be read, because without it nothing can be said.
 fn directory() -> Result<Map<String, Value>> {
-    let response = stado_wait::output(Command::new("curl").args(["-sS", "--fail", DIRECTORY_TOTP_URL]))
-        .context("curl the 2FA Directory")?;
-    if !response.status.success() {
-        anyhow::bail!(
-            "the 2FA Directory at {DIRECTORY_TOTP_URL} could not be read ({}): {}; no login was judged",
-            response.status,
-            String::from_utf8_lossy(&response.stderr).trim()
-        );
-    }
-    let parsed: Value = serde_json::from_slice(&response.stdout)
-        .with_context(|| format!("the 2FA Directory at {DIRECTORY_TOTP_URL} answered something that is not JSON"))?;
+    let body = crate::net::https::get(DIRECTORY_TOTP_URL, &[], "the 2FA Directory")
+        .context("no login was judged")?;
+    let parsed: Value = serde_json::from_slice(&body).with_context(|| {
+        format!("the 2FA Directory at {DIRECTORY_TOTP_URL} answered something that is not JSON")
+    })?;
     match parsed {
         Value::Object(sites) => Ok(sites),
         other => anyhow::bail!(
@@ -80,7 +73,11 @@ pub(super) fn run() -> Result<Value> {
         if holds_seed(&payload) {
             continue;
         }
-        let domains = payload.get("context").map(item_domains).into_iter().flatten();
+        let domains = payload
+            .get("context")
+            .map(item_domains)
+            .into_iter()
+            .flatten();
         let offered: Vec<Value> = domains
             .filter_map(|domain| {
                 sites

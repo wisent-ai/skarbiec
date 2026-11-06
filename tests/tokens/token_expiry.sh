@@ -33,14 +33,15 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput: %s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput: %s\nstderr: %s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 names() {
-  case "$out" in
+  case "$said" in
     *"$*"*) echo "ok: refused naming: $*" >>"$REPORT" ;;
-    *) fail "expected a refusal naming '$*', got: $out" ;;
+    *) fail "expected a refusal naming '$*', got: $said; output: $out" ;;
   esac
 }
 b64url() {
@@ -71,7 +72,8 @@ store "$HOST" "db.example.com"
 store "$BROKEN" "$(b64url '{"alg').$(b64url '{"exp":true}').signature-$RUN"
 
 WANT=ok run expiry tokens
-case "$out" in *"signature-$RUN"*|*"secret-subject-$RUN"*) fail "expiry tokens printed a token or its subject" ;; esac
+# Neither stream may carry a token or its subject.
+case "$out$said" in *"signature-$RUN"*|*"secret-subject-$RUN"*) fail "expiry tokens printed a token or its subject" ;; esac
 printf '%s' "$out" >"$ROOT/tokens.json"
 jq -e --arg old "$OLD" --arg epoch "$EPOCH_ISO" '.tokens[0].item == $old and .tokens[0].expired and .tokens[0].expires_at == $epoch' "$ROOT/tokens.json" >/dev/null \
   || fail "the token that ran out at the epoch is not first and expired"

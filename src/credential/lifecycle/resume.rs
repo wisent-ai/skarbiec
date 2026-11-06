@@ -178,7 +178,13 @@ pub(in crate::credential) fn resume(
     let response_status = match response.get("status").and_then(Value::as_str) {
         Some(status) => status,
         None => {
-            update_request(vault_path, &request_item, &request, "operation_failed", None)?;
+            update_request(
+                vault_path,
+                &request_item,
+                &request,
+                "operation_failed",
+                None,
+            )?;
             bail!(
                 "Weles answered the resumed {operation} of {credential_id} with no status, so whether it was queued is unknown; the operation is recorded as failed: {response}"
             );

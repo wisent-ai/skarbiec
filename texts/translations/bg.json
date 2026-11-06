@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: приложено, но отговорът не посочва нито статус, нито състояние: {answer}",
+  "request.approve": "Одобри",
+  "request.asks_for": "Иска: {seconds} с, {uses} използвания (цел {purpose}, за {target})",
+  "request.deny": "Откажи",
+  "request.dual": "Изисква двама вземащи решение.",
+  "request.hours": "Часове",
+  "request.how_long": "{summary}\n\nЗа колко време?",
+  "request.how_many_hours": "Колко часа?",
+  "request.how_many_uses": "Колко използвания?",
+  "request.not_applied": "{id}: не е приложено: {error}",
+  "request.not_number": "{question}\n\n„{typed}“ не е положително цяло число ({cause}).",
+  "request.once": "Веднъж",
+  "request.standing_for": "Постоянен достъп за: {consumer}",
+  "request.summary": "Заявка за достъп {id}\n\nКакво: {action} {resource} ({kind}){bounds}\nЗащо: {reason}\nКой: {who}{dual}",
+  "request.until_revoked": "До отмяна"
+}

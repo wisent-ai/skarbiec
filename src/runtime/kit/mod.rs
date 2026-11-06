@@ -54,16 +54,22 @@ pub fn kit() -> Result<Value> {
         .map(|entry| json!({"at": entry.get("at"), "backup": entry.get("extra").and_then(|extra| extra.get("backup"))}));
     let missing: Vec<&str> = [
         (owner.is_empty(), "the vault records no owner"),
-        (owner_key.is_none(), "the owner's key fingerprint is not registered"),
-        (recovery_key.is_empty(), "the vault records no recovery key, so losing the owner's key loses the vault"),
+        (
+            owner_key.is_none(),
+            "the owner's key fingerprint is not registered",
+        ),
+        (
+            recovery_key.is_empty(),
+            "the vault records no recovery key, so losing the owner's key loses the vault",
+        ),
     ]
     .into_iter()
     .filter_map(|(absent, why)| absent.then_some(why))
     .collect();
     let steps = [
         "Install Skarbiec on the new machine.",
-        "Import the recovery secret key you kept offline: gpg --import <recovery-key file>.",
         "Bring the vault back: copy the latest backup below to the vault file's path (skarbiec backup check <copy> --open says it opens), or pull it from one of the bonds below.",
+        "Bring the recovery key you kept offline into the vault's key file: skarbiec keys import --gnupg-home <the offline key's directory> --keys <recovery fingerprint above>.",
         "Run skarbiec doctor, then skarbiec recipient list, and replace the lost owner key with skarbiec owner rotate.",
     ];
     // The page as it is printed, so every surface prints the same one: the
@@ -77,11 +83,17 @@ pub fn kit() -> Result<Value> {
         recorded("Recovery key fingerprint", Some(recovery_key.as_str())),
         recorded(
             "Latest backup",
-            latest_backup.as_ref().and_then(|entry| entry.get("backup")).and_then(Value::as_str),
+            latest_backup
+                .as_ref()
+                .and_then(|entry| entry.get("backup"))
+                .and_then(Value::as_str),
         ),
         recorded(
             "Latest backup made at",
-            latest_backup.as_ref().and_then(|entry| entry.get("at")).and_then(Value::as_str),
+            latest_backup
+                .as_ref()
+                .and_then(|entry| entry.get("at"))
+                .and_then(Value::as_str),
         ),
     ];
     page.extend(missing.iter().map(|gap| format!("Missing: {gap}")));

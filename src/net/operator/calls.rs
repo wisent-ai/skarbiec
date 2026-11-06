@@ -2,7 +2,7 @@
 // bodies carry JSON; the backends take the flags and positionals a command
 // line would have carried.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -150,5 +150,9 @@ pub(super) fn request(
     flags: &HashMap<String, String>,
     positionals: &[String],
 ) -> Result<Value> {
-    answered(crate::access::request::dispatch(command, flags, positionals))
+    answered(crate::access::request::dispatch(
+        command,
+        flags,
+        positionals,
+    ))
 }

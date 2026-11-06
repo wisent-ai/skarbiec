@@ -7,7 +7,6 @@ use serde_json::{json, Value};
 use std::ffi::OsString;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::num::NonZeroU32;
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
@@ -21,10 +20,9 @@ pub(super) struct StateLock {
     _file: File,
 }
 
-/// Group and other permission bits, as the C library names them; an owner-only
-/// file has none of them.
+/// Group and other permission bits; an owner-only file has none of them.
 fn unsafe_mode_bits() -> u32 {
-    u32::from(libc::S_IRWXG | libc::S_IRWXO)
+    crate::core::mode::GROUP_AND_OTHER
 }
 
 /// `path` with `suffix` appended to its last component.
@@ -81,7 +79,7 @@ fn validate_owned_metadata(path: &Path, metadata: &fs::Metadata) -> Result<()> {
             path.display()
         );
     }
-    if NonZeroU32::new(metadata.mode() & unsafe_mode_bits()).is_some() {
+    if (metadata.mode() & unsafe_mode_bits()) != 0 {
         bail!(
             "acquisition state {} permissions must not grant group or other access",
             path.display()

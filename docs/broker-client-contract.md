@@ -21,7 +21,7 @@ The broker also serves the access request register (docs/design/access-requests.
 ## How It Works
 
 The check extracts:
-1. **Supported operations** from `src/net/operator/routes.rs` — the array the broker checks the operation against (`if ![...].contains(&operation.as_str())`)
+1. **Supported operations** from `src/net/operator/credential.rs` — the variants of the `Operation` enum the broker deserializes the request's `operation` into, in the kebab-case its `#[serde(rename_all = "kebab-case")]` reads them by
 2. **Called operations** from every Swift file under `Sources/SkarbiecDesktop` — each literal `"operation": "<name>"` the client sends
 
 It compares them and fails if the client calls any unsupported operation, naming the operation, the client function that sends it, and the file and line:
@@ -39,13 +39,13 @@ The check fails, and CI cannot proceed until the contract is valid. An operation
 
 ```bash
 tools/check-broker-client-contract.sh \
-  src/net/operator/routes.rs \
+  src/net/operator/credential.rs \
   ../skarbiec-desktop/Sources/SkarbiecDesktop
 ```
 
 Exit code 0 = all operations valid.  
 Exit code 1 = unsupported operations found.  
-Exit code 2 = an input is missing, or routes.rs holds no operation list in the expected shape.
+Exit code 2 = an input is missing, or credential.rs holds no kebab-case `Operation` enum.
 
 ## In CI
 

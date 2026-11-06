@@ -17,7 +17,12 @@ const HEADER: &str = "folder,favorite,type,name,notes,fields,reprompt,login_uri,
 /// format holds logins and notes only, so any other kind is refused naming
 /// the items, rather than left out of a file that would read as complete.
 pub(crate) fn items(rows: &[(String, Value)]) -> Result<String> {
-    let kind_of = |payload: &Value| payload.get("kind").and_then(Value::as_str).map(str::to_string);
+    let kind_of = |payload: &Value| {
+        payload
+            .get("kind")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
     let others: Vec<&str> = rows
         .iter()
         .filter(|(_, payload)| !matches!(kind_of(payload).as_deref(), Some("login") | Some("note")))
@@ -68,8 +73,19 @@ pub(crate) fn items(rows: &[(String, Value)]) -> Result<String> {
         } else {
             // A note's text is its value; notes kept beside it follow it.
             let value = text("value").with_context(|| format!("{id} cannot be exported"))?;
-            let body = if notes.is_empty() { value } else { format!("{value}\n\n{notes}") };
-            ("note", body, String::new(), String::new(), String::new(), String::new())
+            let body = if notes.is_empty() {
+                value
+            } else {
+                format!("{value}\n\n{notes}")
+            };
+            (
+                "note",
+                body,
+                String::new(),
+                String::new(),
+                String::new(),
+                String::new(),
+            )
         };
         let cells = [
             String::new(),

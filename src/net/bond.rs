@@ -112,7 +112,7 @@ pub(crate) fn handle_enroll(
     }
     crypto::import_key(armored).context("import enrolled public key")?;
     let fingerprint =
-        crypto::fingerprint_for(uid)?.context("enrolled key has no uid match in the keyring")?;
+        crypto::fingerprint_for(uid)?.with_context(|| format!("the enrolled key names no user id {uid}; the replica must enroll the key whose user id is the uid it asks for"))?;
     vault.register_recipient(uid, &fingerprint, "member")?;
     let mut shared = Vec::new();
     let mut skipped = Vec::new();
@@ -226,7 +226,7 @@ pub(crate) fn cmd_pull(flags: &HashMap<String, String>) -> Result<Value> {
             }
         }
     }
-    crate::core::vault::atomic_write(&live, serde_json::to_string_pretty(&doc)?.as_bytes())
+    crate::core::vault::fence::replace_vault(&live, serde_json::to_string_pretty(&doc)?.as_bytes())
         .with_context(|| format!("install pulled vault at {}", live.display()))?;
     crate::runtime::audit::append(
         "pull",

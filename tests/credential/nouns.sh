@@ -40,15 +40,19 @@ fail() {
   echo "FAIL: $*" | tee -a "$REPORT" >/dev/stderr
   false
 }
-# Runs one skarbiec command, its standard output and standard error together
-# in $out; WANT says whether it had to succeed (ok) or be refused (refused).
+# Runs one skarbiec command, its standard output in $out and its standard
+# error in $said; WANT says whether it had to succeed (ok) or be refused
+# (refused).
 run() {
-  if out=$("$BIN" "$@" </dev/null 2>&1); then got=ok; else got=refused; fi
-  printf '$ skarbiec %s\nresult: %s\noutput:\n%s\n\n' "$*" "$got" "$out" >>"$REPORT"
-  [ "$got" = "${WANT:?}" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  if out=$("$BIN" "$@" </dev/null 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
+  printf '$ skarbiec %s\nresult: %s\noutput:\n%s\nstderr:\n%s\n\n' "$*" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "${WANT:?}" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
+# A success answers on standard output; a refusal says why on standard error.
 says() {
-  case "$out" in
+  if [ "$got" = ok ]; then seen=$out; else seen=$said; fi
+  case "$seen" in
     *"$1"*) echo "ok: $2" >>"$REPORT" ;;
     *) fail "$2: expected '$1' in the answer" ;;
   esac

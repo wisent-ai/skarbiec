@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: waa la dabaqay, laakiin jawaabtu ma sheegayso xaalad: {answer}",
+  "request.approve": "Ansixi",
+  "request.asks_for": "Wuxuu codsanayaa: {seconds} il, {uses} isticmaal (ujeedo {purpose}, loogu talagalay {target})",
+  "request.deny": "Diid",
+  "request.dual": "Waxay u baahan tahay laba go'aamiye.",
+  "request.hours": "Saacado",
+  "request.how_long": "{summary}\n\nMuddo intee le'eg?",
+  "request.how_many_hours": "Immisa saacadood?",
+  "request.how_many_uses": "Immisa isticmaal?",
+  "request.not_applied": "{id}: lama dabaqin: {error}",
+  "request.not_number": "{question}\n\n“{typed}” ma aha tiro dhan oo togan ({cause}).",
+  "request.once": "Hal mar",
+  "request.standing_for": "Gelitaan joogto ah oo loogu talagalay: {consumer}",
+  "request.summary": "Codsi gelitaan {id}\n\nMaxay: {action} {resource} ({kind}){bounds}\nMaxay sabab: {reason}\nYaa: {who}{dual}",
+  "request.until_revoked": "Ilaa laga laalo"
+}

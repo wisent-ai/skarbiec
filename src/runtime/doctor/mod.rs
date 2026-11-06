@@ -15,13 +15,11 @@ use anyhow::Result;
 use serde_json::{json, Value};
 
 mod access;
-mod daemons;
 mod helpers;
 mod services;
 mod vault;
 
 use access::{credentials_check, grants_check};
-use daemons::daemons_check;
 use services::{endpoint_check, worm_check};
 use vault::{audit_check, selection_check, vault_check};
 
@@ -89,7 +87,11 @@ fn keys_check() -> Value {
         Err(error) => return check("keys", FAIL, format!("{error:#}")),
     };
     if answer.get("ok").and_then(Value::as_bool) == Some(true) {
-        return check("keys", PASS, "every key the vault writes to is in this keyring and unexpired".into());
+        return check(
+            "keys",
+            PASS,
+            "every key the vault writes to is in this host's key file and unexpired".into(),
+        );
     }
     let ended: Vec<String> = answer
         .get("keys")
@@ -103,7 +105,7 @@ fn keys_check() -> Value {
         })
         .map(|row| match row.get("repair").and_then(Value::as_str) {
             Some(repair) => format!("{} ({repair})", row["holder"]),
-            None => format!("{} (not in this keyring: import it)", row["holder"]),
+            None => format!("{} (not in this host's key file: import it with `skarbiec keys import` or `recipient add --import`)", row["holder"]),
         })
         .chain(
             answer
@@ -117,7 +119,10 @@ fn keys_check() -> Value {
     check(
         "keys",
         FAIL,
-        format!("writes will fail until these keys are usable: {}", ended.join("; ")),
+        format!(
+            "writes will fail until these keys are usable: {}",
+            ended.join("; ")
+        ),
     )
 }
 
@@ -132,15 +137,33 @@ fn backup_check() -> Value {
         &[],
     );
     let entries = match listed {
-        Ok(Some(answer)) => answer.get("entries").and_then(Value::as_array).cloned().into_iter().flatten().collect::<Vec<_>>(),
+        Ok(Some(answer)) => answer
+            .get("entries")
+            .and_then(Value::as_array)
+            .cloned()
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
         Ok(None) => return check("backup", FAIL, "the audit journal answered nothing".into()),
         Err(error) => return check("backup", FAIL, format!("{error:#}")),
     };
     let Some(latest) = entries.last() else {
-        return check("backup", NOT_CONFIGURED, "no backup recorded; skarbiec backup <directory> makes one".into());
+        return check(
+            "backup",
+            NOT_CONFIGURED,
+            "no backup recorded; skarbiec backup <directory> makes one".into(),
+        );
     };
-    let Some(path) = latest.get("extra").and_then(|extra| extra.get("backup")).and_then(Value::as_str) else {
-        return check("backup", FAIL, format!("the newest backup entry names no copy: {latest}"));
+    let Some(path) = latest
+        .get("extra")
+        .and_then(|extra| extra.get("backup"))
+        .and_then(Value::as_str)
+    else {
+        return check(
+            "backup",
+            FAIL,
+            format!("the newest backup entry names no copy: {latest}"),
+        );
     };
     match crate::core::vault::Vault::open(std::path::PathBuf::from(path)) {
         Ok(_) => check("backup", PASS, format!("the newest backup {path} reads as a vault (made {})", latest["at"])),
@@ -160,7 +183,6 @@ pub fn report(tail: Option<&str>) -> Result<Value> {
         vault_check(),
         selection_check(),
         audit_check(tail),
-        daemons_check(),
         endpoint_check(),
         worm_check(),
         grants_check(),
@@ -209,50 +231,18 @@ pub fn report_alerting(tail: Option<&str>) -> Result<Value> {
         .filter(|entry| entry.get("status").and_then(Value::as_str) == Some(FAIL))
         .map(|entry| format!("{}: {}", entry["check"], entry["detail"]))
         .collect();
-    answer["alert"] = match failed.is_empty() {
-        true => json!({"posted": false, "reason": "no check failed"}),
-        false => match crate::runtime::alert::send(&format!("skarbiec doctor: {} check(s) failed — {}", failed.len(), failed.join("; "))) {
+    answer["alert"] = if failed.is_empty() {
+        json!({"posted": false, "reason": "no check failed"})
+    } else {
+        match crate::runtime::alert::send(&format!(
+            "skarbiec doctor: {} check(s) failed — {}",
+            failed.len(),
+            failed.join("; ")
+        )) {
             Ok(Some(_)) => json!({"posted": true}),
             Ok(None) => json!({"posted": false, "reason": "no alert is set on this host"}),
             Err(error) => json!({"posted": false, "error": format!("{error:#}")}),
-        },
+        }
     };
     Ok(answer)
-}
-
-/// Repair the GnuPG daemons and say what happened, as a receipt.
-///
-/// `doctor` reports; this acts, because the state it repairs is the one that
-/// makes every other check unreadable: a wedged keyboxd answers
-/// `keydb_search failed: Broken pipe` and the vault then refuses reads of
-/// items whose keys are present, which reads downstream as unreachable
-/// infrastructure. The receipt names the daemons, so a caller sees the same
-/// three names the escalation uses rather than a bare success, and what each
-/// running daemon held before it was replaced, so a bloat and a wedge read
-/// differently in the same receipt.
-pub fn recover_daemons() -> Result<Value> {
-    let outcome = crate::core::crypto::recover_daemons();
-    let recovered = outcome.is_ok();
-    let (before, detail) = match outcome {
-        Ok(before) => (before, None),
-        Err(error) => (Vec::new(), Some(format!("{error:#}"))),
-    };
-    // The limit the footprints are judged against, or why it is not known:
-    // a receipt that only omits it reads as "no limit applies".
-    let (limit_bytes, limit_error) = match crate::core::crypto::daemon_memory_limit_bytes() {
-        Ok(limit) => (Some(limit), None),
-        Err(error) => (None, Some(format!("{error:#}"))),
-    };
-    Ok(json!({
-        "recovered": recovered,
-        "daemons": ["keyboxd", "gpg-agent", "scdaemon"],
-        "before": before.iter().map(|footprint| json!({
-            "daemon": footprint.daemon,
-            "pid": footprint.pid,
-            "bytes": footprint.bytes,
-        })).collect::<Vec<_>>(),
-        "limit_bytes": limit_bytes,
-        "limit_error": limit_error,
-        "detail": detail,
-    }))
 }

@@ -39,8 +39,10 @@ impl Vault {
             .get("ciphertext")
             .and_then(Value::as_str)
             .with_context(|| format!("the version of {id} at {at} holds no ciphertext"))?;
-        let plain = crypto::decrypt(cipher).with_context(|| format!("open the version of {id} at {at}"))?;
-        serde_json::from_str(&plain).with_context(|| format!("the version of {id} at {at} is not JSON"))
+        let plain =
+            crypto::decrypt(cipher).with_context(|| format!("open the version of {id} at {at}"))?;
+        serde_json::from_str(&plain)
+            .with_context(|| format!("the version of {id} at {at} is not JSON"))
     }
 
     /// Remove for good every saved version of item `id` stamped before
@@ -63,12 +65,20 @@ impl Vault {
         let forgotten: Vec<String> = history
             .iter()
             .filter(|version| older(version))
-            .filter_map(|version| version.get("created_at").and_then(Value::as_str).map(str::to_string))
+            .filter_map(|version| {
+                version
+                    .get("created_at")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
             .collect();
         if forgotten.is_empty() {
             return Ok(forgotten);
         }
-        let kept: Vec<Value> = history.into_iter().filter(|version| !older(version)).collect();
+        let kept: Vec<Value> = history
+            .into_iter()
+            .filter(|version| !older(version))
+            .collect();
         self.doc
             .get_mut("items")
             .and_then(|items| items.get_mut(id))

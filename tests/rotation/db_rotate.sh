@@ -69,9 +69,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out; stderr: $said"
 }
 item() {
   jq -n --arg user "$ACCOUNT" --arg password "$*" '{schema:"skarbiec.item.v2",kind:"login",fields:{username:$user,password:$password},context:{}}' >"$ROOT/stdin"
@@ -87,7 +88,8 @@ LENGTH="$(printf '%s' "$FIRST$FIRST" | wc -c | tr -d ' ')"
 item "$FIRST"
 
 WANT=ok run rotate "$ITEM" --with database --url "$URL" --length "$LENGTH"
-case "$out" in *"$FIRST"*) fail "rotate printed the old password" ;; esac
+# Neither stream may carry the old password.
+case "$out$said" in *"$FIRST"*) fail "rotate printed the old password" ;; esac
 WANT=ok run get "$ITEM" --field password
 NEW="$out"
 [ "$NEW" != "$FIRST" ] || fail "the item still holds the old password"
@@ -100,16 +102,16 @@ echo "ok: the server and the item hold the new password, the old one is a saved 
 
 item "wrong$$"
 WANT=refused run rotate "$ITEM" --with database --url "$URL" --length "$LENGTH"
-case "$out" in *"the server holds the old password, and so does $ITEM again"*) ;; *) fail "the refusal does not say the item holds the old password again: $out" ;; esac
+case "$said" in *"the server holds the old password, and so does $ITEM again"*) ;; *) fail "the refusal does not say the item holds the old password again: $said; output: $out" ;; esac
 WANT=ok run get "$ITEM" --field password
 [ "$out" = "wrong$$" ] || fail "a failed rotation did not put the item's password back"
 signs_in "$NEW" || fail "a failed rotation changed the server's password"
 echo "ok: a refused rotation leaves the server alone and the item as it was" >>"$REPORT"
 
 WANT=refused run rotate "$ITEM" --with database --url "postgresql://$ACCOUNT@localhost/db" --length "$LENGTH"
-case "$out" in *"never the address"*) ;; *) fail "an address naming a user was not refused: $out" ;; esac
+case "$said" in *"never the address"*) ;; *) fail "an address naming a user was not refused: $said; output: $out" ;; esac
 WANT=refused run rotate "$ITEM" --with database --url "redis://localhost/db" --length "$LENGTH"
-case "$out" in *"neither postgresql:// nor mysql://"*) ;; *) fail "an unknown scheme was not refused: $out" ;; esac
+case "$said" in *"neither postgresql:// nor mysql://"*) ;; *) fail "an unknown scheme was not refused: $said; output: $out" ;; esac
 
 touch "$ROOT/passed"
 echo "PASS" >>"$REPORT"

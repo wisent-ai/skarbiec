@@ -48,14 +48,13 @@ pub(super) fn handle(
     } = rotation;
     // The write route refused a request without a consumer or bearer by name.
     if !grant::token_allows_field_action(
-            &vault,
-            consumer,
-            bearer,
-            crate::access::actions::Action::Rotate.as_str(),
-            id,
-            field,
-        )?
-    {
+        &vault,
+        consumer,
+        bearer,
+        crate::access::actions::Action::Rotate.as_str(),
+        id,
+        field,
+    )? {
         return refuse(
             stream,
             "HTTP/1.1 403 Forbidden",

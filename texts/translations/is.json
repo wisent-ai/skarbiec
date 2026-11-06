@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: beitt, en svarið tilgreinir hvorki stöðu né ástand: {answer}",
+  "request.approve": "Samþykkja",
+  "request.asks_for": "Biður um: {seconds} s, {uses} notkanir (tilgangur {purpose}, fyrir {target})",
+  "request.deny": "Hafna",
+  "request.dual": "Krefst tveggja ákvörðunaraðila.",
+  "request.hours": "Klukkustundir",
+  "request.how_long": "{summary}\n\nHve lengi?",
+  "request.how_many_hours": "Hve margar klukkustundir?",
+  "request.how_many_uses": "Hve margar notkanir?",
+  "request.not_applied": "{id}: ekki beitt: {error}",
+  "request.not_number": "{question}\n\n„{typed}“ er ekki jákvæð heiltala ({cause}).",
+  "request.once": "Einu sinni",
+  "request.standing_for": "Varanlegur aðgangur fyrir: {consumer}",
+  "request.summary": "Aðgangsbeiðni {id}\n\nHvað: {action} {resource} ({kind}){bounds}\nHvers vegna: {reason}\nHver: {who}{dual}",
+  "request.until_revoked": "Þar til afturkallað"
+}

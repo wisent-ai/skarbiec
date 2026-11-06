@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: nýtt, men svarið nevnir hvørki støðu ella ástand: {answer}",
+  "request.approve": "Góðkenn",
+  "request.asks_for": "Biður um: {seconds} s, {uses} nýtslur (endamál {purpose}, til {target})",
+  "request.deny": "Avvís",
+  "request.dual": "Krevur tveir avgerðartakarar.",
+  "request.hours": "Tímar",
+  "request.how_long": "{summary}\n\nHvussu leingi?",
+  "request.how_many_hours": "Hvussu nógvir tímar?",
+  "request.how_many_uses": "Hvussu nógvar nýtslur?",
+  "request.not_applied": "{id}: ikki nýtt: {error}",
+  "request.not_number": "{question}\n\n„{typed}“ er ikki eitt positivt heiltal ({cause}).",
+  "request.once": "Eina ferð",
+  "request.standing_for": "Varandi atgongd til: {consumer}",
+  "request.summary": "Umbøn um atgongd {id}\n\nHvat: {action} {resource} ({kind}){bounds}\nHví: {reason}\nHvør: {who}{dual}",
+  "request.until_revoked": "Til tað verður tikið aftur"
+}

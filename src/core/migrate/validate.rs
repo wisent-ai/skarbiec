@@ -76,8 +76,9 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
                 .get("revision")
                 .and_then(Value::as_u64)
                 .context("v2 revision has no number")?;
-            let number = std::num::NonZeroU64::new(number)
-                .with_context(|| format!("{id} has a revision numbered zero; revisions are numbered from one"))?;
+            let number = std::num::NonZeroU64::new(number).with_context(|| {
+                format!("{id} has a revision numbered zero; revisions are numbered from one")
+            })?;
             if previous_revision.is_some_and(|previous| number <= previous) {
                 bail!("{id} revisions are not strictly increasing");
             }
@@ -89,7 +90,9 @@ pub(super) fn validate_v2(vault: &Vault) -> Result<()> {
             let revision_payload = revision_payload(revision)?;
             schema::validate_payload(&revision_payload, revision_kind)?;
         }
-        if item.get("revision").and_then(Value::as_u64) != previous_revision.map(std::num::NonZeroU64::get) {
+        if item.get("revision").and_then(Value::as_u64)
+            != previous_revision.map(std::num::NonZeroU64::get)
+        {
             bail!("{id} envelope revision does not match current revision");
         }
     }

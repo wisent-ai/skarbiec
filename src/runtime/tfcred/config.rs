@@ -19,7 +19,8 @@ const ANY_HELPER: &str = "credentials_helper ";
 const CREDENTIALS: &str = "credentials";
 
 fn home() -> Result<PathBuf> {
-    crate::core::env::path("HOME").context("HOME names no directory where Terraform keeps its configuration")
+    crate::core::env::path("HOME")
+        .context("HOME names no directory where Terraform keeps its configuration")
 }
 
 pub(super) fn cli_config() -> Result<PathBuf> {
@@ -53,7 +54,12 @@ fn read_text(file: &Path) -> Result<String> {
 
 /// Where in `lines` this vault's block starts, if it is there.
 fn ours(lines: &[&str]) -> Option<usize> {
-    lines.windows(BLOCK.len()).position(|window| window.iter().zip(BLOCK).all(|(line, wanted)| line.trim_end() == *wanted))
+    lines.windows(BLOCK.len()).position(|window| {
+        window
+            .iter()
+            .zip(BLOCK)
+            .all(|(line, wanted)| line.trim_end() == *wanted)
+    })
 }
 
 /// The credentials helper Terraform's configuration names, other than this
@@ -76,30 +82,53 @@ pub(super) fn stored_tokens() -> Result<(PathBuf, Map<String, Value>)> {
     };
     match serde_json::from_str(&text).with_context(|| format!("{} is not JSON", file.display()))? {
         Value::Object(members) => Ok((file, members)),
-        _ => bail!("{} is not a JSON object; nothing was changed", file.display()),
+        _ => bail!(
+            "{} is not a JSON object; nothing was changed",
+            file.display()
+        ),
     }
 }
 
 fn hosts_in(members: &Map<String, Value>) -> Vec<String> {
-    members.get(CREDENTIALS).and_then(Value::as_object).into_iter().flatten().map(|(host, _)| host.clone()).collect()
+    members
+        .get(CREDENTIALS)
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(host, _)| host.clone())
+        .collect()
 }
 
 /// Link the helper program to this binary; one already linked here is kept,
 /// one naming anything else is refused.
 fn link(program: &Path) -> Result<()> {
-    let binary = std::env::current_exe().context("find this skarbiec binary's path for Terraform to run")?;
+    let binary =
+        std::env::current_exe().context("find this skarbiec binary's path for Terraform to run")?;
     match std::fs::read_link(program) {
         Ok(target) if target == binary => return Ok(()),
-        Ok(target) => bail!("{} already links to {}; remove it first", program.display(), target.display()),
+        Ok(target) => bail!(
+            "{} already links to {}; remove it first",
+            program.display(),
+            target.display()
+        ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
-            bail!("{} exists and is not a link; remove it first", program.display())
+            bail!(
+                "{} exists and is not a link; remove it first",
+                program.display()
+            )
         }
-        Err(error) => return Err(error).with_context(|| format!("read the link {}", program.display())),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read the link {}", program.display()))
+        }
     }
-    let dir = program.parent().context("the plugin path has no directory")?;
-    std::fs::create_dir_all(dir).with_context(|| format!("create Terraform's plugin directory {}", dir.display()))?;
-    std::os::unix::fs::symlink(&binary, program).with_context(|| format!("link {} to {}", program.display(), binary.display()))
+    let dir = program
+        .parent()
+        .context("the plugin path has no directory")?;
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("create Terraform's plugin directory {}", dir.display()))?;
+    std::os::unix::fs::symlink(&binary, program)
+        .with_context(|| format!("link {} to {}", program.display(), binary.display()))
 }
 
 pub(super) fn setup() -> Result<Value> {
@@ -121,13 +150,17 @@ pub(super) fn setup() -> Result<Value> {
             kept.extend(BLOCK.iter().map(|line| (*line).to_string()));
             let mut out = kept.join("\n");
             out.push('\n');
-            crate::core::vault::atomic_write(&file, out.as_bytes()).with_context(|| format!("write Terraform's {}", file.display()))?;
+            crate::core::vault::atomic_write(&file, out.as_bytes())
+                .with_context(|| format!("write Terraform's {}", file.display()))?;
             true
         }
     };
     let (tokens, members) = stored_tokens()?;
     let left = hosts_in(&members);
-    crate::runtime::audit::append("terraform-credential-setup", &json!({"config": file, "program": program}))?;
+    crate::runtime::audit::append(
+        "terraform-credential-setup",
+        &json!({"config": file, "program": program}),
+    )?;
     Ok(json!({
         "ok": true,
         "config": file,
@@ -143,7 +176,10 @@ pub(super) fn unset() -> Result<Value> {
     let text = read_text(&file)?;
     let lines: Vec<&str> = text.lines().collect();
     let Some(start) = ours(&lines) else {
-        bail!("{} names no skarbiec credentials helper; nothing was changed", file.display());
+        bail!(
+            "{} names no skarbiec credentials helper; nothing was changed",
+            file.display()
+        );
     };
     let kept: Vec<&str> = lines
         .iter()
@@ -163,15 +199,21 @@ pub(super) fn unset() -> Result<Value> {
     let ours = match std::fs::read_link(&program) {
         Ok(target) => target == binary,
         Err(error)
-            if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput) =>
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+            ) =>
         {
             false
         }
         Err(error) => {
-            return Err(error).with_context(|| format!("read the link {}; nothing was changed", program.display()));
+            return Err(error).with_context(|| {
+                format!("read the link {}; nothing was changed", program.display())
+            });
         }
     };
-    crate::core::vault::atomic_write(&file, out.as_bytes()).with_context(|| format!("write Terraform's {}", file.display()))?;
+    crate::core::vault::atomic_write(&file, out.as_bytes())
+        .with_context(|| format!("write Terraform's {}", file.display()))?;
     if ours {
         std::fs::remove_file(&program).with_context(|| format!("remove {}", program.display()))?;
     }
@@ -189,8 +231,17 @@ pub(super) fn status() -> Result<Value> {
     let program = plugin()?;
     let linked = match std::fs::read_link(&program) {
         Ok(target) => crate::core::is_present(&target, "the helper program's link target")?,
-        Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput) => false,
-        Err(error) => return Err(error).with_context(|| format!("read the link {}", program.display())),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::NotFound | std::io::ErrorKind::InvalidInput
+            ) =>
+        {
+            false
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("read the link {}", program.display()))
+        }
     };
     let (tokens, members) = stored_tokens()?;
     Ok(json!({
@@ -207,15 +258,24 @@ pub(super) fn status() -> Result<Value> {
 
 /// Take one host's token out of credentials.tfrc.json, writing the rest back.
 pub(super) fn remove_token(file: &Path, mut members: Map<String, Value>, host: &str) -> Result<()> {
-    let removed = members.get_mut(CREDENTIALS).and_then(Value::as_object_mut).and_then(|hosts| hosts.remove(host));
+    let removed = members
+        .get_mut(CREDENTIALS)
+        .and_then(Value::as_object_mut)
+        .and_then(|hosts| hosts.remove(host));
     if removed.is_none() {
         bail!("{} holds no token for {host}", file.display());
     }
     let text = serde_json::to_string_pretty(&Value::Object(members))?;
-    crate::core::vault::atomic_write(file, text.as_bytes()).with_context(|| format!("write {}", file.display()))
+    crate::core::vault::atomic_write(file, text.as_bytes())
+        .with_context(|| format!("write {}", file.display()))
 }
 
 /// The token credentials.tfrc.json holds for `host`.
 pub(super) fn token_for(members: &Map<String, Value>, host: &str) -> Option<String> {
-    members.get(CREDENTIALS)?.get(host)?.get("token")?.as_str().map(str::to_string)
+    members
+        .get(CREDENTIALS)?
+        .get(host)?
+        .get("token")?
+        .as_str()
+        .map(str::to_string)
 }

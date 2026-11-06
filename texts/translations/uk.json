@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: застосовано, але відповідь не вказує ні статусу, ні стану: {answer}",
+  "request.approve": "Схвалити",
+  "request.asks_for": "Просить: {seconds} с, {uses} використань (мета {purpose}, для {target})",
+  "request.deny": "Відхилити",
+  "request.dual": "Потрібні двоє, хто ухвалює рішення.",
+  "request.hours": "Години",
+  "request.how_long": "{summary}\n\nНа який час?",
+  "request.how_many_hours": "Скільки годин?",
+  "request.how_many_uses": "Скільки використань?",
+  "request.not_applied": "{id}: не застосовано: {error}",
+  "request.not_number": "{question}\n\n«{typed}» не є додатним цілим числом ({cause}).",
+  "request.once": "Один раз",
+  "request.standing_for": "Постійний доступ для: {consumer}",
+  "request.summary": "Запит на доступ {id}\n\nЩо: {action} {resource} ({kind}){bounds}\nЧому: {reason}\nХто: {who}{dual}",
+  "request.until_revoked": "До відкликання"
+}

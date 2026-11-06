@@ -12,7 +12,14 @@ use serde_json::{json, Value};
 /// why a list could not be read, null when it was.
 pub(crate) fn naming(id: &str) -> Value {
     let (aws, aws_error) = match crate::runtime::awscred::profiles() {
-        Ok((_, found)) => (found.iter().filter(|profile| profile.item == id).map(|profile| profile.name.clone()).collect(), None),
+        Ok((_, found)) => (
+            found
+                .iter()
+                .filter(|profile| profile.item == id)
+                .map(|profile| profile.name.clone())
+                .collect(),
+            None,
+        ),
         Err(error) => (Vec::new(), Some(format!("{error:#}"))),
     };
     let listed = crate::runtime::kubecred::kubectl_on_path().and_then(|on_path| {
@@ -23,7 +30,14 @@ pub(crate) fn naming(id: &str) -> Value {
         }
     });
     let (kube, kube_error) = match listed {
-        Ok(found) => (found.iter().filter(|user| user.item == id).map(|user| user.name.clone()).collect(), None),
+        Ok(found) => (
+            found
+                .iter()
+                .filter(|user| user.item == id)
+                .map(|user| user.name.clone())
+                .collect(),
+            None,
+        ),
         Err(error) => (Vec::new(), Some(format!("{error:#}"))),
     };
     let aws: Vec<String> = aws;

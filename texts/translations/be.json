@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: ужыта, але адказ не называе ні статусу, ні стану: {answer}",
+  "request.approve": "Ухваліць",
+  "request.asks_for": "Просіць: {seconds} с, {uses} выкарыстанняў (мэта {purpose}, для {target})",
+  "request.deny": "Адхіліць",
+  "request.dual": "Патрэбныя двое, хто прымае рашэнне.",
+  "request.hours": "Гадзіны",
+  "request.how_long": "{summary}\n\nНа які час?",
+  "request.how_many_hours": "Колькі гадзін?",
+  "request.how_many_uses": "Колькі выкарыстанняў?",
+  "request.not_applied": "{id}: не ўжыта: {error}",
+  "request.not_number": "{question}\n\n«{typed}» не з’яўляецца дадатным цэлым лікам ({cause}).",
+  "request.once": "Адзін раз",
+  "request.standing_for": "Пастаянны доступ для: {consumer}",
+  "request.summary": "Запыт на доступ {id}\n\nШто: {action} {resource} ({kind}){bounds}\nЧаму: {reason}\nХто: {who}{dual}",
+  "request.until_revoked": "Да адклікання"
+}

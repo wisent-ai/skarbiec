@@ -80,6 +80,8 @@ pub(crate) fn take_over() -> BTreeSet<u16> {
 
 #[cfg(target_os = "macos")]
 mod launchd;
+#[cfg(target_os = "macos")]
+mod plist;
 
 #[cfg(not(target_os = "macos"))]
 mod launchd {

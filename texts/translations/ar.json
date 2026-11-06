@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: طُبِّق، لكن الرد لا يذكر الحالة: {answer}",
+  "request.approve": "موافقة",
+  "request.asks_for": "يطلب: {seconds} ث، {uses} استخدامات (الغرض {purpose}، لـ {target})",
+  "request.deny": "رفض",
+  "request.dual": "يتطلب شخصين لاتخاذ القرار.",
+  "request.hours": "ساعات",
+  "request.how_long": "{summary}\n\nلأي مدة؟",
+  "request.how_many_hours": "كم ساعة؟",
+  "request.how_many_uses": "كم استخدامًا؟",
+  "request.not_applied": "{id}: لم يُطبَّق: {error}",
+  "request.not_number": "{question}\n\n«{typed}» ليس عددًا صحيحًا موجبًا ({cause}).",
+  "request.once": "مرة واحدة",
+  "request.standing_for": "وصول دائم لـ: {consumer}",
+  "request.summary": "طلب وصول {id}\n\nماذا: {action} {resource} ({kind}){bounds}\nلماذا: {reason}\nمن: {who}{dual}",
+  "request.until_revoked": "حتى الإلغاء"
+}

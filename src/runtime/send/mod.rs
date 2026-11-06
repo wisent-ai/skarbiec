@@ -33,9 +33,9 @@ pub fn dispatch(
 /// `POST /v1/operator/items/send`.
 pub fn seal(id: &str, field: &str) -> Result<Value> {
     let payload = Vault::open(vault_path())?.get_item(id)?;
-    let value = schema::field(&payload, field)?
-        .as_str()
-        .with_context(|| format!("{id}'s {field} is not text, so it cannot be sent as a message"))?;
+    let value = schema::field(&payload, field)?.as_str().with_context(|| {
+        format!("{id}'s {field} is not text, so it cannot be sent as a message")
+    })?;
     let passphrase = crypto::random_token()?;
     let message = crypto::seal_with_passphrase(&passphrase, value)?;
     crate::runtime::audit::append("item-sent", &json!({"item": id, "field": field}))?;

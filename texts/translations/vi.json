@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: đã áp dụng, nhưng phản hồi không nêu trạng thái: {answer}",
+  "request.approve": "Phê duyệt",
+  "request.asks_for": "Yêu cầu: {seconds} giây, {uses} lần dùng (mục đích {purpose}, cho {target})",
+  "request.deny": "Từ chối",
+  "request.dual": "Cần hai người quyết định.",
+  "request.hours": "Giờ",
+  "request.how_long": "{summary}\n\nTrong bao lâu?",
+  "request.how_many_hours": "Bao nhiêu giờ?",
+  "request.how_many_uses": "Bao nhiêu lần dùng?",
+  "request.not_applied": "{id}: chưa áp dụng: {error}",
+  "request.not_number": "{question}\n\n“{typed}” không phải là số nguyên dương ({cause}).",
+  "request.once": "Một lần",
+  "request.standing_for": "Quyền truy cập lâu dài cho: {consumer}",
+  "request.summary": "Yêu cầu truy cập {id}\n\nCái gì: {action} {resource} ({kind}){bounds}\nTại sao: {reason}\nAi: {who}{dual}",
+  "request.until_revoked": "Cho đến khi thu hồi"
+}

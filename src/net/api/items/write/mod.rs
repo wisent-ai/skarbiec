@@ -39,7 +39,11 @@ impl Mode {
     }
 
     fn names() -> String {
-        MODES.iter().map(|mode| mode.as_str()).collect::<Vec<_>>().join(", ")
+        MODES
+            .iter()
+            .map(|mode| mode.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     }
 }
 
@@ -100,7 +104,9 @@ pub(crate) fn handle_items_put(
         Some(role) => {
             let item = match mode {
                 Mode::Acquire => crate::credential::pending_role_acquisition(&vault, role),
-                Mode::Stage => crate::access::acquisition::role::item_for(&vault, requested).map(Some),
+                Mode::Stage => {
+                    crate::access::acquisition::role::item_for(&vault, requested).map(Some)
+                }
                 Mode::Rotate => Ok(None),
             };
             let item = match item {
@@ -175,14 +181,13 @@ pub(crate) fn handle_items_put(
         }
         Mode::Stage => {
             if !grant::token_allows_field_action(
-                    &vault,
-                    &consumer,
-                    &bearer,
-                    crate::access::actions::Action::Stage.as_str(),
-                    requested,
-                    field,
-                )?
-            {
+                &vault,
+                &consumer,
+                &bearer,
+                crate::access::actions::Action::Stage.as_str(),
+                requested,
+                field,
+            )? {
                 return http::write_response(
                     stream,
                     "HTTP/1.1 403 Forbidden",

@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: brukt, men svaret oppgir verken status eller tilstand: {answer}",
+  "request.approve": "Godkjenn",
+  "request.asks_for": "Ber om: {seconds} s, {uses} bruk (formål {purpose}, for {target})",
+  "request.deny": "Avslå",
+  "request.dual": "Krever to beslutningstakere.",
+  "request.hours": "Timer",
+  "request.how_long": "{summary}\n\nHvor lenge?",
+  "request.how_many_hours": "Hvor mange timer?",
+  "request.how_many_uses": "Hvor mange bruk?",
+  "request.not_applied": "{id}: ikke brukt: {error}",
+  "request.not_number": "{question}\n\n«{typed}» er ikke et positivt heltall ({cause}).",
+  "request.once": "Én gang",
+  "request.standing_for": "Stående tilgang for: {consumer}",
+  "request.summary": "Tilgangsforespørsel {id}\n\nHva: {action} {resource} ({kind}){bounds}\nHvorfor: {reason}\nHvem: {who}{dual}",
+  "request.until_revoked": "Til den trekkes tilbake"
+}

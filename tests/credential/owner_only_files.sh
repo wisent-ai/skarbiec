@@ -42,27 +42,29 @@ fail() {
   false
 }
 
-# Runs one command with a PATH that holds no program, its standard output
-# and standard error together in $out; WANT says whether it had to succeed
+# Runs one command with a PATH that holds no program, its standard output in
+# $out and its standard error in $said; WANT says whether it had to succeed
 # (ok) or be refused (refused). The command, observed exit status and verdict
 # are reported.
 run() {
-  if out=$(PATH="$EMPTY_PATH" "$BIN" "$@" 2>&1); then
+  if out=$(PATH="$EMPTY_PATH" "$BIN" "$@" 2>"$ROOT/said"); then
     status=$?; got=ok
   else
     status=$?; got=refused
   fi
-  printf '$ PATH=%s skarbiec %s\nexit: %s\nresult: %s\noutput:\n%s\n\n' "$EMPTY_PATH" "$*" "$status" "$got" "$out" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  said=$(cat "$ROOT/said")
+  printf '$ PATH=%s skarbiec %s\nexit: %s\nresult: %s\noutput:\n%s\nstderr:\n%s\n\n' "$EMPTY_PATH" "$*" "$status" "$got" "$out" "$said" >>"$REPORT"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
+# Every call here is refused, and a refusal says why on standard error.
 says() {
-  case "$out" in
+  case "$said" in
     *"$1"*) echo "ok: $2" >>"$REPORT" ;;
     *) fail "$2: expected '$1' in the answer" ;;
   esac
 }
 lacks() {
-  case "$out" in
+  case "$said" in
     *"$1"*) fail "$2: '$1' is in the answer" ;;
     *) echo "ok: $2" >>"$REPORT" ;;
   esac

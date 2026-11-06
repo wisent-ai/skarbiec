@@ -15,7 +15,11 @@ use crate::core::vault_path;
 /// capability is parsed again against `to`, so a field the new item's kind
 /// does not declare is refused exactly as `grant issue` refuses it. A grant
 /// holding nothing for `from` is reported `absent` and nothing is written.
-pub(in crate::access::grant) fn retarget_once(consumer: &str, from: &str, to: &str) -> Result<Value> {
+pub(in crate::access::grant) fn retarget_once(
+    consumer: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value> {
     if !exact_component(consumer) || !exact_resource(from) || !exact_resource(to) {
         bail!("grant retarget requires exact consumer, --from and --to names");
     }
@@ -27,7 +31,12 @@ pub(in crate::access::grant) fn retarget_once(consumer: &str, from: &str, to: &s
         .doc()
         .get("tokens")
         .and_then(|tokens| tokens.get(consumer))
-        .with_context(|| format!("consumer {consumer} has no grant in {}", vault_path().display()))?
+        .with_context(|| {
+            format!(
+                "consumer {consumer} has no grant in {}",
+                vault_path().display()
+            )
+        })?
         .get("capabilities")
         .and_then(Value::as_array)
         .context("existing grant is not v2; run `skarbiec upgrade --apply` first")?
@@ -42,14 +51,19 @@ pub(in crate::access::grant) fn retarget_once(consumer: &str, from: &str, to: &s
         let action = capability
             .get("action")
             .and_then(Value::as_str)
-            .with_context(|| format!("a capability of {consumer} naming {from} records no action"))?;
+            .with_context(|| {
+                format!("a capability of {consumer} naming {from} records no action")
+            })?;
         let encoded = match capability.get("field").and_then(Value::as_str) {
             Some(field) => format!("{action}:{to}#{field}"),
             None => format!("{action}:{to}"),
         };
-        let mut parsed = parse_capabilities(&vault, &encoded, &[])
-            .with_context(|| format!("{encoded} cannot replace {consumer}'s capability on {from}"))?;
-        let replacement = parsed.pop().with_context(|| format!("{encoded} parsed to no capability"))?;
+        let mut parsed = parse_capabilities(&vault, &encoded, &[]).with_context(|| {
+            format!("{encoded} cannot replace {consumer}'s capability on {from}")
+        })?;
+        let replacement = parsed
+            .pop()
+            .with_context(|| format!("{encoded} parsed to no capability"))?;
         if !rewritten.contains(&replacement) {
             rewritten.push(replacement.clone());
         }
@@ -70,8 +84,9 @@ pub(in crate::access::grant) fn retarget_once(consumer: &str, from: &str, to: &s
         .and_then(Value::as_object_mut)
         .and_then(|tokens| tokens.get_mut(consumer))
         .and_then(|grant| grant.get_mut("capabilities"))
-        .with_context(|| format!("consumer {consumer}'s capabilities went missing while they were rewritten"))? =
-        json!(rewritten);
+        .with_context(|| {
+            format!("consumer {consumer}'s capabilities went missing while they were rewritten")
+        })? = json!(rewritten);
     vault.save()?;
     crate::runtime::audit::append(
         "grant-retargeted",

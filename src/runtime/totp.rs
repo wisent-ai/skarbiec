@@ -29,5 +29,5 @@ mod set_seed;
 pub use dispatch::*;
 pub use recovery_codes::{recovery_code_dispatch, replace as replace_recovery_codes};
 pub use seed_repair_command::*;
-pub use set_seed::store as store_seed;
 pub(crate) use set_seed::given_seed;
+pub use set_seed::store as store_seed;

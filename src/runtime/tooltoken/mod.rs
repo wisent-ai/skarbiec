@@ -60,27 +60,81 @@ struct Adapter {
 }
 
 const ADAPTERS: &[Adapter] = &[
-    Adapter { tool: "npm", about: "npm; .npmrc, one _authToken per registry", select: Select::Required("registry"), status: crate::runtime::npmcred::status, import: crate::runtime::npmcred::import },
-    Adapter { tool: "twine", about: "twine (PyPI uploads); ~/.pypirc, one password per repository section", select: Select::Required("repository"), status: crate::runtime::pypicred::status, import: crate::runtime::pypicred::import },
-    Adapter { tool: "gh", about: "the GitHub CLI; hosts.yml, one oauth_token per host", select: Select::Required("host"), status: crate::runtime::ghcred::status, import: crate::runtime::ghcred::import },
-    Adapter { tool: "gem", about: "gem push (RubyGems); gem's credentials, one key per gem server", select: Select::Required("key"), status: crate::runtime::gemcred::status, import: crate::runtime::gemcred::import },
-    Adapter { tool: "huggingface", about: "the Hugging Face libraries and hf CLI; the active token and named stored tokens", select: Select::Optional("stored token"), status: crate::runtime::hfcred::status, import: crate::runtime::hfcred::import },
-    Adapter { tool: "fly", about: "flyctl; config.yml's access_token", select: Select::Refused, status: crate::runtime::flycred::status, import: crate::runtime::flycred::import },
-    Adapter { tool: "vercel", about: "the Vercel CLI; auth.json's token", select: Select::Refused, status: crate::runtime::vercelcred::status, import: crate::runtime::vercelcred::import },
+    Adapter {
+        tool: "npm",
+        about: "npm; .npmrc, one _authToken per registry",
+        select: Select::Required("registry"),
+        status: crate::runtime::npmcred::status,
+        import: crate::runtime::npmcred::import,
+    },
+    Adapter {
+        tool: "twine",
+        about: "twine (PyPI uploads); ~/.pypirc, one password per repository section",
+        select: Select::Required("repository"),
+        status: crate::runtime::pypicred::status,
+        import: crate::runtime::pypicred::import,
+    },
+    Adapter {
+        tool: "gh",
+        about: "the GitHub CLI; hosts.yml, one oauth_token per host",
+        select: Select::Required("host"),
+        status: crate::runtime::ghcred::status,
+        import: crate::runtime::ghcred::import,
+    },
+    Adapter {
+        tool: "gem",
+        about: "gem push (RubyGems); gem's credentials, one key per gem server",
+        select: Select::Required("key"),
+        status: crate::runtime::gemcred::status,
+        import: crate::runtime::gemcred::import,
+    },
+    Adapter {
+        tool: "huggingface",
+        about: "the Hugging Face libraries and hf CLI; the active token and named stored tokens",
+        select: Select::Optional("stored token"),
+        status: crate::runtime::hfcred::status,
+        import: crate::runtime::hfcred::import,
+    },
+    Adapter {
+        tool: "fly",
+        about: "flyctl; config.yml's access_token",
+        select: Select::Refused,
+        status: crate::runtime::flycred::status,
+        import: crate::runtime::flycred::import,
+    },
+    Adapter {
+        tool: "vercel",
+        about: "the Vercel CLI; auth.json's token",
+        select: Select::Refused,
+        status: crate::runtime::vercelcred::status,
+        import: crate::runtime::vercelcred::import,
+    },
 ];
 
 fn names() -> String {
-    ADAPTERS.iter().map(|adapter| adapter.tool).collect::<Vec<_>>().join(", ")
+    ADAPTERS
+        .iter()
+        .map(|adapter| adapter.tool)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn adapter(tool: &str) -> Result<&'static Adapter> {
     match ADAPTERS.iter().find(|adapter| adapter.tool == tool) {
         Some(adapter) => Ok(adapter),
-        None => Err(Usage(format!("{tool} is not a tool this vault moves tokens for; it moves them for {}", names())).into()),
+        None => Err(Usage(format!(
+            "{tool} is not a tool this vault moves tokens for; it moves them for {}",
+            names()
+        ))
+        .into()),
     }
 }
 
-pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[String]) -> Result<Option<Value>> {
+pub fn dispatch(
+    command: &str,
+    flags: &HashMap<String, String>,
+    positionals: &[String],
+) -> Result<Option<Value>> {
     if command != "tool" {
         return Ok(None);
     }
@@ -92,12 +146,21 @@ pub fn dispatch(command: &str, flags: &HashMap<String, String>, positionals: &[S
             let adapter = adapter(tool)?;
             let select = flags.get("select").map(String::as_str);
             if let (Select::Refused, Some(given)) = (adapter.select, select) {
-                return Err(Usage(format!("--select {given}: {} keeps one token, so there is nothing to select", adapter.tool)).into());
+                return Err(Usage(format!(
+                    "--select {given}: {} keeps one token, so there is nothing to select",
+                    adapter.tool
+                ))
+                .into());
             }
             let bindings = flags.get("bindings").or_usage(USAGE)?;
             let here = std::env::current_dir().context("read the working directory")?;
             let shown = here.join(bindings);
-            let request = Request { id, select, bindings: &shown, tags: flags.get("tags") };
+            let request = Request {
+                id,
+                select,
+                bindings: &shown,
+                tags: flags.get("tags"),
+            };
             let mut answer = (adapter.import)(&request)?;
             answer["tool"] = json!(adapter.tool);
             crate::runtime::audit::append(
@@ -137,8 +200,14 @@ fn tools() -> Value {
 /// one of a tool with named others.
 fn move_with(adapter: &Adapter, entry: &str, selected: bool) -> String {
     match (adapter.select, selected) {
-        (Select::Refused, _) | (Select::Optional(_), false) => format!("skarbiec tool import {} <id> --bindings <file>", adapter.tool),
-        _ => format!("skarbiec tool import {} <id> --select {entry} --bindings <file>", adapter.tool),
+        (Select::Refused, _) | (Select::Optional(_), false) => format!(
+            "skarbiec tool import {} <id> --bindings <file>",
+            adapter.tool
+        ),
+        _ => format!(
+            "skarbiec tool import {} <id> --select {entry} --bindings <file>",
+            adapter.tool
+        ),
     }
 }
 
@@ -148,10 +217,20 @@ fn move_with(adapter: &Adapter, entry: &str, selected: bool) -> String {
 fn status(adapter: &Adapter) -> Result<Value> {
     let mut answer = (adapter.status)()?;
     answer["tool"] = json!(adapter.tool);
-    let entries = answer["entries"].as_array_mut().with_context(|| format!("the {} adapter answered no entries", adapter.tool))?;
+    let entries = answer["entries"]
+        .as_array_mut()
+        .with_context(|| format!("the {} adapter answered no entries", adapter.tool))?;
     for entry in entries.iter_mut() {
         if entry["kept"] == PLAIN {
-            let name = entry["entry"].as_str().with_context(|| format!("the {} adapter answered an entry without its name", adapter.tool))?.to_string();
+            let name = entry["entry"]
+                .as_str()
+                .with_context(|| {
+                    format!(
+                        "the {} adapter answered an entry without its name",
+                        adapter.tool
+                    )
+                })?
+                .to_string();
             let selected = entry["selected"] != json!(false);
             entry["move_with"] = json!(move_with(adapter, &name, selected));
         }

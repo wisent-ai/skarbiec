@@ -135,7 +135,9 @@ pub fn generate_password(
     }
     let chars: Vec<char> = classes.iter().flatten().copied().collect();
     if chars.is_empty() || classes.iter().any(Vec::is_empty) {
-        bail!("a chosen character class is empty once the look-alikes are left out; choose another");
+        bail!(
+            "a chosen character class is empty once the look-alikes are left out; choose another"
+        );
     }
     let mut entropy = Entropy::open()?;
     loop {
@@ -143,7 +145,10 @@ pub fn generate_password(
         while password.chars().count() < length {
             password.push(chars[entropy.below(chars.len())?]);
         }
-        if classes.iter().all(|class| password.chars().any(|held| class.contains(&held))) {
+        if classes
+            .iter()
+            .all(|class| password.chars().any(|held| class.contains(&held)))
+        {
             return Ok(password);
         }
     }

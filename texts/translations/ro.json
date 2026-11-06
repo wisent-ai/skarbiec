@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: aplicat, dar răspunsul nu indică nici statut, nici stare: {answer}",
+  "request.approve": "Aprobă",
+  "request.asks_for": "Solicită: {seconds} s, {uses} utilizări (scop {purpose}, pentru {target})",
+  "request.deny": "Respinge",
+  "request.dual": "Necesită doi decidenți.",
+  "request.hours": "Ore",
+  "request.how_long": "{summary}\n\nPentru cât timp?",
+  "request.how_many_hours": "Câte ore?",
+  "request.how_many_uses": "Câte utilizări?",
+  "request.not_applied": "{id}: neaplicat: {error}",
+  "request.not_number": "{question}\n\n„{typed}” nu este un număr întreg pozitiv ({cause}).",
+  "request.once": "O dată",
+  "request.standing_for": "Acces permanent pentru: {consumer}",
+  "request.summary": "Cerere de acces {id}\n\nCe: {action} {resource} ({kind}){bounds}\nDe ce: {reason}\nCine: {who}{dual}",
+  "request.until_revoked": "Până la revocare"
+}

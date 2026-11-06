@@ -8,12 +8,11 @@ use std::io::BufReader;
 use std::net::TcpStream;
 use wisent_errors::Code;
 
-use super::readiness::readiness_check;
+use super::readiness::{health_check, readiness_check};
 use super::request::{browser_refusal, credential_status_item, is_mutation, read_body, read_line};
 use super::{
     detail_text, load, presented_identity, request_field, request_id, request_json, unidentified,
-    write_guard,
-    write_response,
+    write_guard, write_response,
 };
 use crate::access::grant;
 use crate::credential::CREDENTIAL_OPERATIONS_PATH;
@@ -49,11 +48,21 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
     }
     // No route answers a web page: see request::browser_refusal.
     if let Some(reason) = browser_refusal(&method, &path, &headers) {
-        return write_response(&mut stream, "HTTP/1.1 403 Forbidden", &json!({"error": reason}));
+        return write_response(
+            &mut stream,
+            "HTTP/1.1 403 Forbidden",
+            &json!({"error": reason}),
+        );
     }
     let body = match read_body(&mut reader, &headers)? {
         Ok(body) => body,
-        Err(reason) => return write_response(&mut stream, "HTTP/1.1 400 Bad Request", &json!({"error": reason})),
+        Err(reason) => {
+            return write_response(
+                &mut stream,
+                "HTTP/1.1 400 Bad Request",
+                &json!({"error": reason}),
+            )
+        }
     };
 
     let ok_line = "HTTP/1.1 200 OK";
@@ -75,15 +84,16 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             &json!({"ok": true, "service": "skarbiec"}),
         );
     }
+    // `/health` decrypts nothing: it says whether the journal and the vault
+    // can be used. `/readyz` also proves the key material by opening the
+    // canaries. Both run in this process and wait on no other program.
     if method == "GET" && matches!(path.as_str(), "/health" | "/readyz") {
-        let readiness = readiness_check();
-        let (crypto_active, gpg_active) = crate::core::crypto::executor_status();
-        let crypto = json!({
-            "active": crypto_active,
-            "gpg_active": gpg_active,
-            "gpg_waiting_on_agent": crate::core::crypto::agent_waits(),
-        });
-        match readiness {
+        let verdict = if path == "/health" {
+            health_check().map(|()| None)
+        } else {
+            readiness_check().map(Some)
+        };
+        match verdict {
             Err(error) => write_response(
                 &mut stream,
                 unavailable_line,
@@ -92,22 +102,18 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
                     "service": "skarbiec",
                     "error_code": Code::InfraDown.as_str(),
                     // The whole chain: the readiness step names what failed
-                    // ("stored item … cannot be decrypted") and gpg's own
-                    // sentence one layer down says why.
+                    // ("stored item … cannot be decrypted") and the key
+                    // file's own sentence one layer down says why.
                     "detail": detail_text(&format!("{error:#}")),
-                    "crypto": crypto,
                 }),
             ),
-            Ok(canaries) => write_response(
-                &mut stream,
-                ok_line,
-                &json!({
-                    "ok": true,
-                    "service": "skarbiec",
-                    "canaries": canaries,
-                    "crypto": crypto,
-                }),
-            ),
+            Ok(canaries) => {
+                let mut answer = json!({"ok": true, "service": "skarbiec"});
+                if let Some(canaries) = canaries {
+                    answer["canaries"] = json!(canaries);
+                }
+                write_response(&mut stream, ok_line, &answer)
+            }
         }?;
         return Ok(());
     }
@@ -158,7 +164,12 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
         };
         // A redemption that failed to read its own state is not a wrong
         // token: it answers unavailable with the cause, never 401.
-        let acquired = match crate::access::acquisition::consume(&consumer, &acquisition_token, item, field) {
+        let acquired = match crate::access::acquisition::consume(
+            &consumer,
+            &acquisition_token,
+            item,
+            field,
+        ) {
             Ok(acquired) => acquired,
             Err(error) => {
                 return write_response(
@@ -228,13 +239,12 @@ pub(super) fn handle(mut stream: TcpStream) -> Result<()> {
             );
         }
         if !grant::token_allows_action(
-                &vault,
-                &consumer,
-                &bearer,
-                crate::access::actions::Action::Trash.as_str(),
-                id,
-            )?
-        {
+            &vault,
+            &consumer,
+            &bearer,
+            crate::access::actions::Action::Trash.as_str(),
+            id,
+        )? {
             return write_response(
                 &mut stream,
                 denied_line,

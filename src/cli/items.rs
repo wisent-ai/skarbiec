@@ -177,7 +177,12 @@ pub(crate) fn set_json_value(
 /// caller's own check and this write too — so a command that makes an item
 /// never reports, journals or binds one it did not make. `by` names the
 /// command in the refusal.
-pub(crate) fn create_value(flags: &HashMap<String, String>, id: &str, encoded: &str, by: &str) -> Result<Value> {
+pub(crate) fn create_value(
+    flags: &HashMap<String, String>,
+    id: &str,
+    encoded: &str,
+    by: &str,
+) -> Result<Value> {
     let mut write = flags.clone();
     write.insert("if-absent".to_string(), "true".to_string());
     let written = set_json_value(&write, id, encoded)?;
@@ -223,10 +228,18 @@ pub(crate) fn retag_value(
     }
     // `retag --add|--remove <tag> <id>...` puts one tag on or off several items.
     if let Some(tag) = flags.get("add") {
-        return super::retag::members::change_tag(super::retag::members::Change::Add, tag, positionals);
+        return super::retag::members::change_tag(
+            super::retag::members::Change::Add,
+            tag,
+            positionals,
+        );
     }
     if let Some(tag) = flags.get("remove") {
-        return super::retag::members::change_tag(super::retag::members::Change::Remove, tag, positionals);
+        return super::retag::members::change_tag(
+            super::retag::members::Change::Remove,
+            tag,
+            positionals,
+        );
     }
     let id = positionals
         .first()

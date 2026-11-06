@@ -39,9 +39,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 
 : >"$ROOT/stdin"
@@ -65,13 +66,14 @@ BINDINGS="$ROOT/bindings"
 WANT=ok run tool status gh
 printf '%s' "$out" | jq -e '[.entries[] | select(.kept == "plain text") | .entry] | (index("github.com") != null) and (index("git.example.com") != null)' >/dev/null \
   || fail "status did not name both hosts as plain text: $out"
-case "$out" in *"$PUBLIC"*|*"$ENTERPRISE"*) fail "status printed a token" ;; esac
+# A token must appear on neither stream.
+case "$out$said" in *"$PUBLIC"*|*"$ENTERPRISE"*) fail "status printed a token" ;; esac
 echo "ok: status names both hosts keeping a token, never the token" >>"$REPORT"
 
 ITEM="gh-$RUN"
 WANT=ok run tool import gh "$ITEM" --select github.com --bindings "$BINDINGS"
 [ "$(printf '%s' "$out" | jq -r '.variables[]')" = GH_TOKEN ] || fail "github.com's token was not bound as GH_TOKEN: $out"
-case "$out" in *"$PUBLIC"*) fail "import printed the token" ;; esac
+case "$out$said" in *"$PUBLIC"*) fail "import printed the token" ;; esac
 if grep -q "$PUBLIC" "$HOSTS"; then fail "hosts.yml still holds github.com's token"; fi
 grep -qF "oauth_token: $ENTERPRISE" "$HOSTS" || fail "import removed the other host's token"
 grep -qF "git_protocol: https" "$HOSTS" || fail "import dropped an unrelated line"
@@ -86,12 +88,12 @@ echo "ok: exec --env-from gives gh its token" >>"$REPORT"
 
 cp "$HOSTS" "$ROOT/hosts-before-refusals"
 WANT=refused run tool import gh "none-$RUN" --select "nowhere-$RUN.example.com" --bindings "$BINDINGS"
-case "$out" in *"keeps no nowhere-$RUN.example.com"*) ;; *) fail "a host hosts.yml does not hold was not refused: $out" ;; esac
+case "$said" in *"keeps no nowhere-$RUN.example.com"*) ;; *) fail "a host hosts.yml does not hold was not refused: $said" ;; esac
 WANT=refused run tool import gh "again-$RUN" --select github.com --bindings "$BINDINGS"
-case "$out" in *"keeps no token for github.com"*) ;; *) fail "a host keeping no token was not refused: $out" ;; esac
+case "$said" in *"keeps no token for github.com"*) ;; *) fail "a host keeping no token was not refused: $said" ;; esac
 printf 'GH_ENTERPRISE_TOKEN=someone-else:token\n' >>"$BINDINGS"
 WANT=refused run tool import gh "clash-$RUN" --select git.example.com --bindings "$BINDINGS"
-case "$out" in *"already binds GH_ENTERPRISE_TOKEN"*) ;; *) fail "a variable bound elsewhere was not refused: $out" ;; esac
+case "$said" in *"already binds GH_ENTERPRISE_TOKEN"*) ;; *) fail "a variable bound elsewhere was not refused: $said" ;; esac
 cmp -s "$HOSTS" "$ROOT/hosts-before-refusals" || fail "a refused import changed hosts.yml"
 echo "ok: an unknown host, one without a token and a clashing binding are refused, hosts.yml unchanged" >>"$REPORT"
 

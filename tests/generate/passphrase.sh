@@ -31,8 +31,8 @@ WORDS=$(printf '%s\n' $SENTENCE | wc -l | tr -d ' ')
 echo "words asked for: $WORDS" >>"$REPORT"
 
 phrase() {
-  if ! out=$("$BIN" generate --passphrase --words "$WORDS" --separator - "$@" 2>&1); then
-    fail "generate $* was refused: $out"
+  if ! out=$("$BIN" generate --passphrase --words "$WORDS" --separator - "$@" 2>"$ROOT/said"); then
+    fail "generate $* was refused: $out; stderr: $(cat "$ROOT/said")"
   fi
   printf '$ skarbiec generate --passphrase --words %s --separator - %s\nresult: ok\n\n' "$WORDS" "$*" >>"$REPORT"
   printf '%s' "$out" | jq -r .passphrase
@@ -51,12 +51,13 @@ digit=$(phrase --capitalize --with-digit)
 printf '%s' "$digit" | grep -Eq '^[A-Z][a-z]*(-[A-Z][a-z]*)*[[:digit:]]$' || fail "--with-digit did not end the phrase in one digit"
 echo "ok: --with-digit ends the phrase in one digit after the last word" >>"$REPORT"
 
-if out=$("$BIN" generate --passphrase --words "$WORDS" 2>&1); then
+if out=$("$BIN" generate --passphrase --words "$WORDS" 2>"$ROOT/said"); then
   fail "a passphrase without --separator was generated"
 fi
-case "$out" in
+said=$(cat "$ROOT/said")
+case "$said" in
   *"usage: generate --passphrase"*) echo "ok: a missing --separator is refused naming the usage" >>"$REPORT" ;;
-  *) fail "a missing --separator was refused without the usage: $out" ;;
+  *) fail "a missing --separator was refused without the usage: $out; stderr: $said" ;;
 esac
 
 touch "$ROOT/passed"

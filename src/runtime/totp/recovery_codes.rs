@@ -24,7 +24,10 @@ pub fn recovery_code_dispatch(
         .first()
         .or_usage("usage: totp recovery <item-id> [--take | --replace]  (--replace reads the new codes on stdin, one per line)")?;
     if flag_set(flags, "take") && flag_set(flags, "replace") {
-        return Err(crate::cli::args::Usage("--take uses one code and --replace stores a new set; name one".to_string()).into());
+        return Err(crate::cli::args::Usage(
+            "--take uses one code and --replace stores a new set; name one".to_string(),
+        )
+        .into());
     }
     if flag_set(flags, "take") {
         take(id).map(Some)
@@ -52,7 +55,9 @@ fn codes(id: &str, payload: &Value) -> Result<Vec<String>> {
             .map(|code| {
                 code.as_str()
                     .map(|code| code.trim().to_string())
-                    .with_context(|| format!("{id}'s {RECOVERY_CODES} holds {code}, which is not text"))
+                    .with_context(|| {
+                        format!("{id}'s {RECOVERY_CODES} holds {code}, which is not text")
+                    })
             })
             .collect::<Result<_>>()?,
         Value::String(text) => text.lines().map(|line| line.trim().to_string()).collect(),

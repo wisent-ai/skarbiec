@@ -1,0 +1,17 @@
+{
+  "request.applied_unnamed": "{id}: 적용되었지만 응답에 상태가 없습니다: {answer}",
+  "request.approve": "승인",
+  "request.asks_for": "요청: {seconds}초, {uses}회 사용 (목적 {purpose}, 대상 {target})",
+  "request.deny": "거부",
+  "request.dual": "두 명의 결정자가 필요합니다.",
+  "request.hours": "시간",
+  "request.how_long": "{summary}\n\n얼마 동안 허용할까요?",
+  "request.how_many_hours": "몇 시간입니까?",
+  "request.how_many_uses": "몇 회 사용입니까?",
+  "request.not_applied": "{id}: 적용되지 않음: {error}",
+  "request.not_number": "{question}\n\n“{typed}”은(는) 양의 정수가 아닙니다 ({cause}).",
+  "request.once": "한 번",
+  "request.standing_for": "상시 접근 대상: {consumer}",
+  "request.summary": "접근 요청 {id}\n\n무엇: {action} {resource} ({kind}){bounds}\n이유: {reason}\n누가: {who}{dual}",
+  "request.until_revoked": "취소할 때까지"
+}

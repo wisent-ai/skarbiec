@@ -37,9 +37,10 @@ fail() {
   false
 }
 run() {
-  if out=$("$BIN" "$@" <"$ROOT/stdin" &>/dev/stdout); then got=ok; else got=refused; fi
+  if out=$("$BIN" "$@" <"$ROOT/stdin" 2>"$ROOT/said"); then got=ok; else got=refused; fi
+  said=$(cat "$ROOT/said")
   printf '$ skarbiec %s\nresult: %s\n\n' "$*" "$got" >>"$REPORT"
-  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: $out"
+  [ "$got" = "$WANT" ] || fail "skarbiec $* was $got, expected $WANT: output: $out stderr: $said"
 }
 # The variable import binds a registry's token to, worked out as the CLI
 # page describes it: NPM_TOKEN_ and the registry's letters and digits in
@@ -61,14 +62,15 @@ WANT=ok run tool status npm
 printf '%s' "$out" | jq -e --arg r "$REGISTRY" --arg l "$LEFT" \
   '[.entries[] | select(.kept == "plain text") | .entry] | (index($r) != null) and (index($l) != null)' >/dev/null \
   || fail "status did not name both registries as plain text: $out"
-case "$out" in *"$PUBLISH"*|*"$OTHER"*) fail "status printed a token" ;; esac
+# A token must appear on neither stream.
+case "$out$said" in *"$PUBLISH"*|*"$OTHER"*) fail "status printed a token" ;; esac
 echo "ok: status names both plain-text registries, never a token" >>"$REPORT"
 
 ITEM="npm-$RUN"
 WANT=ok run tool import npm "$ITEM" --select "$REGISTRY" --bindings "$BINDINGS"
 NAME="$(printf '%s' "$out" | jq -r '.variables[]')"
 [ "$NAME" = "$(variable_for "$REGISTRY")" ] || fail "import bound $NAME, not the variable its page describes"
-case "$out" in *"$PUBLISH"*) fail "import printed the token" ;; esac
+case "$out$said" in *"$PUBLISH"*) fail "import printed the token" ;; esac
 grep -qxF "$REGISTRY:_authToken=\${$NAME}" "$NPM_CONFIG_USERCONFIG" || fail ".npmrc does not read $REGISTRY's token from \${$NAME}: $(cat "$NPM_CONFIG_USERCONFIG")"
 grep -qxF "$LEFT:_authToken=$OTHER" "$NPM_CONFIG_USERCONFIG" || fail "import changed the other registry's line"
 grep -qxF "save-exact=true" "$NPM_CONFIG_USERCONFIG" || fail "import dropped an unrelated line"
@@ -90,12 +92,12 @@ echo "ok: doctor names the registry still kept in plain text" >>"$REPORT"
 
 cp "$NPM_CONFIG_USERCONFIG" "$ROOT/npmrc-before-refusals"
 WANT=refused run tool import npm "again-$RUN" --select "$REGISTRY" --bindings "$BINDINGS"
-case "$out" in *"already reads"*) ;; *) fail "a registry read from a variable was not refused: $out" ;; esac
+case "$said" in *"already reads"*) ;; *) fail "a registry read from a variable was not refused: $said" ;; esac
 WANT=refused run tool import npm "none-$RUN" --select "//nowhere-$RUN.example.invalid/" --bindings "$BINDINGS"
-case "$out" in *"keeps no _authToken"*) ;; *) fail "a registry .npmrc does not name was not refused: $out" ;; esac
+case "$said" in *"keeps no _authToken"*) ;; *) fail "a registry .npmrc does not name was not refused: $said" ;; esac
 printf '%s=someone-else:token\n' "$(variable_for "$LEFT")" >>"$BINDINGS"
 WANT=refused run tool import npm "clash-$RUN" --select "$LEFT" --bindings "$BINDINGS"
-case "$out" in *"already binds"*) ;; *) fail "a variable bound elsewhere was not refused: $out" ;; esac
+case "$said" in *"already binds"*) ;; *) fail "a variable bound elsewhere was not refused: $said" ;; esac
 cmp -s "$NPM_CONFIG_USERCONFIG" "$ROOT/npmrc-before-refusals" || fail "a refused import changed .npmrc"
 echo "ok: a variable-read registry, an unknown registry and a clashing binding are refused, .npmrc unchanged" >>"$REPORT"
 
