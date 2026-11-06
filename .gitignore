@@ -1,4 +1,7 @@
-/target
+# Every Cargo build directory, the workspace's and each crate's own: a
+# crate built alone (crates/crypto) writes its target beside it, and a
+# release export under it is a copy of the repository, not its source.
+target/
 /.wisent-output/
 
 # Swift build detritus from an empty scaffold: no sources, only .build.
