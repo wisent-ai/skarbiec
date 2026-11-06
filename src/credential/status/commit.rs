@@ -21,6 +21,32 @@ use super::super::wire::request_payload;
 use super::super::{IDENTITY_PROVIDER, STATE_MANAGED, STATE_QUARANTINED, STATE_UNMANAGED};
 use super::subscription::named_subscription_present;
 
+// The finished operation `settle` decides on: completed, or failed (`failed`
+// is the legacy spelling of paths that never reached Weles).
+const OPERATION_COMPLETED: &str = "operation_completed";
+const OPERATION_FAILED: [&str; 2] = ["operation_failed", "failed"];
+
+/// Where `settle` moves a completed operation's request; [`Settled::record`]
+/// is the one place such a move is written.
+#[derive(Clone, Copy)]
+enum Settled { Completed, Quarantined, Inconsistent }
+
+impl Settled {
+    fn word(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Quarantined => STATE_QUARANTINED,
+            Self::Inconsistent => "inconsistent",
+        }
+    }
+
+    /// Write this state to the request record and return it as its status.
+    fn record(self, vault_path: &Path, request_item: &str, request: &Value) -> Result<String> {
+        update_request(vault_path, request_item, request, self.word(), None)?;
+        Ok(self.word().to_string())
+    }
+}
+
 /// Everything one settled operation is decided against, gathered once.
 pub(super) struct Record<'a> {
     pub(super) vault_path: &'a Path,
@@ -63,8 +89,8 @@ pub(super) fn settle(
         .and_then(|weles| weles.get("receipt"))
         .filter(|receipt| !receipt.is_null())
         .cloned();
-    let mut confirmed = current_status == "completed";
-    if current_status == "operation_completed" {
+    let mut confirmed = current_status == Settled::Completed.word();
+    if current_status == OPERATION_COMPLETED {
         // A completed directory operation without a receipt cannot be
         // attributed to this exact principal: freeze instead of committing.
         let receipt_valid = receipt.as_ref().is_some_and(|receipt| {
@@ -82,8 +108,7 @@ pub(super) fn settle(
                     .and_then(|weles| weles.get("rollback_status"))
                     .and_then(Value::as_str),
             )?;
-            update_request(vault_path, request_item, request, STATE_QUARANTINED, None)?;
-            current_status = STATE_QUARANTINED.to_string();
+            current_status = Settled::Quarantined.record(vault_path, request_item, request)?;
         } else {
             confirmed = match Operation::parse(&operation) {
                 Some(Operation::Acquire) => {
@@ -208,7 +233,7 @@ pub(super) fn settle(
                         ],
                     )?;
                 }
-                update_request(vault_path, request_item, request, "completed", None)?;
+                current_status = Settled::Completed.record(vault_path, request_item, request)?;
                 audit::append_sync(
                     "credential-operation-completed",
                     &json!({
@@ -221,18 +246,13 @@ pub(super) fn settle(
                             .and_then(|receipt| receipt.get("evidence_digest")),
                     }),
                 )?;
-                current_status = "completed".to_string();
                 *vault = Vault::open(vault_path.to_path_buf())?;
                 *request = vault.get_item(request_item).and_then(request_payload)?;
             } else {
-                update_request(vault_path, request_item, request, "inconsistent", None)?;
-                current_status = "inconsistent".to_string();
+                current_status = Settled::Inconsistent.record(vault_path, request_item, request)?;
             }
         }
-    } else if matches!(current_status.as_str(), "operation_failed" | "failed") {
-        // "failed" is the legacy spelling recorded by submit/resume paths that
-        // never reached Weles; records carrying it predate the unified
-        // "operation_failed" vocabulary and settle through the same rollback.
+    } else if OPERATION_FAILED.contains(&current_status.as_str()) {
         let staged = pending_matches_request(vault, credential_id, &request_id, &field, &writer);
         if staged {
             vault.discard_staged_revision(credential_id, &request_id, &field, &writer)?;
